@@ -42,7 +42,7 @@ impl VoiceProvider {
             .as_str()
         {
             "openrouter" => Some(Self::OpenRouter),
-            "xai" | "grok" => Some(Self::Xai),
+            // xAI account sign-in is not supported, so a stored `xai` falls back to OpenRouter.
             _ => None,
         }
     }
@@ -395,7 +395,7 @@ voice_stt_model = "  mistralai/voxtral-mini-transcribe "
         )
         .unwrap();
         let cfg = VoiceConfig::from_config_table(&table, None);
-        assert_eq!(cfg.provider, VoiceProvider::Xai);
+        assert_eq!(cfg.provider, VoiceProvider::OpenRouter);
         assert_eq!(cfg.model, "mistralai/voxtral-mini-transcribe");
         assert_eq!(cfg.language, "fr");
     }
@@ -411,7 +411,7 @@ model = "openai/whisper-1"
         )
         .unwrap();
         let cfg = VoiceConfig::from_config_table(&table, None);
-        assert_eq!(cfg.provider, VoiceProvider::Xai);
+        assert_eq!(cfg.provider, VoiceProvider::OpenRouter);
         assert_eq!(cfg.model, "openai/whisper-1");
     }
 
@@ -450,8 +450,8 @@ voice_stt_model = " "
             VoiceProvider::parse("open_router"),
             Some(VoiceProvider::OpenRouter)
         );
-        assert_eq!(VoiceProvider::parse(" XAI "), Some(VoiceProvider::Xai));
-        assert_eq!(VoiceProvider::parse("grok"), Some(VoiceProvider::Xai));
+        assert_eq!(VoiceProvider::parse(" XAI "), None);
+        assert_eq!(VoiceProvider::parse("grok"), None);
         assert_eq!(VoiceProvider::parse("other"), None);
         assert_eq!(VoiceProvider::canonical(None), VoiceProvider::OpenRouter);
     }

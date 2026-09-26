@@ -37,15 +37,12 @@ final class ExtensionFeatureModel: ObservableObject {
     @Published var agentConfig = AgentConfigSnapshot()
     /// The agent running the selected task (`session/info.agentName`).
     @Published var activeAgent: String?
-    /// grok.com connectors were opened; the MCP list refreshes when the app is active again.
-    @Published var awaitingConnectors = false
 
     /// Which panel, project, and task `store.featureRows` currently describe.
     var rowsKey: String?
     /// Files the selected task's tools read or edited, oldest first, for `/remember` context.
     private(set) var recentToolFiles: [UUID: [String]] = [:]
     private var recordedToolCalls: [UUID: Set<String>] = [:]
-    private var activationObserver: NSObjectProtocol?
 
     init(store: AppStore) {
         self.store = store
@@ -92,28 +89,6 @@ final class ExtensionFeatureModel: ObservableObject {
         // Scans first, like the terminal; the sheet opens only when there is something to import.
         guard let store else { return }
         ClaudeImportFlow.begin(store: store)
-    }
-
-    // MARK: Connectors
-
-    /// Opens grok.com connectors; the MCP list reloads without the cache when the user comes back.
-    func openConnectors() {
-        guard let store else { return }
-        let teamID = store.harnessMeta.authenticate["team_id"] as? String
-        NSWorkspace.shared.open(ConnectorsLink.url(teamID: teamID))
-        awaitingConnectors = true
-        if activationObserver == nil {
-            activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.connectorsReturned() }
-            }
-        }
-    }
-
-    func connectorsReturned() {
-        guard awaitingConnectors, let store else { return }
-        awaitingConnectors = false
-        guard store.featurePanel == .mcps else { return }
-        Task { await store.refreshFeatures(.mcps, cache: false) }
     }
 
     // MARK: Remember context

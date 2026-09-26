@@ -42,7 +42,7 @@ struct DoctorDesktopCheck: Identifiable, Equatable {
         if accounts.values.contains(where: { $0.state == .expired }) {
             return DoctorDesktopCheck(id: "sign-in", title: "Sign-in", value: "Session expired", detail: "Open Settings and sign in again.", status: .warning, symbol: "person.crop.circle.badge.exclamationmark")
         }
-        return DoctorDesktopCheck(id: "sign-in", title: "Sign-in", value: "Not signed in", detail: "Open Settings and sign in to xAI, OpenRouter, or OpenAI Codex.", status: .problem, symbol: "person.crop.circle.badge.xmark")
+        return DoctorDesktopCheck(id: "sign-in", title: "Sign-in", value: "Not signed in", detail: "Open Settings and sign in to OpenRouter or OpenAI Codex.", status: .problem, symbol: "person.crop.circle.badge.xmark")
     }
 
     static func microphone(_ status: AVAuthorizationStatus) -> DoctorDesktopCheck {

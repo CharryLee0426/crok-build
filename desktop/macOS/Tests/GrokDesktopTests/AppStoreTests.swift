@@ -48,7 +48,7 @@ for line in sys.stdin:
         log.write(json.dumps(request) + "\n")
     method = request.get("method")
     if method == "initialize":
-        reply(request, {"authMethods": [{"id": "cached_token"}] if ADVERTISE_AUTH else [], "_meta": {"modelState": models()}})
+        reply(request, {"authMethods": [{"id": "xai.api_key"}] if ADVERTISE_AUTH else [], "_meta": {"modelState": models()}})
     elif method == "authenticate":
         reply(request, {})
     elif method == "_x.ai/models/list":

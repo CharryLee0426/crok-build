@@ -2,7 +2,7 @@ import XCTest
 @testable import GrokDesktop
 
 /// Parsing, formatting, and local-file rules behind /usage, /context, /session-info, /feedback,
-/// /privacy, /logout, /release-notes, and /announcements.
+/// /release-notes, and /announcements.
 @MainActor
 final class AccountFeatureTests: XCTestCase {
     private var home: URL!
@@ -26,122 +26,43 @@ final class AccountFeatureTests: XCTestCase {
 
     private final class OpenedLinks { var urls: [URL] = [] }
 
-    // MARK: /usage arguments
+    // MARK: /usage and account commands
 
-    func testUsageArgumentsFollowTheTerminalRules() {
-        typealias Rules = UsageCommandRules
-        XCTAssertEqual(Rules.parse("", commandVisible: false, billingVisible: true), .failure("/usage is not available."))
-        XCTAssertEqual(Rules.parse("", commandVisible: true, billingVisible: true), .show)
-        XCTAssertEqual(Rules.parse("show", commandVisible: true, billingVisible: true), .show)
-        XCTAssertEqual(Rules.parse("  manage ", commandVisible: true, billingVisible: true), .manage)
-        XCTAssertEqual(Rules.parse("plans", commandVisible: true, billingVisible: true),
-                       .failure("Unknown argument: plans. Use /usage show or /usage manage"))
-        XCTAssertEqual(Rules.parse("", commandVisible: true, billingVisible: false), .show)
-        XCTAssertEqual(Rules.parse("show", commandVisible: true, billingVisible: false), .failure("Unknown argument: show. Use /usage"))
-        XCTAssertEqual(Rules.parse("manage", commandVisible: true, billingVisible: false), .failure("Unknown argument: manage. Use /usage"))
-    }
-
-    func testBillingSurfaceIsOnlyForPersonalSubscriptions() {
-        var meta = HarnessMeta()
-        meta.authenticate = ["subscription_tier": "SuperGrok", "email": "dev@example.com"]
-        XCTAssertTrue(meta.showsConsumerBilling)
-        meta.authenticate["team_name"] = "Acme"
-        XCTAssertFalse(meta.showsConsumerBilling, "team accounts see 'managed by your team'")
-        meta.authenticate["team_name"] = ""
-        XCTAssertTrue(meta.showsConsumerBilling, "an empty team name is no team")
-        meta.authenticate["backend_billed"] = true
-        XCTAssertFalse(meta.showsConsumerBilling)
-        meta.authenticate = ["auth_mode": "API Key"]
-        XCTAssertFalse(meta.showsConsumerBilling)
-        XCTAssertEqual(meta.sessionInfoAuthMethod.note, "Run `grok login` to use your SuperGrok subscription instead.")
-        meta.authenticate = ["subscription_tier": "api_key"]
-        XCTAssertTrue(meta.usesAPIKeySignIn)
-        meta.authenticate = [:]
-        meta.authMethods = [["id": "xai.api_key"]]
-        XCTAssertTrue(meta.usesAPIKeySignIn, "without account metadata, an offered API key means API-key sign-in")
-        meta.authMethods = [["id": "grok.com", "_meta": ["external_provider": true]]]
-        XCTAssertFalse(meta.allowsUsageCommand)
-        XCTAssertFalse(meta.showsConsumerBilling)
-        XCTAssertEqual(HarnessMeta().sessionInfoAuthMethod, AccountAuthDescription(method: "OAuth", note: nil))
-    }
-
-    func testUsageCommandsOpenOneSheetAndManageOpensBilling() {
+    func testUsageTakesNoArgumentsAndNeverOpensBilling() {
         let (store, account, links) = makeStore()
-        account.usage("plans")
-        XCTAssertEqual(store.banner, "Unknown argument: plans. Use /usage show or /usage manage")
-        XCTAssertNil(store.sheet)
-        account.usage("manage")
-        XCTAssertEqual(links.urls, [URL(string: "https://grok.com/?_s=usage")!])
+        for argument in ["manage", "show", "plans"] {
+            store.banner = nil
+            account.usage(argument)
+            XCTAssertEqual(store.banner, "Unknown argument: \(argument). Use /usage")
+            XCTAssertNil(store.sheet)
+        }
+        XCTAssertTrue(links.urls.isEmpty, "there is no billing page to open")
         XCTAssertTrue(store.handleDesktopCommand("cost", arguments: ""))
-        XCTAssertEqual(store.sheet, .usage(.limit))
-        XCTAssertEqual(account.usageTab, .limit)
+        XCTAssertEqual(store.sheet, .usage(.usage))
+        XCTAssertEqual(account.usageTab, .usage)
         // An open sheet switches tabs in place instead of reopening.
         XCTAssertTrue(store.handleDesktopCommand("context", arguments: ""))
-        XCTAssertEqual(store.sheet, .usage(.limit))
+        XCTAssertEqual(store.sheet, .usage(.usage))
         XCTAssertEqual(account.usageTab, .context)
         XCTAssertTrue(store.handleDesktopCommand("status", arguments: ""))
         XCTAssertEqual(account.usageTab, .session)
-        store.harnessMeta.authMethods = [["id": "oidc", "_meta": ["external_provider": true]]]
-        account.usage("")
-        XCTAssertEqual(store.banner, "/usage is not available.")
+        XCTAssertEqual(UsageTab.allCases, [.context, .usage, .session])
     }
 
-    // MARK: Billing
-
-    func testCreditUsageIsFlooredAndDrawsThirtyCells() {
-        let balance = UsageCreditBalance(config: ["creditUsagePercent": 42.7, "currentPeriod": ["type": "USAGE_PERIOD_TYPE_WEEKLY", "end": "2026-03-31T12:00:00Z"]])
-        XCTAssertEqual(balance.displayPercent, 42)
-        XCTAssertEqual(balance.filledCells, 13)
-        XCTAssertEqual(balance.usageLabel, "Weekly limit")
-        XCTAssertEqual(balance.header(tier: "SuperGrok"), "Weekly limit (SuperGrok)")
-        XCTAssertEqual(balance.resetText(timeZone: TimeZone(identifier: "UTC")!), "Resets: March 31, 12:00")
-        XCTAssertEqual(UsageCreditBalance(config: ["creditUsagePercent": 99.994]).displayPercent, 99, "never 100% until exhausted")
-        XCTAssertEqual(UsageCreditBalance(config: ["creditUsagePercent": 140]).usagePercent, 100)
-        XCTAssertEqual(UsageCreditBalance(config: ["creditUsagePercent": -3]).usagePercent, 0)
-        XCTAssertEqual(UsageCreditBalance(config: ["currentPeriod": ["type": "USAGE_PERIOD_TYPE_MONTHLY"]]).usageLabel, "Monthly limit")
-        XCTAssertEqual(UsageCreditBalance(config: [:]).usageLabel, "Usage")
-    }
-
-    func testDeprecatedMonthlyFieldsAreTheFallback() {
-        let quarter = UsageCreditBalance(config: ["monthlyLimit": ["val": 1000], "used": ["val": 250], "billingPeriodEnd": "2026-04-01T00:30:00.250Z"])
-        XCTAssertEqual(quarter.usagePercent, 25)
-        XCTAssertEqual(quarter.resetText(timeZone: TimeZone(identifier: "UTC")!), "Resets: April 1, 00:30")
-        XCTAssertEqual(UsageCreditBalance(config: ["monthlyLimit": ["val": 1000], "used": ["val": 1500]]).usagePercent, 100)
-        XCTAssertEqual(UsageCreditBalance(config: ["used": ["val": 1500]]).usagePercent, 0, "no limit means no percentage")
-        XCTAssertEqual(UsageCreditBalance(config: ["monthlyLimit": ["val": "2000"], "used": [:]]).usagePercent, 0, "{} is zero cents")
-    }
-
-    func testCreditsAndPayAsYouGoAreDollarsFromCents() {
-        let credits = UsageCreditBalance(config: ["creditUsagePercent": 100, "prepaidBalance": ["val": -1250]])
-        XCTAssertEqual(credits.creditsText, "Credits: $12.50")
-        XCTAssertTrue(credits.hasPrepaidCredits)
-        XCTAssertNil(UsageCreditBalance(config: ["prepaidBalance": [:]]).creditsText)
-        let payg = UsageCreditBalance(config: ["monthlyLimit": ["val": 1000], "used": ["val": 1200], "onDemandCap": ["val": 500]])
-        XCTAssertTrue(payg.payAsYouGo)
-        XCTAssertEqual(payg.onDemandUsedCents, 200, "derived from use beyond the limit")
-        XCTAssertEqual(payg.payAsYouGoText, "Usage: $2.00 / $5.00 per month")
-        XCTAssertEqual(UsageCreditBalance(config: ["onDemandCap": ["val": 500], "onDemandUsed": ["val": -125]]).payAsYouGoText,
-                       "Usage: $1.25 / $5.00 per month")
-        XCTAssertFalse(UsageCreditBalance(config: ["onDemandCap": [:]]).payAsYouGo)
-        XCTAssertEqual(UsageFormatting.dollars(1000), "$10")
-        XCTAssertEqual(UsageFormatting.dollars(1050), "$10.50")
-    }
-
-    func testBillingReplyIsSnakeCaseOutsideConfig() {
-        let billing = UsageBilling(["config": ["creditUsagePercent": 12.0], "subscription_tier": "SuperGrok Heavy", "on_demand_enabled": false])
-        XCTAssertEqual(billing.subscriptionTier, "SuperGrok Heavy")
-        XCTAssertEqual(billing.onDemandEnabled, false)
-        XCTAssertEqual(billing.balance?.displayPercent, 12)
-        XCTAssertNil(UsageBilling(["config": NSNull()]).balance, "no config means no billing data")
-    }
-
-    func testAutoTopupRule() {
-        XCTAssertEqual(UsageAutoTopup([:])?.lines, ["Auto top-up: disabled"], "no rule is a known 'off'")
-        XCTAssertEqual(UsageAutoTopup(["rule": NSNull()])?.lines, ["Auto top-up: disabled"])
-        XCTAssertEqual(UsageAutoTopup(["rule": ["topupAmount": ["val": 500]]])?.lines, ["Auto top-up: disabled"], "proto3 omits enabled=false")
-        XCTAssertEqual(UsageAutoTopup(["rule": ["enabled": true, "topupAmount": ["val": -1000], "maxAmountPerMonth": ["val": 5050]]])?.lines,
-                       ["Auto top-up: $10", "Max monthly top-up: $50.50"])
-        XCTAssertNil(UsageAutoTopup(["rule": "garbled"]), "an unreadable rule stays unknown")
+    func testXAIAccountCommandsAreGone() {
+        let (store, _, _) = makeStore()
+        let names = DesktopCommands.catalog.flatMap { [$0.name] + $0.aliases }
+        XCTAssertFalse(names.contains("logout"))
+        XCTAssertFalse(names.contains("privacy"))
+        XCTAssertFalse(store.handleDesktopCommand("logout", arguments: ""), "/logout is not a desktop command")
+        XCTAssertFalse(store.handleDesktopCommand("privacy", arguments: ""), "/privacy is not a desktop command")
+        let usage = DesktopCommands.catalog.first { $0.name == "usage" }
+        XCTAssertNil(usage?.argumentHint, "no `show|manage`")
+        XCTAssertTrue(store.availableCommands.contains { $0.name == "usage" }, "/usage is always offered")
+        XCTAssertEqual(DesktopCommands.catalog.first { $0.name == "login" }?.description, "Sign in to OpenRouter or OpenAI Codex")
+        XCTAssertTrue(store.handleDesktopCommand("login", arguments: ""))
+        XCTAssertTrue(store.showSettings, "/login opens Settings › Accounts")
+        XCTAssertEqual(AccountAuthDescription.providerCredentials.method, "Provider credentials")
     }
 
     // MARK: Context
@@ -234,7 +155,7 @@ final class AccountFeatureTests: XCTestCase {
         XCTAssertEqual(rows.last?.value, "1,000 / 4,000 tokens (25%)")
         let shown = UsageSessionInfo(["sessionId": "sid-2", "cwd": "/w", "modelDisplayName": "Grok Build", "model": "grok-build",
                                       "modelFingerprint": "fp_abc", "showModelFingerprint": true, "conversationId": "conv-9"])
-        let other = UsageFormatting.sessionInfoRows(shown, title: nil, shellVersion: nil, auth: HarnessMeta().sessionInfoAuthMethod, showResolvedModel: false)
+        let other = UsageFormatting.sessionInfoRows(shown, title: nil, shellVersion: nil, auth: .providerCredentials, showResolvedModel: false)
         XCTAssertEqual(other.first?.label, "Shell version")
         XCTAssertEqual(other.first?.value, "unknown")
         XCTAssertEqual(other.first { $0.label == "Model" }?.value, "Grok Build")
@@ -470,54 +391,13 @@ final class AccountFeatureTests: XCTestCase {
         XCTAssertFalse(account.feedbackTraceOffered, "'don't ask again' from the terminal is honoured")
     }
 
-    // MARK: Privacy and sign-out
+    // MARK: Error text
 
-    func testPrivacyLockRules() {
-        XCTAssertEqual(PrivacyLock.for(isZDR: true, teamName: "Acme", teamRole: "admin"), .zeroDataRetention)
-        XCTAssertNil(PrivacyLock.for(isZDR: false, teamName: "Acme", teamRole: "Admin"))
-        XCTAssertEqual(PrivacyLock.for(isZDR: false, teamName: "Acme", teamRole: "member"), .teamManaged)
-        XCTAssertEqual(PrivacyLock.for(isZDR: false, teamName: "Acme", teamRole: nil), .teamManaged)
-        XCTAssertNil(PrivacyLock.for(isZDR: false, teamName: nil, teamRole: nil))
-        XCTAssertEqual(PrivacyLock.zeroDataRetention.reason, "Your team has Zero Data Retention.")
-        XCTAssertEqual(PrivacyLock.teamManaged.reason, "Managed by your team admin.")
-        XCTAssertEqual(PrivacyCopy.label, "Coding data, retention, and training")
-    }
-
-    func testLockedPrivacyRefusesChangesWithTheTerminalNotice() {
-        let (store, account, _) = makeStore()
-        store.harnessMeta.authenticate = ["coding_data_retention_opt_out": true, "is_zdr": true]
-        account.refreshPrivacy()
-        XCTAssertEqual(account.privacy.lock, .zeroDataRetention)
-        XCTAssertEqual(account.privacy.optOut, true)
-        account.setCodingDataSharing(optedIn: true)
-        XCTAssertEqual(store.banner, "✗ Cannot change: Zero Data Retention enabled")
-        XCTAssertEqual(account.privacy.optOut, true)
-        XCTAssertFalse(account.privacy.pending)
-        store.harnessMeta.authenticate = ["coding_data_retention_opt_out": false, "team_name": "Acme", "team_role": "member"]
-        account.refreshPrivacy()
-        account.setCodingDataSharing(optedIn: false)
-        XCTAssertEqual(store.banner, "✗ Data sharing is controlled by your team admin")
-        store.harnessMeta.authenticate = ["coding_data_retention_opt_out": false]
-        account.refreshPrivacy()
-        store.banner = nil
-        account.setCodingDataSharing(optedIn: true)
-        XCTAssertFalse(account.privacy.pending, "an idle opt-in when already opted in sends nothing")
-        XCTAssertNil(store.banner)
-    }
-
-    func testLogoutSummaryAndErrorText() {
-        XCTAssertEqual(LogoutSummary(["ok": true, "was_logged_in": true, "email": "dev@example.com", "api_key_still_set": false]).message,
-                       "Logged out (was signed in as dev@example.com).")
-        XCTAssertEqual(LogoutSummary(["was_logged_in": true, "email": "", "api_key_still_set": true]).message,
-                       "Logged out. XAI_API_KEY is still set and will be used for authentication.")
-        XCTAssertEqual(LogoutSummary(["was_logged_in": false, "api_key_still_set": true]).message,
-                       "No cached session to log out of. You are authenticated via XAI_API_KEY (environment variable).")
-        XCTAssertEqual(AccountErrorText.describe(ACPClientError.remote(code: -32603, message: "Internal error", data: "Billing service error: HTTP 503")),
-                       "Billing service error: HTTP 503")
+    func testErrorText() {
+        XCTAssertEqual(AccountErrorText.describe(ACPClientError.remote(code: -32603, message: "Internal error", data: "Session service error: HTTP 503")),
+                       "Session service error: HTTP 503")
+        XCTAssertEqual(AccountErrorText.describe(ACPClientError.remote(code: -32603, message: "Internal error", data: ["message": "Bad request"])), "Bad request")
         XCTAssertEqual(AccountErrorText.describe(ACPClientError.remote(code: -32603, message: "Internal error", data: nil)), "Internal error")
-        XCTAssertEqual(AccountErrorText.scrubbedForNotice("HTTP 500"), "HTTP 500")
-        XCTAssertEqual(AccountErrorText.scrubbedForNotice(String(repeating: "x", count: 121)), "server error (see logs for details)")
-        XCTAssertEqual(AccountErrorText.scrubbedForNotice("bad\u{1B}[31m"), "server error (see logs for details)")
     }
 
     // MARK: Release notes

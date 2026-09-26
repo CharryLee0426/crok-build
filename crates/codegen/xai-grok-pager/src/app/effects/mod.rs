@@ -5510,19 +5510,13 @@ fn format_session_info(
 }
 /// Auth section for `/session-info`: active login method.
 ///
-/// This reflects the process login / ACP auth method, not per-model sampling credentials (a model `api_key`/`env_key` can still own the turn).
-fn format_auth_lines(is_api_key_auth: bool, api_key_env_set: bool) -> String {
+/// xAI account sign-in is not supported, so the non-interactive method always carries
+/// provider (OpenRouter / OpenAI Codex) or `[model.*]` credentials.
+fn format_auth_lines(is_api_key_auth: bool, _api_key_env_set: bool) -> String {
     if is_api_key_auth {
-        let method = if api_key_env_set {
-            "  Auth method: API key (XAI_API_KEY)\n"
-        } else {
-            "  Auth method: API key\n"
-        };
-        return format!(
-            "{method}  Run `grok login` to use your SuperGrok subscription instead.\n"
-        );
+        return String::from("  Auth method: Provider credentials\n");
     }
-    String::from("  Auth method: OAuth\n")
+    String::from("  Auth method: Not signed in\n")
 }
 /// Session replay then restyles the echo exactly like the composer highlighted it at submit time.
 /// This producer never combines them with a `displayText` override, and the tracker ignores them when one is present.

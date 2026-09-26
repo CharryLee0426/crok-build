@@ -169,14 +169,7 @@ struct FeatureBrowser: View {
 
     @ViewBuilder private var remoteContent: some View {
         if panel == .goals { goalForm }
-        if panel == .mcps {
-            if extensions.awaitingConnectors {
-                ExtensionCallout(symbol: "safari", title: "Finish in the browser.", detail: "Connectors you add on grok.com appear here when you come back to Grok.") {
-                    Button("Refresh now") { extensions.connectorsReturned() }
-                }
-            }
-            if showAddMCP { mcpForm }
-        }
+        if panel == .mcps, showAddMCP { mcpForm }
         if store.featureLoading && store.featureRows.isEmpty && !(panel == .marketplace && extensions.marketplace.loaded) {
             ProgressView("Loading \(panel.title.lowercased())…").frame(maxWidth: .infinity).padding(25)
         }
@@ -372,8 +365,6 @@ struct FeatureBrowser: View {
         switch panel {
         case .mcps:
             Button(showAddMCP ? "Cancel adding" : "Add server") { showAddMCP.toggle() }.disabled(controlsDisabled)
-            Button { extensions.openConnectors() } label: { Label("Browse connectors", systemImage: "safari") }
-                .help("Open grok.com connectors. The list refreshes when you come back.")
         case .skills:
             Button("Add skill…") { store.addSkillFolder() }.disabled(controlsDisabled)
             Button("Reset…") {

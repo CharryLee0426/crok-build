@@ -407,8 +407,6 @@ final class ExtensionFeatureTests: XCTestCase {
         XCTAssertEqual(configuration["command"] as? String, "run")
         XCTAssertEqual(configuration["args"] as? [String], ["x"])
         XCTAssertEqual(configuration["server_name"] as? String, "a")
-        XCTAssertEqual(ConnectorsLink.url(teamID: nil).absoluteString, "https://grok.com/connectors")
-        XCTAssertEqual(ConnectorsLink.url(teamID: "team 1&2").absoluteString, "https://grok.com/connectors?teamId=team%201%262")
     }
 
     func testPanelDataHelpers() {

@@ -15,24 +15,42 @@ use super::model_providers::ModelProviderConfig;
 pub use xai_grok_models::openrouter::OPENROUTER_BASE_URL;
 pub const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 
-/// Offer personal provider setup only when no existing auth or model choice applies.
+/// Shown wherever a sign-in is needed. xAI account sign-in is not supported, so OpenRouter
+/// and OpenAI Codex (or a `[model.*]` entry with its own key, or `XAI_API_KEY`) are the only routes.
+pub const PROVIDER_SIGN_IN_REQUIRED: &str = "No model provider is signed in. Quit and run \
+`grok login openai-codex` or `grok login openrouter` (or set OPENROUTER_API_KEY), then start Grok again.";
+
+/// Offer provider setup only when no explicit model choice or usable credential applies.
 pub fn needs_provider_setup(cfg: &Config) -> bool {
-    let auth = &cfg.grok_com_config;
-    if auth.api_key_auth_disabled()
-        || auth.preferred_method.is_some()
-        || auth.oidc.is_some()
-        || auth.auth_provider_command.is_some()
-        || auth.force_login_team_uuid.is_some()
-        || cfg.endpoints.deployment_key.is_some()
-        || cfg.default_model_override.is_some()
+    if cfg.default_model_override.is_some()
         || cfg.models.default.is_some()
         || std::env::var("GROK_DEFAULT_MODEL").is_ok()
-        || cfg.create_auth_manager().current_or_expired().is_some()
     {
         return false;
     }
     let models = super::config::resolve_model_list(cfg, None);
     !super::auth_method::should_advertise_xai_api_key(false, models.values())
+}
+
+/// Keep only the non-interactive `xai.api_key` method, which carries provider, `[model.*]`,
+/// and `XAI_API_KEY` credentials; the xAI account methods (`cached_token`, `grok.com`,
+/// `oidc`) are never advertised. With no credential the list is empty and the client
+/// shows [`PROVIDER_SIGN_IN_REQUIRED`].
+pub(crate) fn provider_auth_methods(
+    built: super::auth_method::BuiltAuthMethods,
+) -> super::auth_method::BuiltAuthMethods {
+    use super::auth_method::{AuthMethodKind, BuiltAuthMethods, XAI_API_KEY_METHOD_ID};
+    let methods: Vec<_> = built
+        .methods
+        .into_iter()
+        .filter(|m| AuthMethodKind::from_id(m.id()).is_api_key())
+        .collect();
+    let default_auth_method_id = (!methods.is_empty())
+        .then(|| agent_client_protocol::AuthMethodId::new(XAI_API_KEY_METHOD_ID));
+    BuiltAuthMethods {
+        methods,
+        default_auth_method_id,
+    }
 }
 
 pub fn openrouter_cache_path() -> PathBuf {
@@ -226,6 +244,29 @@ pub(crate) fn openrouter_entry(model: &OpenRouterModel) -> ModelEntry {
 
 pub(crate) fn extend_catalog(cfg: &Config, catalog: &mut IndexMap<String, ModelEntry>) {
     extend_catalog_with_models(cfg, catalog, cached_models);
+    hide_xai_hosted_models(catalog);
+}
+
+/// The built-in and remote catalog entries are served by xAI. Without `XAI_API_KEY` they
+/// could only authenticate through an xAI account, which is not supported, so once a
+/// provider catalog is active they stay resolvable by id but leave the picker and the
+/// default. Grok models remain available through OpenRouter (`openrouter/x-ai/...`).
+fn hide_xai_hosted_models(catalog: &mut IndexMap<String, ModelEntry>) {
+    let has_provider = catalog.values().any(|entry| {
+        entry
+            .auth_provider
+            .as_ref()
+            .is_some_and(|provider| provider.builtin_provider().is_some())
+    });
+    if !has_provider || super::auth_method::has_xai_api_key_env() {
+        return;
+    }
+    for entry in catalog.values_mut() {
+        // `hidden`, not `user_selectable`: the allowlist pass rewrites selectability later.
+        if !entry.has_own_credentials() {
+            entry.info.hidden = true;
+        }
+    }
 }
 
 fn extend_catalog_with_models(
@@ -393,7 +434,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn first_run_setup_respects_credentials_and_auth_policy() {
+    fn first_run_setup_respects_credentials_and_model_choice() {
         let _env = isolate_default_env();
         let home = tempfile::tempdir().unwrap();
         let _home = EnvGuard::set("GROK_HOME", home.path().to_str().unwrap());
@@ -403,12 +444,76 @@ mod tests {
             let _key = EnvGuard::set("OPENROUTER_API_KEY", "fixture");
             assert!(!needs_provider_setup(&config("")));
         }
+        // xAI account policy no longer stands in for a provider: setup still runs.
         let mut cfg = config("");
         cfg.grok_com_config.disable_api_key_auth = Some(true);
-        assert!(!needs_provider_setup(&cfg));
+        assert!(needs_provider_setup(&cfg));
         cfg.grok_com_config.disable_api_key_auth = None;
         cfg.models.default = Some("explicit-model".into());
         assert!(!needs_provider_setup(&cfg));
+    }
+
+    #[test]
+    fn provider_auth_methods_never_advertise_xai_account_sign_in() {
+        use crate::agent::auth_method::{
+            AuthMethodsBuildInputs, CACHED_TOKEN_AUTH_METHOD_ID, XAI_API_KEY_METHOD_ID,
+            build_auth_methods,
+        };
+        let build = |has_external_api_key| {
+            provider_auth_methods(build_auth_methods(AuthMethodsBuildInputs {
+                has_external_api_key,
+                has_cached_token: true,
+                has_enterprise_oidc: false,
+                enterprise_oidc_issuer: None,
+                login_label: None,
+                has_auth_provider_command: false,
+                preferred_method: None,
+            }))
+        };
+        let with_key = build(true);
+        let ids: Vec<_> = with_key.methods.iter().map(|m| m.id().0.to_string()).collect();
+        assert_eq!(ids, [XAI_API_KEY_METHOD_ID]);
+        assert_eq!(
+            with_key.default_auth_method_id.map(|id| id.0.to_string()).as_deref(),
+            Some(XAI_API_KEY_METHOD_ID),
+            "a cached xAI session must not become the default: {CACHED_TOKEN_AUTH_METHOD_ID}"
+        );
+        let without_key = build(false);
+        assert!(without_key.methods.is_empty(), "no grok.com / cached_token fallback");
+        assert!(without_key.default_auth_method_id.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn xai_hosted_models_leave_the_picker_without_an_xai_api_key() {
+        let _env = isolate_default_env();
+        let cfg = config("");
+        let native = xai_grok_models::default_model();
+        let native_only = || {
+            let mut catalog = IndexMap::new();
+            catalog.insert(native.to_string(), ModelEntry::fallback(native, &cfg.endpoints));
+            let mut byok = ModelEntry::fallback("custom", &cfg.endpoints);
+            byok.api_key = Some("fixture".into());
+            catalog.insert("custom".into(), byok);
+            catalog
+        };
+        let mut catalog = native_only();
+        hide_xai_hosted_models(&mut catalog);
+        assert!(!catalog[native].info.hidden, "no provider catalog: nothing changes");
+
+        let mut catalog = provider_only_catalog(&cfg);
+        let mut byok = ModelEntry::fallback("custom", &cfg.endpoints);
+        byok.api_key = Some("fixture".into());
+        catalog.insert("custom".into(), byok);
+        hide_xai_hosted_models(&mut catalog);
+        assert!(catalog[native].info.hidden);
+        assert!(!catalog["custom"].info.hidden, "own-key models stay pickable");
+        assert!(!catalog["openrouter/openrouter/auto"].info.hidden);
+
+        let _set = EnvGuard::set("XAI_API_KEY", "xai-fixture");
+        let mut catalog = provider_only_catalog(&cfg);
+        hide_xai_hosted_models(&mut catalog);
+        assert!(!catalog[native].info.hidden, "XAI_API_KEY keeps native models usable");
     }
 
     #[test]

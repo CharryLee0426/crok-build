@@ -133,7 +133,7 @@ final class SessionSnapshotTests: XCTestCase {
         if let report = try? DoctorReport.decode(Data(SessionFeatureTests.doctorSample.utf8)) { model.doctorReport = report }
         model.desktopChecks = [
             DoctorDesktopCheck(id: "runtime", title: "Grok runtime", value: "Version 1.0.41 (ef60bab1fc85) [stable]", detail: "~/Applications/Grok Desktop.app/Contents/Resources/grok", status: .ok, symbol: "cpu"),
-            DoctorDesktopCheck.signIn([.xai: AccountStatus(state: .connected, identity: "dev@example.com", detail: "Signed in")]),
+            DoctorDesktopCheck.signIn([.codex: AccountStatus(state: .connected, identity: "dev@example.com", detail: "Signed in")]),
             DoctorDesktopCheck.microphone(.denied),
             DoctorDesktopCheck.notifications(.notDetermined),
         ]

@@ -18,40 +18,10 @@ enum AccountLoad<Value> {
 extension AccountLoad: Equatable where Value: Equatable {}
 
 struct UsageSheetState {
-    var hasSession = false
     var context: AccountLoad<UsageContextSnapshot> = .idle
     var contextModel = "unknown"
     var sessionInfo: AccountLoad<[UsageSessionInfoRow]> = .idle
     var sessionUsage: AccountLoad<UsageSessionSummary> = .idle
-    var billing: AccountLoad<UsageBilling> = .idle
-    /// False for team, backend-billed, API-key, and external sign-ins, which have no consumer billing.
-    var billingVisible = true
-    var subscriptionTier: String?
-}
-
-// MARK: - Argument rules
-
-enum UsageCommandRules {
-    static let manageBillingURL = "https://grok.com/?_s=usage"
-
-    enum Outcome: Equatable {
-        case show, manage
-        case failure(String)
-    }
-
-    /// The terminal's rules: consumer accounts take `show` or `manage`; everyone else only the bare command.
-    static func parse(_ arguments: String, commandVisible: Bool, billingVisible: Bool) -> Outcome {
-        guard commandVisible else { return .failure("/usage is not available.") }
-        let argument = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard billingVisible else {
-            return argument.isEmpty ? .show : .failure("Unknown argument: \(argument). Use /usage")
-        }
-        switch argument {
-        case "", "show": return .show
-        case "manage": return .manage
-        default: return .failure("Unknown argument: \(argument). Use /usage show or /usage manage")
-        }
-    }
 }
 
 // MARK: - Harness payloads
@@ -67,12 +37,6 @@ enum AccountJSON {
         if let number = value as? NSNumber { return number.int64Value }
         if let text = value as? String { return Int64(text) }
         return nil
-    }
-
-    /// Billing money: USD cents as `{val}`, where proto3 drops a zero `val`, so `{}` is 0.
-    static func cents(_ value: Any?) -> Int64? {
-        guard let object = value as? [String: Any] else { return nil }
-        return int(object["val"]) ?? 0
     }
 
     static func string(_ value: Any?) -> String? {
@@ -238,107 +202,6 @@ struct UsageSessionSummary: Equatable {
     }
 }
 
-/// The allowance from `_x.ai/billing`'s `config` (camelCase inside a snake_case reply).
-/// Prefers the credits fields and falls back to the deprecated monthly ones, like the terminal.
-struct UsageCreditBalance: Equatable {
-    var usagePercent: Double = 0
-    var periodEnd: Date?
-    var payAsYouGo = false
-    var onDemandCapCents: Int64?
-    var onDemandUsedCents: Int64?
-    var prepaidBalanceCents: Int64?
-    var periodType: String?
-
-    init(config: [String: Any]) {
-        let limit = AccountJSON.cents(config["monthlyLimit"]) ?? 0
-        let used = AccountJSON.cents(config["used"]) ?? 0
-        let creditPercent = (config["creditUsagePercent"] as? NSNumber)?.doubleValue
-        if let creditPercent { usagePercent = min(max(creditPercent, 0), 100) }
-        else if limit > 0 { usagePercent = min(Double(used) / Double(limit) * 100, 100) }
-        let period = config["currentPeriod"] as? [String: Any]
-        periodType = AccountJSON.string(period?["type"])
-        periodEnd = (AccountJSON.string(period?["end"]) ?? AccountJSON.string(config["billingPeriodEnd"])).flatMap(UsageFormatting.parseDate)
-        let onDemand = AccountJSON.cents(config["onDemandCap"]) ?? 0
-        payAsYouGo = onDemand > 0
-        onDemandCapCents = onDemand > 0 ? onDemand : nil
-        onDemandUsedCents = AccountJSON.cents(config["onDemandUsed"]) ?? max(used - limit, 0)
-        prepaidBalanceCents = AccountJSON.cents(config["prepaidBalance"])
-    }
-
-    var usageLabel: String {
-        if periodType?.contains("WEEKLY") == true { return "Weekly limit" }
-        if periodType?.contains("MONTHLY") == true { return "Monthly limit" }
-        return "Usage"
-    }
-
-    func header(tier: String?) -> String { tier.map { "\(usageLabel) (\($0))" } ?? usageLabel }
-
-    /// Floored, like the backend, so 99.99% never reads as 100%.
-    var displayPercent: Int { Int(usagePercent.rounded(.down)) }
-
-    /// Filled cells of the terminal's 30-cell bar; the native bar uses the same fraction.
-    var filledCells: Int { min(30, Int((usagePercent / 100 * 30).rounded())) }
-
-    func resetText(timeZone: TimeZone = .current) -> String? {
-        periodEnd.map { "Resets: \(UsageFormatting.resetDate($0, timeZone: timeZone))" }
-    }
-
-    /// Stored as negative cents (an accounting convention); shown as the absolute amount.
-    var prepaidCents: Int64? { prepaidBalanceCents.map { abs($0) }.flatMap { $0 > 0 ? $0 : nil } }
-    var hasPrepaidCredits: Bool { prepaidCents != nil }
-    var creditsText: String? { prepaidCents.map { "Credits: \(UsageFormatting.dollarsWithCents($0))" } }
-
-    var payAsYouGoText: String {
-        "Usage: \(UsageFormatting.dollarsWithCents(abs(onDemandUsedCents ?? 0))) / \(UsageFormatting.dollarsWithCents(abs(onDemandCapCents ?? 0))) per month"
-    }
-}
-
-/// `_x.ai/auto-topup-rule`: `{rule: {enabled, topupAmount, maxAmountPerMonth}}`, where no rule means off.
-struct UsageAutoTopup: Equatable {
-    var enabled = false
-    var topupAmountCents: Int64?
-    var maxAmountCents: Int64?
-
-    init(enabled: Bool = false, topupAmountCents: Int64? = nil, maxAmountCents: Int64? = nil) {
-        self.enabled = enabled; self.topupAmountCents = topupAmountCents; self.maxAmountCents = maxAmountCents
-    }
-
-    /// Nil when the reply cannot be read: the rule is then unknown, not disabled.
-    init?(_ response: [String: Any]) {
-        let value = response["rule"]
-        if value == nil || value is NSNull { self.init(); return }
-        guard let rule = value as? [String: Any] else { return nil }
-        self.init(enabled: rule["enabled"] as? Bool ?? false,
-                  topupAmountCents: AccountJSON.cents(rule["topupAmount"]),
-                  maxAmountCents: AccountJSON.cents(rule["maxAmountPerMonth"]))
-    }
-
-    var lines: [String] {
-        guard enabled, let amount = topupAmountCents else { return ["Auto top-up: disabled"] }
-        var lines = ["Auto top-up: \(UsageFormatting.dollars(abs(amount)))"]
-        if let maximum = maxAmountCents { lines.append("Max monthly top-up: \(UsageFormatting.dollars(abs(maximum)))") }
-        return lines
-    }
-}
-
-/// `_x.ai/billing`: snake_case at the top level, camelCase inside `config`.
-struct UsageBilling: Equatable {
-    var balance: UsageCreditBalance?
-    var subscriptionTier: String?
-    var onDemandEnabled: Bool?
-    var autoTopup: UsageAutoTopup?
-
-    init(balance: UsageCreditBalance? = nil, subscriptionTier: String? = nil) {
-        self.balance = balance; self.subscriptionTier = subscriptionTier
-    }
-
-    init(_ response: [String: Any]) {
-        balance = (response["config"] as? [String: Any]).map(UsageCreditBalance.init(config:))
-        subscriptionTier = AccountJSON.string(response["subscription_tier"])
-        onDemandEnabled = response["on_demand_enabled"] as? Bool
-    }
-}
-
 // MARK: - Formatting
 
 enum UsageFormatting {
@@ -393,29 +256,12 @@ enum UsageFormatting {
 
     static func countDetail(_ count: UInt64, _ noun: String) -> String { "\(count) \(noun)\(count == 1 ? "" : "s")" }
 
-    /// `$12.50`, always with cents.
-    static func dollarsWithCents(_ cents: Int64) -> String { String(format: "$%.2f", Double(cents) / 100) }
-
-    /// `$10` for whole dollars, otherwise `$10.50`.
-    static func dollars(_ cents: Int64) -> String {
-        cents % 100 == 0 ? "$\(cents / 100)" : String(format: "$%.2f", Double(cents) / 100)
-    }
-
     static func parseDate(_ text: String) -> Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = formatter.date(from: text) { return date }
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: text)
-    }
-
-    /// Local wall-clock time without a zone, e.g. `March 31, 12:00`.
-    static func resetDate(_ date: Date, timeZone: TimeZone = .current) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "MMMM d, HH:mm"
-        return formatter.string(from: date)
     }
 
     /// The catalog name when there is one; otherwise the model, with the resolved slug when shown.
@@ -459,7 +305,7 @@ struct UsageSheet: View {
     @EnvironmentObject var account: AccountFeatureModel
 
     var body: some View {
-        DesktopPanel(title: "Usage", subtitle: "Context window, usage limits, and details for the current task.",
+        DesktopPanel(title: "Usage", subtitle: "Context window, token usage, and details for the current task.",
                      width: 680, height: 700, onClose: close) {
             VStack(spacing: 0) {
                 Picker("Section", selection: $account.usageTab) {
@@ -480,7 +326,6 @@ struct UsageSheet: View {
             account.usageTab = initialTab
             if loadsOnAppear { account.refreshUsage() }
         }
-        .onDisappear { account.releaseAccountConnectionSoon() }
     }
 
     private func close() { account.store?.sheet = nil }
@@ -488,7 +333,7 @@ struct UsageSheet: View {
     @ViewBuilder private var tabContent: some View {
         switch account.usageTab {
         case .context: contextTab
-        case .limit: limitTab
+        case .usage: usageTotalsTab
         case .session: sessionTab
         }
     }
@@ -504,32 +349,16 @@ struct UsageSheet: View {
         }
     }
 
-    private var limitTab: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            allowance
-            if account.usage.hasSession { sessionTotals }
+    @ViewBuilder private var usageTotalsTab: some View {
+        switch account.usage.sessionUsage {
+        case .unavailable(let reason):
+            UsageEmptyState(symbol: "chart.bar", title: reason, detail: "Select a task to see the tokens and cost it has used.")
+        default:
+            sessionTotals
         }
     }
 
-    @ViewBuilder private var allowance: some View {
-        if !account.usage.billingVisible {
-            UsageNotice(symbol: "person.2", text: "Usage limits are managed by your team.")
-        } else {
-            switch account.usage.billing {
-            case .idle, .loading: UsageStatusLine(text: "Loading usage…", loading: true)
-            case .failed(let error): UsageStatusLine(text: "Couldn't load usage: \(error)", isError: true)
-            case .unavailable(let reason): UsageNotice(symbol: "info.circle", text: reason)
-            case .loaded(let billing):
-                if let balance = billing.balance {
-                    UsageAllowanceCard(balance: balance, tier: account.usage.subscriptionTier ?? billing.subscriptionTier, autoTopup: billing.autoTopup)
-                } else {
-                    UsageNotice(symbol: "tray", text: "No billing data available.")
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var sessionTotals: some View {
+    private var sessionTotals: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Session usage").font(.system(size: 15, weight: .semibold))
             Text("Since the session started or was last resumed.").font(.system(size: 12)).foregroundStyle(Theme.muted)
@@ -560,9 +389,6 @@ struct UsageSheet: View {
 
     @ViewBuilder private var footer: some View {
         switch account.usageTab {
-        case .limit where account.usage.billingVisible:
-            Button("Manage billing") { account.manageBilling() }
-                .help(UsageCommandRules.manageBillingURL)
         case .session:
             let rows = account.usage.sessionInfo.value ?? []
             Button("Copy all") { UsagePasteboard.copy(UsageFormatting.copyText(rows)) }.disabled(rows.isEmpty)
@@ -586,7 +412,7 @@ enum UsagePasteboard {
 }
 
 extension View {
-    /// The quiet rounded card used across the usage, feedback, and privacy panels.
+    /// The quiet rounded card used across the usage and feedback panels.
     func usageCard(padding: CGFloat = 18) -> some View {
         self.padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -618,19 +444,6 @@ struct UsageStatusLine: View {
                 .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 4)
-    }
-}
-
-struct UsageNotice: View {
-    let symbol: String
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol).font(.system(size: 16)).foregroundStyle(Theme.muted).frame(width: 22).accessibilityHidden(true)
-            Text(text).font(.system(size: 13)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-        }
-        .usageCard()
     }
 }
 
@@ -756,60 +569,6 @@ struct UsageContextBreakdown: View {
                 .accessibilityElement(children: .combine)
             }
         }
-    }
-}
-
-/// The allowance for consumer accounts: the period's use, when it resets, and any credits.
-struct UsageAllowanceCard: View {
-    let balance: UsageCreditBalance
-    let tier: String?
-    let autoTopup: UsageAutoTopup?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(balance.header(tier: tier)).font(.system(size: 15, weight: .semibold))
-            HStack(spacing: 14) {
-                UsageMeter(fraction: Double(balance.filledCells) / 30)
-                Text("\(balance.displayPercent)%").font(.system(size: 17, weight: .semibold)).monospacedDigit()
-                    .frame(minWidth: 48, alignment: .trailing)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(balance.usageLabel): \(balance.displayPercent) percent used")
-            if let reset = balance.resetText() {
-                Text(reset).font(.system(size: 12)).foregroundStyle(Theme.muted)
-            }
-            if let credits = balance.creditsText {
-                Divider().padding(.vertical, 2)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(credits).font(.system(size: 13, weight: .medium))
-                    ForEach(autoTopup?.lines ?? [], id: \.self) { Text($0).font(.system(size: 12)).foregroundStyle(Theme.muted) }
-                }
-            }
-            if balance.payAsYouGo {
-                Divider().padding(.vertical, 2)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Pay as you go: Enabled").font(.system(size: 13, weight: .medium))
-                    Text(balance.payAsYouGoText).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                }
-            }
-        }
-        .usageCard()
-    }
-}
-
-struct UsageMeter: View {
-    let fraction: Double
-
-    private var color: Color { fraction >= 0.9 ? UsagePalette.warning : Theme.accent }
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(UsagePalette.free)
-                Capsule().fill(color).frame(width: fraction > 0 ? max(8, proxy.size.width * min(max(fraction, 0), 1)) : 0)
-            }
-        }
-        .frame(height: 10)
     }
 }
 

@@ -23,7 +23,6 @@ final class ComposerFeatureModel: ObservableObject {
     @Published private(set) var followUpBehavior: ComposerFollowUpBehavior = .queue
     @Published private(set) var voiceShortcutEnabled = true
     @Published private(set) var voiceLanguage = "en"
-    @Published private(set) var voiceProvider: VoiceSTTProvider = .openRouter
     @Published private(set) var voiceModel = VoiceSTTSettings.defaultModel
 
     let voice = VoiceDictationController()
@@ -565,9 +564,7 @@ final class ComposerFeatureModel: ObservableObject {
         followUpBehavior = config.string("follow_up_behavior", in: "ui").flatMap(ComposerFollowUpBehavior.init(rawValue:)) ?? .queue
         voiceShortcutEnabled = config.bool("voice_keybind_enabled", in: "ui") ?? true
         voiceLanguage = VoiceSTTSettings.canonicalLanguage(config.string("voice_stt_language", in: "ui") ?? config.string("language", in: "voice"))
-        let voiceSettings = VoiceSTTSettings(config: config)
-        voiceProvider = voiceSettings.provider
-        voiceModel = voiceSettings.model
+        voiceModel = VoiceSTTSettings(config: config).model
         updateAutoGate()
     }
 
@@ -584,12 +581,6 @@ final class ComposerFeatureModel: ObservableObject {
     func setVoiceLanguage(_ code: String) {
         voiceLanguage = VoiceSTTSettings.canonicalLanguage(code)
         persist("voice_stt_language", .string(voiceLanguage))
-    }
-
-    func setVoiceProvider(_ provider: VoiceSTTProvider) {
-        guard provider != voiceProvider else { return }
-        voiceProvider = provider
-        persist("voice_stt_provider", .string(provider.rawValue))
     }
 
     /// Any OpenRouter transcription model slug; blank restores the default.
@@ -662,77 +653,24 @@ final class ComposerFeatureModel: ObservableObject {
             return
         }
         let settings = VoiceSTTSettings(config: configURL.map { GrokConfig(url: $0) } ?? GrokConfig(text: ""))
-        if settings.provider == .openRouter {
-            let key = await Task.detached(priority: .userInitiated) { VoiceOpenRouterCredential.read() }.value
-            guard stillStarting() else { return }
-            if !store.harnessMeta.initialize.isEmpty && !store.harnessMeta.voiceMode {
-                voice.cancel()
-                store.banner = "Voice input is turned off for this account."
-                return
-            }
-            guard let key else {
-                voice.cancel()
-                store.banner = "Voice: dictation uses OpenRouter transcription. Sign in to OpenRouter in Settings (or set OPENROUTER_API_KEY), or switch the dictation service to xAI in Settings › Behavior."
-                return
-            }
-            voice.startOpenRouter(key: key, settings: settings)
-            return
-        }
-        let credential = await voiceCredential()
+        let key = await Task.detached(priority: .userInitiated) { VoiceOpenRouterCredential.read() }.value
         guard stillStarting() else { return }
         if !store.harnessMeta.initialize.isEmpty && !store.harnessMeta.voiceMode {
             voice.cancel()
             store.banner = "Voice input is turned off for this account."
             return
         }
-        switch credential {
-        case .token(let token):
-            voice.startXAI(token: token, settings: settings)
-        case .unavailable(let reason):
-            let language = VoiceSTTSettings.languageForAPI(settings.language)
-            let onDevice = await VoiceDictationController.prepareOnDeviceRecognition(language: language)
-            guard stillStarting() else { return }
-            if onDevice { voice.startOnDevice(language: language) }
-            else { voice.cancel(); store.banner = "Voice: \(reason)" }
+        if let key {
+            voice.startOpenRouter(key: key, settings: settings)
+            return
         }
-    }
-
-    private enum VoiceCredential { case token(String), unavailable(String) }
-
-    /// An xAI bearer for speech-to-text. Only a credential issued by xAI (a first-party login or an
-    /// xAI API key) is ever sent to the speech endpoint.
-    private func voiceCredential() async -> VoiceCredential {
-        let foreign = "voice needs an xAI credential for this account: sign in with an xAI login or set XAI_API_KEY"
-        let signedOut = "not signed in — run `grok login`, set XAI_API_KEY, or set a model api_key/env_key"
-        guard let store else { return .unavailable(signedOut) }
-        if store.harnessMeta.usesExternalProvider { return .unavailable(foreign) }
-        let hasXAICredential = await Task.detached(priority: .userInitiated) { AccountStatusReader().read()[.xai]?.isConnected == true }.value
-        guard hasXAICredential else { return .unavailable(foreign) }
-        do {
-            let token = try await withHarnessClient { client in
-                try ExtensionResponse.unwrap(try await client.request("_x.ai/auth/getBearerToken"))["token"] as? String
-            }
-            guard let token, !token.isEmpty else { return .unavailable(signedOut) }
-            return .token(token)
-        } catch {
-            return .unavailable(error.localizedDescription)
-        }
-    }
-
-    /// The selected task's live connection, or a short-lived one when the task is not connected.
-    private func withHarnessClient<T>(_ body: (ACPClient) async throws -> T) async throws -> T {
-        guard let store, let project = store.project else { throw DesktopError.message("Open a project first.") }
-        if let id = store.state.selectedConversationID, let client = store.clients[id], store.loaded.contains(id) {
-            return try await body(client)
-        }
-        let client = ACPClient()
-        let key = UUID()
-        store.auxiliaryClients[key] = client
-        defer { client.stop(); store.auxiliaryClients.removeValue(forKey: key) }
-        try client.start(executable: store.binaryPath, cwd: project.path)
-        let initial = try await store.initialize(client)
-        try await store.authenticate(client, initial: initial)
-        return try await body(client)
+        // Without an OpenRouter key, transcribe on this Mac when it can.
+        let language = VoiceSTTSettings.languageForAPI(settings.language)
+        let onDevice = await VoiceDictationController.prepareOnDeviceRecognition(language: language)
+        guard stillStarting() else { return }
+        if onDevice { voice.startOnDevice(language: language); return }
+        voice.cancel()
+        store.banner = "Voice: dictation uses OpenRouter transcription. Sign in to OpenRouter in Settings (or set OPENROUTER_API_KEY)."
     }
 
     /// Inserts finalized dictation at the cursor, spaced as its own words; a blank draft is replaced.

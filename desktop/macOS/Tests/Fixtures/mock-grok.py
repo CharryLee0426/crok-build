@@ -308,8 +308,12 @@ class MockHarness:
                 replies.put_nowait(message)
             return
         if method == "initialize":
-            self.result(request_id, {"protocolVersion": 1, "agentInfo": {"name": "grok-desktop-fixture", "version": "1.0.0"}, "agentCapabilities": {"loadSession": True, "sessionCapabilities": {"list": {}}}, "authMethods": [{"id": "cached_token", "name": "Offline fixture"}], "_meta": {"defaultAuthMethodId": "cached_token", "modelState": self.models()}})
+            self.result(request_id, {"protocolVersion": 1, "agentInfo": {"name": "grok-desktop-fixture", "version": "1.0.0"}, "agentCapabilities": {"loadSession": True, "sessionCapabilities": {"list": {}}}, "authMethods": [{"id": "xai.api_key", "name": "Provider credentials"}], "_meta": {"defaultAuthMethodId": "xai.api_key", "modelState": self.models()}})
         elif method == "authenticate":
+            # Like the harness, only the provider-credential method is accepted.
+            if params.get("methodId") != "xai.api_key":
+                self.error(request_id, -32602, "Unsupported auth method: %s" % params.get("methodId"))
+                return
             self.authenticated = True
             self.result(request_id, {})
         elif method == "session/cancel":

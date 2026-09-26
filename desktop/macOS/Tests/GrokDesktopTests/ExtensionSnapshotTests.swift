@@ -91,7 +91,6 @@ final class ExtensionSnapshotTests: XCTestCase {
         try await browser(.hooks, fixture: fixture, height: 900)
         try await browser(.skills, fixture: fixture, height: 900, expandSkillSources: true)
         try await browser(.workflows, fixture: fixture)
-        fixture.store.features.extensions.awaitingConnectors = true
         try await browser(.mcps, fixture: fixture, height: 900, showAddMCP: true)
     }
 

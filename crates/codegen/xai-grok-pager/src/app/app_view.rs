@@ -3803,9 +3803,6 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                     }
                     return InputOutcome::Action(Action::QuitConfirmed);
                 }
-                if key!('l').matches(key) || key!(Enter).matches(key) {
-                    return InputOutcome::Action(Action::Login);
-                }
             }
             AuthState::Authenticating { .. } if *ctx.show_raw_url => {
                 if key!('q', CONTROL).matches(key) || key!('c', CONTROL).matches(key) {
@@ -4142,11 +4139,10 @@ fn handle_menu_nav(
     }
 }
 /// Dispatch an action for a welcome menu item when not yet authenticated.
-/// Menu layout: item 0 is Login, item 1 is Quit.
+/// Menu layout: item 0 is Quit (provider sign-in happens outside the TUI).
 fn dispatch_pending_menu_action(index: usize) -> InputOutcome {
     match index {
-        0 => InputOutcome::Action(Action::Login),
-        1 => InputOutcome::Action(Action::Quit),
+        0 => InputOutcome::Action(Action::Quit),
         _ => InputOutcome::Unchanged,
     }
 }

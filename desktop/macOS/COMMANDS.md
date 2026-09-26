@@ -97,7 +97,9 @@ few commands that need an idle task (`/plan`, `/imagine`, `/imagine-video`,
 `/flush`, `/dream`, `/rewind`, `/fork`, `/delete`, and `/model` or `/effort`
 with an argument) keep your draft and ask you to wait or stop the turn.
 
-The registry contains 75 pager commands.
+The registry contains 72 pager commands. `/login` is desktop-only: the terminal
+signs in with `grok login <provider>` instead. xAI accounts are not supported, so
+there is no `/logout` or `/privacy`, and `/usage` has no billing.
 
 | Command (source) | Aliases | Syntax | Desktop behavior |
 | --- | --- | --- | --- |
@@ -132,10 +134,9 @@ The registry contains 75 pager commands.
 | [`/imagine-video`](../../crates/codegen/xai-grok-pager/src/slash/commands/imagine_video.rs) | — | `/imagine-video <description>` | Adapted: the pager's video workflow prompt when `image_to_video` is advertised |
 | [`/import-claude`](../../crates/codegen/xai-grok-pager/src/slash/commands/import_claude.rs) | — | `/import-claude` | Native: scans Claude settings, MCP servers, hooks, and skill/rule folders; the sheet merges selected items into Grok's configuration as the pager does, keeping comments |
 | [`/jump`](../../crates/codegen/xai-grok-pager/src/slash/commands/jump.rs) | — | `/jump` | Native turn picker with live scrolling; Escape restores the previous position |
-| [`/login`](../../crates/codegen/xai-grok-pager/src/slash/commands/login.rs) | — | `/login` | Native Accounts settings (browser sign-in through `grok login`) |
-| [`/logout`](../../crates/codegen/xai-grok-pager/src/slash/commands/logout.rs) | — | `/logout` | Native: `_x.ai/auth/logout`, with the `XAI_API_KEY` warning; Settings has Sign Out… |
+| `/login` (desktop only) | — | `/login` | Native Accounts settings: sign in to OpenRouter or OpenAI Codex (browser sign-in through `grok login openrouter` or `grok login openai-codex`) |
 | [`/loop`](../../crates/codegen/xai-grok-pager/src/slash/commands/loop_cmd.rs) | — | `/loop [interval] <prompt>` | Harness: forwarded; scheduled runs appear in `/tasks` with Delete |
-| [`/mcps`](../../crates/codegen/xai-grok-pager/src/slash/commands/mcps.rs) | — | `/mcps` | Native servers panel: status, tools, add (one URL-or-command field), toggle, restart, authorize, remove, Browse connectors |
+| [`/mcps`](../../crates/codegen/xai-grok-pager/src/slash/commands/mcps.rs) | — | `/mcps` | Native servers panel: status, tools, add (one URL-or-command field), toggle, restart, authorize, remove |
 | [`/memory`](../../crates/codegen/xai-grok-pager/src/slash/commands/memory.rs) | `/mem` | `/memory` | Native Memory panel: grouped notes with preview, search, enable toggle with reasons, Delete via `memory/forget` (BLAKE3 hash), Flush and Dream |
 | [`/flush`](../../crates/codegen/xai-grok-pager/src/slash/commands/memory_ops.rs) | — | `/flush` | Native: `_x.ai/memory/flush` with the shell's summary |
 | [`/dream`](../../crates/codegen/xai-grok-pager/src/slash/commands/memory_ops.rs) | — | `/dream` | Native: `_x.ai/memory/dream` with the shell's summary |
@@ -148,7 +149,6 @@ The registry contains 75 pager commands.
 | [`/plugins`](../../crates/codegen/xai-grok-pager/src/slash/commands/plugin.rs) | `/plugin` | `/plugins` | Native panel: filter, badges, install, update (one or all), uninstall with confirmation, reload |
 | [`/marketplace`](../../crates/codegen/xai-grok-pager/src/slash/commands/plugin.rs) | — | `/marketplace` | Native: marketplace sources and plugins with install, update, uninstall, refresh, add and remove source |
 | [`/skills`](../../crates/codegen/xai-grok-pager/src/slash/commands/plugin.rs) | — | `/skills` | Native: filter, toggles, add folder, discovery sources with remove and reset, exact advertised invocation |
-| [`/privacy`](../../crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs) | — | `/privacy` | Native: coding-data opt in/out via `_x.ai/privacy/setCodingDataRetention`, locked for ZDR and non-admin team members; also in Settings |
 | [`/queue`](../../crates/codegen/xai-grok-pager/src/slash/commands/queue.rs) | — | `/queue` | Native queue panel above the composer: prompts sent during a turn are queued and sent in order; edit, reorder, copy, remove, Send now; harness-owned entries shown with Remove |
 | [`/recap`](../../crates/codegen/xai-grok-pager/src/slash/commands/recap.rs) | `/summarize` | `/recap` | Native session recap through `_x.ai/recap` and its notification |
 | [`/release-notes`](../../crates/codegen/xai-grok-pager/src/slash/commands/release_notes.rs) | `/changelog` | `/release-notes` | Native window: the version's changelog from x.ai, cached in `$GROK_HOME/CHANGELOG.md` |
@@ -158,7 +158,7 @@ The registry contains 75 pager commands.
 | [`/rewind`](../../crates/codegen/xai-grok-pager/src/slash/commands/rewind.rs) | `/undo` | `/rewind` | Native checkpoint picker, affected-file preview, and confirmed conversation/files/both restore; external conflicts block restore |
 | [`/scroll-debug`](../../crates/codegen/xai-grok-pager/src/slash/commands/scroll_debug.rs) | — | `/scroll-debug` | Native (hidden): toggles the scroll HUD; with arguments the text goes to the model |
 | [`/session-info`](../../crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs) | `/status`, `/info` (shell) | `/session-info` | Native: Session info tab of the Usage sheet with click-to-copy rows |
-| [`/settings`](../../crates/codegen/xai-grok-pager/src/slash/commands/settings_cmd.rs) | `/config`, `/preferences`, `/prefs` | `/settings` | Native Settings: themes, accounts and privacy, conversation display, permissions, input, and voice |
+| [`/settings`](../../crates/codegen/xai-grok-pager/src/slash/commands/settings_cmd.rs) | `/config`, `/preferences`, `/prefs` | `/settings` | Native Settings: themes, accounts (OpenRouter and OpenAI Codex), conversation display, permissions, input, and voice |
 | [`/share`](../../crates/codegen/xai-grok-pager/src/slash/commands/share.rs) | — | `/share` | Same as the terminal: "Session sharing is temporarily disabled" |
 | [`/tasks`](../../crates/codegen/xai-grok-pager/src/slash/commands/tasks.rs) | — | `/tasks` | Native sheet: workflows, subagents, background tasks, and scheduled tasks with Stop/Delete |
 | [`/theme`](../../crates/codegen/xai-grok-pager/src/slash/commands/theme.rs) | `/t` | `/theme [name]` | Native: the terminal's themes (auto, groknight, grokday, tokyonight, rosepine-moon, oscura-midnight) with live preview; saved to `[ui].theme` |
@@ -168,10 +168,10 @@ The registry contains 75 pager commands.
 | [`/transcript`](../../crates/codegen/xai-grok-pager/src/slash/commands/transcript.rs) | `/log` | `/transcript` | Native Transcript window with the export Markdown, find, copy, and Save As… |
 | [`/trace`](../../crates/codegen/xai-grok-pager/src/slash/commands/trace.rs) | — | `/trace` | Native Trace window: `grok trace view <session> --format html` shown in a web view, with reload and Save As… |
 | [`/tutorial`](../../crates/codegen/xai-grok-pager/src/slash/commands/tutorial.rs) | `/tour`, `/onboarding` | `/tutorial` | Native tutorial window with the nine topics, progress, and links into the guides |
-| [`/usage`](../../crates/codegen/xai-grok-pager/src/slash/commands/usage.rs) | `/cost` | `/usage [show\|manage]` | Native Usage sheet (Usage limit tab): billing, credits, auto top-up, session usage; `manage` opens billing; hidden for external sign-in |
+| [`/usage`](../../crates/codegen/xai-grok-pager/src/slash/commands/usage.rs) | `/cost` | `/usage` | Native Usage sheet (Session usage tab): the session's tokens and cost from `_x.ai/session/usage`; takes no arguments (no xAI billing, so no `show` or `manage`) |
 | [`/view-plan`](../../crates/codegen/xai-grok-pager/src/slash/commands/view_plan.rs) | `/show-plan`, `/plan-view` | `/view-plan` | Native saved Markdown plan preview plus ACP steps and pending plan approval |
 | [`/vim-mode`](../../crates/codegen/xai-grok-pager/src/slash/commands/vim_mode.rs) | — | `/vim-mode` | Native transcript keys (j/k, g/G, y, i); saved to `[ui].vim_mode` |
-| [`/voice`](../../crates/codegen/xai-grok-pager/src/slash/commands/voice.rs) | — | `/voice` | Native dictation (mic button, ⇧⌘D): xAI speech-to-text stream, or on-device recognition without an xAI credential |
+| [`/voice`](../../crates/codegen/xai-grok-pager/src/slash/commands/voice.rs) | — | `/voice` | Native dictation (mic button, ⇧⌘D): each utterance transcribed by an OpenRouter model with the OpenRouter key, or on-device recognition without one |
 | [`/workflow`](../../crates/codegen/xai-grok-pager/src/slash/commands/workflow.rs) | — | `/workflow <name> [input] \| runs \| …` | `runs` opens the native Workflow Runs sheet (pause, resume, stop, save); other forms go to the harness |
 | [`/workflows`](../../crates/codegen/xai-grok-pager/src/slash/commands/workflows.rs) | — | `/workflows` | Native saved-workflow browser with when-to-use, source, path, and launch |
 | [`/minimal`](../../crates/codegen/xai-grok-pager/src/slash/commands/screen_mode_switch.rs) | — | `/minimal` | Adapted: minimal window mode (conversation only; sidebar, inspector, and toolbar hidden) |
@@ -342,7 +342,7 @@ terminal transport commands remain available in the side panel's **Terminal**.
 | `grok inspect` | Show discovered configuration; `--json` | `app/cli.rs` |
 | `grok doctor` | Report; `fix [id]` | `doctor_cmd/mod.rs` |
 | `grok leader` | `list`, `info`, `kill` | `app/cli.rs` |
-| `grok login`, `logout` | Grok, OpenRouter, OpenAI Codex providers | `app/cli.rs` |
+| `grok login`, `logout` | `login openrouter` or `login openai-codex`; `logout [provider]` (all providers when omitted); xAI accounts are not supported | `app/cli.rs` |
 | `grok mcp` | `list`, `add`, `remove`, `enable`, `disable`, `doctor` | `mcp_cmd.rs` |
 | `grok plugin` | `list`, `install`, `uninstall` (`rm`/`remove`), `update`, `enable`, `disable`, `details`, `validate`, `tag` | `plugin_cmd.rs` |
 | `grok plugin marketplace` | `list`, `add`, `remove`, `update` | `plugin_cmd.rs` |

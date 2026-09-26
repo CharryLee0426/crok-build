@@ -153,9 +153,12 @@ pub(super) fn mode_is_consent_chooser(mode: &SettingsMode) -> bool {
 }
 
 /// Settings-domain visibility policy, snapshotted at OpenSettings.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct RowVisibility {
     pub hide_appearance: bool,
+    /// Drop rows that only an xAI account can use: coding-data sharing is stored with the
+    /// account, and OpenRouter is the only voice provider without one.
+    pub hide_xai_account_rows: bool,
 }
 
 /// Settings modal state. Boxed inside `ActiveModal::Settings` to avoid clippy `large_enum_variant`.
@@ -221,9 +224,7 @@ impl SettingsModalState {
             registry,
             ui_snapshot,
             pager_snapshot,
-            RowVisibility {
-                hide_appearance: false,
-            },
+            RowVisibility::default(),
         )
     }
 
@@ -894,6 +895,11 @@ fn build_rows(registry: &SettingsRegistry, visibility: RowVisibility) -> Vec<Row
                 continue;
             }
             if !setting_row_visible(meta, kitty_releases, visibility.hide_appearance, voice_mode) {
+                continue;
+            }
+            if visibility.hide_xai_account_rows
+                && matches!(meta.key, "coding_data_sharing" | "voice_stt_provider")
+            {
                 continue;
             }
             if group_children.contains(meta.key) {

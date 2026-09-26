@@ -684,18 +684,6 @@ pub async fn run(
                 )
             }
         };
-    if let xai_grok_login::PreTuiLoginOutcome::SignedIn(auth) =
-        xai_grok_login::maybe_run_pre_tui_external_login(
-            &grok_com_config,
-            proxy_base_url.clone(),
-            args.force_login,
-            io::stdin().is_terminal(),
-        )
-        .await?
-    {
-        xai_grok_shell::agent::init::apply_post_login_config(*auth).await?;
-        args.force_login = false;
-    }
     xai_tty_utils::redirect_native_stderr();
     let refreshed_auth = tokio::time::timeout(
         xai_grok_shell::http::STARTUP_AUTH_REFRESH_TIMEOUT,

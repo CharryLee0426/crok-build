@@ -1,14 +1,15 @@
 import Foundation
 import Combine
 
+/// Model providers Grok Desktop can sign in to. xAI accounts are not supported;
+/// Grok models are available through OpenRouter.
 enum AccountProvider: String, CaseIterable, Identifiable {
-    case xai, openrouter
+    case openrouter
     case codex = "openai-codex"
 
     var id: String { rawValue }
     var name: String {
         switch self {
-        case .xai: return "xAI"
         case .openrouter: return "OpenRouter"
         case .codex: return "OpenAI Codex"
         }
@@ -62,7 +63,7 @@ struct AccountStatusReader {
     }
 
     func read() -> [AccountProvider: AccountStatus] {
-        [.xai: readXAI(), .openrouter: readProvider(.openrouter), .codex: readProvider(.codex)]
+        [.openrouter: readProvider(.openrouter), .codex: readProvider(.codex)]
     }
 
     private func readProvider(_ provider: AccountProvider) -> AccountStatus {
@@ -85,55 +86,6 @@ struct AccountStatusReader {
             return AccountStatus(state: .connected, identity: identity,
                                  detail: expiry <= now().timeIntervalSince1970 ? "Signed in · session renews automatically" : "Signed in")
         } catch { return unreadable() }
-    }
-
-    private func readXAI() -> AccountStatus {
-        let url = environment["GROK_AUTH_PATH"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-            ?? home.appendingPathComponent("auth.json")
-        do {
-            let entries: [String: XAICredential]
-            if let data = try readData(url) {
-                entries = try JSONDecoder().decode([String: XAICredential].self, from: data)
-            } else { entries = [:] }
-            let apiKeyStatus = xaiAPIKeyStatus(entries: entries)
-            // Prefer the active first-party OAuth scope over historical logins.
-            let issuer = environment["GROK_LOCAL_AUTH"].map { !$0.isEmpty && $0 != "0" } == true
-                ? "http://localhost:22255" : "https://auth.x.ai"
-            let defaultScope = "\(issuer)::b1a00492-073a-47ea-816f-4c329264a828"
-            let credential = entries[defaultScope] ?? entries["https://accounts.x.ai/sign-in"]
-            if let credential, validSecret(credential.key) {
-                guard ["oidc", "external", "web_login", "grok", "api_key"].contains(credential.auth_mode),
-                      let created = parseDate(credential.create_time) else { return apiKeyStatus ?? unreadable() }
-                if let expiration = credential.expires_at, parseDate(expiration) == nil { return apiKeyStatus ?? unreadable() }
-                let identity = displayText(credential.email)
-                    ?? displayText([credential.first_name, credential.last_name].compactMap { $0 }.joined(separator: " "))
-                    ?? displayText(credential.user_id).map { "Account \($0)" }
-                let expiry = parseDate(credential.expires_at)
-                    ?? created.addingTimeInterval(30 * 24 * 60 * 60)
-                let canRefresh = validSecret(credential.refresh_token)
-                    && ["oidc", "external"].contains(credential.auth_mode)
-                    && displayText(credential.oidc_issuer) != nil && displayText(credential.oidc_client_id) != nil
-                if expiry <= now() && !canRefresh {
-                    return apiKeyStatus ?? AccountStatus(state: .expired, identity: identity, detail: "Session expired · sign in to reconnect")
-                }
-                return AccountStatus(state: .connected, identity: identity,
-                                     detail: expiry <= now() ? "Signed in · session renews automatically"
-                                        : (identity == nil ? "Signed in · account name unavailable" : "Signed in"))
-            }
-            return apiKeyStatus ?? AccountStatus()
-        } catch { return xaiAPIKeyStatus(entries: [:]) ?? unreadable() }
-    }
-
-    private func xaiAPIKeyStatus(entries: [String: XAICredential]) -> AccountStatus? {
-        let disabled = environment["GROK_DISABLE_API_KEY_AUTH"].map { !["", "0", "false", "off", "no"].contains($0.lowercased()) } ?? false
-        guard !disabled, displayText(environment["GROK_FORCE_LOGIN_TEAM_ID"]) == nil else { return nil }
-        if validSecret(environment["XAI_API_KEY"]) || validSecret(environment["GROK_CODE_XAI_API_KEY"]) {
-            return AccountStatus(state: .connected, detail: "API key from environment · account name unavailable")
-        }
-        if let apiKey = entries["xai::api_key"], validSecret(apiKey.key) {
-            return AccountStatus(state: .connected, detail: "API key connected · account name unavailable")
-        }
-        return nil
     }
 
     private func unreadable() -> AccountStatus {
@@ -162,15 +114,6 @@ struct AccountStatusReader {
         return trimmed
     }
 
-    private func parseDate(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: value) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
-    }
-
     /// Decode only a display email. JWT claims are not used to establish trust or
     /// select credentials; the harness performs actual authentication.
     private func profileEmail(from token: String) -> String? {
@@ -190,19 +133,5 @@ struct AccountStatusReader {
         var refresh_token: String?
         var expires_at: Double?
         var account_id: String?
-    }
-
-    private struct XAICredential: Decodable {
-        var key: String
-        var auth_mode: String
-        var create_time: String
-        var user_id: String
-        var email: String?
-        var first_name: String?
-        var last_name: String?
-        var refresh_token: String?
-        var expires_at: String?
-        var oidc_issuer: String?
-        var oidc_client_id: String?
     }
 }

@@ -2,7 +2,7 @@
 
 Type `/` in the prompt to open the command menu. It fuzzy-matches as you type, and picking a command runs it immediately.
 
-Commands come from two places: **shell builtins**, handled by the agent backend (xai-grok-shell), and **pager builtins**, handled by the pager frontend (xai-grok-pager). Both show up in the same menu, and any enabled skill with `user-invocable: true` appears there too. If a skill reuses a built-in name such as `login`, the built-in keeps `/login` and the skill stays available as `/plugin-name:login` — the menu badges both so the collision is visible.
+Commands come from two places: **shell builtins**, handled by the agent backend (xai-grok-shell), and **pager builtins**, handled by the pager frontend (xai-grok-pager). Both show up in the same menu, and any enabled skill with `user-invocable: true` appears there too. If a skill reuses a built-in name such as `help`, the built-in keeps `/help` and the skill stays available as `/plugin-name:help` — the menu badges both so the collision is visible.
 
 Every command below lists its aliases where it has them. A few commands only appear when a feature or session state enables them; those cases are called out inline. The menu is also filtered by render mode — see [`/minimal` and `/fullscreen`](#minimal-and-fullscreen).
 
@@ -411,39 +411,21 @@ Create, edit, and delete personas. A subagent can apply a persona to shape how i
 
 ---
 
-## Account and Billing
-
-### `/login`
-
-Log in or re-authenticate without leaving the session.
-
-### `/logout`
-
-Log out and return to the login screen.
+## Usage
 
 ### `/usage`
 
-View credit usage or manage billing. Alias: `/cost`.
+View session usage. Alias: `/cost`.
 
 ```
 /usage
-/usage manage
 ```
 
-Inside a session this opens the usage modal with the account allowance plus that session's context and token totals. From the [Agent Dashboard](23-dashboard.md#dispatch-input) the same modal opens over the dashboard; there is no session there, so only the **Usage limit** tab carries data.
+Inside a session this opens the usage modal with that session's context and token totals.
 
 For persisted per-turn token and cost totals of any local session, use `grok usage <session-id> [turn]` from the shell. See [Session Management](17-sessions.md#the-grok-usage-subcommand).
 
-### `/privacy`
-
-Open Settings on **Coding data, retention, and training**, where you choose
-**Opt in** or **Opt out**. Takes no arguments.
-
-```
-/privacy
-```
-
-This setting doesn't touch `[features] telemetry`, `trace_upload`, or your external OTEL settings — see [Monitoring Usage](24-monitoring-usage.md#related-settings). On team accounts only a team admin can change it, and admins can also enable or disable Zero Data Retention for the team ([how to enable ZDR](https://docs.x.ai/developers/faq/security#how-to-enable-zdr)). When the choice isn't yours to make, the row says so — `ZDR` or `· Admin Managed` — instead of opening the chooser. ZDR locks coding-data sharing; it does not mute external OTEL or `user.email` — see [ZDR and this stream](24-monitoring-usage.md#zdr-and-this-stream).
+xAI account commands (`/login`, `/logout`, `/privacy`, and `/usage manage` billing) are not available; sign in to a provider with `grok login openai-codex` or `grok login openrouter` from the shell. See [Authentication](02-authentication.md).
 
 ---
 

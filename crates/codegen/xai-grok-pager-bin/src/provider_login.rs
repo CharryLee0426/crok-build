@@ -17,9 +17,8 @@ pub async fn first_run_setup() -> Result<()> {
     eprintln!("Welcome to Grok. Choose a provider to sign in:");
     eprintln!("  1. OpenAI Codex (ChatGPT subscription)");
     eprintln!("  2. OpenRouter");
-    eprintln!("  3. xAI / Grok");
     loop {
-        eprint!("Provider [1-3], or q to quit: ");
+        eprint!("Provider [1-2], or q to quit: ");
         std::io::stderr().flush()?;
         let mut input = String::new();
         ensure!(
@@ -29,11 +28,24 @@ pub async fn first_run_setup() -> Result<()> {
         match input.trim() {
             "1" => return login(LoginProvider::OpenAiCodex, false).await,
             "2" => return login(LoginProvider::Openrouter, false).await,
-            "3" => return Ok(()),
             "q" | "Q" => anyhow::bail!("Provider setup cancelled"),
-            _ => eprintln!("Enter 1, 2, 3, or q."),
+            _ => eprintln!("Enter 1, 2, or q."),
         }
     }
+}
+
+/// Remove one provider's stored credential, or every provider's when none is named.
+pub async fn logout(provider: Option<LoginProvider>) -> Result<()> {
+    let home = xai_grok_config::grok_home();
+    let providers = match provider {
+        Some(provider) => vec![provider.provider()],
+        None => vec![ModelProvider::OpenAiCodex, ModelProvider::OpenRouter],
+    };
+    for provider in providers {
+        provider_auth::remove_provider_credential(&home, provider).await?;
+    }
+    println!("Provider credentials removed.");
+    Ok(())
 }
 
 pub async fn login(provider: LoginProvider, with_api_key: bool) -> Result<()> {

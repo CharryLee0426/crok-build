@@ -159,15 +159,6 @@ struct MCPAddRequest: Equatable {
     }
 }
 
-/// grok.com connectors, with the team deep link when the account belongs to a team.
-enum ConnectorsLink {
-    static func url(teamID: String?) -> URL {
-        var components = URLComponents(string: "https://grok.com/connectors")!
-        if let teamID, !teamID.isEmpty { components.queryItems = [URLQueryItem(name: "teamId", value: teamID)] }
-        return components.url!
-    }
-}
-
 extension AppStore {
     func addMCPServer(name: String, transport: String, endpoint: String, arguments: String) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)

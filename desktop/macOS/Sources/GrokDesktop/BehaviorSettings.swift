@@ -36,17 +36,8 @@ struct BehaviorSettingsSection: View {
                     ForEach(VoiceSTTSettings.languages, id: \.code) { Text($0.name).tag($0.code) }
                 }.labelsHidden().pickerStyle(.menu).fixedSize()
             }
-            row("Dictation service", detail: composer.voiceProvider == .openRouter
-                ? "Transcribes with an OpenRouter model, using your OpenRouter sign-in."
-                : "Streams to xAI speech-to-text; needs an xAI sign-in.") {
-                Picker("Dictation service", selection: Binding(get: { composer.voiceProvider }, set: { composer.setVoiceProvider($0) })) {
-                    ForEach(VoiceSTTProvider.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden().pickerStyle(.menu).fixedSize()
-            }
-            if composer.voiceProvider == .openRouter {
-                row("Dictation model", detail: "Any OpenRouter transcription model. Pick one or type its ID and press Return.") {
-                    VoiceModelControl()
-                }
+            row("Dictation model", detail: "Any OpenRouter transcription model. Pick one or type its ID and press Return. Without an OpenRouter sign-in, dictation runs on this Mac.") {
+                VoiceModelControl()
             }
         }
         .settingsCard()

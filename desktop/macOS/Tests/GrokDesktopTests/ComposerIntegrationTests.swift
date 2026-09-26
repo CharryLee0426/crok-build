@@ -144,7 +144,7 @@ fixture.run()
         // Native panels open at once.
         store.draft = "/usage"
         store.send()
-        XCTAssertEqual(store.sheet, .usage(.limit))
+        XCTAssertEqual(store.sheet, .usage(.usage))
         XCTAssertEqual(store.draft, "")
         store.sheet = nil
 

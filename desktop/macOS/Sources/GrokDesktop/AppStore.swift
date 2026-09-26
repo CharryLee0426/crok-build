@@ -557,10 +557,11 @@ final class AppStore: ObservableObject {
         let methods = initial["authMethods"] as? [[String: Any]] ?? []
         let preferred = (initial["_meta"] as? [String: Any])?["defaultAuthMethodId"] as? String
         let offered = Set(methods.compactMap { $0["id"] as? String })
-        let supported = ["xai.api_key", "cached_token"]
+        // `xai.api_key` is the harness's provider-credential method (OpenRouter, OpenAI Codex).
+        let supported = ["xai.api_key"]
         let method = ([preferred].compactMap { $0 } + supported).first { supported.contains($0) && offered.contains($0) }
         guard let method else {
-            throw DesktopError.message("No supported sign-in method is available. Open Settings and sign in to xAI, OpenRouter, or OpenAI Codex, then try again.")
+            throw DesktopError.message("No model provider is signed in. Open Settings and sign in to OpenRouter or OpenAI Codex under Accounts, then try again.")
         }
         let result = try await client.request("authenticate", params: ["methodId": method, "_meta": ["headless": true]], timeout: 60)
         if let meta = result["_meta"] as? [String: Any], !meta.isEmpty { harnessMeta.authenticate = meta }
@@ -987,7 +988,7 @@ final class AppStore: ObservableObject {
         guard FileManager.default.isExecutableFile(atPath: binaryPath) else { loginLog = "The bundled Grok runtime is missing. Reinstall Grok Desktop."; return }
         let process = Process(); process.executableURL = URL(fileURLWithPath: binaryPath)
         process.currentDirectoryURL = URL(fileURLWithPath: project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path, isDirectory: true)
-        process.arguments = provider == "xai" ? ["login", "--oauth"] : ["login", provider]
+        process.arguments = ["login", provider]
         let output = Pipe(); process.standardOutput = output; process.standardError = output; process.standardInput = FileHandle.nullDevice
         loginLog = "Opening browser sign-in…"; loginRunning = true; loginProcess = process
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in

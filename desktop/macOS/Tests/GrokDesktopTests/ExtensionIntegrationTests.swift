@@ -269,10 +269,10 @@ final class ExtensionIntegrationTests: XCTestCase {
         XCTAssertEqual(store.draft, "/workflow fix-ci ")
     }
 
-    func testMCPOneFieldAddAndConnectorsRefreshSkipTheCache() async throws {
+    func testMCPOneFieldAdd() async throws {
         let fixture = try ExtensionHarnessFixture()
         defer { fixture.cleanup() }
-        let store = fixture.store, extensions = store.features.extensions
+        let store = fixture.store
         store.featurePanel = .mcps
         await store.refreshFeatures(.mcps)
         XCTAssertTrue(store.addMCPServer(urlOrCommand: "https://mcp.linear.app/mcp", name: ""))
@@ -282,11 +282,6 @@ final class ExtensionIntegrationTests: XCTestCase {
         XCTAssertEqual(upsert["url"] as? String, "https://mcp.linear.app/mcp")
         XCTAssertFalse(store.addMCPServer(urlOrCommand: "  ", name: "x"))
         XCTAssertEqual(store.featureError, "Required: URL / Command")
-
-        extensions.awaitingConnectors = true
-        extensions.connectorsReturned()
-        XCTAssertFalse(extensions.awaitingConnectors)
-        try await eventually { fixture.params(for: "_x.ai/mcp/list").contains { $0["cache"] as? Bool == false } && !store.featureLoading }
         XCTAssertTrue(fixture.prompts.isEmpty)
     }
 

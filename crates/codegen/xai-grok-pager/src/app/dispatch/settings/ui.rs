@@ -198,8 +198,10 @@ pub(in crate::app::dispatch) fn dispatch_open_settings(
     let subagent_model_inheritance_from_app = app.subagent_model_inheritance;
     // Theme rows are `hidden_in_minimal`. Snapshot this AppView's mode, not `MINIMAL_MODE_ACTIVE`
     // (other tests flip that process flag in parallel and would drop `theme` from the list).
+    // xAI account sign-in is not supported, so provider-credential sessions drop its rows.
     let visibility = RowVisibility {
         hide_appearance: app.screen_mode.is_minimal(),
+        hide_xai_account_rows: app.is_api_key_auth,
     };
 
     let Some(agent) = app.agents.get_mut(&id) else {

@@ -1,8 +1,8 @@
 import XCTest
 @testable import GrokDesktop
 
-/// Process-backed coverage of usage, feedback, privacy, sign-out, and announcements against the
-/// offline fixture harness, extended here with the account methods the real shell implements.
+/// Process-backed coverage of usage, feedback, and announcements against the offline fixture
+/// harness, extended here with the session methods the real shell implements.
 @MainActor
 final class AccountIntegrationTests: XCTestCase {
     @MainActor
@@ -15,7 +15,7 @@ final class AccountIntegrationTests: XCTestCase {
         var account: AccountFeatureModel { store.features.account }
         var openedURLs: [URL] = []
 
-        init(failFeedback: Bool = false, failPrivacyAfter: Int = 99) throws {
+        init(failFeedback: Bool = false, codingDataOptOut: Bool = true) throws {
             guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("Requires /usr/bin/python3") }
             directory = FileManager.default.temporaryDirectory.appendingPathComponent("grok-account-tests-\(UUID().uuidString)", isDirectory: true)
             home = directory.appendingPathComponent("grok-home", isDirectory: true)
@@ -27,8 +27,6 @@ final class AccountIntegrationTests: XCTestCase {
                 .replacingOccurrences(of: "#!/usr/bin/env python3", with: "#!/usr/bin/python3")
             let harness = #"""
 class AccountHarness(MockHarness):
-    privacy_calls = 0
-
     def handle(self, message):
         with open(os.path.join(os.path.dirname(__file__), "requests.jsonl"), "a") as log:
             log.write(json.dumps(message) + "\n")
@@ -38,17 +36,19 @@ class AccountHarness(MockHarness):
         if method == "initialize":
             self.result(rid, {"protocolVersion": 1, "agentInfo": {"name": "grok-desktop-fixture", "version": "1.0.0"},
                               "agentCapabilities": {"loadSession": True, "sessionCapabilities": {"list": {}}},
-                              "authMethods": [{"id": "cached_token", "name": "Offline fixture"}],
-                              "_meta": {"defaultAuthMethodId": "cached_token", "modelState": self.models(),
+                              "authMethods": [{"id": "xai.api_key", "name": "Provider credentials"}],
+                              "_meta": {"defaultAuthMethodId": "xai.api_key", "modelState": self.models(),
                                         "agentVersion": "9.9.9-fixture", "feedbackTraceOffer": True}})
             self.emit({"method": "_x.ai/announcements/update", "params": {"gen": 1700000000, "announcements": [
                 {"id": "fixture-incident", "title": "Fixture incident", "message": "Responses may be slow.", "severity": "critical"},
                 {"id": "fixture-promo", "message": "Try the fixture", "severity": "promo", "cta": {"label": "Learn more", "url": "https://x.ai/fixture"}}]}})
             return
         if method == "authenticate":
+            if params.get("methodId") != "xai.api_key":
+                self.error(rid, -32602, "Unsupported auth method")
+                return
             self.authenticated = True
-            self.result(rid, {"_meta": {"subscription_tier": "SuperGrok", "email": "dev@example.com",
-                                        "coding_data_retention_opt_out": True, "is_zdr": False}})
+            self.result(rid, {"_meta": {"coding_data_retention_opt_out": CODING_DATA_OPT_OUT, "is_zdr": False}})
             return
         if not self.authenticated or rid is None:
             super().handle(message)
@@ -63,12 +63,6 @@ class AccountHarness(MockHarness):
         elif method == "_x.ai/session/usage":
             self.result(rid, {"usage": {"inputTokens": 1200, "outputTokens": 300, "totalTokens": 1500, "cachedReadTokens": 200,
                                         "reasoningTokens": 40, "modelCalls": 2, "apiDurationMs": 2400, "costUsdTicks": 25000000, "numTurns": 1}})
-        elif method == "_x.ai/billing":
-            self.result(rid, {"config": {"creditUsagePercent": 37.5, "prepaidBalance": {"val": -2500},
-                                         "currentPeriod": {"type": "USAGE_PERIOD_TYPE_WEEKLY", "end": "2026-10-01T09:00:00Z"}},
-                              "on_demand_enabled": False, "subscription_tier": "SuperGrok Heavy"})
-        elif method == "_x.ai/auto-topup-rule":
-            self.result(rid, {"rule": {"enabled": True, "topupAmount": {"val": 1000}, "maxAmountPerMonth": {"val": 5000}}})
         elif method == "_x.ai/feedback":
             if FAIL_FEEDBACK:
                 self.emit({"id": rid, "error": {"code": -32603, "message": "Internal error",
@@ -92,22 +86,12 @@ class AccountHarness(MockHarness):
                                         "type": "bug", "task_category": "shell", "created_at": 1700000000, "revision": 1}})
         elif method == "_x.ai/feedback/drafts/delete":
             self.result(rid, {"deleted": True})
-        elif method == "_x.ai/privacy/setCodingDataRetention":
-            AccountHarness.privacy_calls += 1
-            if AccountHarness.privacy_calls > FAIL_PRIVACY_AFTER:
-                self.emit({"id": rid, "error": {"code": -32603, "message": "Internal error", "data": "server returned HTTP 503"}})
-                return
-            self.result(rid, {"codingDataRetentionOptOut": params.get("codingDataRetentionOptOut")})
-        elif method == "_x.ai/auth/info":
-            self.result(rid, {"email": "dev@example.com", "teamName": None, "teamRole": None, "codingDataRetentionOptOut": True})
-        elif method == "_x.ai/auth/logout":
-            self.result(rid, {"ok": True, "was_logged_in": True, "email": "dev@example.com", "api_key_still_set": False})
         else:
             super().handle(message)
 fixture = AccountHarness()
 fixture.run()
 """#.replacingOccurrences(of: "FAIL_FEEDBACK", with: failFeedback ? "True" : "False")
-                .replacingOccurrences(of: "FAIL_PRIVACY_AFTER", with: String(failPrivacyAfter))
+                .replacingOccurrences(of: "CODING_DATA_OPT_OUT", with: codingDataOptOut ? "True" : "False")
             let executable = directory.appendingPathComponent("fixture-grok")
             try (source + harness).write(to: executable, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
@@ -136,7 +120,6 @@ fixture.run()
         }
 
         func cleanup() {
-            account.releaseAccountConnection()
             store.shutdown()
             defaults.removePersistentDomain(forName: defaultsName)
             try? FileManager.default.removeItem(at: directory)
@@ -167,7 +150,7 @@ fixture.run()
         account.refreshUsage()
         try await eventually {
             account.usage.context.value != nil && account.usage.sessionInfo.value != nil
-                && account.usage.sessionUsage.value != nil && account.usage.billing.value != nil
+                && account.usage.sessionUsage.value != nil
         }
         XCTAssertEqual(fixture.prompts.count, promptsBefore, "/context is answered natively, never as a prompt")
         let session = try XCTUnwrap(store.conversation?.sessionID)
@@ -179,34 +162,28 @@ fixture.run()
         XCTAssertEqual(account.usage.contextModel, "fixture-grok-build")
         let rows = try XCTUnwrap(account.usage.sessionInfo.value)
         XCTAssertEqual(rows.first { $0.label == "Shell version" }?.value, "9.9.9-fixture")
-        XCTAssertEqual(rows.first { $0.label == "Auth method" }?.value, "OAuth")
+        XCTAssertEqual(rows.first { $0.label == "Auth method" }?.value, "Provider credentials")
         XCTAssertEqual(rows.first { $0.label == "Session ID" }?.value, session)
         XCTAssertEqual(rows.first { $0.label == "Model" }?.value, "Grok Build (fixture)")
         XCTAssertEqual(rows.first?.value, "Inspect the offline fixture")
-        let billing = try XCTUnwrap(account.usage.billing.value)
-        XCTAssertEqual(billing.balance?.displayPercent, 37)
-        XCTAssertEqual(billing.balance?.creditsText, "Credits: $25.00")
-        XCTAssertEqual(billing.autoTopup?.lines, ["Auto top-up: $10", "Max monthly top-up: $50"])
-        XCTAssertEqual(account.usage.subscriptionTier, "SuperGrok Heavy")
         XCTAssertEqual(account.usage.sessionUsage.value?.rows.last?.value, "$0.0025")
-        XCTAssertEqual(fixture.params(for: "_x.ai/billing").count, 1)
-        XCTAssertEqual(fixture.params(for: "_x.ai/auto-topup-rule").count, 1)
+        XCTAssertTrue(fixture.params(for: "_x.ai/billing").isEmpty, "xAI billing is never requested")
     }
 
-    func testUsageWithoutATaskReadsBillingWithoutCreatingOne() async throws {
+    func testUsageWithoutATaskStartsNothing() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let account = fixture.account
+        fixture.store.executeCommand(name: "usage")
+        XCTAssertEqual(fixture.store.sheet, .usage(.usage))
         account.refreshUsage()
         XCTAssertEqual(account.usage.context, .unavailable("No active session."))
         XCTAssertEqual(account.usage.sessionInfo, .unavailable("No active session."))
-        try await eventually { account.usage.billing.value != nil }
+        XCTAssertEqual(account.usage.sessionUsage, .unavailable("No active session."))
+        try await Task.sleep(nanoseconds: 200_000_000)
         XCTAssertTrue(fixture.store.state.conversations.isEmpty, "reading usage never creates a task")
         XCTAssertTrue(fixture.params(for: "session/new").isEmpty)
-        XCTAssertEqual(fixture.store.auxiliaryClients.count, 1, "a private connection answers account requests")
-        try await eventually { account.currentAnnouncement?.identifier == "fixture-incident" }
-        account.releaseAccountConnection()
-        XCTAssertTrue(fixture.store.auxiliaryClients.isEmpty)
+        XCTAssertTrue(fixture.store.auxiliaryClients.isEmpty, "no connection is started without a task")
     }
 
     func testInlineFeedbackSendsDesktopReportImmediately() async throws {
@@ -247,15 +224,18 @@ fixture.run()
         XCTAssertEqual(draft["details"] as? String, "Streaming stalls after tool calls")
     }
 
-    func testFeedbackFormAttachesTheTraceOnlyWithConsent() async throws {
+    func testFeedbackTraceIsNotOfferedWhenCodingDataIsOptedOut() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         try await startTask(fixture)
+        XCTAssertFalse(fixture.account.feedbackTraceOffered, "the harness reports coding-data sharing as opted out")
+    }
+
+    func testFeedbackFormAttachesTheTraceOnlyWithConsent() async throws {
+        let fixture = try Fixture(codingDataOptOut: false)
+        defer { fixture.cleanup() }
+        try await startTask(fixture)
         let account = fixture.account
-        XCTAssertFalse(account.feedbackTraceOffered, "the account is opted out of coding-data sharing")
-        account.setCodingDataSharing(optedIn: true)
-        try await eventually { account.privacy.optOut == false && !account.privacy.pending }
-        XCTAssertEqual(fixture.params(for: "_x.ai/privacy/setCodingDataRetention").last?["codingDataRetentionOptOut"] as? Bool, false)
         XCTAssertTrue(account.feedbackTraceOffered)
         let result = await account.submitFeedback(FeedbackComposition(text: "It deleted a file", taxonomy: FeedbackTaxonomySelection(type: .bug, taskCategory: .codeEdit, failureMode: .destructive),
                                                                       traceChoice: .sendThisSession))
@@ -312,36 +292,6 @@ fixture.run()
         try await account.deleteFeedbackDraft(id: "draft-1")
         XCTAssertEqual(account.feedbackDrafts, .loaded([]))
         XCTAssertEqual(fixture.params(for: "_x.ai/feedback/drafts/delete").last?["draft_id"] as? String, "draft-1")
-    }
-
-    func testPrivacyChangeRollsBackWhenTheServiceFails() async throws {
-        let fixture = try Fixture(failPrivacyAfter: 0)
-        defer { fixture.cleanup() }
-        let account = fixture.account
-        account.refreshPrivacy()
-        try await eventually { account.privacy.optOut == true }
-        XCTAssertFalse(fixture.params(for: "_x.ai/auth/info").isEmpty, "with nothing known, the choice is read from the account")
-        account.setCodingDataSharing(optedIn: true)
-        XCTAssertEqual(account.privacy.optOut, false, "applied at once")
-        XCTAssertTrue(account.privacy.pending)
-        try await eventually { !account.privacy.pending }
-        XCTAssertEqual(account.privacy.optOut, true, "rolled back")
-        XCTAssertEqual(fixture.store.banner, "✗ Couldn't update coding data sharing: server returned HTTP 503")
-        XCTAssertTrue(fixture.store.state.conversations.isEmpty)
-    }
-
-    func testLogoutSignsOutAndDropsIdleConnections() async throws {
-        let fixture = try Fixture()
-        defer { fixture.cleanup() }
-        try await startTask(fixture)
-        let id = try XCTUnwrap(fixture.store.state.selectedConversationID)
-        XCTAssertNotNil(fixture.store.clients[id])
-        fixture.store.executeCommand(name: "logout")
-        try await eventually { fixture.store.banner == "Logged out (was signed in as dev@example.com)." }
-        XCTAssertEqual(fixture.params(for: "_x.ai/auth/logout").count, 1)
-        XCTAssertNil(fixture.store.clients[id], "the next prompt starts a fresh connection and signs in again")
-        XCTAssertFalse(fixture.store.loaded.contains(id))
-        XCTAssertTrue(fixture.store.harnessMeta.authenticate.isEmpty)
     }
 
     func testAnnouncementPushesReachTheBannerFromTaskConnections() async throws {

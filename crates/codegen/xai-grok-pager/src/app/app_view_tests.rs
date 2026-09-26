@@ -4822,20 +4822,20 @@ fn prompt_focused_bare_text_chars_promote_no_action() {
     }
 }
 #[test]
-fn welcome_pending_l_triggers_login() {
+fn welcome_pending_l_never_starts_xai_login() {
     let mut app = test_app();
     app.auth_state = AuthState::Pending { error: None };
     app.welcome_prompt_focused = false;
     let outcome = app.handle_input(&key_event(KeyCode::Char('l'), KeyModifiers::NONE));
-    assert!(matches!(outcome, InputOutcome::Action(Action::Login)));
+    assert!(!matches!(outcome, InputOutcome::Action(Action::Login)), "{outcome:?}");
 }
 #[test]
-fn welcome_pending_enter_triggers_login() {
+fn welcome_pending_enter_never_starts_xai_login() {
     let mut app = test_app();
     app.auth_state = AuthState::Pending { error: None };
     app.welcome_prompt_focused = false;
     let outcome = app.handle_input(&key_event(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(matches!(outcome, InputOutcome::Action(Action::Login)));
+    assert!(!matches!(outcome, InputOutcome::Action(Action::Login)), "{outcome:?}");
 }
 #[test]
 fn welcome_pending_n_is_unchanged() {

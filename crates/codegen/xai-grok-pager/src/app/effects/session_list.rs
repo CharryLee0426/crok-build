@@ -40,7 +40,7 @@ pub enum ConversationsPartial {
 impl ConversationsPartial {
     pub(crate) fn picker_notice(self) -> &'static str {
         match self {
-            Self::NoOauth => "Couldn't load your chats: log in with /login",
+            Self::NoOauth => "Cloud chats need an xAI account, which isn't supported",
             Self::Timeout | Self::Error => "Couldn't load conversations: retry",
         }
     }

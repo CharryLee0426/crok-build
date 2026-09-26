@@ -11,7 +11,9 @@ and load provider credentials and configuration.
 Open `Grok-Desktop-<version>-arm64.dmg` and drag **Grok Desktop** to
 **Applications**. The app includes Grok Build, the same runtime and `grok` TUI as
 the CLI, so nothing else needs to be installed. It requires macOS 14 or later on
-Apple silicon. On first launch, sign in from **Settings › Accounts**.
+Apple silicon. On first launch, sign in to OpenRouter or OpenAI Codex from
+**Settings › Accounts**. xAI accounts are not supported; Grok models are available
+through OpenRouter.
 
 The disk image is ad hoc signed and not notarized, so macOS blocks the first launch
 with a message that it cannot verify the app. Open **System Settings › Privacy &
@@ -105,10 +107,15 @@ swift test --package-path desktop/macOS
 ## Use the app
 
 1. Choose **Open Project** and select the folder Grok should work in.
-2. In **Settings**, check **Accounts**. Existing CLI credentials are reused.
-   Each provider shows its saved account identity when available, and signed-in
-   accounts cannot start another sign-in. OpenRouter API keys do not include an
-   account name; this is stated explicitly.
+2. In **Settings**, check **Accounts** and sign in to OpenRouter or OpenAI Codex
+   (`/login` opens the same place). Existing CLI credentials from
+   `grok login openrouter` or `grok login openai-codex`, and `OPENROUTER_API_KEY`,
+   are reused. Each provider shows its saved account identity when available, and
+   signed-in accounts cannot start another sign-in. OpenRouter API keys do not
+   include an account name; this is stated explicitly. xAI accounts (xAI sign-in,
+   `XAI_API_KEY`) are not supported; use Grok models through OpenRouter. To sign
+   out, run `grok logout <provider>` (or `grok logout` for every provider) in the
+   side panel's Terminal.
 3. Start a task and send a prompt. Responses stream into the conversation, with
    expandable thinking and tool output, plan progress, permission requests,
    project trust decisions, and agent questions. Messages you send while Grok is
@@ -162,10 +169,10 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   tools are advertised.
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
-records all 75 pager commands, shell built-ins, CLI families, exact ACP
+records all 72 pager commands, shell built-ins, CLI families, exact ACP
 contracts, and what each command does in the desktop app. Commands that open a
 picker or panel in the terminal open a native sheet or window here: usage and
-context, session info, feedback, privacy, release notes, guides, the tutorial,
+context, session info, feedback, release notes, guides, the tutorial,
 themes, resume, the session dashboard, tasks and workflow runs, the trace
 viewer, diagnostics (`/doctor`), memory, `/remember`, marketplace, personas,
 agent definitions, and Import Claude settings. Preferences the terminal also
@@ -269,9 +276,9 @@ does; it ends when you quit the app or restart it from the panel. Pasted and
 dragged image data waits in a temporary folder until it is sent. `/fork --worktree` (or the ask sheet)
 creates a git worktree and adds it as a project; `/trace` and `/export` run the
 bundled `grok` executable. After you open the app, it clears the download
-quarantine from its bundled `grok` so terminals can run it. Dictation needs microphone permission; it streams to
-xAI's speech-to-text service with an xAI sign-in, and otherwise uses on-device
-recognition. GBOOM runs at full speed only in release builds.
+quarantine from its bundled `grok` so terminals can run it. Dictation needs microphone permission; it transcribes
+each utterance with an OpenRouter model (chosen in **Settings › Behavior**) using your OpenRouter sign-in or
+`OPENROUTER_API_KEY`, and without one uses on-device recognition. GBOOM runs at full speed only in release builds.
 
 ## Validation
 

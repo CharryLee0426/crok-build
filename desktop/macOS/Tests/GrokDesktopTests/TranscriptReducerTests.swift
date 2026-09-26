@@ -84,8 +84,8 @@ final class HarnessFixtureTests: XCTestCase {
         let client = ACPClient()
         try client.start(executable: "/usr/bin/python3", cwd: NSTemporaryDirectory(), arguments: [fixture.path, "agent", "stdio"])
         let initial = try await client.request("initialize", params: ["protocolVersion": 1], timeout: 5)
-        XCTAssertEqual((initial["_meta"] as? [String: Any])?["defaultAuthMethodId"] as? String, "cached_token")
-        _ = try await client.request("authenticate", params: ["methodId": "cached_token"], timeout: 5)
+        XCTAssertEqual((initial["_meta"] as? [String: Any])?["defaultAuthMethodId"] as? String, "xai.api_key")
+        _ = try await client.request("authenticate", params: ["methodId": "xai.api_key"], timeout: 5)
         return client
     }
 

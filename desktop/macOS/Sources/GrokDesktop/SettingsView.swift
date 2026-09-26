@@ -29,7 +29,7 @@ struct SettingsView: View {
                         }
                         VStack(spacing: 0) {
                             ForEach(AccountProvider.allCases) { provider in
-                                if provider != .xai { Divider().padding(.leading, 46) }
+                                if provider != AccountProvider.allCases.first { Divider().padding(.leading, 46) }
                                 accountRow(provider)
                             }
                         }
@@ -56,7 +56,6 @@ struct SettingsView: View {
                             }
                             .font(.system(size: 13))
                         }
-                        AccountSettingsExtras()
                     }
                     .padding(18)
                     .glassSurface(cornerRadius: 18)

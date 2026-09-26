@@ -442,6 +442,7 @@ impl acp::Agent for MvpAgent {
                 preferred_method,
             })
         };
+        let built = crate::agent::builtin_providers::provider_auth_methods(built);
         let auth_methods = built.methods;
         xai_grok_telemetry::unified_log::info(
             "auth: initialize() built auth_methods for ACP response",
@@ -610,6 +611,18 @@ impl acp::Agent for MvpAgent {
             None,
             Some(serde_json::json!({"method": arguments.method_id.0.as_ref()})),
         );
+        // xAI account sign-in (cached_token, grok.com, oidc) is not supported; only provider,
+        // `[model.*]`, and `XAI_API_KEY` credentials authenticate, through `xai.api_key`.
+        if !auth_method::AuthMethodKind::from_id(&arguments.method_id).is_api_key() {
+            emit_login_span(
+                false,
+                arguments.method_id.0.as_ref(),
+                None,
+                Some("xai_account_unsupported"),
+            );
+            return Err(acp::Error::auth_required()
+                .data(crate::agent::builtin_providers::PROVIDER_SIGN_IN_REQUIRED));
+        }
         if let Some(preferred) = self.cfg.borrow().grok_com_config.preferred_method {
             let kind = auth_method::AuthMethodKind::from_id(&arguments.method_id);
             let allowed = match preferred {
@@ -667,9 +680,7 @@ impl acp::Agent for MvpAgent {
                         emit_login_span(false, "api_key", None, Some("no_credentials"));
                         return Err(
                             acp::Error::auth_required()
-                                .data(
-                                    "Set XAI_API_KEY or add api_key/env_key to config.toml.",
-                                ),
+                                .data(crate::agent::builtin_providers::PROVIDER_SIGN_IN_REQUIRED),
                         );
                     }
                 }

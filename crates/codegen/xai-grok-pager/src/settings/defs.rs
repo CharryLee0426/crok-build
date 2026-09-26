@@ -290,11 +290,6 @@ const VOICE_STT_PROVIDER_CHOICES: &[EnumChoice] = &[
         display: "OpenRouter",
         description: "OpenRouter transcription models (Voice model), billed to your OpenRouter key.",
     },
-    EnumChoice {
-        canonical: "xai",
-        display: "xAI (Grok STT)",
-        description: "Streaming Grok speech-to-text; needs an xAI login or XAI_API_KEY.",
-    },
 ];
 
 // Voice STT language choices for the settings modal. Concrete codes must match `xai_grok_voice::STT_LANGUAGES`,
@@ -1477,7 +1472,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             label: "Voice provider",
             description: "Speech-to-text service for voice dictation. OpenRouter uses \
                           your OpenRouter key (`grok login openrouter`) and the Voice \
-                          model below; xAI uses Grok STT with an xAI login.",
+                          model below.",
             keywords: &[
                 "voice",
                 "provider",

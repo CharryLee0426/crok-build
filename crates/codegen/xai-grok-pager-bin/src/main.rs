@@ -2411,53 +2411,13 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
             Command::Login {
                 provider,
                 with_api_key,
-                legacy: _,
-                oauth,
-                device_auth,
-                devbox,
             } => {
                 init_tracing_simple("cli");
-                let _otel_guard = xai_grok_telemetry::otel_layer::otel_guard();
-                if let Some(provider) = provider {
-                    anyhow::ensure!(
-                        !device_auth && !devbox,
-                        "Provider login uses browser OAuth; --device-auth and --devbox apply to Grok login only"
-                    );
-                    return provider_login::login(provider, with_api_key).await;
-                }
-                let config = xai_grok_shell::config::load_agent_config_disk_only()
-                    .map_err(|e| anyhow::anyhow!("Failed to create agent config: {e}"))?;
-                let authenticated = xai_grok_login::run_cli_login(
-                    config.grok_com_config.clone(),
-                    config.login_device_flow,
-                    config.endpoints.proxy_url(),
-                    oauth,
-                    device_auth,
-                    devbox,
-                    |auth_manager| {
-                        xai_grok_shell::agent::init::update_telemetry_config(&config, auth_manager)
-                    },
-                )
-                .await?;
-                xai_grok_shell::agent::init::apply_post_login_config(authenticated).await?;
-                println!();
-                xai_grok_shell::instrumentation::finalize_and_exit(0);
+                return provider_login::login(provider, with_api_key).await;
             }
             Command::Logout { provider } => {
                 init_tracing_simple("cli");
-                if let Some(provider) = provider {
-                    xai_grok_login::provider_auth::remove_provider_credential(
-                        &xai_grok_config::grok_home(),
-                        provider.provider(),
-                    )
-                    .await?;
-                    println!("Provider credentials removed.");
-                    return Ok(());
-                }
-                let config = xai_grok_shell::config::load_agent_config_disk_only()
-                    .map_err(|e| anyhow::anyhow!("Failed to create agent config: {e}"))?;
-                xai_grok_shell::agent::init::run_cli_logout(&config.grok_com_config)?;
-                xai_grok_shell::instrumentation::finalize_and_exit(0);
+                return provider_login::logout(provider).await;
             }
             Command::Wrap(ref wrap_args) => {
                 return xai_grok_pager::wrap_cmd::run(wrap_args);

@@ -3,8 +3,7 @@ import Foundation
 
 /// Extension panels: MCP servers, skills, plugins, marketplace, hooks, memory, workflows, agents, personas.
 extension AppStore {
-    /// `cache: false` asks `mcp/list` to reload servers, as after returning from grok.com connectors.
-    func refreshFeatures(_ panel: FeaturePanel, cache: Bool? = nil) async {
+    func refreshFeatures(_ panel: FeaturePanel) async {
         let extensions = features.extensions
         if panel == .memory { await extensions.memory.load(); return }
         let requestID = UUID()
@@ -37,7 +36,7 @@ extension AppStore {
             if let session { params["sessionId"] = session }
             let method: String
             switch panel {
-            case .mcps: method = "mcp/list"; if let cache { params["cache"] = cache }
+            case .mcps: method = "mcp/list"
             case .skills: method = "skills/list"
             case .agents: method = "subagent/list_running"
             case .plugins: method = "plugins/list"

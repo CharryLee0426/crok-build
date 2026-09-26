@@ -46,7 +46,7 @@ enum DesktopCommands {
         command("export", "Export the conversation to a file or the clipboard", hint: "[filename]"),
         command("copy", "Copy the last response to the clipboard or a file", hint: "[N] [file]"),
         command("find", "Search the conversation", hint: "[text]"),
-        command("usage", "Show usage and limits", hint: "[show|manage]", aliases: ["cost"]),
+        command("usage", "Show token and cost usage for this session", aliases: ["cost"]),
         command("tasks", "Show background tasks, workflows, and subagents"),
         // Extending the agent.
         command("skills", "Browse, enable, and run skills"),
@@ -80,11 +80,9 @@ enum DesktopCommands {
         command("release-notes", "Show what's new in this version", aliases: ["changelog"]),
         command("announcements", "Hide or show the announcement banner", hint: "<hide|show>"),
         command("feedback", "Send feedback to the Grok Build team", hint: "[text]"),
-        command("privacy", "Coding data, retention, and training settings"),
         command("doctor", "Check your environment and suggest fixes", hint: "[fix [name]]", aliases: ["terminal-setup", "terminal-check", "terminal-info"]),
         command("import-claude", "Import Claude settings into Grok"),
-        command("login", "Sign in or re-authenticate"),
-        command("logout", "Sign out of your account"),
+        command("login", "Sign in to OpenRouter or OpenAI Codex"),
         command("home", "Return to a new task without stopping this one", aliases: ["welcome"]),
         command("delete", "Delete this task"),
         command("exit", "Quit Grok Desktop", aliases: ["quit", "q"]),
@@ -176,7 +174,6 @@ extension SlashCommand {
         case "memory", "remember", "flush", "dream": return "brain.head.profile"
         case "queue": return "text.line.first.and.arrowtriangle.forward"
         case "tasks": return "checklist"
-        case "privacy": return "hand.raised"
         case "fork": return "arrow.triangle.branch"
         case "auto", "always-approve": return "checkmark.shield"
         default: return isSkill ? "sparkles" : "command"
@@ -272,11 +269,9 @@ extension AppStore {
         case "release-notes": features.account.openReleaseNotes()
         case "announcements": features.account.announcements(arguments)
         case "feedback": features.account.feedback(arguments)
-        case "privacy": features.account.openPrivacy()
         case "doctor": features.sessions.openDoctor(arguments)
         case "import-claude": features.extensions.openImportClaude()
         case "login": showSettings = true
-        case "logout": features.account.logout()
         case "delete": features.sessions.deleteCurrent()
         case "exit": NSApp.terminate(nil)
         case "gboom":

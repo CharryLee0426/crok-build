@@ -46,7 +46,7 @@ enum GuideLibrary {
 
     static let catalog: [Entry] = [
         Entry(fileName: "01-getting-started.md", title: "Getting Started", summary: "Installation, first launch, and basic interaction"),
-        Entry(fileName: "02-authentication.md", title: "Authentication", summary: "Browser login, API keys, OIDC, external auth providers"),
+        Entry(fileName: "02-authentication.md", title: "Authentication", summary: "Sign in to OpenRouter or OpenAI Codex"),
         Entry(fileName: "03-keyboard-shortcuts.md", title: "Keyboard Shortcuts", summary: "Complete reference for all TUI key bindings"),
         Entry(fileName: "04-slash-commands.md", title: "Slash Commands", summary: "All / commands, including goals, research, and workflow management"),
         Entry(fileName: "05-configuration.md", title: "Configuration", summary: "config.toml, pager.toml, environment variables, file locations"),

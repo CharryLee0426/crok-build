@@ -285,9 +285,7 @@ fn new_with_row_visibility_controls_theme_row() {
         Arc::clone(&registry),
         UiConfig::default(),
         PagerLocalSnapshot::default(),
-        RowVisibility {
-            hide_appearance: false,
-        },
+        RowVisibility::default(),
     );
     let hidden = SettingsModalState::new_with_row_visibility(
         registry,
@@ -295,6 +293,7 @@ fn new_with_row_visibility_controls_theme_row() {
         PagerLocalSnapshot::default(),
         RowVisibility {
             hide_appearance: true,
+            ..RowVisibility::default()
         },
     );
     assert!(
@@ -311,6 +310,27 @@ fn new_with_row_visibility_controls_theme_row() {
             .any(|r| matches!(r, RowEntry::Setting { key: "theme", .. })),
         "hide_appearance true must hide theme"
     );
+}
+
+#[test]
+fn new_with_row_visibility_hides_xai_account_rows() {
+    let registry = Arc::new(SettingsRegistry::defaults());
+    let lists = |hide_xai_account_rows| {
+        SettingsModalState::new_with_row_visibility(
+            Arc::clone(&registry),
+            UiConfig::default(),
+            PagerLocalSnapshot::default(),
+            RowVisibility {
+                hide_xai_account_rows,
+                ..RowVisibility::default()
+            },
+        )
+        .rows
+        .iter()
+        .any(|r| matches!(r, RowEntry::Setting { key: "coding_data_sharing", .. }))
+    };
+    assert!(lists(false), "the flag off keeps the registry's coding-data row");
+    assert!(!lists(true), "provider sessions never list the xAI account's coding-data row");
 }
 
 /// `action_for_bool` mirrors `current_value_for`: every registered Bool setting must have an arm here too.

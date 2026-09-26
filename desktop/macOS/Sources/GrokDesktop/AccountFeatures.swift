@@ -1,20 +1,18 @@
 import AppKit
 import SwiftUI
 
-/// Usage, context, session info, feedback, privacy, sign-out, release notes, and announcements.
+/// Usage, context, session info, feedback, release notes, and announcements.
 @MainActor
 final class AccountFeatureModel: ObservableObject {
     weak var store: AppStore?
 
     /// The usage sheet's tab. `/usage`, `/context`, and `/session-info` switch it in place when the sheet is open.
-    @Published var usageTab: UsageTab = .limit
+    @Published var usageTab: UsageTab = .usage
     @Published private(set) var usage = UsageSheetState()
-    @Published private(set) var privacy = AccountPrivacyState()
     @Published private(set) var releaseNotes = ReleaseNotesState()
     @Published private(set) var announcements: [GrokAnnouncement] = []
     @Published private(set) var hiddenAnnouncementKeys: Set<String> = []
     @Published private(set) var feedbackDrafts: FeedbackDraftListState = .idle
-    @Published private(set) var isSigningOut = false
 
     /// Opens links in the browser. Tests replace it so nothing leaves the process.
     var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
@@ -26,20 +24,12 @@ final class AccountFeatureModel: ObservableObject {
     private var usageRequestID: UUID?
     private var releaseNotesRequestID: UUID?
     private var draftsRequestID: UUID?
-    private var privacyRequestID: UUID?
-    private var privacyWriteSeq = 0
-    /// The choice of the coding-data write in flight and the value to restore if it fails.
-    private var pendingPrivacyWrite: (optedIn: Bool, rollbackOptOut: Bool?)?
     private var announcementsGeneration: UInt64 = 0
     private var announcementExpiry: Task<Void, Never>?
     private let announcementWrites = DispatchQueue(label: "ai.grok.desktop.announcements", qos: .utility)
     /// "No, and don't ask again" applies to the rest of this run even before config.toml is read again.
     private var feedbackTraceLatched = false
     private var showResolvedModel = false
-    private var accountClient: ACPClient?
-    private var accountClientKey: UUID?
-    private var accountClientStart: Task<ACPClient, Error>?
-    private var accountReleaseGeneration = 0
 
     init(store: AppStore) { self.store = store }
 
@@ -68,15 +58,11 @@ final class AccountFeatureModel: ObservableObject {
 
     // MARK: Command entry points
 
-    /// `/usage [show|manage]`, alias `/cost`.
+    /// `/usage`, alias `/cost`: the current session's token and cost totals.
     func usage(_ arguments: String) {
-        guard let store else { return }
-        switch UsageCommandRules.parse(arguments, commandVisible: store.harnessMeta.allowsUsageCommand,
-                                       billingVisible: store.harnessMeta.showsConsumerBilling) {
-        case .show: presentUsage(.limit)
-        case .manage: if let url = URL(string: UsageCommandRules.manageBillingURL) { openURL(url) }
-        case .failure(let message): store.banner = message
-        }
+        let argument = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard argument.isEmpty else { store?.banner = "Unknown argument: \(argument). Use /usage"; return }
+        presentUsage(.usage)
     }
     /// `/context`. The shell's own `/context` prompt does nothing, so it is never forwarded.
     func openContext() { presentUsage(.context) }
@@ -87,10 +73,6 @@ final class AccountFeatureModel: ObservableObject {
         let text = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty { store?.sheet = .feedback(text: "") } else { sendInlineFeedback(text) }
     }
-    /// `/privacy`.
-    func openPrivacy() { store?.sheet = .privacy }
-    /// `/logout`. Like the terminal, the command signs out without asking; the Settings button confirms first.
-    func logout() { Task { await signOut() } }
     /// `/release-notes`, alias `/changelog`.
     func openReleaseNotes() {
         store?.open(.releaseNotes)
@@ -113,74 +95,6 @@ final class AccountFeatureModel: ObservableObject {
         store.sheet = .usage(tab)
     }
 
-    // MARK: Connections
-
-    /// A connected harness for account-wide requests (billing, privacy, sign-out): the selected
-    /// task's live connection, or a private one, so reading them never creates a task.
-    func accountConnection() async throws -> ACPClient {
-        guard let store else { throw DesktopError.message("Grok Desktop is closing.") }
-        accountReleaseGeneration += 1
-        if let id = store.state.selectedConversationID, store.loaded.contains(id), let client = store.clients[id], client.isRunning {
-            return client
-        }
-        if let client = accountClient, client.isRunning { return client }
-        if let pending = accountClientStart { return try await pending.value }
-        guard FileManager.default.isExecutableFile(atPath: store.binaryPath) else {
-            throw DesktopError.message("The bundled Grok runtime is missing. Reinstall Grok Desktop.")
-        }
-        let cwd = store.project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let start = Task { @MainActor [weak store] () throws -> ACPClient in
-            guard let store else { throw CancellationError() }
-            let client = ACPClient()
-            client.onNotification = { [weak store] method, params in
-                store?.features.handleGlobal(method: method.hasPrefix("_") ? String(method.dropFirst()) : method, params: params)
-            }
-            do {
-                try client.start(executable: store.binaryPath, cwd: cwd)
-                let initial = try await store.initialize(client)
-                try await store.authenticate(client, initial: initial)
-                return client
-            } catch {
-                client.stop()
-                throw error
-            }
-        }
-        accountClientStart = start
-        do {
-            let client = try await start.value
-            accountClientStart = nil
-            releaseAccountConnection()
-            let key = UUID()
-            accountClient = client; accountClientKey = key
-            // Registered with the store so quitting stops it with the other helper processes.
-            store.auxiliaryClients[key] = client
-            return client
-        } catch {
-            accountClientStart = nil
-            throw error
-        }
-    }
-
-    /// Stops the private connection a little after account views close, unless a request is still
-    /// in flight or another view needs it again first.
-    func releaseAccountConnectionSoon(after seconds: Double = 20) {
-        accountReleaseGeneration += 1
-        let generation = accountReleaseGeneration
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard let self, self.accountReleaseGeneration == generation,
-                  self.pendingPrivacyWrite == nil, !self.isSigningOut else { return }
-            self.releaseAccountConnection()
-        }
-    }
-
-    /// Stops the private account connection, if one was started.
-    func releaseAccountConnection() {
-        accountClient?.stop(); accountClient = nil
-        if let key = accountClientKey { store?.auxiliaryClients.removeValue(forKey: key) }
-        accountClientKey = nil
-    }
-
     /// The selected task's session, when there is a task. Nothing is created without one.
     private func selectedSession() async throws -> (ACPClient, UUID, String)? {
         guard let store, store.state.selectedConversationID != nil else { return nil }
@@ -196,43 +110,29 @@ final class AccountFeatureModel: ObservableObject {
         usageRequestID = requestID
         let conversation = store.conversation
         var state = UsageSheetState()
-        state.hasSession = conversation != nil
-        state.billingVisible = store.harnessMeta.showsConsumerBilling
         if conversation != nil {
             state.context = .loading; state.sessionInfo = .loading; state.sessionUsage = .loading
         } else {
             state.context = .unavailable("No active session.")
             state.sessionInfo = .unavailable("No active session.")
-            state.sessionUsage = .idle
+            state.sessionUsage = .unavailable("No active session.")
         }
-        state.billing = state.billingVisible ? .loading : .idle
         usage = state
         Task { await loadUsage(requestID: requestID, title: conversation?.title) }
     }
 
     private func loadUsage(requestID: UUID, title: String?) async {
-        guard let store else { return }
         let session: (ACPClient, UUID, String)?
         do { session = try await selectedSession() } catch {
             guard usageRequestID == requestID else { return }
             let message = AccountErrorText.describe(error)
             usage.context = .failed(message); usage.sessionInfo = .failed(message); usage.sessionUsage = .failed(message)
-            await loadBilling(requestID: requestID, client: nil)
             return
         }
-        guard usageRequestID == requestID else { return }
-        // The account is known once a connection exists; team and API-key accounts have no billing.
-        usage.billingVisible = store.harnessMeta.showsConsumerBilling
-        usage.subscriptionTier = store.harnessMeta.subscriptionTier
-        if !usage.billingVisible { usage.billing = .idle }
-        guard case let (client, _, sessionID)? = session else {
-            await loadBilling(requestID: requestID, client: nil)
-            return
-        }
+        guard usageRequestID == requestID, case let (client, _, sessionID)? = session else { return }
         async let info: Void = loadSessionInfo(requestID: requestID, client: client, sessionID: sessionID, title: title)
         async let totals: Void = loadSessionUsage(requestID: requestID, client: client, sessionID: sessionID)
-        async let billing: Void = loadBilling(requestID: requestID, client: client)
-        _ = await (info, totals, billing)
+        _ = await (info, totals)
     }
 
     private func loadSessionInfo(requestID: UUID, client: ACPClient, sessionID: String, title: String?) async {
@@ -244,7 +144,7 @@ final class AccountFeatureModel: ObservableObject {
             usage.contextModel = info.model ?? "unknown"
             usage.sessionInfo = .loaded(UsageFormatting.sessionInfoRows(
                 info, title: title, shellVersion: store.harnessMeta.agentVersion,
-                auth: store.harnessMeta.sessionInfoAuthMethod, showResolvedModel: showResolvedModel))
+                auth: .providerCredentials, showResolvedModel: showResolvedModel))
         } catch {
             guard usageRequestID == requestID else { return }
             let message = AccountErrorText.describe(error)
@@ -264,42 +164,6 @@ final class AccountFeatureModel: ObservableObject {
         }
     }
 
-    private func loadBilling(requestID: UUID, client: ACPClient?) async {
-        guard let store, store.harnessMeta.showsConsumerBilling else {
-            if usageRequestID == requestID { usage.billing = .idle }
-            return
-        }
-        do {
-            let connection: ACPClient
-            if let client { connection = client } else { connection = try await accountConnection() }
-            guard usageRequestID == requestID else { return }
-            // A private connection learns the account only now.
-            usage.billingVisible = store.harnessMeta.showsConsumerBilling
-            usage.subscriptionTier = store.harnessMeta.subscriptionTier
-            guard usage.billingVisible else { usage.billing = .idle; return }
-            let response = try ExtensionResponse.unwrap(try await connection.request("_x.ai/billing", timeout: 20))
-            guard usageRequestID == requestID else { return }
-            var billing = UsageBilling(response)
-            if let tier = billing.subscriptionTier { usage.subscriptionTier = tier }
-            if billing.balance?.hasPrepaidCredits == true {
-                // A failed rule fetch leaves the rule unknown rather than "disabled".
-                if let rule = try? ExtensionResponse.unwrap(try await connection.request("_x.ai/auto-topup-rule", timeout: 15)) {
-                    billing.autoTopup = UsageAutoTopup(rule)
-                }
-                guard usageRequestID == requestID else { return }
-            }
-            usage.billing = .loaded(billing)
-        } catch {
-            guard usageRequestID == requestID else { return }
-            usage.billing = .failed(AccountErrorText.describe(error))
-        }
-    }
-
-    /// `/usage manage` and the sheet's Manage billing button.
-    func manageBilling() {
-        if let url = URL(string: UsageCommandRules.manageBillingURL) { openURL(url) }
-    }
-
     // MARK: Feedback
 
     /// Whether to ask about attaching the session trace, following the terminal's gates:
@@ -307,7 +171,7 @@ final class AccountFeatureModel: ObservableObject {
     /// and not declined with "don't ask again".
     var feedbackTraceOffered: Bool {
         guard let store, store.harnessMeta.feedbackTraceOffer, !feedbackTraceLatched else { return false }
-        let optOut = privacy.optOut ?? store.harnessMeta.codingDataRetentionOptOut ?? true
+        let optOut = store.harnessMeta.codingDataRetentionOptOut ?? true
         let config = GrokConfig(url: grokHome().appendingPathComponent("config.toml"))
         return !optOut && !store.harnessMeta.isZDR && store.harnessMeta.teamName == nil
             && config.bool("feedback_trace_card", in: "features") != false
@@ -480,111 +344,6 @@ final class AccountFeatureModel: ObservableObject {
         if case .loaded(let rows) = feedbackDrafts { feedbackDrafts = .loaded(rows.filter { $0.id != id }) }
     }
 
-    // MARK: Privacy
-
-    /// Reads the coding-data choice and whether the account may change it. The sign-in reply
-    /// already carries it; a private connection is started only when nothing is known yet.
-    func refreshPrivacy() {
-        guard let store else { return }
-        guard pendingPrivacyWrite == nil else { return }
-        let meta = store.harnessMeta
-        privacy.isZDR = meta.isZDR
-        privacy.teamName = meta.teamName
-        privacy.teamRole = meta.teamRole
-        if let optOut = meta.codingDataRetentionOptOut { privacy.optOut = optOut }
-        let live = store.state.selectedConversationID.map { store.loaded.contains($0) && store.clients[$0] != nil } ?? false
-        guard privacy.optOut == nil || live || accountClient?.isRunning == true else { return }
-        let requestID = UUID()
-        privacyRequestID = requestID
-        privacy.loading = privacy.optOut == nil
-        Task {
-            defer { if privacyRequestID == requestID { privacy.loading = false } }
-            do {
-                let client = try await accountConnection()
-                let info = try ExtensionResponse.unwrap(try await client.request("_x.ai/auth/info", timeout: 15))
-                guard privacyRequestID == requestID, pendingPrivacyWrite == nil else { return }
-                privacy.optOut = info["codingDataRetentionOptOut"] as? Bool ?? privacy.optOut
-                privacy.teamName = (info["teamName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                privacy.teamRole = info["teamRole"] as? String
-                privacy.isZDR = store.harnessMeta.isZDR
-                privacy.error = nil
-            } catch {
-                guard privacyRequestID == requestID, privacy.optOut == nil else { return }
-                privacy.error = "Couldn't read your privacy setting: \(AccountErrorText.describe(error))"
-            }
-        }
-    }
-
-    /// Applies the choice at once and rolls it back if the account service rejects it.
-    func setCodingDataSharing(optedIn: Bool) {
-        guard let store else { return }
-        if let lock = privacy.lock {
-            store.banner = lock.blockedNotice
-            return
-        }
-        if pendingPrivacyWrite?.optedIn == optedIn { return }
-        let currentlyOptedIn = privacy.optOut == false
-        // Only an idle opt-in can be skipped: a displayed "out" may be the unconfirmed default.
-        if optedIn, currentlyOptedIn, pendingPrivacyWrite == nil { return }
-        let rollback = pendingPrivacyWrite?.rollbackOptOut ?? privacy.optOut
-        pendingPrivacyWrite = (optedIn, rollback)
-        privacyWriteSeq += 1
-        let seq = privacyWriteSeq
-        privacyRequestID = nil
-        privacy.loading = false
-        privacy.optOut = !optedIn
-        privacy.pending = true
-        privacy.error = nil
-        Task {
-            do {
-                let client = try await accountConnection()
-                let result = try ExtensionResponse.unwrap(try await client.request("_x.ai/privacy/setCodingDataRetention",
-                                                                                   params: ["codingDataRetentionOptOut": !optedIn]))
-                // Writes can finish out of order; only the newest may settle the value.
-                guard seq == privacyWriteSeq else { return }
-                let confirmed = result["codingDataRetentionOptOut"] as? Bool ?? !optedIn
-                pendingPrivacyWrite = nil
-                privacy.optOut = confirmed
-                privacy.pending = false
-                store.harnessMeta.authenticate["coding_data_retention_opt_out"] = confirmed
-            } catch {
-                guard seq == privacyWriteSeq else { return }
-                pendingPrivacyWrite = nil
-                privacy.optOut = rollback
-                privacy.pending = false
-                let message = "✗ Couldn't update coding data sharing: \(AccountErrorText.scrubbedForNotice(AccountErrorText.describe(error)))"
-                privacy.error = message
-                store.banner = message
-            }
-        }
-    }
-
-    // MARK: Sign out
-
-    /// Signs out through the harness, which clears the credentials the CLI and Grok Desktop share.
-    func signOut() async {
-        guard let store, !isSigningOut else { return }
-        isSigningOut = true
-        defer { isSigningOut = false }
-        do {
-            let client = try await accountConnection()
-            let result = try ExtensionResponse.unwrap(try await client.request("_x.ai/auth/logout", timeout: 30))
-            store.banner = LogoutSummary(result).message
-            // Idle connections still hold the old sign-in; the next prompt starts a fresh one and signs in again.
-            for id in Array(store.clients.keys) where store.runs[id]?.isRunning != true && store.runs[id]?.isConfiguring != true {
-                store.discardConnection(id)
-            }
-            releaseAccountConnection()
-            store.catalogProjectID = nil
-            store.commandCatalogProjectID = nil
-            store.harnessMeta.authenticate = [:]
-            privacy = AccountPrivacyState()
-            pendingPrivacyWrite = nil
-        } catch {
-            store.banner = "Couldn't sign out: \(AccountErrorText.describe(error))"
-        }
-    }
-
     // MARK: Release notes
 
     func loadReleaseNotes() {
@@ -689,10 +448,9 @@ final class AccountFeatureModel: ObservableObject {
 #if DEBUG
 extension AccountFeatureModel {
     /// Puts panels into a given state without a harness, for snapshot tests.
-    func showPreviewState(usage: UsageSheetState? = nil, privacy: AccountPrivacyState? = nil, releaseNotes: ReleaseNotesState? = nil,
+    func showPreviewState(usage: UsageSheetState? = nil, releaseNotes: ReleaseNotesState? = nil,
                           drafts: FeedbackDraftListState? = nil, announcements: [GrokAnnouncement]? = nil) {
         if let usage { self.usage = usage }
-        if let privacy { self.privacy = privacy }
         if let releaseNotes { self.releaseNotes = releaseNotes }
         if let drafts { feedbackDrafts = drafts }
         if let announcements { self.announcements = announcements; hiddenAnnouncementKeys = [] }
@@ -700,34 +458,13 @@ extension AccountFeatureModel {
 }
 #endif
 
-// MARK: - Account facts
-
-extension HarnessMeta {
-    /// API-key sign-ins, whether reported by the account or implied by the offered methods.
-    var usesAPIKeySignIn: Bool {
-        if authenticate.isEmpty { return authMethods.contains { $0["id"] as? String == "xai.api_key" } }
-        return [authMode, subscriptionTier].contains { $0.map(Self.isAPIKeyAuthLabel) ?? false }
-    }
-    /// A personal subscription: not a team, not billed by a backend, not an API key or an external sign-in.
-    var showsConsumerBilling: Bool { teamName == nil && !backendBilled && !usesAPIKeySignIn && !usesExternalProvider }
-    /// External sign-in providers never reach grok.com billing, so `/usage` is refused there.
-    var allowsUsageCommand: Bool { !usesExternalProvider }
-    var sessionInfoAuthMethod: AccountAuthDescription {
-        guard usesAPIKeySignIn else { return AccountAuthDescription(method: "OAuth", note: nil) }
-        let fromEnvironment = !(ProcessInfo.processInfo.environment["XAI_API_KEY"] ?? "").trimmingCharacters(in: .whitespaces).isEmpty
-        return AccountAuthDescription(method: fromEnvironment ? "API key (XAI_API_KEY)" : "API key",
-                                      note: "Run `grok login` to use your SuperGrok subscription instead.")
-    }
-
-    static func isAPIKeyAuthLabel(_ value: String) -> Bool {
-        value.trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "_", with: "").replacingOccurrences(of: "-", with: "") == "apikey"
-    }
-}
-
+/// The Session info tab's "Auth method" row.
 struct AccountAuthDescription: Equatable {
     var method: String
     var note: String?
+
+    /// Grok Desktop signs in only with OpenRouter or OpenAI Codex credentials.
+    static let providerCredentials = AccountAuthDescription(method: "Provider credentials", note: nil)
 }
 
 /// Error text for notices. Harness errors carry their detail in JSON-RPC `data`.
@@ -739,76 +476,5 @@ enum AccountErrorText {
             return message
         }
         return error.localizedDescription
-    }
-
-    /// The terminal's rule for server text in a one-line notice: long or control-laden text is replaced.
-    static func scrubbedForNotice(_ error: String) -> String {
-        let unsafe = error.unicodeScalars.contains { scalar in
-            scalar.properties.generalCategory == .control || (0x202A...0x202E).contains(scalar.value) || (0x2066...0x2069).contains(scalar.value)
-        }
-        return error.utf8.count > 120 || unsafe ? "server error (see logs for details)" : error
-    }
-}
-
-/// `_x.ai/auth/logout` reply, summarised the way `grok logout` does.
-struct LogoutSummary: Equatable {
-    var wasLoggedIn: Bool
-    var email: String?
-    var apiKeyStillSet: Bool
-
-    init(_ result: [String: Any]) {
-        wasLoggedIn = result["was_logged_in"] as? Bool ?? false
-        email = (result["email"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        apiKeyStillSet = result["api_key_still_set"] as? Bool ?? false
-    }
-
-    var message: String {
-        var parts: [String]
-        if !wasLoggedIn {
-            parts = ["No cached session to log out of."]
-            if apiKeyStillSet { parts.append("You are authenticated via XAI_API_KEY (environment variable).") }
-        } else {
-            parts = [email.map { "Logged out (was signed in as \($0))." } ?? "Logged out."]
-            if apiKeyStillSet { parts.append("XAI_API_KEY is still set and will be used for authentication.") }
-        }
-        return parts.joined(separator: " ")
-    }
-}
-
-// MARK: - Settings
-
-/// Privacy and sign-out rows in the Accounts section of Settings.
-struct AccountSettingsExtras: View {
-    @EnvironmentObject var account: AccountFeatureModel
-    @State private var confirmSignOut = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Divider()
-            PrivacyChoiceView(compact: true)
-            Divider()
-            HStack(alignment: .center, spacing: 12) {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.system(size: 20)).foregroundStyle(Theme.muted).frame(width: 34)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Sign out of xAI").font(.system(size: 14, weight: .semibold))
-                    Text("Also signs out the Grok CLI.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Button(account.isSigningOut ? "Signing out…" : "Sign Out…") { confirmSignOut = true }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(account.isSigningOut)
-            }
-        }
-        .onAppear { account.refreshPrivacy() }
-        .onDisappear { account.releaseAccountConnectionSoon() }
-        .alert("Sign out of xAI?", isPresented: $confirmSignOut) {
-            Button("Cancel", role: .cancel) {}
-            Button("Sign Out", role: .destructive) { Task { await account.signOut() } }
-        } message: {
-            Text("This also signs out the Grok CLI. Running tasks continue; new prompts ask you to sign in.")
-        }
     }
 }

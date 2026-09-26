@@ -4,67 +4,16 @@ import Speech
 import SwiftUI
 
 // Dictation (`/voice`) records 16 kHz mono PCM16LE and, as the terminal does (crates/codegen/xai-grok-voice),
-// either transcribes each utterance with an OpenRouter model (the default) or streams to xAI speech-to-text,
-// with on-device Speech recognition when xAI is chosen but there is no xAI credential.
+// transcribes each utterance with an OpenRouter model. Without an OpenRouter key it falls back to
+// on-device Speech recognition, so audio never leaves this Mac.
 
-// MARK: - Speech-to-text protocol
+// MARK: - Transcripts
 
-/// A server message from `wss://api.x.ai/v1/stt` (xai-grok-voice stt/types.rs).
-enum VoiceSTTEvent: Equatable {
-    case created
-    case partial(text: String, isFinal: Bool, speechFinal: Bool)
-    case done(text: String)
-    case error(String)
-    case unknown
-
-    static func parse(_ text: String) -> VoiceSTTEvent {
-        guard let data = text.data(using: .utf8),
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return .error("parse error: expected a JSON object")
-        }
-        guard let type = object["type"] as? String else { return .error("parse error: missing field `type`") }
-        switch type {
-        case "transcript.created": return .created
-        case "transcript.partial":
-            return .partial(text: object["text"] as? String ?? "", isFinal: object["is_final"] as? Bool ?? false,
-                            speechFinal: object["speech_final"] as? Bool ?? false)
-        case "transcript.done": return .done(text: object["text"] as? String ?? "")
-        case "error": return .error(object["message"] as? String ?? "")
-        default: return .unknown
-        }
-    }
-}
-
-/// Turns partial transcripts into the grey preview and the finalized text inserted in the prompt.
-/// Chunk deltas marked `is_final` are stitched into the preview so a long, pauseless utterance keeps
-/// growing; the prompt only receives `speech_final` (or `transcript.done`) text (pipeline.rs).
-struct VoiceTranscriptAssembler {
-    enum Update: Equatable {
-        case interim(String)
-        case final(String)
-    }
-    private(set) var lockedPrefix = ""
-
-    mutating func apply(_ event: VoiceSTTEvent) -> Update? {
-        switch event {
-        case .partial(let text, let isFinal, let speechFinal):
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            if speechFinal { lockedPrefix = ""; return .final(trimmed) }
-            if isFinal {
-                if !lockedPrefix.isEmpty { lockedPrefix += " " }
-                lockedPrefix += trimmed
-                return .interim(lockedPrefix)
-            }
-            return .interim(lockedPrefix.isEmpty ? trimmed : lockedPrefix + " " + trimmed)
-        case .done(let text):
-            lockedPrefix = ""
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : .final(trimmed)
-        case .created, .error, .unknown:
-            return nil
-        }
-    }
+/// Text from a transcription engine: words still being recognized (shown in grey), or finalized
+/// text inserted in the prompt.
+enum VoiceTranscriptUpdate: Equatable {
+    case interim(String)
+    case final(String)
 }
 
 /// Where and how dictated text lands in the prompt (P/voice/handle.rs).
@@ -98,43 +47,15 @@ enum VoiceTextInsertion {
     }
 }
 
-/// The speech-to-text service (`[ui].voice_stt_provider`, else `[voice].provider`), as in xai-grok-voice config.rs.
-enum VoiceSTTProvider: String, CaseIterable, Identifiable, Equatable {
-    /// OpenRouter transcription models, billed to the OpenRouter key. The default.
-    case openRouter = "openrouter"
-    /// xAI streaming speech-to-text, which needs an xAI credential.
-    case xai
-
-    var id: String { rawValue }
-    var title: String { self == .openRouter ? "OpenRouter" : "xAI (Grok STT)" }
-
-    /// Case, `_`, `-` and spaces are ignored; nil for anything unrecognized (VoiceProvider::parse).
-    static func parse(_ value: String?) -> VoiceSTTProvider? {
-        guard let value else { return nil }
-        let key = value.lowercased().filter { !"_- ".contains($0) }.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch key {
-        case "openrouter": return .openRouter
-        case "xai", "grok": return .xai
-        default: return nil
-        }
-    }
-}
-
-/// Endpoint, service, and language settings (`[voice]`, `[endpoints].xai_api_base_url`, and the `[ui].voice_stt_*`
-/// keys the terminal's settings share).
+/// Model, endpoint, and language settings (`[voice]` and the `[ui].voice_stt_*` keys the terminal's
+/// settings share). Dictation always transcribes with OpenRouter.
 struct VoiceSTTSettings: Equatable {
-    var apiBase = "https://api.x.ai"
-    var path = "/v1/stt"
     var language = "en"
     var sampleRate = 16_000
-    var endpointingMS = 400
-    var interimResults = true
-    var provider: VoiceSTTProvider = .openRouter
     /// OpenRouter transcription model slug.
     var model = VoiceSTTSettings.defaultModel
     var openRouterBase = "https://openrouter.ai/api/v1"
 
-    static let clientIdentifier = "grok-desktop"
     /// DEFAULT_OPENROUTER_STT_MODEL in xai-grok-voice.
     static let defaultModel = "openai/gpt-4o-mini-transcribe"
     /// Offered when OpenRouter's model list can't be fetched.
@@ -171,52 +92,16 @@ struct VoiceSTTSettings: Equatable {
     }
 
     init(config: GrokConfig) {
-        provider = VoiceSTTProvider.parse(config.string("voice_stt_provider", in: "ui"))
-            ?? VoiceSTTProvider.parse(config.string("provider", in: "voice")) ?? .openRouter
         let uiModel = config.string("voice_stt_model", in: "ui")?.trimmingCharacters(in: .whitespacesAndNewlines)
         model = Self.canonicalModel(uiModel?.isEmpty == false ? uiModel : config.string("model", in: "voice"))
         if let value = config.string("openrouter_api_base", in: "voice")?.trimmingCharacters(in: .whitespaces), !value.isEmpty {
             openRouterBase = value
         }
-        let base = config.string("api_base", in: "voice")?.trimmingCharacters(in: .whitespaces)
-        let endpoints = config.string("xai_api_base_url", in: "endpoints")?.trimmingCharacters(in: .whitespaces)
-        if let value = [base, endpoints].compactMap({ $0 }).first(where: { !$0.isEmpty }) {
-            apiBase = String(value.reversed().drop(while: { $0 == "/" }).reversed())
-        }
-        if let value = config.string("stt_ws_path", in: "voice"), !value.isEmpty { path = value }
         language = config.string("voice_stt_language", in: "ui") ?? config.string("language", in: "voice") ?? "en"
         if let value = config.int("sample_rate", in: "voice"), value > 0 { sampleRate = value }
-        if let value = config.int("stt_endpointing_ms", in: "voice"), value >= 0 { endpointingMS = value }
-        if let value = config.bool("stt_interim_results", in: "voice") { interimResults = value }
     }
 
-    /// The WebSocket URL. Plaintext bases are refused so the bearer never travels unencrypted (config.rs).
-    func url() throws -> URL {
-        let base = apiBase.trimmingCharacters(in: .whitespaces)
-        let trimmedBase = String(base.reversed().drop(while: { $0 == "/" }).reversed())
-        let lower = trimmedBase.lowercased()
-        if lower.hasPrefix("http://") || lower.hasPrefix("ws://") {
-            throw ComposerCommandMessage("insecure voice api_base \"\(apiBase)\": voice requires a TLS endpoint (https:// / wss://). Refusing to send the bearer token over a plaintext connection.")
-        }
-        var rest = trimmedBase
-        for scheme in ["https://", "wss://"] where lower.hasPrefix(scheme) { rest = String(trimmedBase.dropFirst(scheme.count)) }
-        var path = String(self.path.trimmingCharacters(in: .whitespaces).drop(while: { $0 == "/" }))
-        if rest.hasSuffix("/v1"), path.hasPrefix("v1/") { path = String(path.dropFirst(3)) }
-        guard var components = URLComponents(string: "wss://\(rest)/\(path)") else {
-            throw ComposerCommandMessage("bad STT URL: wss://\(rest)/\(path)")
-        }
-        components.queryItems = [
-            URLQueryItem(name: "sample_rate", value: String(sampleRate)),
-            URLQueryItem(name: "encoding", value: "pcm"),
-            URLQueryItem(name: "interim_results", value: interimResults ? "true" : "false"),
-            URLQueryItem(name: "language", value: Self.languageForAPI(language)),
-            URLQueryItem(name: "endpointing", value: String(endpointingMS)),
-        ]
-        guard let url = components.url else { throw ComposerCommandMessage("bad STT URL: wss://\(rest)/\(path)") }
-        return url
-    }
-
-    /// Grok speech-to-text languages (xai-grok-voice language.rs), sorted by English name.
+    /// Dictation languages (xai-grok-voice language.rs), sorted by English name.
     static let languages: [(code: String, name: String)] = [
         ("ar", "Arabic"), ("cs", "Czech"), ("da", "Danish"), ("nl", "Dutch"), ("en", "English"), ("fil", "Filipino"),
         ("fr", "French"), ("de", "German"), ("hi", "Hindi"), ("id", "Indonesian"), ("it", "Italian"), ("ja", "Japanese"),
@@ -295,7 +180,7 @@ final class VoicePCMConverter {
     }
 }
 
-/// Groups PCM into ~64 ms frames (1,024 samples at 16 kHz) for the socket.
+/// Groups PCM into ~64 ms frames (1,024 samples at 16 kHz) for the utterance segmenter.
 struct VoicePCMChunker {
     let frameBytes: Int
     private var pending = Data()
@@ -341,7 +226,7 @@ final class VoiceAudioCapture: @unchecked Sendable {
     }
 }
 
-/// Converts and frames audio on the capture thread, then hands frames to the socket.
+/// Converts and frames audio on the capture thread, then hands frames on.
 private final class VoiceAudioPipe: @unchecked Sendable {
     private let lock = NSLock()
     private var converter: VoicePCMConverter?
@@ -367,115 +252,6 @@ private final class VoiceAudioPipe: @unchecked Sendable {
         let rest = chunker.flush()
         lock.unlock()
         if let rest { send(rest) }
-    }
-}
-
-// MARK: - Socket
-
-/// One streaming session with xAI speech-to-text: audio captured before `transcript.created`
-/// waits in a bounded backlog, then streams in order; `audio.done` ends the utterance.
-private final class VoiceSTTConnection: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
-    private let lock = NSLock()
-    private var session: URLSession?
-    private var task: URLSessionWebSocketTask?
-    private var ready = false
-    private var ended = false
-    private var closed = false
-    private var backlog: [Data] = []
-    private let onOpen: () -> Void
-    private let onEvent: (VoiceSTTEvent) -> Void
-    private let onFailure: (String) -> Void
-
-    init(onOpen: @escaping () -> Void, onEvent: @escaping (VoiceSTTEvent) -> Void, onFailure: @escaping (String) -> Void) {
-        self.onOpen = onOpen
-        self.onEvent = onEvent
-        self.onFailure = onFailure
-    }
-
-    func connect(url: URL, token: String) {
-        var request = URLRequest(url: url, timeoutInterval: 15)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue(VoiceSTTSettings.clientIdentifier, forHTTPHeaderField: "x-grok-client-identifier")
-        let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
-        let task = session.webSocketTask(with: request)
-        lock.lock(); self.session = session; self.task = task; lock.unlock()
-        task.resume()
-        receive(task)
-    }
-
-    private func receive(_ task: URLSessionWebSocketTask) {
-        task.receive { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(.string(let text)):
-                self.onEvent(VoiceSTTEvent.parse(text))
-                self.receive(task)
-            case .success:
-                self.receive(task)
-            case .failure(let error):
-                self.lock.lock(); let closed = self.closed; self.lock.unlock()
-                // Tearing the socket down ends the receive loop with an error; that is not news.
-                if !closed { self.onFailure("connection lost: \(error.localizedDescription)") }
-            }
-        }
-    }
-
-    func markReady() {
-        lock.lock()
-        ready = true
-        let queued = backlog
-        backlog = []
-        let task = self.task
-        let ended = self.ended
-        lock.unlock()
-        for frame in queued { task?.send(.data(frame)) { _ in } }
-        if ended { task?.send(.string(#"{"type":"audio.done"}"#)) { _ in } }
-    }
-
-    func send(_ frame: Data) {
-        lock.lock()
-        guard !ended, !closed else { lock.unlock(); return }
-        if !ready {
-            if backlog.count == 1_024 { backlog.removeFirst() }
-            backlog.append(frame)
-            lock.unlock()
-            return
-        }
-        let task = self.task
-        lock.unlock()
-        task?.send(.data(frame)) { _ in }
-    }
-
-    /// Stop accepting audio and tell the server the utterance is over.
-    func finishAudio() {
-        lock.lock()
-        guard !ended else { lock.unlock(); return }
-        ended = true
-        let task = ready ? self.task : nil
-        lock.unlock()
-        task?.send(.string(#"{"type":"audio.done"}"#)) { _ in }
-    }
-
-    func close() {
-        lock.lock()
-        closed = true
-        let task = self.task, session = self.session
-        self.task = nil; self.session = nil; backlog = []
-        lock.unlock()
-        task?.cancel(with: .normalClosure, reason: nil)
-        session?.invalidateAndCancel()
-    }
-
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) { onOpen() }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        lock.lock(); let closed = self.closed; let wasReady = ready; lock.unlock()
-        guard !closed, let error else { return }
-        if let response = task.response as? HTTPURLResponse, response.statusCode >= 400 {
-            onFailure("connect: HTTP \(response.statusCode)")
-        } else {
-            onFailure(wasReady ? "connection lost: \(error.localizedDescription)" : "connect: \(error.localizedDescription)")
-        }
     }
 }
 
@@ -728,10 +504,10 @@ enum VoiceModelCatalog {
 @MainActor
 final class VoiceDictationController: ObservableObject {
     enum Phase: Equatable { case idle, starting, recording, finishing }
-    enum Engine: Equatable { case xai, onDevice, openRouter }
+    enum Engine: Equatable { case onDevice, openRouter }
 
     @Published private(set) var phase: Phase = .idle
-    @Published private(set) var engine: Engine = .xai
+    @Published private(set) var engine: Engine = .openRouter
     /// Words heard but not final yet, shown in grey.
     @Published private(set) var interim = ""
     /// An utterance is on its way to OpenRouter.
@@ -751,8 +527,6 @@ final class VoiceDictationController: ObservableObject {
     private var session = UUID()
     private var capture: VoiceAudioCapture?
     private var pipe: VoiceAudioPipe?
-    private var connection: VoiceSTTConnection?
-    private var assembler = VoiceTranscriptAssembler()
     private var heardSpeech = false
     private var timers: [Task<Void, Never>] = []
     private var recognition: VoiceOnDeviceRecognition?
@@ -796,7 +570,7 @@ final class VoiceDictationController: ObservableObject {
         return status == .authorized
     }
 
-    /// Marks the controller as preparing (fetching a token and permissions) so the UI responds at once.
+    /// Marks the controller as preparing (reading the key and permissions) so the UI responds at once.
     func beginStarting() {
         session = UUID()
         phase = .starting
@@ -807,39 +581,6 @@ final class VoiceDictationController: ObservableObject {
     func cancel() {
         session = UUID()
         teardown()
-    }
-
-    /// Streams to xAI speech-to-text.
-    func startXAI(token: String, settings: VoiceSTTSettings) {
-        let id = UUID()
-        session = id
-        do {
-            let url = try settings.url()
-            engine = .xai
-            assembler = VoiceTranscriptAssembler()
-            heardSpeech = false
-            readyForAudio = false
-            let connection = VoiceSTTConnection(
-                onOpen: { [weak self] in DispatchQueue.main.async { self?.socketOpened(session: id) } },
-                onEvent: { [weak self] event in DispatchQueue.main.async { self?.receive(event, session: id) } },
-                onFailure: { [weak self] message in DispatchQueue.main.async { self?.fail(message, session: id) } })
-            self.connection = connection
-            connection.connect(url: url, token: token)
-            // Open the microphone while the socket connects; frames wait in the backlog.
-            let pipe = VoiceAudioPipe(sampleRate: Double(settings.sampleRate)) { [weak connection] frame in connection?.send(frame) }
-            self.pipe = pipe
-            let capture = VoiceAudioCapture()
-            try capture.start { buffer in pipe.push(buffer) }
-            self.capture = capture
-            phase = .recording
-            armNoSpeechWatchdog(session: id)
-            // The handshake may take up to 15 s and `transcript.created` 10 s more (streaming.rs).
-            schedule(after: 25, session: id) { controller in
-                if !controller.readyForAudio { controller.fail("STT: timed out waiting for transcript.created", session: id) }
-            }
-        } catch {
-            fail((error as? ComposerCommandMessage)?.text ?? error.localizedDescription, session: id)
-        }
     }
 
     /// Records locally and transcribes each utterance with an OpenRouter model once it ends.
@@ -926,7 +667,6 @@ final class VoiceDictationController: ObservableObject {
         phase = .finishing
         capture?.stop()
         pipe?.flush()
-        connection?.finishAudio()
         recognition?.finish()
         let id = session
         if engine == .openRouter {
@@ -945,30 +685,6 @@ final class VoiceDictationController: ObservableObject {
         return pending.isEmpty ? nil : pending
     }
 
-    private var readyForAudio = false
-
-    private func socketOpened(session id: UUID) {
-        guard id == session else { return }
-        // The server must say `transcript.created` within ten seconds of the handshake.
-        schedule(after: 10, session: id) { controller in
-            if !controller.readyForAudio { controller.fail("STT: timed out waiting for transcript.created", session: id) }
-        }
-    }
-
-    private func receive(_ event: VoiceSTTEvent, session id: UUID) {
-        guard id == session else { return }
-        switch event {
-        case .created:
-            readyForAudio = true
-            connection?.markReady()
-        case .error(let message):
-            fail(message.isEmpty ? "STT error" : message, session: id)
-        default:
-            if let update = assembler.apply(event) { apply(update) }
-            if case .done = event, phase == .finishing { completeFinishing() }
-        }
-    }
-
     private func receiveOnDevice(_ update: VoiceOnDeviceRecognition.Update, session id: UUID) {
         guard id == session else { return }
         switch update {
@@ -981,7 +697,7 @@ final class VoiceDictationController: ObservableObject {
         }
     }
 
-    private func apply(_ update: VoiceTranscriptAssembler.Update) {
+    private func apply(_ update: VoiceTranscriptUpdate) {
         switch update {
         case .interim(let text):
             heardSpeech = true
@@ -1030,26 +746,24 @@ final class VoiceDictationController: ObservableObject {
         timers = []
         capture?.stop(); capture = nil
         pipe = nil
-        connection?.close(); connection = nil
         recognition?.cancel(); recognition = nil
         sink = nil
         transcriber = nil
         transcriptionQueue?.cancel(); transcriptionQueue = nil
         pendingTranscriptions = 0
-        readyForAudio = false
         interim = ""
         phase = .idle
     }
 
     /// Shows a fixed recording state, for rendering snapshots of the composer.
-    func showPreview(phase: Phase, engine: Engine = .xai, interim: String = "") {
+    func showPreview(phase: Phase, engine: Engine = .openRouter, interim: String = "") {
         self.phase = phase
         self.engine = engine
         self.interim = interim
     }
 }
 
-/// On-device speech recognition, used when the account has no xAI credential for voice.
+/// On-device speech recognition, used when there is no OpenRouter key for dictation.
 private final class VoiceOnDeviceRecognition: @unchecked Sendable {
     enum Update { case partial(String), final(String), failed(String) }
 
@@ -1184,7 +898,6 @@ struct VoiceRecordingRow: View {
             switch voice.engine {
             case .onDevice: return "Recording · On this Mac"
             case .openRouter: return "Recording · OpenRouter"
-            case .xai: return "Recording"
             }
         }
     }

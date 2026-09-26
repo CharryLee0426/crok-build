@@ -1166,7 +1166,6 @@ pub(crate) async fn run(
         .as_deref()
         .map(agent_client_protocol::ModelId::new);
     app.cli_effort_token = args.reasoning_effort.clone();
-    app.auth_use_oauth = args.oauth;
     app.show_resolved_model = remote_settings
         .as_ref()
         .and_then(|s| s.show_resolved_model)
@@ -1229,62 +1228,17 @@ pub(crate) async fn run(
     apply_session_recap_available(&mut app, connection.session_recap_available);
     app.shell_feedback_trace_offer = connection.feedback_trace_offer;
     app.auth_methods = connection.auth_methods.clone();
-    let force_login = args.force_login && !connection.auth_methods.is_empty();
-    let needs_interactive_login = connection.needs_login || force_login;
-    if needs_interactive_login {
+    // xAI account sign-in is not supported, so the harness only withholds its
+    // provider-credential method when nothing is signed in; say how to sign in.
+    if connection.needs_login {
         app.welcome_prompt_focused = false;
-        if connection.needs_login {
-            app.login_label = connection.login_label;
-            app.login_method_id = connection.login_method_id;
-            app.auth_start_mode = match connection.auth_start_mode {
-                crate::acp::AuthStartMode::Pending => super::app_view::AuthMode::Pending,
-                crate::acp::AuthStartMode::Command => super::app_view::AuthMode::Command,
-            };
-        } else {
-            let grok_com = connection
-                .auth_methods
-                .iter()
-                .find(|m| m.id().0.as_ref() == "grok.com");
-            if let Some(method) = grok_com {
-                app.login_label = Some(method.name().to_string());
-                app.login_method_id = Some(method.id().clone());
-                let is_provider = method
-                    .meta()
-                    .as_ref()
-                    .and_then(|v| v.get("external_provider"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                app.auth_start_mode = if is_provider {
-                    super::app_view::AuthMode::Command
-                } else {
-                    super::app_view::AuthMode::Pending
-                };
-            } else if let Some(first) = connection.auth_methods.first() {
-                app.login_label = Some(first.name().to_string());
-                app.login_method_id = Some(first.id().clone());
-                app.auth_start_mode = super::app_view::AuthMode::Pending;
-            }
-        }
-        tracing::info!(
-            method_id = ?app.login_method_id,
-            methods_empty = connection.auth_methods.is_empty(),
-            "auto-triggering login at startup"
-        );
+        app.auth_state = super::app_view::AuthState::Pending {
+            error: Some(
+                xai_grok_shell::agent::builtin_providers::PROVIDER_SIGN_IN_REQUIRED.to_string(),
+            ),
+        };
     }
-    let mut post_render_effects = if needs_interactive_login {
-        if connection.auth_methods.is_empty() {
-            app.auth_state = super::app_view::AuthState::Pending {
-                error: Some(
-                    xai_grok_shell::agent::auth_method::PREFERRED_API_KEY_UNAVAILABLE.to_string(),
-                ),
-            };
-            vec![]
-        } else {
-            dispatch::dispatch(Action::Login, &mut app)
-        }
-    } else {
-        vec![]
-    };
+    let mut post_render_effects = Vec::new();
     app.has_external_auth_provider =
         crate::slash::commands::usage::detect_external_auth_provider(&app.auth_methods);
     if let Some(meta) = connection.auth_meta.as_ref() {
