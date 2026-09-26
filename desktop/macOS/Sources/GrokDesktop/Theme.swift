@@ -375,7 +375,8 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
             content.background(Theme.surface, in: shape)
                 .overlay(shape.strokeBorder(Theme.line, lineWidth: 1))
         } else {
-            #if compiler(>=6.2)
+            // SwiftUI 7 is the macOS 26 SDK; a Swift 6.2 compiler can still build against an older SDK without glass.
+            #if canImport(SwiftUI, _version: 7)
             if #available(macOS 26.0, *) {
                 // The system tints its glass; a terminal palette's glass takes the palette's surface colour.
                 let tint: Color? = Theme.palette.usesSystemMaterials ? nil : Theme.surface.opacity(0.55)
