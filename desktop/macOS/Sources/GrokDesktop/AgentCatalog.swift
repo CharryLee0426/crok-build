@@ -35,7 +35,7 @@ enum AgentCatalog {
     }
 
     static let builtins: [(name: String, description: String)] = [
-        ("grok-build", "Grok Build agent for software engineering tasks."),
+        ("grok-build", "Crok Build agent for software engineering tasks."),
         ("general-purpose", "General purpose agent for multi-step tasks."),
         ("explore", "Fast, read-only agent specialized for codebase exploration."),
         ("plan", "Software architect for planning implementation strategies."),
@@ -209,7 +209,7 @@ enum AgentConfigWriter {
     static func resolvedDefault(configured: String?, available: [String], environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
         let known = Set(available).union(AgentCatalog.resolvableBuiltins)
         if let configured, known.contains(configured) { return configured }
-        switch environment["GROK_AGENT"]?.trimmingCharacters(in: .whitespaces) {
+        switch environment["CROK_AGENT"]?.trimmingCharacters(in: .whitespaces) {
         case "browser-use"?, "browser_use"?: return "browser-use"
         case "grok-build-concise"?, "grok_build_concise"?: return "grok-build-concise"
         case let value? where value.hasPrefix("/"):

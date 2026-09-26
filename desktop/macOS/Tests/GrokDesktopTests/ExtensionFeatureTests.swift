@@ -146,9 +146,9 @@ final class ExtensionFeatureTests: XCTestCase {
     @MainActor
     func testMemoryKeyboardNavigationAndSessionModePrecedence() {
         // Paths point into a temporary GROK_HOME so previews never read the real ~/.grok.
-        let saved = ProcessInfo.processInfo.environment["GROK_HOME"]
-        setenv("GROK_HOME", directory.path, 1)
-        defer { if let saved { setenv("GROK_HOME", saved, 1) } else { unsetenv("GROK_HOME") } }
+        let saved = ProcessInfo.processInfo.environment["CROK_HOME"]
+        setenv("CROK_HOME", directory.path, 1)
+        defer { if let saved { setenv("CROK_HOME", saved, 1) } else { unsetenv("CROK_HOME") } }
         let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
         let memory = MemoryPanelModel(store: store)
         let id = UUID()
@@ -361,7 +361,7 @@ final class ExtensionFeatureTests: XCTestCase {
         XCTAssertEqual(AgentConfigWriter.resolvedDefault(configured: nil, available: [], environment: [:]), "grok-build-plan")
         XCTAssertEqual(AgentConfigWriter.resolvedDefault(configured: "release-captain", available: ["release-captain"], environment: [:]), "release-captain")
         XCTAssertEqual(AgentConfigWriter.resolvedDefault(configured: "missing", available: [], environment: [:]), "grok-build-plan")
-        XCTAssertEqual(AgentConfigWriter.resolvedDefault(configured: nil, available: [], environment: ["GROK_AGENT": "browser_use"]), "browser-use")
+        XCTAssertEqual(AgentConfigWriter.resolvedDefault(configured: nil, available: [], environment: ["CROK_AGENT": "browser_use"]), "browser-use")
         XCTAssertEqual(AgentConfigWriter.resolvedDefault(configured: "codex", available: [], environment: [:]), "codex")
     }
 
@@ -412,10 +412,10 @@ final class ExtensionFeatureTests: XCTestCase {
     func testPanelDataHelpers() {
         let discovery = SkillsDiscovery.parse([
             "paths": ["/custom"], "ignore": ["/old"], "totalSkills": 3,
-            "message": "Skill discovery sources:\n  \u{2022} /repo/.grok/skills  (1 skill)\n  \u{2022} ~/.grok/skills  (12 skills)\n\nCustom paths:\n  \u{2022} /custom  (2 skills)\n",
+            "message": "Skill discovery sources:\n  \u{2022} /repo/.grok/skills  (1 skill)\n  \u{2022} ~/.crok/skills  (12 skills)\n\nCustom paths:\n  \u{2022} /custom  (2 skills)\n",
             "skills": [["path": "/custom/a/SKILL.md"], ["path": "/custom/b/SKILL.md"], ["path": "/repo/.grok/skills/c/SKILL.md"]],
         ])
-        XCTAssertEqual(discovery.automatic, [.init(path: "/repo/.grok/skills", count: 1), .init(path: "~/.grok/skills", count: 12)])
+        XCTAssertEqual(discovery.automatic, [.init(path: "/repo/.grok/skills", count: 1), .init(path: "~/.crok/skills", count: 12)])
         XCTAssertEqual(discovery.custom, [.init(path: "/custom", count: 2)])
         XCTAssertEqual(discovery.ignored, ["/old"])
 

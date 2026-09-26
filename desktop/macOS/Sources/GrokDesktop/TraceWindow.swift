@@ -69,7 +69,7 @@ struct TraceWindowContent: View {
         case .idle:
             Color.clear
         case .unavailable(let message):
-            SessionEmptyState(symbol: "waveform.path.ecg", title: message, detail: "Traces are recorded as Grok works in a task.")
+            SessionEmptyState(symbol: "waveform.path.ecg", title: message, detail: "Traces are recorded as Crok works in a task.")
         case .loading(let directory):
             VStack(spacing: 14) {
                 ProgressView().controlSize(.regular)

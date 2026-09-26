@@ -1312,7 +1312,7 @@ fn clear_default_model_persists_but_keeps_live_current() {
     use std::sync::Arc;
     let mut app = test_app_with_agent();
     let id = acp::ModelId::new(Arc::from("grok-test"));
-    let info = acp::ModelInfo::new(id.clone(), "Grok Test".to_string());
+    let info = acp::ModelInfo::new(id.clone(), "Crok Test".to_string());
     let agent_id = AgentId(0);
     app.agents
         .get_mut(&agent_id)
@@ -1385,7 +1385,7 @@ fn set_default_model_idempotent_when_already_current() {
     use std::sync::Arc;
     let mut app = test_app_with_agent();
     let id = acp::ModelId::new(Arc::from("grok-already"));
-    let info = acp::ModelInfo::new(id.clone(), "Grok Already".to_string());
+    let info = acp::ModelInfo::new(id.clone(), "Crok Already".to_string());
     let agent_id = AgentId(0);
     app.agents
         .get_mut(&agent_id)
@@ -3478,8 +3478,8 @@ fn set_theme_toast_format_uses_display_name() {
             "toast must contain label, got: {toast:?}",
         );
         assert!(
-            toast.contains("Grok Day"),
-            "toast must use display name `Grok Day`, not canonical `grokday`, got: {toast:?}",
+            toast.contains("Crok Day"),
+            "toast must use display name `Crok Day`, not canonical `grokday`, got: {toast:?}",
         );
         assert!(toast.contains('\u{2713}'), "toast must contain the ✓ glyph");
     });
@@ -3491,7 +3491,7 @@ fn set_auto_dark_theme_toast_format_uses_display_name() {
         let _ = dispatch(Action::SetAutoDarkTheme("grokday".into()), &mut app);
         let toast = read_toast(&app);
         assert!(toast.contains("Auto dark theme"));
-        assert!(toast.contains("Grok Day"));
+        assert!(toast.contains("Crok Day"));
         assert!(toast.contains('\u{2713}'));
     });
 }
@@ -3502,7 +3502,7 @@ fn set_auto_light_theme_toast_format_uses_display_name() {
         let _ = dispatch(Action::SetAutoLightTheme("groknight".into()), &mut app);
         let toast = read_toast(&app);
         assert!(toast.contains("Auto light theme"));
-        assert!(toast.contains("Grok Night"));
+        assert!(toast.contains("Crok Night"));
     });
 }
 /// `apply_setting_rollback` for theme keys: a failed persist reverts `app.current_ui.theme` AND the live cache.

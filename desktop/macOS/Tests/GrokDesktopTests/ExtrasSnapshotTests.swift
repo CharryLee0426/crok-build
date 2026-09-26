@@ -11,7 +11,7 @@ final class ExtrasSnapshotTests: XCTestCase {
     private var output: URL!
 
     override func setUpWithError() throws {
-        guard let path = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         output = URL(fileURLWithPath: path)
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("grok-extras-snapshots-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -34,7 +34,7 @@ final class ExtrasSnapshotTests: XCTestCase {
             Message(kind: .user, text: "Match the terminal's themes in the desktop app, and keep the default look for everyone else.", createdAt: now),
             Message(kind: .thought, text: "Read the pager palettes first, then map their roles onto the desktop colours.", createdAt: now),
             Message(kind: .tool, text: "Read crates/codegen/xai-grok-pager-render/src/theme/groknight.rs", status: "completed", createdAt: now),
-            Message(kind: .assistant, text: "Done. **Grok Night** now uses the terminal's `#141414` background with the `#bb9af7` accent, and `auto` keeps today's look.\n\n- `/theme` cycles themes\n- `/theme tokyo` applies one by alias\n- Settings shows every theme as a swatch", createdAt: now),
+            Message(kind: .assistant, text: "Done. **Crok Night** now uses the terminal's `#141414` background with the `#bb9af7` accent, and `auto` keeps today's look.\n\n- `/theme` cycles themes\n- `/theme tokyo` applies one by alias\n- Settings shows every theme as a swatch", createdAt: now),
         ], updatedAt: now)
         store.state.projects = [app, Project(path: "/tmp/billing-api")]
         store.state.selectedProjectID = app.id
@@ -115,7 +115,7 @@ final class ExtrasSnapshotTests: XCTestCase {
         let guides = directory.appendingPathComponent("home/docs/user-guide", isDirectory: true)
         try FileManager.default.createDirectory(at: guides, withIntermediateDirectories: true)
         for entry in GuideLibrary.catalog {
-            let text = "# \(entry.title)\n\n\(entry.summary). Grok Build reads `config.toml` from `~/.grok`, and this\nparagraph is wrapped at seventy-five columns the way the real guides are, so\nthe reader has to join the lines.\n\n## Overview\n\nSee [Configuration](05-configuration.md#telemetry) for every key.\n\n```toml\n[ui]\ntheme = \"groknight\"\n```\n\n## Tips\n\n- Run `/theme` to preview themes.\n- Use truecolor terminals for the best colours.\n"
+            let text = "# \(entry.title)\n\n\(entry.summary). Crok Build reads `config.toml` from `~/.crok`, and this\nparagraph is wrapped at seventy-five columns the way the real guides are, so\nthe reader has to join the lines.\n\n## Overview\n\nSee [Configuration](05-configuration.md#telemetry) for every key.\n\n```toml\n[ui]\ntheme = \"groknight\"\n```\n\n## Tips\n\n- Run `/theme` to preview themes.\n- Use truecolor terminals for the best colours.\n"
             try text.write(to: guides.appendingPathComponent(entry.fileName), atomically: true, encoding: .utf8)
         }
         for dark in [false, true] {

@@ -98,7 +98,7 @@ async fn writer_blocked_tty_keeps_loop_alive() {
     let mut child = pair.slave.spawn_command(cmd).expect("spawn pager");
     let _process_tree = child
         .process_id()
-        .map(|pid| xai_grok_test_support::TestProcessTree::attach(pid, "grok PTY child"));
+        .map(|pid| xai_grok_test_support::TestProcessTree::attach(pid, "crok PTY child"));
     drop(pair.slave);
 
     let master_fd = pair.master.as_raw_fd().expect("pty master fd");

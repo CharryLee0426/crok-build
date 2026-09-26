@@ -132,7 +132,7 @@ pub(super) fn parse_extra_marketplaces(
             warn!(
                 path = %path.display(),
                 name,
-                "extraKnownMarketplaces entry disables auto-update; grok has no \
+                "extraKnownMarketplaces entry disables auto-update; crok has no \
                  per-marketplace switch, so plugin auto-update is pinned off for all"
             );
             out.pin_auto_update_off = true;

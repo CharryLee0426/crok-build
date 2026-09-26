@@ -192,7 +192,7 @@ fn trusted_local_refresh_surfaces_new_agent_via_discovery() {
 
 /// Runs the real binary end to end: session start refreshes the snapshot, then writes session JSON.
 #[tokio::test]
-#[ignore = "requires pre-built grok binary; run with --ignored"]
+#[ignore = "requires pre-built crok binary; run with --ignored"]
 #[serial]
 async fn headless_session_refreshes_trusted_local_plugin_and_writes_session_json() {
     let server = MockInferenceServer::start()

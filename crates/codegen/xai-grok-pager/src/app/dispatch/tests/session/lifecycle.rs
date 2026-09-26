@@ -1589,7 +1589,7 @@ fn trust_folder_quits_when_store_unreadable() {
         "unread store must record a post-exit error: {msg}"
     );
     assert!(
-        msg.contains("Fix or delete ~/.grok/trusted_folders.toml"),
+        msg.contains("Fix or delete ~/.crok/trusted_folders.toml"),
         "unread store must name the next step: {msg}"
     );
 }
@@ -1622,7 +1622,7 @@ fn trust_folder_continues_session_only_when_embedded_and_persist_denied() {
         .map(|(m, _)| m.as_str())
         .unwrap_or_default();
     assert!(
-        toast.contains("grok --trust"),
+        toast.contains("crok --trust"),
         "a session-only grant must show how to persist: {toast}"
     );
 }

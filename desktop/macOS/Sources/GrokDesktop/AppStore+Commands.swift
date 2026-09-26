@@ -41,7 +41,7 @@ extension AppStore {
     func open(_ window: DesktopWindow) { windowRequest = window }
 
     func pendingFeature(_ command: String) {
-        banner = "\(command) is not available in this build of Grok Desktop yet."
+        banner = "\(command) is not available in this build of Crok Desktop yet."
     }
 
     func executeCommand(name: String, arguments: String = "") {

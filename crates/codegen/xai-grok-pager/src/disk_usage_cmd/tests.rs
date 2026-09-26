@@ -860,7 +860,7 @@ fn print_report_renders_registry_notices() {
             registry: RegistryState::Busy,
             rows: true,
             expected: &["in use by another process", "Retry in a moment."],
-            absent: &["db rebuild", "damaged", "Remove $GROK_HOME/worktrees.db"],
+            absent: &["db rebuild", "damaged", "Remove $CROK_HOME/worktrees.db"],
         },
         Case {
             name: "an unopenable registry names the file without proposing deletion",
@@ -871,7 +871,7 @@ fn print_report_renders_registry_notices() {
                 "worktrees.db",
                 "Check its permissions.",
             ],
-            absent: &["db rebuild", "damaged", "Remove $GROK_HOME/worktrees.db"],
+            absent: &["db rebuild", "damaged", "Remove $CROK_HOME/worktrees.db"],
         },
     ];
     for case in cases {
@@ -905,8 +905,8 @@ fn print_report_renders_registry_notices() {
 }
 #[test]
 fn reclaim_hint_names_a_sequence_that_frees_space() {
-    const AGE: &str = "run `grok worktree gc --max-age 7d --dry-run`";
-    const RM: &str = "Remove one with `grok worktree rm --dry-run <path>`";
+    const AGE: &str = "run `crok worktree gc --max-age 7d --dry-run`";
+    const RM: &str = "Remove one with `crok worktree rm --dry-run <path>`";
     let tracked = tracked_row(60, record("wt-1", 0));
     let text = render_report(&worktrees_report(vec![tracked], 100), 0);
     assert!(text.contains(AGE), "{text}");
@@ -1020,13 +1020,13 @@ fn symlinked_default_home_keeps_home_label() {
     let real_grok = tmp.path().join("grok-on-disk");
     std::fs::create_dir_all(&fake_home).unwrap();
     std::fs::create_dir_all(&real_grok).unwrap();
-    std::os::unix::fs::symlink(&real_grok, fake_home.join(".grok")).unwrap();
+    std::os::unix::fs::symlink(&real_grok, fake_home.join(".crok")).unwrap();
     let _home = crate::test_util::EnvVarGuard::set("HOME", &fake_home);
-    let resolved = dunce::canonicalize(&fake_home).unwrap().join(".grok");
+    let resolved = dunce::canonicalize(&fake_home).unwrap().join(".crok");
     let canonical = dunce::canonicalize(&resolved).unwrap();
     assert_ne!(canonical, resolved, "the symlink must actually resolve");
     assert_eq!(
         crate::util::display_grok_home_prefix_for(&canonical),
-        "~/.grok"
+        "~/.crok"
     );
 }

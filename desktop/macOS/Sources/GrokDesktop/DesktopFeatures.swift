@@ -147,11 +147,11 @@ extension DesktopWindow {
     var title: String {
         switch self {
         case .trace: return "Trace"
-        case .docs: return "Grok Build Guides"
+        case .docs: return "Crok Build Guides"
         case .releaseNotes: return "Release Notes"
         case .transcript: return "Transcript"
         case .gboom: return "GBOOM"
-        case .tutorial: return "Welcome to Grok Build"
+        case .tutorial: return "Welcome to Crok Build"
         }
     }
 

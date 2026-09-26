@@ -10,7 +10,7 @@ pub enum SideCallBearerError {
         "this account's login is not an xAI credential; image, video, and voice need an xAI API key or an xAI login"
     )]
     ForeignSession,
-    #[error("no xAI credential available; run `grok login` or set XAI_API_KEY")]
+    #[error("no xAI credential available; run `crok login` or set XAI_API_KEY")]
     Missing,
 }
 

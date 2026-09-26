@@ -167,9 +167,9 @@ struct ComposerView: View {
 
     private var placeholder: String {
         if store.run.isRunning && store.conversation != nil {
-            return features.followUpBehavior == .steer ? "Steer Grok while it works…" : "Queue a follow-up…"
+            return features.followUpBehavior == .steer ? "Steer Crok while it works…" : "Queue a follow-up…"
         }
-        return store.conversation == nil ? "Ask Grok to build, fix, or explore anything…" : "Continue the conversation…"
+        return store.conversation == nil ? "Ask Crok to build, fix, or explore anything…" : "Continue the conversation…"
     }
 
     private var showSlashCommands: Bool {
@@ -580,7 +580,7 @@ struct PromptEditor: NSViewRepresentable {
         editor.font = .systemFont(ofSize: 16); editor.textColor = .labelColor; editor.backgroundColor = .clear
         editor.textContainerInset = NSSize(width: 0, height: 7); editor.isVerticallyResizable = true; editor.isHorizontallyResizable = false
         editor.autoresizingMask = [.width]; editor.textContainer?.widthTracksTextView = true
-        editor.setAccessibilityLabel("Message Grok")
+        editor.setAccessibilityLabel("Message Crok")
         editor.placeholder = placeholder
         scroll.documentView = editor
         onTextView?(editor)

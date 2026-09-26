@@ -1437,7 +1437,7 @@ fn inject_capabilities_omits_user_message_echo_when_false() {
         j(&json, "/params/_meta")
             .get(crate::session::CLIENT_USER_MESSAGE_ECHO_META)
             .is_none(),
-        "grok agent (echo false) must not inject clientUserMessageEcho=false over initialize"
+        "crok agent (echo false) must not inject clientUserMessageEcho=false over initialize"
     );
 }
 

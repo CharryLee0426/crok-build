@@ -356,7 +356,7 @@ pub(crate) fn resolve_by_path(
     if !in_project && !in_user_or_session {
         return Err(ResolveError::UntrustedPath {
             path: candidate.display().to_string(),
-            reason: "outside the project, grok home, and session workflow runs".into(),
+            reason: "outside the project, crok home, and session workflow runs".into(),
         });
     }
 

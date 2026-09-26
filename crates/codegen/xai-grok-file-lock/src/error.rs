@@ -15,7 +15,7 @@ pub enum LockError {
     /// `open()`/`flock()` of this path, which almost always means a stalled network filesystem.
     /// `path` was not touched.
     #[error(
-        "another process ({}) is still acquiring {}; the grok home looks stalled (network \
+        "another process ({}) is still acquiring {}; the crok home looks stalled (network \
          filesystem?). Retry later; if the holder is not stuck, point {} at a new private \
          directory (mode 0700) so this process uses its own slot",
         .holder_pid.map_or_else(|| "an unknown pid".to_owned(), |pid| format!("pid {pid}")),

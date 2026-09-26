@@ -131,17 +131,17 @@ enum MemoryDisabledExplanation {
     static func text(_ reason: String?) -> (title: String, detail: String) {
         switch reason {
         case nil, "session_toggle"?:
-            return ("Memory is off for this session.", "Turn it back on with the Memory switch. While off, Grok isn't reading or saving notes; anything already remembered is kept on disk. Memory carries conventions, decisions, and project facts between sessions so you don't have to repeat yourself.")
+            return ("Memory is off for this session.", "Turn it back on with the Memory switch. While off, Crok isn't reading or saving notes; anything already remembered is kept on disk. Memory carries conventions, decisions, and project facts between sessions so you don't have to repeat yourself.")
         case "config_opt_out"?:
             return ("Memory is off ([memory] enabled = false in config.toml).", "Use the Memory switch to turn it on for this session. The switch lasts for this session only; new sessions follow config.toml. Set enabled = true there (or remove the line) to keep memory on. Anything already remembered is kept on disk.")
         case "process_disabled"?:
-            return ("Memory is off for this process.", "Start a new session without --no-memory or GROK_MEMORY=0 to use it. Memory was turned off when Grok Build started, so it can't be turned on here. Anything already remembered is kept on disk.")
+            return ("Memory is off for this process.", "Start a new session without --no-memory or CROK_MEMORY=0 to use it. Memory was turned off when Crok Build started, so it can't be turned on here. Anything already remembered is kept on disk.")
         case "rollout_restricted"?:
             return ("Memory is unavailable in this session.", "Start a new session to pick up your current settings. This session's memory settings were pinned when it started, and they disable memory, so it can't be turned on here.")
         case "not_configured"?:
             return ("Memory isn't configured.", "No memory storage is set up for this session, so there is nothing to browse or turn on.")
         default:
-            return ("Memory is off for this session.", "This session reports a reason this version of Grok Desktop doesn't recognize, so it can't be turned on here.")
+            return ("Memory is off for this session.", "This session reports a reason this version of Crok Desktop doesn't recognize, so it can't be turned on here.")
         }
     }
 

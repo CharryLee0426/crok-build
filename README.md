@@ -37,6 +37,15 @@ for the version of the code present in this tree.
 
 </div>
 
+> [!NOTE]
+> **This fork builds `crok` — Charlie's grok.** It installs as the `crok` command
+> (`make deploy` → `~/.local/bin/crok`) and as **Crok Desktop**, keeps its state in
+> `~/.crok` (override with `CROK_HOME`), and reads `CROK_*` environment variables
+> (each `CROK_X` overrides `GROK_X`). Project `.grok/` folders are read as before.
+> It never updates itself from the official release: rebuild it from this checkout.
+> Run `make import-grok-config` once to copy settings, sessions, and Grok Desktop
+> state from an existing grok install. The rest of this README describes upstream grok.
+
 ---
 
 ## Installing the released binary

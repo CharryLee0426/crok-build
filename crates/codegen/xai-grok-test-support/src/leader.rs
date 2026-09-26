@@ -205,7 +205,7 @@ impl LeaderFixture {
         #[allow(clippy::disallowed_methods)]
         let mut child = cmd.spawn()?;
         let pid = child.id();
-        let tree = match TestProcessTree::try_attach(pid, "persistent grok test leader") {
+        let tree = match TestProcessTree::try_attach(pid, "persistent crok test leader") {
             Ok(tree) => tree,
             Err(error) => {
                 let _ = child.kill();
@@ -564,7 +564,7 @@ impl LeaderStdioClient {
             cmd,
             sandbox,
             TestProcessConfig::new()
-                .label("grok leader stdio client")
+                .label("crok leader stdio client")
                 .stdin(TestStdin::Piped)
                 .stdout(TestOutput::Piped)
                 .env("GROK_CLI_CHAT_PROXY_BASE_URL", base_url)

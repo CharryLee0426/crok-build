@@ -576,7 +576,7 @@ fn login_with_empty_auth_methods_fails_closed() {
         matches!(
             &app.auth_state,
             AuthState::Pending { error: Some(msg) }
-                if msg.contains("grok login openai-codex")
+                if msg.contains("crok login openai-codex")
         ),
         "must surface pin-unavailable error, got {:?}",
         app.auth_state

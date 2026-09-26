@@ -16,7 +16,7 @@ final class AccountSnapshotTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: directory) }
 
     private func output() throws -> URL {
-        guard let path = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         return URL(fileURLWithPath: path)
     }
 
@@ -52,7 +52,7 @@ final class AccountSnapshotTests: XCTestCase {
                                                           "modelUsage": ["grok-build": ["inputTokens": 170_000, "outputTokens": 9_100, "costUsdTicks": 3_900_000_000],
                                                                          "grok-fast": ["inputTokens": 14_220, "outputTokens": 770, "costUsdTicks": 228_000_000]]]))
         let info = UsageSessionInfo(["sessionId": "0199a7c4-5e21-7b3a-9c1f-2d8e4b6a1f03", "cwd": "/Users/dev/Projects/grok-desktop",
-                                     "model": "grok-build", "modelDisplayName": "Grok Build", "apiBackend": "responses", "turnIndex": 6,
+                                     "model": "grok-build", "modelDisplayName": "Crok Build", "apiBackend": "responses", "turnIndex": 6,
                                      "context": ["used": 61_450, "total": 256_000, "usagePct": 24]])
         state.sessionInfo = .loaded(UsageFormatting.sessionInfoRows(info, title: "Render tables and math", shellVersion: "1.0.41",
                                                                    auth: .providerCredentials, showResolvedModel: false))
@@ -121,7 +121,7 @@ final class AccountSnapshotTests: XCTestCase {
         let store = makeStore()
         let critical = GrokAnnouncement(identifier: "incident", title: "Degraded performance",
                                         message: "Some responses are slower than usual. We're working on a fix.", severity: "critical")
-        let promo = GrokAnnouncement(identifier: "heavy", title: "Grok 4 Heavy is here", message: "Our most capable model is now available in Grok Build.",
+        let promo = GrokAnnouncement(identifier: "heavy", title: "Grok 4 Heavy is here", message: "Our most capable model is now available in Crok Build.",
                                      severity: "promo", action: .init(label: "Try it", url: URL(string: "https://x.ai")!, caption: nil))
         store.features.account.showPreviewState(announcements: [critical])
         try render("announcement-critical", VStack(spacing: 0) { AnnouncementBanner(); Spacer() }, store: store, size: CGSize(width: 900, height: 90))

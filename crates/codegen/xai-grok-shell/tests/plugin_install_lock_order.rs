@@ -17,7 +17,7 @@ fn wait_for(deadline: Instant, mut check: impl FnMut() -> bool) -> bool {
 fn install_releases_registry_lock_before_post_install_config_write() {
     // One #[test] per binary: the env is process-global (same rule as
     // acp_harness::run_agent_test).
-    let grok_home = tempfile::tempdir().expect("grok home");
+    let grok_home = tempfile::tempdir().expect("crok home");
     // SAFETY: no other threads are running yet.
     unsafe { std::env::set_var("GROK_HOME", grok_home.path()) };
 

@@ -343,7 +343,7 @@ pub fn discover_hook_source_paths(
                 if let Some(e) = &resolved.configured_error {
                     tracing::warn!(
                         error = %e,
-                        "hooks-paths unreadable; retaining fixed Grok hook discovery sources only"
+                        "hooks-paths unreadable; retaining fixed Crok hook discovery sources only"
                     );
                 }
                 resolved
@@ -354,7 +354,7 @@ pub fn discover_hook_source_paths(
             Err(e) => {
                 tracing::warn!(
                     error = %e,
-                    "global hook source resolve hard-failed; omitting Grok global sources"
+                    "global hook source resolve hard-failed; omitting Crok global sources"
                 );
                 Vec::new()
             }

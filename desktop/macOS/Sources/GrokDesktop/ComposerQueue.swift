@@ -184,7 +184,7 @@ struct ComposerQueuePanel: View {
                 if editingID == entry.id { editor(entry) } else { row(entry, index: index) }
             }
             if !harnessEntries.isEmpty {
-                Text("Queued in the Grok session").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
+                Text("Queued in the Crok session").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 10).padding(.top, entries.isEmpty ? 2 : 8).padding(.bottom, 2)
                 ForEach(harnessEntries) { entry in harnessRow(entry) }
             }
@@ -213,8 +213,8 @@ struct ComposerQueuePanel: View {
     }
 
     private var statusText: String {
-        if entries.isEmpty { return "Held by the Grok session" }
-        if isRunning { return "Sends when Grok finishes" }
+        if entries.isEmpty { return "Held by the Crok session" }
+        if isRunning { return "Sends when Crok finishes" }
         guard paused else { return "Sending…" }
         return store.runs[conversationID]?.phase == "Stopped" ? "Paused because the turn was stopped" : "Paused because the last turn didn't finish"
     }

@@ -18,7 +18,7 @@ pub const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 /// Shown wherever a sign-in is needed. xAI account sign-in is not supported, so OpenRouter
 /// and OpenAI Codex (or a `[model.*]` entry with its own key, or `XAI_API_KEY`) are the only routes.
 pub const PROVIDER_SIGN_IN_REQUIRED: &str = "No model provider is signed in. Quit and run \
-`grok login openai-codex` or `grok login openrouter` (or set OPENROUTER_API_KEY), then start Grok again.";
+`crok login openai-codex` or `crok login openrouter` (or set OPENROUTER_API_KEY), then start Crok again.";
 
 /// Offer provider setup only when no explicit model choice or usable credential applies.
 pub fn needs_provider_setup(cfg: &Config) -> bool {

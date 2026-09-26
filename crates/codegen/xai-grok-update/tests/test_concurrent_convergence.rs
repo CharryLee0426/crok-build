@@ -41,13 +41,13 @@ use xai_grok_update::version::installed_on_disk_version;
 /// check is what catches a cross-racer temp-file corruption).
 fn assert_active_binary(home: &Path, version: &str, platform: &str, expected_content: &[u8]) {
     let link = home.join("bin").join("grok");
-    assert!(link.is_symlink(), "grok must be a symlink");
+    assert!(link.is_symlink(), "crok must be a symlink");
     let resolved = dunce::canonicalize(&link)
-        .unwrap_or_else(|e| panic!("active grok symlink does not resolve: {e}"));
+        .unwrap_or_else(|e| panic!("active crok symlink does not resolve: {e}"));
     assert_eq!(
         resolved.file_name().unwrap().to_string_lossy(),
         format!("grok-{version}-{platform}"),
-        "active grok must be the expected version"
+        "active crok must be the expected version"
     );
     assert_eq!(
         std::fs::read(&resolved).unwrap(),
@@ -63,7 +63,7 @@ fn assert_active_binary(home: &Path, version: &str, platform: &str, expected_con
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
-    assert!(ran_ok, "active grok must pass the smoke-test");
+    assert!(ran_ok, "active crok must pass the smoke-test");
 }
 
 /// Lay down what `install_internal_from_base` produces in the test GROK_HOME: `bin/grok -> ../downloads/grok-<version>-<platform>`.
@@ -463,7 +463,7 @@ async fn concurrent_different_version_installs_do_not_corrupt_each_other() {
     let name = resolved.file_name().unwrap().to_string_lossy().to_string();
     assert!(
         !name.contains(".tmp"),
-        "active grok must never be a temp file: {name}"
+        "active crok must never be a temp file: {name}"
     );
 
     assert!(

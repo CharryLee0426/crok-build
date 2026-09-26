@@ -153,7 +153,7 @@ impl ConfigFileWatcher {
                 tracing::warn!(
                     path = %grok_home.display(),
                     error = %e,
-                    "failed to watch grok home directory"
+                    "failed to watch crok home directory"
                 )
             })
             .ok()?;
@@ -594,7 +594,7 @@ impl ProjectDiscoveryWatcher {
         if paths_equal(&project_grok, grok_home) {
             tracing::debug!(
                 project_grok = %project_grok.display(),
-                "project .grok is grok home; skills watcher owns it"
+                "project .grok is crok home; skills watcher owns it"
             );
             return None;
         }

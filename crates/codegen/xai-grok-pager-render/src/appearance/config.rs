@@ -1656,7 +1656,7 @@ impl RawAppearanceConfig {
         let pager_path = crate::util::display_user_grok_path("pager.toml");
         let header = format!(
             "\
-# Grok Pager Appearance Configuration ({pager_path})
+# Crok Pager Appearance Configuration ({pager_path})
 # Every value below is a commented-out built-in default: uncomment a line and
 # save to override it. Values left commented track future default changes.
 # Delete the file to regenerate this template.
@@ -1795,7 +1795,7 @@ pub fn persist_respect_manual_folds(enabled: bool) -> std::io::Result<()> {
     if xai_grok_config::user_grok_home().is_none() {
         return Err(Error::new(
             ErrorKind::NotFound,
-            "no user grok home resolved; refusing to write a cwd-relative pager.toml \
+            "no user crok home resolved; refusing to write a cwd-relative pager.toml \
              that startup would never read",
         ));
     }

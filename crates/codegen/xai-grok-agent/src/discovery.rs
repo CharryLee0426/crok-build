@@ -759,7 +759,7 @@ mod tests {
             .count();
         assert_eq!(
             count, 1,
-            "no duplicate ~/.grok/agents when grok_home == ~/.grok"
+            "no duplicate ~/.crok/agents when grok_home == ~/.crok"
         );
     }
 

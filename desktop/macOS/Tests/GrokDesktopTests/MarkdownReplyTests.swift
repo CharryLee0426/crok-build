@@ -175,7 +175,7 @@ final class MarkdownReplyTests: XCTestCase {
 
     /// Writes PNGs of a narrow reply, as in the side chat, when GROK_DESKTOP_SNAPSHOT_DIR is set.
     func testRenderNarrowReplySnapshots() throws {
-        guard let output = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let text = """
         The window is set up in `main.swift`:
 

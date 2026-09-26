@@ -40,8 +40,8 @@ enum GrokTheme: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .auto: return "Auto"
-        case .groknight: return "Grok Night"
-        case .grokday: return "Grok Day"
+        case .groknight: return "Crok Night"
+        case .grokday: return "Crok Day"
         case .tokyonight: return "Tokyo Night"
         case .rosepineMoon: return "Rose Pine Moon"
         case .oscuraMidnight: return "Oscura Midnight"
@@ -53,7 +53,7 @@ enum GrokTheme: String, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
-        case .auto: return "Grok Desktop's own look, light or dark with your Mac."
+        case .auto: return "Crok Desktop's own look, light or dark with your Mac."
         case .groknight: return "Neutral dark base with a magenta accent. The terminal's default."
         case .grokday: return "Light theme with deepened accents for bright rooms."
         case .tokyonight: return "Dark, blue-tinted backgrounds from the Tokyo Night palette."

@@ -61,10 +61,10 @@ final class GrokCommandTests: XCTestCase {
 
     func testLauncherExplainsAMissingTUI() throws {
         let app = try makeApp()
-        try FileManager.default.removeItem(at: app.appendingPathComponent("Contents/Resources/grok"))
+        try FileManager.default.removeItem(at: app.appendingPathComponent("Contents/Resources/crok"))
         let result = try run(app.appendingPathComponent(GrokCommand.launcherPath), [])
         XCTAssertEqual(result.status, 127)
-        XCTAssertTrue(result.errors.contains("Reinstall Grok Desktop"), result.errors)
+        XCTAssertTrue(result.errors.contains("Reinstall Crok Desktop"), result.errors)
     }
 
     // MARK: Status
@@ -102,7 +102,7 @@ final class GrokCommandTests: XCTestCase {
         XCTAssertEqual(GrokCommand.unavailableReason(bundle: root, launcher: nil), "Available in the packaged app.")
         let app = try makeApp()
         XCTAssertNil(GrokCommand.unavailableReason(bundle: app, launcher: GrokCommand.launcher(in: app)))
-        let translocated = URL(fileURLWithPath: "/private/var/folders/zz/AppTranslocation/1F2E/d/Grok Desktop.app")
+        let translocated = URL(fileURLWithPath: "/private/var/folders/zz/AppTranslocation/1F2E/d/Crok Desktop.app")
         let reason = GrokCommand.unavailableReason(bundle: translocated, launcher: translocated.appendingPathComponent(GrokCommand.launcherPath))
         XCTAssertTrue(reason?.contains("Applications folder") == true)
     }
@@ -111,17 +111,17 @@ final class GrokCommandTests: XCTestCase {
         let app = try makeApp()
         let launcher = try XCTUnwrap(GrokCommand.launcher(in: app))
         let home = root.appendingPathComponent("home", isDirectory: true)
-        for folder in [".grok/bin", ".local/bin"] {
+        for folder in ["other/bin", ".local/bin"] {
             try FileManager.default.createDirectory(at: home.appendingPathComponent(folder), withIntermediateDirectories: true)
         }
-        let managed = home.appendingPathComponent(".grok/bin/grok")
+        let managed = home.appendingPathComponent(".local/bin/crok")
         try Data("#!/bin/sh\n".utf8).write(to: managed)
         chmod(managed.path, 0o755)
-        try FileManager.default.createSymbolicLink(at: home.appendingPathComponent(".local/bin/grok"), withDestinationURL: launcher)
+        try FileManager.default.createSymbolicLink(at: home.appendingPathComponent("other/bin/crok"), withDestinationURL: launcher)
 
         let others = GrokCommand.otherInstallations(home: home, excluding: [launcher])
         XCTAssertTrue(others.contains(managed.path))
-        XCTAssertFalse(others.contains(home.appendingPathComponent(".local/bin/grok").path))
+        XCTAssertFalse(others.contains(home.appendingPathComponent("other/bin/crok").path))
     }
 
     // MARK: Switch
@@ -215,7 +215,7 @@ final class GrokCommandTests: XCTestCase {
         let launcher = app.appendingPathComponent(GrokCommand.launcherPath).path
         let install = await requests.all.first
         XCTAssertEqual(install?.command, "/bin/mkdir -p '\(folder.path)' && /bin/ln -sfh '\(launcher)' '\(link.path)'")
-        XCTAssertEqual(install?.prompt, "Grok Desktop wants to install the grok command in \(folder.path).")
+        XCTAssertEqual(install?.prompt, "Crok Desktop wants to install the crok command in \(folder.path).")
         XCTAssertNil(model.error, "cancelling the password prompt is not an error")
         XCTAssertEqual(model.status, .notInstalled)
         XCTAssertFalse(model.isWorking)
@@ -243,7 +243,7 @@ final class GrokCommandTests: XCTestCase {
     }
 
     func testCommandsSurviveShellAndAppleScriptQuoting() throws {
-        let path = #"/Volumes/Grok's "Test" \ Apps/Grok Desktop.app"#
+        let path = #"/Volumes/Grok's "Test" \ Apps/Crok Desktop.app"#
         XCTAssertEqual(try output("/bin/sh", ["-c", "printf %s \(GrokCommand.shellQuoted(path))"]), path)
         // The same round trip osascript makes before `do shell script` runs the command.
         let command = "/bin/ln -sfh \(GrokCommand.shellQuoted(path)) '/usr/local/bin/grok'"
@@ -256,7 +256,7 @@ final class GrokCommandTests: XCTestCase {
 
     func testOpeningTheAppClearsTheDownloadQuarantineFromItsCommand() throws {
         let app = try makeApp()
-        let paths = [GrokCommand.launcherPath, "Contents/Resources/grok"].map { app.appendingPathComponent($0).path }
+        let paths = [GrokCommand.launcherPath, "Contents/Resources/crok"].map { app.appendingPathComponent($0).path }
         let value = "0081;66f30000;Safari;"
         for path in paths { XCTAssertEqual(setxattr(path, "com.apple.quarantine", value, value.utf8.count, 0, XATTR_NOFOLLOW), 0) }
 
@@ -267,7 +267,7 @@ final class GrokCommandTests: XCTestCase {
     // MARK: Terminal panel
 
     func testTheTerminalPanelFindsTheBundledCommandAfterTheUsersOwn() {
-        let directory = "/Applications/Grok Desktop.app/Contents/Resources/bin"
+        let directory = "/Applications/Crok Desktop.app/Contents/Resources/bin"
         let path = { (environment: [String]) in environment.first { $0.hasPrefix("PATH=") } }
         XCTAssertEqual(path(TerminalSessions.environment(shell: "/bin/zsh", commandDirectory: directory))?.hasSuffix(":" + directory), true)
         let inherited = ProcessInfo.processInfo.environment["PATH"].map { "PATH=" + $0 }
@@ -280,15 +280,15 @@ final class GrokCommandTests: XCTestCase {
 
     /// A packaged app holding the real launcher and a TUI stand-in that reports how it was run.
     private func makeApp(in folder: URL? = nil, testBuild: Bool = false) throws -> URL {
-        let app = (folder ?? root).appendingPathComponent("Grok Desktop.app", isDirectory: true)
+        let app = (folder ?? root).appendingPathComponent("Crok Desktop.app", isDirectory: true)
         let contents = app.appendingPathComponent("Contents", isDirectory: true)
         let resources = contents.appendingPathComponent("Resources", isDirectory: true)
         try FileManager.default.createDirectory(at: resources.appendingPathComponent("bin"), withIntermediateDirectories: true)
         let info = try PropertyListSerialization.data(fromPropertyList: [GrokCommand.testBuildInfoKey: testBuild], format: .xml, options: 0)
         try info.write(to: contents.appendingPathComponent("Info.plist"))
-        let harness = resources.appendingPathComponent("grok")
+        let harness = resources.appendingPathComponent("crok")
         let launcher = app.appendingPathComponent(GrokCommand.launcherPath)
-        try Data("#!/bin/sh\nfor a in \"$@\"; do echo \"arg:$a\"; done\necho \"autoupdater:${GROK_DISABLE_AUTOUPDATER:-unset}\"\n".utf8).write(to: harness)
+        try Data("#!/bin/sh\nfor a in \"$@\"; do echo \"arg:$a\"; done\necho \"autoupdater:${CROK_DISABLE_AUTOUPDATER:-unset}\"\n".utf8).write(to: harness)
         try FileManager.default.copyItem(at: Self.launcherSource, to: launcher)
         for url in [harness, launcher] { chmod(url.path, 0o755) }
         return app
@@ -296,7 +296,7 @@ final class GrokCommandTests: XCTestCase {
 
     private static var launcherSource: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Resources/grok-command.sh")
+            .appendingPathComponent("Resources/crok-command.sh")
     }
 
     private func relink(_ link: URL, to destination: String) throws {
@@ -309,7 +309,7 @@ final class GrokCommandTests: XCTestCase {
         process.executableURL = executable
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
-        environment.removeValue(forKey: "GROK_DISABLE_AUTOUPDATER")
+        environment.removeValue(forKey: "CROK_DISABLE_AUTOUPDATER")
         process.environment = environment
         let output = Pipe(), errors = Pipe()
         process.standardOutput = output
@@ -338,10 +338,10 @@ private actor PrivilegedRequests {
 @MainActor
 final class GrokCommandSnapshotTests: XCTestCase {
     func testRenderCommandLineSettings() throws {
-        guard let path = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("grok-command-snapshots-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let app = root.appendingPathComponent("Applications/Grok Desktop.app", isDirectory: true)
+        let app = root.appendingPathComponent("Applications/Crok Desktop.app", isDirectory: true)
         let launcher = app.appendingPathComponent(GrokCommand.launcherPath)
         try FileManager.default.createDirectory(at: launcher.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("#!/bin/sh\n".utf8).write(to: launcher)
@@ -351,7 +351,7 @@ final class GrokCommandSnapshotTests: XCTestCase {
         try Data("#!/bin/sh\n".utf8).write(to: home.appendingPathComponent(".grok/bin/grok"))
         chmod(home.appendingPathComponent(".grok/bin/grok").path, 0o755)
 
-        let states: [(String, String?)] = [("off", nil), ("on", launcher.path), ("taken", "/opt/tools/grok"), ("broken", "/Volumes/Old/Grok Desktop.app/\(GrokCommand.launcherPath)")]
+        let states: [(String, String?)] = [("off", nil), ("on", launcher.path), ("taken", "/opt/tools/grok"), ("broken", "/Volumes/Old/Crok Desktop.app/\(GrokCommand.launcherPath)")]
         for (name, destination) in states {
             let link = root.appendingPathComponent("bin-\(name)/grok")
             try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -11,7 +11,7 @@ final class SidePanelSnapshotTests: XCTestCase {
     private var output: URL!
 
     override func setUpWithError() throws {
-        guard let path = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         output = URL(fileURLWithPath: path)
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("grok-side-panel-snapshots-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("Sources/App"), withIntermediateDirectories: true)
@@ -40,7 +40,7 @@ final class SidePanelSnapshotTests: XCTestCase {
             SideChatMessage(role: .question, text: "Which file sets up the window?"),
             SideChatMessage(role: .answer, text: "`Sources/App/main.swift` declares the `WindowGroup`. The view itself is in `View.swift`."),
             SideChatMessage(role: .question, text: "Is the flicker only in debug builds?"),
-            SideChatMessage(role: .failure, text: "Grok did not respond to x.ai/btw in time."),
+            SideChatMessage(role: .failure, text: "Crok did not respond to x.ai/btw in time."),
         ])
         store.state = DesktopState(projects: [project], conversations: [task], selectedProjectID: project.id, selectedConversationID: task.id)
         store.workspace = GitWorkspaceSnapshot(branch: "feature/window", changes: [

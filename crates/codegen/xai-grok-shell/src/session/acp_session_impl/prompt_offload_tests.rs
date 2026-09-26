@@ -149,7 +149,7 @@ fn build_truncated_preserves_small_query_truncates_context() {
     assert!(message.contains(&query), "small query preserved intact");
     assert!(
         message.starts_with(&query),
-        "grok ordering: query block first"
+        "crok ordering: query block first"
     );
     assert!(message.contains("CTXHEAD_TOKEN"), "context head preserved");
     assert!(!message.contains(&context), "oversized context truncated");
@@ -185,7 +185,7 @@ fn build_truncated_both_oversized_keeps_bounded_heads() {
     assert!(!message.contains(&context), "full context not inlined");
     assert!(
         message.starts_with("QHEAD_TOKEN"),
-        "grok ordering: query first"
+        "crok ordering: query first"
     );
     assert!(
         message.len() <= LARGE_PROMPT_THRESHOLD,

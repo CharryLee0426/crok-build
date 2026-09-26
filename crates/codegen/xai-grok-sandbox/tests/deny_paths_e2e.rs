@@ -676,7 +676,7 @@ fn subprocess_hook_write_deny(workspace: &Path, first_run: bool) {
             }
             assert_write_denied(&format!("{name} (first-run)"), path);
         }
-        eprintln!("OK: first-run Grok hook slots denied");
+        eprintln!("OK: first-run Crok hook slots denied");
     } else {
         let keep = hooks_dir.join("keep.json");
         match fs::read_to_string(&keep) {
@@ -810,7 +810,7 @@ fn subprocess_hook_write_deny(workspace: &Path, first_run: bool) {
         }
     }
     assert_write_ok(
-        "grok runtime sibling",
+        "crok runtime sibling",
         &home.join(format!("leader-{}.lock", std::process::id())),
     );
     assert_write_ok("workspace sibling", &workspace.join("fresh.rs"));
@@ -1230,7 +1230,7 @@ fn workspace_protects_direct_hook_sources() {
         "OK: sessions sibling writable",
         "OK: workspace parent rename denied",
         "OK: workspace sibling under parent writable",
-        "OK: grok runtime sibling writable",
+        "OK: crok runtime sibling writable",
         "OK: workspace sibling writable",
         "OK: temp sibling writable",
     ] {
@@ -1313,11 +1313,11 @@ fn workspace_protects_direct_hook_sources_first_run() {
         "missing pass marker\nstderr: {stderr}"
     );
     for needle in [
-        "OK: first-run Grok hook slots denied",
+        "OK: first-run Crok hook slots denied",
         "OK: hooks-paths (first-run) write denied",
         "OK: hooks nested (first-run) mkdir denied",
         "OK: hooks nested file (first-run) write denied",
-        "OK: grok runtime sibling writable",
+        "OK: crok runtime sibling writable",
         "OK: workspace sibling writable",
         "OK: temp sibling writable",
     ] {

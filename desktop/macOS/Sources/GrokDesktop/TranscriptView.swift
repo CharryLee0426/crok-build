@@ -161,7 +161,7 @@ struct MessageView: View, Equatable {
         case .assistant:
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 7) {
-                    GrokMark(size: 18); Text("Grok").font(.system(size: 13, weight: .semibold))
+                    GrokMark(size: 18); Text("Crok").font(.system(size: 13, weight: .semibold))
                     if let timestamp { Spacer(minLength: 8); TranscriptTimestampLabel(date: timestamp) }
                 }
                 MarkdownReply(text: message.text)

@@ -340,7 +340,7 @@ struct TranscriptWindow: View {
                 Text(document?.title ?? tools.store?.conversation?.title ?? "Transcript")
                     .font(.system(size: 17, weight: .semibold)).lineLimit(1).truncationMode(.tail)
                 Text(detail(document)).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
-                    .help(document?.source == .cli ? "Rendered by grok export from the saved session" : "Rendered from the conversation shown in Grok Desktop")
+                    .help(document?.source == .cli ? "Rendered by crok export from the saved session" : "Rendered from the conversation shown in Crok Desktop")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             TranscriptQueryBox(text: $query, placeholder: "Find in transcript", focusRequest: focusRequest,

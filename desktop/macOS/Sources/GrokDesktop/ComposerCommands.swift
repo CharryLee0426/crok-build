@@ -168,7 +168,7 @@ enum ComposerFollowUpBehavior: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String { self == .queue ? "Queue" : "Steer" }
     var detail: String {
-        self == .queue ? "Send it after Grok finishes." : "Add it to the running turn."
+        self == .queue ? "Send it after Crok finishes." : "Add it to the running turn."
     }
 }
 

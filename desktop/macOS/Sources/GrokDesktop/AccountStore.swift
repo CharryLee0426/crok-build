@@ -57,8 +57,8 @@ struct AccountStatusReader {
 
     init(home: URL? = nil, environment: [String: String] = ProcessInfo.processInfo.environment, now: @escaping () -> Date = Date.init) {
         self.environment = environment
-        self.home = home ?? environment["GROK_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".grok", isDirectory: true)
+        self.home = home ?? environment["CROK_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".crok", isDirectory: true)
         self.now = now
     }
 

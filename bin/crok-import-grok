@@ -1,0 +1,45 @@
+#!/bin/bash
+# Copy the official grok's settings into crok's so crok starts with them:
+#   ~/.grok                                        -> ~/.crok (or $CROK_HOME)
+#   ~/Library/Application Support/Grok Desktop     -> .../Crok Desktop
+#   defaults ai.grok.build.desktop                 -> dev.chenli.crok.desktop
+# Files that already exist on the crok side are never overwritten, so it is safe to run again.
+# grok's own binaries, caches, logs, and runtime locks stay behind.
+set -euo pipefail
+
+grok_home="${GROK_SOURCE_HOME:-$HOME/.grok}"
+crok_home="${CROK_HOME:-$HOME/.crok}"
+support="$HOME/Library/Application Support"
+
+if [[ ! -d "$grok_home" ]]; then
+    printf 'crok-import-grok: nothing to import, %s does not exist\n' "$grok_home" >&2
+    exit 1
+fi
+
+mkdir -p "$crok_home"
+/usr/bin/rsync -a --ignore-existing \
+    --exclude '/bin/' --exclude '/downloads/' --exclude '/completions/' --exclude '/docs/' \
+    --exclude '/logs/' --exclude '/memtrace/' --exclude '/version.json' \
+    --exclude '/README.md' --exclude '/CHANGELOG.md' --exclude '/CHANGELOG.json' \
+    --exclude '/active_sessions.json' --exclude '*.lock' --exclude '*.sock' \
+    "$grok_home/" "$crok_home/"
+
+# Settings that name the old home by path follow it to the new one.
+for file in "$crok_home/config.toml" "$crok_home/pager.toml" "$crok_home"/hooks/*.json; do
+    [[ -f "$file" ]] || continue
+    /usr/bin/sed -i '' -e "s#~/\.grok/#~/.crok/#g" -e "s#\$HOME/\.grok/#\$HOME/.crok/#g" -e "s#$HOME/\.grok/#$crok_home/#g" "$file"
+done
+printf 'Imported %s into %s\n' "$grok_home" "$crok_home"
+
+if [[ "$(uname -s)" == Darwin ]]; then
+    if [[ -f "$support/Grok Desktop/state.json" && ! -e "$support/Crok Desktop/state.json" ]]; then
+        mkdir -p "$support/Crok Desktop"
+        cp -p "$support/Grok Desktop/state.json" "$support/Crok Desktop/state.json"
+        printf 'Imported the Grok Desktop task list into %s\n' "$support/Crok Desktop"
+    fi
+    if /usr/bin/defaults read ai.grok.build.desktop >/dev/null 2>&1 \
+        && ! /usr/bin/defaults read dev.chenli.crok.desktop >/dev/null 2>&1; then
+        /usr/bin/defaults export ai.grok.build.desktop - | /usr/bin/defaults import dev.chenli.crok.desktop -
+        printf 'Imported Grok Desktop preferences into dev.chenli.crok.desktop\n'
+    fi
+fi

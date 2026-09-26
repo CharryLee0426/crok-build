@@ -13,7 +13,7 @@ struct SidebarView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 GrokMark(size: 26)
-                Text("Grok").font(.system(size: 20, weight: .semibold))
+                Text("Crok").font(.system(size: 20, weight: .semibold))
                 Text("BUILD").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(1.4).foregroundStyle(Theme.muted)
                 Spacer()
             }
@@ -46,10 +46,10 @@ struct SidebarView: View {
             }.padding(.horizontal, 10).padding(.vertical, 8)
                 .overlay(alignment: .top) { Theme.line.opacity(0.5).frame(height: 0.5) }
             if store.binaryPath.isEmpty {
-                Label("Grok engine unavailable", systemImage: "exclamationmark.triangle")
+                Label("Crok engine unavailable", systemImage: "exclamationmark.triangle")
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 20).padding(.bottom, 12)
-                    .help("The bundled Grok runtime is missing. Reinstall Grok Desktop.")
+                    .help("The bundled Crok runtime is missing. Reinstall Crok Desktop.")
             }
         }.background { SidebarMaterial().ignoresSafeArea() }
     }

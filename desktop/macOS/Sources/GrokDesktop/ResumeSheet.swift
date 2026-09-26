@@ -78,7 +78,7 @@ struct ResumeSheet: View {
         } else if rows.isEmpty && (isSearching ? sessions.searchError : sessions.resumeError) == nil {
             SessionEmptyState(symbol: isSearching ? "magnifyingglass" : "clock.arrow.circlepath",
                               title: isSearching ? "No sessions match “\(trimmedQuery)”." : "No saved sessions in this project yet.",
-                              detail: isSearching ? nil : "Sessions appear here after Grok has worked in this folder.")
+                              detail: isSearching ? nil : "Sessions appear here after Crok has worked in this folder.")
         } else if !isSearching && sessions.resumeCursor != nil {
             HStack {
                 Spacer()

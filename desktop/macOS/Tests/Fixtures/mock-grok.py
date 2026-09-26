@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Offline ACP fixture for Grok Desktop tests and manual UI inspection.
+"""Offline ACP fixture for Crok Desktop tests and manual UI inspection.
 
-Launch with GROK_DESKTOP_HARNESS pointing to this executable. It never runs tools, writes
+Launch with CROK_DESKTOP_HARNESS pointing to this executable. It never runs tools, writes
 project files, contacts a service, or reads credentials. Every response is marked
 as fixture data. Prompts containing `fixture:permission`, `fixture:question`,
 `fixture:plan`, or `fixture:trust` display the corresponding interaction;
@@ -40,7 +40,7 @@ class MockHarness:
         self.history = {
             "fixture-history-001": [
                 {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "Show the desktop workflow."}},
-                {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "This is **offline fixture history**. The real app connects to `grok agent stdio`."}},
+                {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "This is **offline fixture history**. The real app connects to `crok agent stdio`."}},
             ]
         }
         self.model_id = "fixture-grok-build"
@@ -277,7 +277,7 @@ class MockHarness:
             if interaction is not None:
                 detail += "\nClient reply: " + json.dumps(interaction, sort_keys=True)
             self.update(session_id, {"sessionUpdate": "tool_call_update", "toolCallId": tool_id, "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": detail}}]})
-            answer = "## Ready to build\n\nThis is an **offline test fixture**, connected over the same ACP transport as Grok Build.\n\n- Streamed conversation and tool activity\n- Project-scoped tasks and session history\n- Native approvals, model selection, and workspace changes\n\n```swift\nlet nextStep = \"Build something useful\"\n```\n\nThe installed app uses its bundled Grok runtime automatically."
+            answer = "## Ready to build\n\nThis is an **offline test fixture**, connected over the same ACP transport as Crok Build.\n\n- Streamed conversation and tool activity\n- Project-scoped tasks and session history\n- Native approvals, model selection, and workspace changes\n\n```swift\nlet nextStep = \"Build something useful\"\n```\n\nThe installed app uses its bundled Crok runtime automatically."
             if attachments:
                 names = ", ".join(block.get("name") or block.get("mimeType", "image") for block in attachments)
                 answer += "\n\nReceived {} attachment(s): {}.".format(len(attachments), names)

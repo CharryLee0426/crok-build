@@ -55,7 +55,7 @@ class AccountHarness(MockHarness):
             return
         if method == "_x.ai/session/info":
             self.result(rid, {"result": {"sessionId": params.get("sessionId"), "cwd": os.getcwd(), "model": "fixture-grok-build",
-                                         "modelDisplayName": "Grok Build (fixture)", "showModelFingerprint": False, "turns": 1, "turnIndex": 1,
+                                         "modelDisplayName": "Crok Build (fixture)", "showModelFingerprint": False, "turns": 1, "turnIndex": 1,
                                          "context": {"used": 30000, "total": 200000, "systemPromptTokens": 9000, "messageTokens": 18000,
                                                      "toolDefinitionsCount": 12, "toolDefinitionsTokens": 5000, "turnCount": 1,
                                                      "toolCallCount": 2, "compactionCount": 0, "usagePct": 15, "autoCompactThresholdPercent": 85,
@@ -66,7 +66,7 @@ class AccountHarness(MockHarness):
         elif method == "_x.ai/feedback":
             if FAIL_FEEDBACK:
                 self.emit({"id": rid, "error": {"code": -32603, "message": "Internal error",
-                                                "data": "Feedback is disabled. To enable, set GROK_FEEDBACK_ENABLED=true or [features] feedback = true in config.toml."}})
+                                                "data": "Feedback is disabled. To enable, set CROK_FEEDBACK_ENABLED=true or [features] feedback = true in config.toml."}})
                 return
             reply = {"success": True, "outcome": "submitted"}
             if params.get("draft_id") == "draft-cleanup":
@@ -164,7 +164,7 @@ fixture.run()
         XCTAssertEqual(rows.first { $0.label == "Shell version" }?.value, "9.9.9-fixture")
         XCTAssertEqual(rows.first { $0.label == "Auth method" }?.value, "Provider credentials")
         XCTAssertEqual(rows.first { $0.label == "Session ID" }?.value, session)
-        XCTAssertEqual(rows.first { $0.label == "Model" }?.value, "Grok Build (fixture)")
+        XCTAssertEqual(rows.first { $0.label == "Model" }?.value, "Crok Build (fixture)")
         XCTAssertEqual(rows.first?.value, "Inspect the offline fixture")
         XCTAssertEqual(account.usage.sessionUsage.value?.rows.last?.value, "$0.0025")
         XCTAssertTrue(fixture.params(for: "_x.ai/billing").isEmpty, "xAI billing is never requested")
@@ -192,7 +192,7 @@ fixture.run()
         try await startTask(fixture)
         let promptsBefore = fixture.prompts.count
         fixture.store.executeCommand(name: "feedback", arguments: "The diff view is great")
-        XCTAssertEqual(fixture.store.banner, "Thanks for the feedback! The Grok Build team is on it.")
+        XCTAssertEqual(fixture.store.banner, "Thanks for the feedback! The Crok Build team is on it.")
         XCTAssertNil(fixture.store.sheet)
         try await eventually { !fixture.params(for: "_x.ai/feedback").isEmpty }
         let params = try XCTUnwrap(fixture.params(for: "_x.ai/feedback").first)
@@ -217,7 +217,7 @@ fixture.run()
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
         fixture.account.feedback("Streaming stalls after tool calls")
         try await eventually { fixture.store.banner?.hasPrefix("Couldn't send feedback") == true }
-        XCTAssertEqual(fixture.store.banner, "Couldn't send feedback: Feedback is disabled. To enable, set GROK_FEEDBACK_ENABLED=true or [features] feedback = true in config.toml. Saved to Drafts; open `/feedback` to retry.")
+        XCTAssertEqual(fixture.store.banner, "Couldn't send feedback: Feedback is disabled. To enable, set CROK_FEEDBACK_ENABLED=true or [features] feedback = true in config.toml. Saved to Drafts; open `/feedback` to retry.")
         let document = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: sessionDirectory.appendingPathComponent("feedback_drafts.json"))) as? [String: Any])
         let draft = try XCTUnwrap((document["drafts"] as? [[String: Any]])?.first)
         XCTAssertEqual(draft["title"] as? String, "Streaming stalls after tool calls")

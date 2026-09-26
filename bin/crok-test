@@ -18,16 +18,16 @@ current_dir="$(pwd -P)"
 case "$current_dir" in
     "$workspace_root"|"$workspace_root"/*) ;;
     *)
-        printf 'grok-test: this test TUI can run only inside %s\n' "$workspace_root" >&2
+        printf 'crok-test: this test TUI can run only inside %s\n' "$workspace_root" >&2
         exit 2
         ;;
 esac
 
-binary="$workspace_root/target/test-builds/tui/grok-test"
+binary="$workspace_root/target/test-builds/tui/crok-test"
 if [ ! -x "$binary" ]; then
-    printf 'grok-test: test TUI is missing. Run `make build-test-tui` in %s\n' "$workspace_root" >&2
+    printf 'crok-test: test TUI is missing. Run `make build-test-tui` in %s\n' "$workspace_root" >&2
     exit 127
 fi
 
-export GROK_DISABLE_AUTOUPDATER=1
+export CROK_DISABLE_AUTOUPDATER=1
 exec "$binary" "$@"

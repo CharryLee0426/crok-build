@@ -66,7 +66,7 @@ async fn out_of_band_stale_row_heals_on_focus_gained() {
     h.update(Duration::from_millis(300));
     assert!(
         h.contains_text(STALE_MARKER),
-        "stale row should survive a normal redraw (grok's diff renderer doesn't own it)\nscreen:\n{}",
+        "stale row should survive a normal redraw (crok's diff renderer doesn't own it)\nscreen:\n{}",
         h.screen_contents()
     );
 

@@ -19,7 +19,7 @@ pub enum TraceFormat {
 
 #[derive(Debug, Clone, clap::Args)]
 #[command(
-    after_help = "Examples:\n  grok trace view <session-id>\n  grok trace view ./trace.tar.gz --html --open\n  grok trace view ./session --format html -o trace.html\n  grok trace view ./updates.jsonl --format json -o -\n\nViews are local snapshots. They never upload trace data. HTML includes the recorded\ncontent; review it before sharing. Missing measurements are shown as unavailable."
+    after_help = "Examples:\n  crok trace view <session-id>\n  crok trace view ./trace.tar.gz --html --open\n  crok trace view ./session --format html -o trace.html\n  crok trace view ./updates.jsonl --format json -o -\n\nViews are local snapshots. They never upload trace data. HTML includes the recorded\ncontent; review it before sharing. Missing measurements are shown as unavailable."
 )]
 pub struct TraceViewArgs {
     /// Session ID, session directory, JSON/JSONL file, or exported .tar.gz bundle
@@ -30,7 +30,7 @@ pub struct TraceViewArgs {
     /// Shorthand for --format html
     #[arg(long, conflicts_with = "format")]
     pub html: bool,
-    /// HTML/JSON destination; use - for stdout (default: $GROK_HOME/trace-exports)
+    /// HTML/JSON destination; use - for stdout (default: $CROK_HOME/trace-exports)
     #[arg(short, long)]
     pub output: Option<PathBuf>,
     /// Open the generated HTML page in the default browser

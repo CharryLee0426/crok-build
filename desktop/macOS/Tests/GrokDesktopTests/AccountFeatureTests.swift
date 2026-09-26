@@ -153,12 +153,12 @@ final class AccountFeatureTests: XCTestCase {
         XCTAssertEqual(rows.map(\.label), ["Title", "Shell version", "Auth method", "Session ID", "Working directory", "Model", "API Backend", "Turn", "Context"])
         XCTAssertEqual(rows.first { $0.label == "Model" }?.value, "grok-build (grok-build-0923)")
         XCTAssertEqual(rows.last?.value, "1,000 / 4,000 tokens (25%)")
-        let shown = UsageSessionInfo(["sessionId": "sid-2", "cwd": "/w", "modelDisplayName": "Grok Build", "model": "grok-build",
+        let shown = UsageSessionInfo(["sessionId": "sid-2", "cwd": "/w", "modelDisplayName": "Crok Build", "model": "grok-build",
                                       "modelFingerprint": "fp_abc", "showModelFingerprint": true, "conversationId": "conv-9"])
         let other = UsageFormatting.sessionInfoRows(shown, title: nil, shellVersion: nil, auth: .providerCredentials, showResolvedModel: false)
         XCTAssertEqual(other.first?.label, "Shell version")
         XCTAssertEqual(other.first?.value, "unknown")
-        XCTAssertEqual(other.first { $0.label == "Model" }?.value, "Grok Build")
+        XCTAssertEqual(other.first { $0.label == "Model" }?.value, "Crok Build")
         XCTAssertEqual(other.first { $0.label == "Model Hash" }?.value, "fp_abc")
         XCTAssertEqual(other.first { $0.label == "Conversation ID" }?.value, "conv-9")
         XCTAssertTrue(UsageFormatting.copyText(other).contains("Session ID: sid-2"))
@@ -415,7 +415,7 @@ final class AccountFeatureTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: home.appendingPathComponent("CHANGELOG.md"), encoding: .utf8), "## 1.0.41\n\n- Faster\n", "downloads refresh the cache")
         let cached = await ReleaseNotesLoader.load(version: "1.0.41", home: home, environment: [:]) { _, _ in nil }
         XCTAssertEqual(cached?.source, .cache)
-        let offline = await ReleaseNotesLoader.load(version: "1.0.41", home: home, environment: ["GROK_CHANGELOG_OFFLINE": "1"]) { _, _ in
+        let offline = await ReleaseNotesLoader.load(version: "1.0.41", home: home, environment: ["CROK_CHANGELOG_OFFLINE": "1"]) { _, _ in
             XCTFail("offline mode must not download"); return "remote"
         }
         XCTAssertEqual(offline?.source, .cache)

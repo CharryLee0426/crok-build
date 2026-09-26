@@ -423,7 +423,7 @@ struct GrokMark: View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.29).fill(Theme.ink)
             GrokSymbol().fill(Theme.canvas).frame(width: size * 0.76, height: size * 0.76)
-        }.frame(width: size, height: size).accessibilityLabel("Grok")
+        }.frame(width: size, height: size).accessibilityLabel("Crok")
     }
 }
 

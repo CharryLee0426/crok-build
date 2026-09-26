@@ -419,7 +419,7 @@ SessionHarness().run()
         XCTAssertEqual(fixture.prompts.last?.text, "Now summarize")
         let entry = try XCTUnwrap(DashboardEntry.build(store: store, boards: fixture.model.boards, deleting: []).first { $0.id == id })
         XCTAssertEqual(entry.group, .idle)
-        XCTAssertTrue(entry.preview.hasPrefix("The installed app uses its bundled Grok runtime"), entry.preview)
+        XCTAssertTrue(entry.preview.hasPrefix("The installed app uses its bundled Crok runtime"), entry.preview)
     }
 
     // MARK: Tasks

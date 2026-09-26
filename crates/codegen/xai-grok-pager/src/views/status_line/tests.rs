@@ -167,7 +167,7 @@ fn link_elided_away_does_not_make_the_marker_clickable() {
 
 #[test]
 fn render_ansi_emits_absolute_link_spans() {
-    let input = "[Grok] \x1b]8;;https://example.com/repo\x07repo\x1b]8;;\x07";
+    let input = "[Crok] \x1b]8;;https://example.com/repo\x07repo\x1b]8;;\x07";
     let (_, spans) = render(input, Rect::new(3, 5, 40, 1), 2);
 
     assert_eq!(spans.len(), 1);

@@ -3727,8 +3727,8 @@ fn docs_footer_renders_for_browse_and_picker() {
             all_text.push('\n');
         }
         assert!(
-            all_text.contains("Ask Grok"),
-            "[{fixture_label}] docs footer (`Ask Grok`) must appear in the rendered modal:\n\
+            all_text.contains("Ask Crok"),
+            "[{fixture_label}] docs footer (`Ask Crok`) must appear in the rendered modal:\n\
              {all_text}"
         );
         assert!(

@@ -1102,7 +1102,7 @@ fn render_header(area: Rect, buf: &mut Buffer, data: &TraceData, state: &Explore
     let summary = &data.summary;
     let first = Line::from(vec![
         Span::styled(
-            " grok ",
+            " crok ",
             Style::default()
                 .fg(theme.text_primary)
                 .add_modifier(Modifier::BOLD),

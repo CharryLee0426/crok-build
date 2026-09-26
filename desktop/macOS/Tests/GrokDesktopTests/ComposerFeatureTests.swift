@@ -187,7 +187,7 @@ final class ComposerFeatureTests: XCTestCase {
         let store = makeStore()
         let composer = store.features.composer
         let config = directory.appendingPathComponent("config.toml")
-        try "# Grok\n[ui]\ntheme = \"grokday\"\n".write(to: config, atomically: true, encoding: .utf8)
+        try "# Crok\n[ui]\ntheme = \"grokday\"\n".write(to: config, atomically: true, encoding: .utf8)
         composer.configURL = config
         composer.reloadPreferences()
         XCTAssertEqual(composer.permissionMode, .ask)
@@ -197,7 +197,7 @@ final class ComposerFeatureTests: XCTestCase {
         try await eventually { store.banner == "⚠ Always-approve ON: all tool actions auto-run" }
         XCTAssertEqual(composer.permissionMode, .alwaysApprove)
         let saved = try String(contentsOf: config, encoding: .utf8)
-        XCTAssertEqual(saved, "# Grok\n[ui]\ntheme = \"grokday\"\npermission_mode = \"always-approve\"\n")
+        XCTAssertEqual(saved, "# Crok\n[ui]\ntheme = \"grokday\"\npermission_mode = \"always-approve\"\n")
         XCTAssertEqual(composer.sessionMeta() as NSDictionary, ["yoloMode": true, "autoMode": false] as NSDictionary)
 
         composer.toggleAutoMode()
@@ -295,9 +295,9 @@ final class ComposerFeatureTests: XCTestCase {
         XCTAssertNil(ExternalPromptEditor.editorCommand(environment: [:]))
         let script = ExternalPromptEditor.terminalScript(editor: "subl -w", file: URL(fileURLWithPath: "/tmp/it's.md"), statusFile: URL(fileURLWithPath: "/tmp/s.status"))
         XCTAssertTrue(script.hasPrefix("#!/bin/sh\n"))
-        XCTAssertTrue(script.contains("GROK_EDITOR='subl -w'"))
-        XCTAssertTrue(script.contains("GROK_PROMPT_FILE='/tmp/it'\\''s.md'"))
-        XCTAssertTrue(script.contains(#"eval "$GROK_EDITOR \"\$GROK_PROMPT_FILE\"""#))
+        XCTAssertTrue(script.contains("CROK_EDITOR='subl -w'"))
+        XCTAssertTrue(script.contains("CROK_PROMPT_FILE='/tmp/it'\\''s.md'"))
+        XCTAssertTrue(script.contains(#"eval "$CROK_EDITOR \"\$CROK_PROMPT_FILE\"""#))
     }
 
     func testEditPromptIsRefusedWhileDictating() {

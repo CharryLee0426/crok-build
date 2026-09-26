@@ -1,12 +1,12 @@
 # Theming and Appearance Customization
 
-Grok Build draws all TUI colors from a central theme. You can switch themes while Grok is running, follow your operating system's light or dark appearance, and adjust scrollback layout, animations, and block styling through configuration files.
+Crok Build draws all TUI colors from a central theme. You can switch themes while Crok is running, follow your operating system's light or dark appearance, and adjust scrollback layout, animations, and block styling through configuration files.
 
 ---
 
 ## Available Themes
 
-Grok includes six built-in themes, plus an `auto` option that follows your system appearance:
+Crok includes six built-in themes, plus an `auto` option that follows your system appearance:
 
 | Theme | Config Names | Description | Truecolor Required |
 |-------|-------------|-------------|--------------------|
@@ -21,18 +21,18 @@ Theme names are case-insensitive. The `auto` option (alias `system`) is document
 
 ### Terminal Theme
 
-`terminal` paints no surface backgrounds and defines almost no colors of its own — everything comes from your terminal profile. The scrollback, composer, modals, and status line leave the terminal's canvas visible (a translucent or image-backed window shows through Grok the way it shows through your shell), body text uses the terminal's default foreground, and accents (errors, diffs, links, syntax) come from your profile's 16-color ANSI palette. Because it borrows your profile's colors instead of assuming a light or dark background, it stays readable on any profile with no appearance detection, and it renders identically at every color depth.
+`terminal` paints no surface backgrounds and defines almost no colors of its own — everything comes from your terminal profile. The scrollback, composer, modals, and status line leave the terminal's canvas visible (a translucent or image-backed window shows through Crok the way it shows through your shell), body text uses the terminal's default foreground, and accents (errors, diffs, links, syntax) come from your profile's 16-color ANSI palette. Because it borrows your profile's colors instead of assuming a light or dark background, it stays readable on any profile with no appearance detection, and it renders identically at every color depth.
 
-The theme paints no backgrounds at all: your messages render in bold instead of on a band, menus and prompt panels sit directly on the terminal canvas, and the selected or hovered row in any menu uses reverse video (your terminal's own foreground/background swap), so every combination stays readable on any profile. Decoration — idle borders, dividers, the scrollbar thumb — uses ANSI *bright black* as a foreground, the palette slot your profile tunes as its own dimmed tone. Focused chrome, like the active composer border, stays at the full default foreground so focus still pops. Grok also leaves your cursor color alone on this theme (other themes recolor it to their accent).
+The theme paints no backgrounds at all: your messages render in bold instead of on a band, menus and prompt panels sit directly on the terminal canvas, and the selected or hovered row in any menu uses reverse video (your terminal's own foreground/background swap), so every combination stays readable on any profile. Decoration — idle borders, dividers, the scrollbar thumb — uses ANSI *bright black* as a foreground, the palette slot your profile tunes as its own dimmed tone. Focused chrome, like the active composer border, stays at the full default foreground so focus still pops. Crok also leaves your cursor color alone on this theme (other themes recolor it to their accent).
 
 ```toml
 [ui]
 theme = "terminal"
 ```
 
-Contrast is only as good as your terminal profile: a profile with a very dark bright-black slot will render faint dividers, since Grok derives everything from your palette rather than hard-coding colors.
+Contrast is only as good as your terminal profile: a profile with a very dark bright-black slot will render faint dividers, since Crok derives everything from your palette rather than hard-coding colors.
 
-The theme is rolling out gradually. Until the rollout reaches your account it is hidden from `/theme` and `/settings`, its names do not parse, and a configured `theme = "terminal"` falls back to the default theme. Set `GROK_TERMINAL_THEME=1` (or `[features] terminal_theme = true` in `config.toml`) to enable it locally ahead of the rollout.
+The theme is rolling out gradually. Until the rollout reaches your account it is hidden from `/theme` and `/settings`, its names do not parse, and a configured `theme = "terminal"` falls back to the default theme. Set `CROK_TERMINAL_THEME=1` (or `[features] terminal_theme = true` in `config.toml`) to enable it locally ahead of the rollout.
 
 ### Minimal Mode Has No Theming
 
@@ -46,7 +46,7 @@ Syntax highlighting in minimal mode does **not** switch between light and dark t
 
 ### In the TUI
 
-Run the `/theme` slash command (alias `/t`) to open the theme picker. As you move through the list with the arrow keys, Grok previews each theme in real time. Press Enter to apply and save your choice, or press Escape to revert. Typing filters the list by any of a theme's config names, so `/theme transparent` narrows it to the Terminal row.
+Run the `/theme` slash command (alias `/t`) to open the theme picker. As you move through the list with the arrow keys, Crok previews each theme in real time. Press Enter to apply and save your choice, or press Escape to revert. Typing filters the list by any of a theme's config names, so `/theme transparent` narrows it to the Terminal row.
 
 To switch without the picker, pass a name directly:
 
@@ -58,7 +58,7 @@ Submitting `/theme` on its own -- without choosing from the picker -- cycles to 
 
 ### Via Config File
 
-Set the theme in `~/.grok/config.toml`:
+Set the theme in `~/.crok/config.toml`:
 
 ```toml
 [ui]
@@ -69,7 +69,7 @@ theme = "tokyonight"
 
 ## Auto Theme (System Appearance)
 
-Set `theme = "auto"` to have Grok follow your operating system's light/dark appearance and switch themes automatically:
+Set `theme = "auto"` to have Crok follow your operating system's light/dark appearance and switch themes automatically:
 
 ```toml
 [ui]
@@ -94,11 +94,11 @@ auto_light_theme = "grokday"
 | **macOS** | Reads `AppleInterfaceStyle` system preference |
 | **Linux** | Queries XDG Desktop Portal (`org.freedesktop.appearance.color-scheme`) |
 | **Windows** | Reads the system personalization registry |
-| **SSH / tmux / headless** | `GROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `grok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |
+| **SSH / tmux / headless** | `CROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `crok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |
 
-Once running, Grok polls desktop APIs and env hints every 5 seconds. Toggling your OS between light and dark mode on a local desktop takes effect within seconds without restarting. Over SSH the wrap-stamped env is fixed for that hop.
+Once running, Crok polls desktop APIs and env hints every 5 seconds. Toggling your OS between light and dark mode on a local desktop takes effect within seconds without restarting. Over SSH the wrap-stamped env is fixed for that hop.
 
-You can also set `GROK_THEME` (or `LC_GROK_THEME`) to force a theme or `auto` without editing `config.toml`.
+You can also set `CROK_THEME` (or `LC_GROK_THEME`) to force a theme or `auto` without editing `config.toml`.
 
 ### Via the Settings Pane
 
@@ -108,7 +108,7 @@ Run `/settings` (alias `/config`) and open the **Appearance** category to set th
 
 ## Color Support Detection
 
-On startup, Grok detects your terminal's color capability level:
+On startup, Crok detects your terminal's color capability level:
 
 | Level | Description | Detection |
 |-------|-------------|-----------|
@@ -116,13 +116,13 @@ On startup, Grok detects your terminal's color capability level:
 | **256-color** | Indexed palette. RGB values are mapped to the nearest palette entry. | Standard xterm-256color |
 | **16-color** | ANSI names only. Colors are mapped to the closest ANSI color. | Basic terminal support |
 
-When you set `NO_COLOR`, Grok emits no color and renders in monochrome.
+When you set `NO_COLOR`, Crok emits no color and renders in monochrome.
 
 Run `/doctor` to see the detected color level and the themes available on this terminal. If truecolor is unavailable, Doctor shows the relevant setup steps or explains the terminal limitation.
 
 ### Automatic Quantization
 
-Every theme is defined using full RGB values. At startup, Grok quantizes all colors to match the detected capability level. This means:
+Every theme is defined using full RGB values. At startup, Crok quantizes all colors to match the detected capability level. This means:
 
 - On **truecolor** terminals, colors pass through unchanged.
 - On **256-color** terminals, each RGB value is mapped to the nearest indexed palette entry.
@@ -138,7 +138,7 @@ Colors generated at runtime (syntax highlighting, background blending) are also 
 
 ## Cursor Color
 
-Grok sets your terminal cursor to the current theme's `accent_user` color using the OSC 12 escape sequence, to indicate an active Grok session. The cursor color is:
+Crok sets your terminal cursor to the current theme's `accent_user` color using the OSC 12 escape sequence, to indicate an active Crok session. The cursor color is:
 
 - Applied on startup and on theme switch.
 - Reset to the terminal's default on exit via OSC 112.
@@ -155,7 +155,7 @@ Toggle compact mode with the `/compact-mode` slash command. Compact mode:
 - Reduces horizontal padding to the minimum (1 column).
 - Reduces top padding in the prompt area and info blocks.
 
-The setting is persisted in `~/.grok/config.toml` under `[ui].compact_mode` and survives restarts.
+The setting is persisted in `~/.crok/config.toml` under `[ui].compact_mode` and survives restarts.
 
 Use compact mode on small screens to maximize content area.
 
@@ -163,19 +163,19 @@ Use compact mode on small screens to maximize content area.
 
 ## Syntax Highlighting
 
-Grok bundles three `.tmTheme` files for code-block syntax highlighting and selects one based on the active theme:
+Crok bundles three `.tmTheme` files for code-block syntax highlighting and selects one based on the active theme:
 
 - `grok-night.tmTheme` -- GrokNight, RosePineMoon, and OscuraMidnight
 - `grok-day.tmTheme` -- GrokDay
 - `tokyo-night.tmTheme` -- TokyoNight
 
-Grok selects the matching file automatically when you switch themes. The `.tmTheme` files are built into the binary, so you cannot replace them with your own.
+Crok selects the matching file automatically when you switch themes. The `.tmTheme` files are built into the binary, so you cannot replace them with your own.
 
 ---
 
 ## Deep Customization with pager.toml
 
-For fine-grained control over the TUI appearance, create `~/.grok/pager.toml`. This file controls scrollback layout, block styling, animations, and more. All settings have defaults; specify only the values you override. (Dev builds generate this file as a template with every default commented out — uncomment a line to override it; commented values keep tracking future defaults.)
+For fine-grained control over the TUI appearance, create `~/.crok/pager.toml`. This file controls scrollback layout, block styling, animations, and more. All settings have defaults; specify only the values you override. (Dev builds generate this file as a template with every default commented out — uncomment a line to override it; commented values keep tracking future defaults.)
 
 ### Layout
 

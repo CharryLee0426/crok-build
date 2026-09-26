@@ -274,7 +274,7 @@ extension AppStore {
         let name = row.payload["name"] as? String ?? row.title
         guard let path = row.payload["path"] as? String else {
             let description = row.payload["description"] as? String ?? row.subtitle
-            let origin = (row.payload["plugin"] as? String).map { "Provided by the \($0) plugin and spawned as a subagent through the Task tool." } ?? "Built into Grok Build."
+            let origin = (row.payload["plugin"] as? String).map { "Provided by the \($0) plugin and spawned as a subagent through the Task tool." } ?? "Built into Crok Build."
             setDefinition("# \(name)\n\n\(description.isEmpty ? "" : description + "\n\n")\(origin)", for: row.id)
             return
         }

@@ -77,7 +77,7 @@ enum TranscriptClipboard {
 
     /// `$GROK_COPY_FILE` (with `~` expanded), or `$GROK_HOME/last-copy.txt`.
     static func backupURL(environment: [String: String], grokHome: URL) -> URL {
-        if let raw = environment["GROK_COPY_FILE"]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+        if let raw = environment["CROK_COPY_FILE"]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
             return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
         }
         return grokHome.appendingPathComponent("last-copy.txt")
@@ -87,9 +87,9 @@ enum TranscriptClipboard {
     static func displayPath(_ url: URL, grokHome: URL, home: String = NSHomeDirectory()) -> String {
         let path = url.standardizedFileURL.path
         let grok = grokHome.standardizedFileURL.path
-        let defaultGrok = (home as NSString).appendingPathComponent(".grok")
+        let defaultGrok = (home as NSString).appendingPathComponent(".crok")
         if path == grok || path.hasPrefix(grok + "/") {
-            let prefix = grok == defaultGrok ? "~/.grok" : "$GROK_HOME"
+            let prefix = grok == defaultGrok ? "~/.crok" : "$CROK_HOME"
             return prefix + path.dropFirst(grok.count)
         }
         if !home.isEmpty, path == home || path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }

@@ -445,7 +445,7 @@ struct VoiceOpenRouterTranscriber {
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Grok Desktop", forHTTPHeaderField: "X-Title")
+        request.setValue("Crok Desktop", forHTTPHeaderField: "X-Title")
         request.httpBody = Self.requestBody(model: model, language: language, wav: Self.wav(pcm, sampleRate: sampleRate))
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0

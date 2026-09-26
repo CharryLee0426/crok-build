@@ -68,7 +68,7 @@ struct RememberSheet: View {
     private var canEnhance: Bool { extensions.canEnhanceMemoryNote && !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !enhancing }
 
     var body: some View {
-        DesktopPanel(title: "Memory Note", subtitle: "Save something Grok should remember in future sessions.", width: 640, onClose: { store.sheet = nil }) {
+        DesktopPanel(title: "Memory Note", subtitle: "Save something Crok should remember in future sessions.", width: 640, onClose: { store.sheet = nil }) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
                     Picker("Version", selection: $showEnhanced) {
@@ -77,7 +77,7 @@ struct RememberSheet: View {
                     }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
                     .disabled(enhanced == nil)
-                    .help(enhanced == nil ? "Enhance the note to compare versions." : "Switch between your note and Grok's version.")
+                    .help(enhanced == nil ? "Enhance the note to compare versions." : "Switch between your note and Crok's version.")
                     if enhancing {
                         ProgressView().controlSize(.small)
                         Text("Enhancing…").font(.system(size: 12)).foregroundStyle(Theme.muted)
@@ -86,7 +86,7 @@ struct RememberSheet: View {
                     } else if enhanced != nil, enhancedFrom != raw {
                         Text("Your note changed since it was enhanced.").font(.system(size: 12)).foregroundStyle(Theme.muted)
                     } else if enhanced != nil, !showEnhanced {
-                        Label("Grok's enhanced version is ready", systemImage: "sparkles").font(.system(size: 12)).foregroundStyle(Theme.accent)
+                        Label("Crok's enhanced version is ready", systemImage: "sparkles").font(.system(size: 12)).foregroundStyle(Theme.accent)
                     }
                     Spacer(minLength: 0)
                 }

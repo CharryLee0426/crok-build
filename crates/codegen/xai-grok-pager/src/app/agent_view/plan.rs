@@ -1770,7 +1770,7 @@ mod plan_approval_enter_tests {
     #[test]
     fn enter_with_builtin_slash_returns_send_prompt_and_keeps_review_open() {
         let (mut agent, mut rx) = agent_with_revise_prompt_and_response();
-        let text = "/feedback grok does not understand plan mode";
+        let text = "/feedback crok does not understand plan mode";
         agent.prompt.set_text(text);
         let outcome = agent.handle_plan_feedback_key(&enter_key());
         match outcome {

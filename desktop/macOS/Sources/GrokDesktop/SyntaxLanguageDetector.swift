@@ -16,7 +16,7 @@ enum SyntaxLanguageDetector {
         "nc", "lsof", "top", "htop", "df", "du", "mount", "defaults", "launchctl", "pod", "fastlane", "swiftlint",
         "eslint", "prettier", "tsc", "vite", "next", "nx", "turbo", "jest", "pytest", "ruff", "black", "mypy", "uvicorn",
         "gunicorn", "flask", "django-admin", "hugo", "jekyll", "rbenv", "pyenv", "nvm", "volta", "asdf", "mise",
-        "set", "unset", "cargo-watch", "wasm-pack", "zig", "grok", "claude", "codex"
+        "set", "unset", "cargo-watch", "wasm-pack", "zig", "grok", "crok", "claude", "codex"
     ]
 
     static let htmlTags: Set<String> = [

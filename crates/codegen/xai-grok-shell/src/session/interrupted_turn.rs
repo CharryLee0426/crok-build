@@ -9,7 +9,7 @@ use crate::session::persistence::Summary;
 pub const INTERRUPTED_STOP_REASON: &str = "interrupted";
 
 /// Transcript line and `turn_result.error` text.
-pub const INTERRUPTED_MESSAGE: &str = "Grok stopped before this turn finished (the agent process exited or was restarted). Committed tool results were kept.";
+pub const INTERRUPTED_MESSAGE: &str = "Crok stopped before this turn finished (the agent process exited or was restarted). Committed tool results were kept.";
 
 /// Only the tail of `events.jsonl` is scanned; one turn's events fit here many times over.
 const EVENTS_TAIL_BYTES: u64 = 256 * 1024;

@@ -104,13 +104,13 @@ final class TranscriptToolsTests: XCTestCase {
 
     func testBackupAndDisplayPaths() {
         let home = "/Users/tester"
-        let defaultGrok = URL(fileURLWithPath: home + "/.grok")
-        XCTAssertEqual(TranscriptClipboard.backupURL(environment: [:], grokHome: defaultGrok).path, home + "/.grok/last-copy.txt")
-        XCTAssertEqual(TranscriptClipboard.backupURL(environment: ["GROK_COPY_FILE": "  /tmp/copy.txt "], grokHome: defaultGrok).path, "/tmp/copy.txt")
-        XCTAssertEqual(TranscriptClipboard.backupURL(environment: ["GROK_COPY_FILE": " "], grokHome: defaultGrok).path, home + "/.grok/last-copy.txt")
-        XCTAssertEqual(TranscriptClipboard.displayPath(defaultGrok.appendingPathComponent("last-copy.txt"), grokHome: defaultGrok, home: home), "~/.grok/last-copy.txt")
+        let defaultGrok = URL(fileURLWithPath: home + "/.crok")
+        XCTAssertEqual(TranscriptClipboard.backupURL(environment: [:], grokHome: defaultGrok).path, home + "/.crok/last-copy.txt")
+        XCTAssertEqual(TranscriptClipboard.backupURL(environment: ["CROK_COPY_FILE": "  /tmp/copy.txt "], grokHome: defaultGrok).path, "/tmp/copy.txt")
+        XCTAssertEqual(TranscriptClipboard.backupURL(environment: ["CROK_COPY_FILE": " "], grokHome: defaultGrok).path, home + "/.crok/last-copy.txt")
+        XCTAssertEqual(TranscriptClipboard.displayPath(defaultGrok.appendingPathComponent("last-copy.txt"), grokHome: defaultGrok, home: home), "~/.crok/last-copy.txt")
         let relocated = URL(fileURLWithPath: "/Volumes/data/grok")
-        XCTAssertEqual(TranscriptClipboard.displayPath(relocated.appendingPathComponent("last-copy.txt"), grokHome: relocated, home: home), "$GROK_HOME/last-copy.txt")
+        XCTAssertEqual(TranscriptClipboard.displayPath(relocated.appendingPathComponent("last-copy.txt"), grokHome: relocated, home: home), "$CROK_HOME/last-copy.txt")
         XCTAssertEqual(TranscriptClipboard.displayPath(URL(fileURLWithPath: home + "/notes/a.md"), grokHome: defaultGrok, home: home), "~/notes/a.md")
         XCTAssertEqual(TranscriptClipboard.displayPath(URL(fileURLWithPath: "/tmp/a.md"), grokHome: defaultGrok, home: home), "/tmp/a.md")
         XCTAssertEqual(TranscriptClipboard.resolve("out/reply.md", relativeTo: "/work/app").path, "/work/app/out/reply.md")
@@ -149,7 +149,7 @@ final class TranscriptToolsTests: XCTestCase {
         XCTAssertEqual(store.banner, "Copied to clipboard (also saved to \(TranscriptClipboard.displayPath(backup, grokHome: grokHome)))\(TranscriptClipboard.statsSuffix(latest))")
 
         let custom = directory.appendingPathComponent("custom/copy.txt")
-        tools.environment = ["GROK_COPY_FILE": custom.path]
+        tools.environment = ["CROK_COPY_FILE": custom.path]
         tools.copy("3")
         await finish(tools)
         XCTAssertEqual(pasteboard.string(forType: .string), "First reply")
@@ -456,7 +456,7 @@ final class TranscriptToolsTests: XCTestCase {
     func testDisplayPreferencesPersistToConfigAndDefaults() throws {
         let (store, tools) = try makeFixture()
         let config = directory.appendingPathComponent("config.toml")
-        try "# Grok settings\n[ui]\ntheme = \"grokday\"\n\n[models]\ndefault = \"grok-4\"\n".write(to: config, atomically: true, encoding: .utf8)
+        try "# Crok settings\n[ui]\ntheme = \"grokday\"\n\n[models]\ndefault = \"grok-4\"\n".write(to: config, atomically: true, encoding: .utf8)
         XCTAssertTrue(tools.showTimestamps, "Timestamps default to on")
         XCTAssertFalse(tools.showTimeline)
         XCTAssertFalse(tools.vimMode)
@@ -475,7 +475,7 @@ final class TranscriptToolsTests: XCTestCase {
         XCTAssertEqual(saved.bool("vim_mode", in: "ui"), true)
         XCTAssertEqual(saved.string("theme", in: "ui"), "grokday")
         XCTAssertEqual(saved.string("default", in: "models"), "grok-4")
-        XCTAssertTrue(saved.text.hasPrefix("# Grok settings\n[ui]\ntheme = \"grokday\""))
+        XCTAssertTrue(saved.text.hasPrefix("# Crok settings\n[ui]\ntheme = \"grokday\""))
         XCTAssertEqual(defaults.object(forKey: "showTimestamps") as? Bool, false)
         XCTAssertEqual(defaults.object(forKey: "showTimeline") as? Bool, true)
         XCTAssertEqual(defaults.object(forKey: "transcriptVimMode") as? Bool, true)

@@ -1035,7 +1035,7 @@ impl AgentBuilder {
                     agent = %definition.name,
                     unresolved = ?unresolved,
                     allowed = ?definition.tools,
-                    "tools allowlist had unmappable entries; keeping full grok toolset"
+                    "tools allowlist had unmappable entries; keeping full crok toolset"
                 );
             }
         }

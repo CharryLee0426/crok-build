@@ -194,17 +194,17 @@ impl fmt::Display for GrantRefuse {
             Self::NoHome => write!(
                 f,
                 "Couldn't save folder trust: no home directory for the trust store. \
-                 Set GROK_HOME to an absolute directory (or unset it), then start Grok again."
+                 Set GROK_HOME to an absolute directory (or unset it), then start Crok again."
             ),
             Self::Unreadable => write!(
                 f,
                 "Couldn't save folder trust: the trust store could not be read. \
-                 Fix or delete ~/.grok/trusted_folders.toml, then start Grok again and press y."
+                 Fix or delete ~/.crok/trusted_folders.toml, then start Crok again and press y."
             ),
             Self::KeyMoved => write!(
                 f,
                 "Couldn't save folder trust: the folder path changed. \
-                 Start Grok again from the folder you want to trust."
+                 Start Crok again from the folder you want to trust."
             ),
         }
     }
@@ -245,8 +245,8 @@ impl fmt::Display for GrantOutcome {
                 ..
             } => write!(
                 f,
-                "Couldn't save folder trust. Check that ~/.grok is writable, \
-                 then run `grok --trust` in this folder."
+                "Couldn't save folder trust. Check that ~/.crok is writable, \
+                 then run `crok --trust` in this folder."
             ),
             Self::Refused { reason } => write!(f, "{reason}"),
             Self::Granted { .. } | Self::AlreadyDurable { .. } => {
@@ -656,7 +656,7 @@ pub fn prompt_for_trust(key: &Path) -> bool {
     let _ = writeln!(
         err,
         "This folder contains repo-local config (MCP/LSP servers, hooks, permission rules) \
-         or project instructions/skills that Grok would otherwise apply automatically."
+         or project instructions/skills that Crok would otherwise apply automatically."
     );
     let _ = writeln!(err, "  Folder: {}", key.display());
     let _ = write!(
@@ -1454,7 +1454,7 @@ mod tests {
         let text = unread.to_string();
         assert!(text.contains("trust store could not be read"), "{text}");
         assert!(
-            text.contains("Fix or delete ~/.grok/trusted_folders.toml"),
+            text.contains("Fix or delete ~/.crok/trusted_folders.toml"),
             "{text}"
         );
         let no_home = GrantOutcome::Refused {

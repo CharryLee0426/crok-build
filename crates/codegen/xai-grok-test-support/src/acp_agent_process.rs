@@ -61,13 +61,13 @@ impl AgentProcessOptions {
             cmd,
             &sandbox,
             TestProcessConfig::new()
-                .label("grok agent stdio")
+                .label("crok agent stdio")
                 .stdin(TestStdin::Piped)
                 .stdout(TestOutput::Piped),
         )
         .unwrap_or_else(|error| {
             panic!(
-                "failed to spawn grok agent stdio at {}: {error}\n{}",
+                "failed to spawn crok agent stdio at {}: {error}\n{}",
                 binary.display(),
                 sandbox.diagnostic_summary(),
             )

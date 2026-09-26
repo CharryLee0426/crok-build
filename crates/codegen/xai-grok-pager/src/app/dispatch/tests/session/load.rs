@@ -386,7 +386,7 @@ fn load_session_marks_standalone_worktree_cwd() {
     );
     assert!(
         expect_agent(&app, AgentId(0)).session.is_worktree,
-        "resume into a standalone grok worktree must set session.is_worktree"
+        "resume into a standalone crok worktree must set session.is_worktree"
     );
     assert_eq!(expect_agent(&app, AgentId(0)).session.cwd, clone.path);
 }

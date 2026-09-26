@@ -156,7 +156,7 @@ pub(crate) fn extract_default_mode(value: &serde_json::Value, path: &Path) -> Op
                 warn!(
                     path = %path.display(),
                     actual_type = %dm.type_of(),
-                    "root defaultMode (grok legacy): expected string, ignoring"
+                    "root defaultMode (crok legacy): expected string, ignoring"
                 );
                 None
             }
