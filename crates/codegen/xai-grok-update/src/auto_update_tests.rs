@@ -1630,7 +1630,7 @@ fn test_user_facing_constants_are_stable() {
     );
     assert_eq!(
         MSG_RUN_UPDATE_MANUAL,
-        "Run `grok update` to get the latest version."
+        "Run `crok update` to get the latest version."
     );
 }
 
@@ -2301,7 +2301,7 @@ async fn download_and_decode_round_trips_each_codec() {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    let payload = b"\x7fELF grok binary payload".to_vec();
+    let payload = b"\x7fELF crok binary payload".to_vec();
     let zst = zstd::encode_all(payload.as_slice(), 3).unwrap();
     let gz = {
         let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
@@ -2365,7 +2365,7 @@ async fn download_cli_artifact_falls_back_to_plain() {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    let payload = b"\x7fELF grok binary payload".to_vec();
+    let payload = b"\x7fELF crok binary payload".to_vec();
     let server = MockServer::start().await; // only the plain object exists; .zst/.gz 404
     Mock::given(method("GET"))
         .and(path("/grok-1.2.3-linux-x86_64"))
@@ -2388,7 +2388,7 @@ async fn download_cli_artifact_prefers_compressed_over_plain() {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    let payload = b"\x7fELF grok binary payload".to_vec();
+    let payload = b"\x7fELF crok binary payload".to_vec();
     let zst = zstd::encode_all(payload.as_slice(), 3).unwrap();
     let server = MockServer::start().await;
     Mock::given(method("GET"))

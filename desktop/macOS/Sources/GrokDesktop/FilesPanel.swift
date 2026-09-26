@@ -250,7 +250,7 @@ final class FilesPanelModel: ObservableObject {
             if let image = NSImage(contentsOf: url), image.isValid { return .image(image, bytes: size) }
             return .binary(bytes: size)
         }
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return .failed("Grok Desktop can't read this file.") }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return .failed("Crok Desktop can't read this file.") }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: previewLimit + 1)) ?? Data()
         let sample = data.prefix(8_192)
@@ -364,7 +364,7 @@ struct FilesPanelView: View {
     private var tree: some View {
         if let index = files.index {
             if index.files.isEmpty {
-                SidePanelEmptyState(symbol: "doc", title: "No files", detail: "This folder has no files Grok can list.")
+                SidePanelEmptyState(symbol: "doc", title: "No files", detail: "This folder has no files Crok can list.")
             } else if !files.filter.trimmingCharacters(in: .whitespaces).isEmpty {
                 if files.matches.isEmpty {
                     SidePanelEmptyState(symbol: "magnifyingglass", title: "No matches", detail: "No file path contains \u{201C}\(files.filter)\u{201D}.")
@@ -402,7 +402,7 @@ struct FilesPanelView: View {
         if let error = store.workspace.error {
             SidePanelEmptyState(symbol: "folder.badge.questionmark", title: "No Git repository", detail: error)
         } else if store.workspace.changes.isEmpty {
-            SidePanelEmptyState(symbol: "checkmark.circle", title: "No changes", detail: "Files Grok or you change appear here.")
+            SidePanelEmptyState(symbol: "checkmark.circle", title: "No changes", detail: "Files Crok or you change appear here.")
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {

@@ -319,7 +319,7 @@ let vectorX = (vectorSide - viewBox.width * vectorScale) / 2 - viewBox.minX * ve
 let vectorMarkCenterY = vectorSide * markCenterFraction
 let vectorY = vectorMarkCenterY - viewBox.height * vectorScale / 2 - viewBox.minY * vectorScale
 let paths = reader.shapes.map { "    <path d=\"\(escapedXML($0.data))\" fill-rule=\"\($0.evenOdd ? "evenodd" : "nonzero")\"/>" }.joined(separator: "\n")
-let title = isTestVariant ? "Grok Desktop test app icon" : "Grok Desktop app icon"
+let title = isTestVariant ? "Crok Desktop test app icon" : "Crok Desktop app icon"
 let vectorTile = CGRect(x: vectorSide * tileInset, y: vectorSide * tileInset,
                         width: vectorSide * (1 - 2 * tileInset), height: vectorSide * (1 - 2 * tileInset))
 let tileOutlineData = tileOutline(in: vectorTile, samples: 240).enumerated()

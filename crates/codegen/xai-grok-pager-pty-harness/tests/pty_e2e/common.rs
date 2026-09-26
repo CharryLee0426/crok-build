@@ -296,7 +296,7 @@ pub(crate) fn seed_hook_spec(
     spec: &serde_json::Value,
 ) {
     let hooks_dir = content.home().join(".grok").join("hooks");
-    std::fs::create_dir_all(&hooks_dir).expect("create ~/.grok/hooks");
+    std::fs::create_dir_all(&hooks_dir).expect("create ~/.crok/hooks");
     std::fs::write(
         hooks_dir.join(file_name),
         serde_json::to_vec_pretty(spec).expect("serialize hook spec"),
@@ -1343,7 +1343,7 @@ pub(crate) fn run_wrap_driving(
 
     let mut harness =
         PtyHarness::new_inherited_env(&binary, DEFAULT_ROWS, DEFAULT_COLS, &args, &env, None)
-            .expect("spawn grok wrap");
+            .expect("spawn crok wrap");
 
     drive(&mut harness);
 
@@ -1353,13 +1353,13 @@ pub(crate) fn run_wrap_driving(
             Some(code)
         }
         Ok(PtyExitPoll::Running) => {
-            harness.quit().expect("kill grok wrap after timeout");
+            harness.quit().expect("kill crok wrap after timeout");
             None
         }
         Ok(PtyExitPoll::PendingStatus) => {
-            panic!("grok wrap exited but portable status remained unavailable for {WRAP_TIMEOUT:?}")
+            panic!("crok wrap exited but portable status remained unavailable for {WRAP_TIMEOUT:?}")
         }
-        Err(error) => panic!("poll grok wrap exit: {error:#}"),
+        Err(error) => panic!("poll crok wrap exit: {error:#}"),
     };
 
     let raw = String::from_utf8_lossy(harness.raw_output()).into_owned();

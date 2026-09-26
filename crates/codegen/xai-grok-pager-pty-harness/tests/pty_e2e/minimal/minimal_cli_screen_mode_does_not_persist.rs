@@ -48,7 +48,7 @@ async fn minimal_cli_screen_mode_does_not_persist() {
         .wait_for_text(WELCOME_SCREEN_SENTINEL, WELCOME_TIMEOUT)
         .unwrap_or_else(|e| {
             panic!(
-                "plain grok should open fullscreen after --minimal (no sticky write): {e}\nscreen:\n{}",
+                "plain crok should open fullscreen after --minimal (no sticky write): {e}\nscreen:\n{}",
                 second.screen_contents()
             )
         });

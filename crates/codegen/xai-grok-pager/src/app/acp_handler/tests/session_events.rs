@@ -583,7 +583,7 @@
             &RetryState::Failed {
                 error_type: "api".into(),
                 message:
-                    "API error (status 402 Payment Required): Grok Build usage balance exhausted"
+                    "API error (status 402 Payment Required): Crok Build usage balance exhausted"
                         .into(),
             },
             &mut session,
@@ -728,7 +728,7 @@
             &RetryState::Failed {
                 error_type: "legacy_auth".into(),
                 message: "Unauthorized (401) ... deprecated authentication method (WebLogin) ... \
-                          run `grok logout` then `grok login`"
+                          run `crok logout` then `crok login`"
                     .into(),
             },
             &mut session,

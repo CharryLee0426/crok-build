@@ -895,13 +895,13 @@ fn drain_with_always_prompt_does_not_orphan_home_create() {
         !effects
             .iter()
             .any(|e| matches!(e, Effect::CreateSession { .. })),
-        "Always + grok \"prompt\" must not emit an in-cwd home CreateSession, got {effects:?}"
+        "Always + crok \"prompt\" must not emit an in-cwd home CreateSession, got {effects:?}"
     );
     assert!(
         effects
             .iter()
             .any(|e| matches!(e, Effect::CreateWorktreeSession { .. })),
-        "Always + grok \"prompt\" must isolate, got {effects:?}"
+        "Always + crok \"prompt\" must isolate, got {effects:?}"
     );
     assert_eq!(app.agents.len(), 1);
     assert!(app.home_session_agent.is_none());
@@ -1378,7 +1378,7 @@ fn initial_prompt_from_welcome_honors_always_worktree() {
         effects
             .iter()
             .any(|e| matches!(e, Effect::CreateWorktreeSession { .. })),
-        "grok \"prompt\" with Always must isolate, got {effects:?}"
+        "crok \"prompt\" with Always must isolate, got {effects:?}"
     );
     assert!(matches!(app.active_view, ActiveView::Agent(_)));
 }

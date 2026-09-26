@@ -82,7 +82,7 @@ impl OpenRouterTranscriber {
             .client
             .post(&self.url)
             .bearer_auth(bearer)
-            .header("X-Title", "Grok Build")
+            .header("X-Title", "Crok Build")
             .json(&body);
         if !self.user_agent.is_empty() {
             request = request.header(reqwest::header::USER_AGENT, &self.user_agent);
@@ -128,7 +128,7 @@ fn parse_response(status: u16, body: &str, model: &str) -> Result<String, VoiceE
         .unwrap_or_else(|| format!("HTTP {status}"));
     Err(VoiceError::Stt(match status {
         401 => format!(
-            "OpenRouter rejected the API key ({message}); run `grok login openrouter` or set OPENROUTER_API_KEY"
+            "OpenRouter rejected the API key ({message}); run `crok login openrouter` or set OPENROUTER_API_KEY"
         ),
         402 => format!("OpenRouter: {message} (add credits to use transcription)"),
         400 | 404 if message.contains(model) => format!(
@@ -223,7 +223,7 @@ mod tests {
         let err = parse_response(401, r#"{"error":{"message":"No auth"}}"#, "m")
             .unwrap_err()
             .to_string();
-        assert!(err.contains("grok login openrouter"), "{err}");
+        assert!(err.contains("crok login openrouter"), "{err}");
     }
 
     #[test]

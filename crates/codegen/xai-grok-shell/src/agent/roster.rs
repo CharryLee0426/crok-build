@@ -292,7 +292,7 @@ mod merge_roster_tests {
 
     #[test]
     fn headless_summaries_exclude_dormant_and_resident_rows() {
-        let mut headless = summary("oneshot", Some("grok -p run"), 5_000);
+        let mut headless = summary("oneshot", Some("crok -p run"), 5_000);
         headless.session_kind = Some("headless".into());
         let out = merge_roster(
             vec![resident("oneshot", RosterActivity::Working, 9_000)],

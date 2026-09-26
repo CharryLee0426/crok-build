@@ -471,7 +471,7 @@ impl SessionEvent {
             } => crate::app::error_display::banner_message(headline, detail),
             SessionEvent::ReAuthRequired => {
                 "Authentication required: your provider credentials were rejected or \
-                 have expired. Run `grok login openai-codex` or `grok login openrouter`, \
+                 have expired. Run `crok login openai-codex` or `crok login openrouter`, \
                  then resend your message."
                     .to_string()
             }
@@ -943,7 +943,7 @@ mod tests {
     #[test]
     fn reauth_required_message_points_at_login() {
         let msg = SessionEvent::ReAuthRequired.message();
-        assert!(msg.contains("grok login"), "must tell the user to run grok login");
+        assert!(msg.contains("crok login"), "must tell the user to run crok login");
         assert!(
             msg.to_lowercase().contains("authentication")
                 || msg.to_lowercase().contains("credentials"),

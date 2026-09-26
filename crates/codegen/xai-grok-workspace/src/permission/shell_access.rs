@@ -408,10 +408,10 @@ impl ProtectedEditReason {
                 "Note: This edit contains changes under `/etc`, which is system configuration and can affect this machine beyond the current project.",
             ),
             Self::GrokConfig => Some(
-                "Note: This edit contains changes to Grok config, which can alter permissions, tools, and other behavior in later sessions.",
+                "Note: This edit contains changes to Crok config, which can alter permissions, tools, and other behavior in later sessions.",
             ),
             Self::GrokSandbox => Some(
-                "Note: This edit contains changes to the Grok sandbox config, which can loosen filesystem and network restrictions on commands.",
+                "Note: This edit contains changes to the Crok sandbox config, which can loosen filesystem and network restrictions on commands.",
             ),
             Self::ClaudeSettings => Some(
                 "Note: This edit contains changes to Claude-compatible settings, which can install hooks or change permission mode without a separate execution approval.",
@@ -1603,7 +1603,7 @@ mod tests {
         ] {
             assert!(
                 path_is_under_user_grok_hook_root(Path::new(path), home),
-                "must match under custom grok home: {path}"
+                "must match under custom crok home: {path}"
             );
         }
         for path in [
@@ -1688,7 +1688,7 @@ mod tests {
             assert_eq!(
                 protected_grok_config_file_with_home(&path, &components, Some(home_path)),
                 Some(reason),
-                "{file} directly under $GROK_HOME must be protected"
+                "{file} directly under $CROK_HOME must be protected"
             );
         }
         let grant = home_path
@@ -1702,7 +1702,7 @@ mod tests {
                 Some(home_path)
             ),
             Some(ProtectedEditReason::GrokConfig),
-            "per-client grant store under $GROK_HOME/sessions must be protected"
+            "per-client grant store under $CROK_HOME/sessions must be protected"
         );
         // Same file names elsewhere (or with no resolvable home) stay ordinary.
         let elsewhere = home_path

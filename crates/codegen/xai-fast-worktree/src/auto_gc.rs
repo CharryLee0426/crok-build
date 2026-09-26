@@ -579,7 +579,7 @@ fn maybe_run_rebuild(
     let home = match resolve_grok_home() {
         Ok(h) => h,
         Err(e) => {
-            tracing::warn!(error = %e, "auto worktree rebuild skipped: grok home unresolved");
+            tracing::warn!(error = %e, "auto worktree rebuild skipped: crok home unresolved");
             return (None, false);
         }
     };
@@ -623,7 +623,7 @@ fn collect_source_repos_for_prune(db: &WorktreeDb) -> BTreeSet<PathBuf> {
 /// [`crate::git::remove_stale_worktree_registrations_under`].
 fn prune_stale_git_worktree_registrations(repos: &BTreeSet<PathBuf>) -> u64 {
     let Ok(grok_home) = resolve_grok_home() else {
-        tracing::warn!("auto worktree registration scrub skipped: grok home unresolved");
+        tracing::warn!("auto worktree registration scrub skipped: crok home unresolved");
         return 0;
     };
     let cleaned: u64 = repos

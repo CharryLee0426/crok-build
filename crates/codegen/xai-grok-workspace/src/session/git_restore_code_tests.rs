@@ -55,7 +55,7 @@ async fn stash_before_destructive_op_dirty_tracked_returns_ref() {
     assert!(porcelain.trim().is_empty(), "got: {porcelain:?}");
     let list = git_cli(tmp.path(), &["stash", "list"]).await.unwrap();
     assert!(
-        list.contains("grok: pre-test sess-2"),
+        list.contains("crok: pre-test sess-2"),
         "stash list missing session id: {list}"
     );
 }

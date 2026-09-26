@@ -130,7 +130,7 @@ impl SessionActor {
             BuiltinAction::HooksAdd { path } => {
                 if path.is_empty() {
                     self.send_host_turn_slash_command_output(
-                        "Usage: /hooks add <path>\nProvide a path to a hook JSON file or directory under ~/.grok/.",
+                        "Usage: /hooks add <path>\nProvide a path to a hook JSON file or directory under ~/.crok/.",
                     )
                     .await;
                 } else {

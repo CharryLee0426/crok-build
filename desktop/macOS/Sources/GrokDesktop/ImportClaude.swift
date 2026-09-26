@@ -236,7 +236,7 @@ final class ClaudeImportModel: ObservableObject {
     /// The header text, as the terminal writes it.
     func label(_ row: ClaudeImportRow) -> String {
         switch row {
-        case .scope(.global): return "Global  ~/.grok/config.toml"
+        case .scope(.global): return "Global  ~/.crok/config.toml"
         case .scope(.project): return "Project  \(plan?.projectConfigPath ?? "")"
         case let .group(_, kind): return "\(kind.title) (\(indices(row).count))"
         case .item(let index): return item(index)?.label ?? ""
@@ -263,7 +263,7 @@ struct ImportClaudeSheet: View {
 
     var body: some View {
         DesktopPanel(title: "Import Claude settings",
-                     subtitle: "Bring your Claude Code permissions, environment, MCP servers, hooks, and skill folders into Grok. Settings Grok already has are left as they are.",
+                     subtitle: "Bring your Claude Code permissions, environment, MCP servers, hooks, and skill folders into Crok. Settings Crok already has are left as they are.",
                      width: 760, height: 620, onClose: close) {
             content
         } footer: {
@@ -423,7 +423,7 @@ private struct ClaudeImportRowView: View {
         case .scope(let scope):
             HStack(spacing: 10) {
                 Text(scope == .global ? "Global" : "Project").font(.system(size: 14, weight: .semibold))
-                Text(scope == .global ? "~/.grok/config.toml" : model.plan?.projectConfigPath ?? "")
+                Text(scope == .global ? "~/.crok/config.toml" : model.plan?.projectConfigPath ?? "")
                     .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted)
                     .lineLimit(1).truncationMode(.middle)
             }

@@ -2566,7 +2566,7 @@ mod tests {
                 },
                 test_session_context(&tmp),
             )
-            .expect("grok toolset should finalize");
+            .expect("crok toolset should finalize");
         assert_eq!(
             grok.tool_name_for_kind(ToolKind::Execute).as_deref(),
             Some("run_terminal_cmd")

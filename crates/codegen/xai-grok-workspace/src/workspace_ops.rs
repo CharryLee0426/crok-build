@@ -1990,7 +1990,7 @@ mod tests {
         assert!(dirs.contains(&home.path().join("src")));
         assert!(
             !dirs.iter().any(|d| d == home.path()),
-            "must not probe $HOME/.grok/repos.json: {dirs:?}"
+            "must not probe $HOME/.crok/repos.json: {dirs:?}"
         );
     }
     /// The test is sync and uses `block_on` so `ENV_TEST_LOCK` is not held across `.await` (clippy `await_holding_lock`).
@@ -2026,7 +2026,7 @@ mod tests {
         let listed = rt.block_on(ops.repos_list()).expect("list");
         assert!(
             listed.repos.is_empty(),
-            "missing workspace manifest must not fall back to ~/.grok/repos.json: {:?}",
+            "missing workspace manifest must not fall back to ~/.crok/repos.json: {:?}",
             listed.repos
         );
     }

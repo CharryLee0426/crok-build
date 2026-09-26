@@ -250,7 +250,7 @@ final class SessionFeatureModel: ObservableObject {
         alert.messageText = "Delete this session permanently?"
         alert.informativeText = hasSession
             ? "Delete removes the history of “\(title)” and returns home. Cancel keeps the session."
-            : "“\(title)” has not started a session yet. Delete removes it from Grok Desktop."
+            : "“\(title)” has not started a session yet. Delete removes it from Crok Desktop."
         alert.addButton(withTitle: "Delete").hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -714,7 +714,7 @@ final class SessionFeatureModel: ObservableObject {
             let result = try await GrokCLI.run(store.binaryPath, arguments: ["doctor", "--json"], cwd: cwd, timeout: 60)
             guard doctorRequestID == requestID else { return }
             guard !result.stdout.isEmpty else {
-                throw DesktopError.message(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "grok doctor exited with status \(result.status)." : result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+                throw DesktopError.message(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "crok doctor exited with status \(result.status)." : result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
             }
             doctorReport = try DoctorReport.decode(result.stdout)
         } catch {
@@ -748,7 +748,7 @@ final class SessionFeatureModel: ObservableObject {
     private func startAuxiliaryClient(cwd: String) async throws -> (ACPClient, UUID) {
         guard let store else { throw CancellationError() }
         guard FileManager.default.isExecutableFile(atPath: store.binaryPath) else {
-            throw DesktopError.message("The bundled Grok runtime is missing. Reinstall Grok Desktop.")
+            throw DesktopError.message("The bundled Crok runtime is missing. Reinstall Crok Desktop.")
         }
         let client = ACPClient(), key = UUID()
         store.auxiliaryClients[key] = client

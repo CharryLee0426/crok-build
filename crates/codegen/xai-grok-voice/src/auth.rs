@@ -20,10 +20,10 @@ pub enum VoiceAuthError {
         "voice needs an xAI credential for this account: sign in with an xAI login or set XAI_API_KEY"
     )]
     ForeignSession,
-    #[error("not signed in — run `grok login`, set XAI_API_KEY, or set a model api_key/env_key")]
+    #[error("not signed in — run `crok login`, set XAI_API_KEY, or set a model api_key/env_key")]
     NotSignedIn,
     #[error(
-        "voice uses OpenRouter transcription: run `grok login openrouter` or set OPENROUTER_API_KEY (or switch Voice provider to xAI in /settings)"
+        "voice uses OpenRouter transcription: run `crok login openrouter` or set OPENROUTER_API_KEY (or switch Voice provider to xAI in /settings)"
     )]
     OpenRouterNotSignedIn,
 }

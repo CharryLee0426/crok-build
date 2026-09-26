@@ -110,7 +110,7 @@ struct SideChatView: View {
             SideChatThread(conversationID: id, taskTitle: task.title).id(id)
         } else {
             SidePanelEmptyState(symbol: "bubble.left.and.text.bubble.right", title: "No task selected",
-                                detail: "Side chats belong to a task. Open one to ask Grok a quick question without interrupting its work.")
+                                detail: "Side chats belong to a task. Open one to ask Crok a quick question without interrupting its work.")
         }
     }
 }
@@ -149,7 +149,7 @@ private struct SideChatThread: View {
                         if isPending {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.mini)
-                                Text("Grok is answering…").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                                Text("Crok is answering…").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                             }.padding(.leading, 2)
                         }
                         Color.clear.frame(height: 1).id("end")
@@ -170,7 +170,7 @@ private struct SideChatThread: View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: "bubble.left.and.text.bubble.right").font(.system(size: 20, weight: .light)).foregroundStyle(Theme.accent)
             Text("Ask on the side").font(.system(size: 14, weight: .semibold))
-            Text("Grok answers from this task's conversation without interrupting what it is doing. Nothing here changes the task.")
+            Text("Crok answers from this task's conversation without interrupting what it is doing. Nothing here changes the task.")
                 .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 12)
@@ -221,7 +221,7 @@ private struct SideChatBubble: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     GrokMark(size: 15)
-                    Text("Grok").font(.system(size: 11.5, weight: .semibold))
+                    Text("Crok").font(.system(size: 11.5, weight: .semibold))
                     Spacer(minLength: 0)
                     IconButton(icon: "doc.on.doc", help: "Copy answer", size: 22) {
                         NSPasteboard.general.clearContents()

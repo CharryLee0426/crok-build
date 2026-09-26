@@ -17,7 +17,7 @@ final class InputMethodTests: XCTestCase {
         var revision = 0
 
         var body: some View {
-            PromptEditor(text: $model.draft, placeholder: "Ask Grok \(revision)", onSubmit: {})
+            PromptEditor(text: $model.draft, placeholder: "Ask Crok \(revision)", onSubmit: {})
                 .frame(width: 420, height: 76)
         }
     }

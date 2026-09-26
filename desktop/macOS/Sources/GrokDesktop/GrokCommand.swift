@@ -2,7 +2,7 @@ import AppKit
 import Darwin
 import SwiftUI
 
-/// What `/usr/local/bin/grok` is, from this copy of the app's point of view.
+/// What `/usr/local/bin/crok` is, from this copy of the app's point of view.
 enum GrokCommandStatus: Equatable {
     case notInstalled
     /// Links to this app's launcher.
@@ -11,7 +11,7 @@ enum GrokCommandStatus: Equatable {
     case otherCopy(app: String)
     /// Links to a Grok Desktop launcher that no longer exists: that app was moved or deleted.
     case broken(app: String)
-    /// Another program is installed as `grok`. Only a symlink is replaced, and only when the user agrees.
+    /// Another program is installed as `crok`. Only a symlink is replaced, and only when the user agrees.
     case taken(by: String, replaceable: Bool)
 
     /// The command is Grok Desktop's, so turning it off removes the link.
@@ -23,13 +23,13 @@ enum GrokCommandStatus: Equatable {
     }
 }
 
-/// The `grok` command: a symlink at `/usr/local/bin/grok`, on every Mac's default PATH, to the launcher
-/// bundled as `Contents/Resources/bin/grok`, which runs the app's copy of the Grok Build TUI.
+/// The `crok` command: a symlink at `/usr/local/bin/crok`, on every Mac's default PATH, to the launcher
+/// bundled as `Contents/Resources/bin/crok`, which runs the app's copy of the Grok Build TUI.
 enum GrokCommand {
-    static let defaultLink = URL(fileURLWithPath: "/usr/local/bin/grok")
-    static let launcherPath = "Contents/Resources/bin/grok"
+    static let defaultLink = URL(fileURLWithPath: "/usr/local/bin/crok")
+    static let launcherPath = "Contents/Resources/bin/crok"
     static let testBuildInfoKey = "GrokDesktopTestBuild"
-    private static let harnessPath = "Contents/Resources/grok"
+    private static let harnessPath = "Contents/Resources/crok"
 
     /// Runs a shell command as root, after macOS asks for an administrator password with `prompt`.
     typealias PrivilegedRunner = @Sendable (_ command: String, _ prompt: String) async throws -> Void
@@ -75,15 +75,15 @@ enum GrokCommand {
         guard launcher != nil else { return "Available in the packaged app." }
         let readOnly = (try? bundle.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly == true
         if readOnly || bundle.path.contains("/AppTranslocation/") {
-            return "Move Grok Desktop to your Applications folder and open it from there to turn this on."
+            return "Move Crok Desktop to your Applications folder and open it from there to turn this on."
         }
         return nil
     }
 
-    /// Other `grok` commands a terminal may find first, depending on PATH order.
+    /// Other `crok` commands a terminal may find first, depending on PATH order.
     static func otherInstallations(home: URL, excluding excluded: [URL]) -> [String] {
         let excludedPaths = Set(excluded.map { $0.resolvingSymlinksInPath().path })
-        return [home.appendingPathComponent(".grok/bin/grok").path, home.appendingPathComponent(".local/bin/grok").path, "/opt/homebrew/bin/grok"]
+        return [home.appendingPathComponent(".local/bin/crok").path, "/opt/homebrew/bin/crok"]
             .filter { path in
                 FileManager.default.isExecutableFile(atPath: path)
                     && !excludedPaths.contains(URL(fileURLWithPath: path).resolvingSymlinksInPath().path)
@@ -97,7 +97,7 @@ enum GrokCommand {
         } catch let error as POSIXError where error.code == .EACCES || error.code == .EPERM {
             let directory = link.deletingLastPathComponent().path
             try await privileged("/bin/mkdir -p \(shellQuoted(directory)) && /bin/ln -sfh \(shellQuoted(launcher.path)) \(shellQuoted(link.path))",
-                                 "Grok Desktop wants to install the grok command in \(directory).")
+                                 "Crok Desktop wants to install the crok command in \(directory).")
         }
     }
 
@@ -108,7 +108,7 @@ enum GrokCommand {
         if code == ENOENT { return }
         guard code == EACCES || code == EPERM else { throw posixError(code) }
         try await privileged("if [ -L \(shellQuoted(link.path)) ]; then /bin/rm -f \(shellQuoted(link.path)); fi",
-                             "Grok Desktop wants to remove the grok command from \(link.deletingLastPathComponent().path).")
+                             "Crok Desktop wants to remove the crok command from \(link.deletingLastPathComponent().path).")
     }
 
     /// Clears the download quarantine from the launcher and the TUI it runs. Opening the app approved it;
@@ -255,7 +255,7 @@ struct CommandLineSettingsSection: View {
             Label("Command line", systemImage: "terminal").font(.system(size: 15, weight: .semibold))
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
-                    (Text("grok").font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    (Text("crok").font(.system(size: 14, weight: .semibold, design: .monospaced))
                         + Text(" command in Terminal").font(.system(size: 14, weight: .medium)))
                     Text(detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
@@ -274,14 +274,14 @@ struct CommandLineSettingsSection: View {
                 }
                 Spacer(minLength: 12)
                 if command.isWorking { ProgressView().controlSize(.small) }
-                Toggle("grok command in Terminal", isOn: Binding(get: { command.status.isOn }, set: setEnabled))
+                Toggle("crok command in Terminal", isOn: Binding(get: { command.status.isOn }, set: setEnabled))
                     .toggleStyle(.switch).labelsHidden().controlSize(.small).disabled(!command.canToggle)
             }
         }
         .settingsCard()
         .onAppear { command.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in command.refresh() }
-        .alert("Replace the existing grok command?", isPresented: $confirmingReplace) {
+        .alert("Replace the existing crok command?", isPresented: $confirmingReplace) {
             Button("Replace") { Task { await command.enable(replacing: true) } }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -292,23 +292,23 @@ struct CommandLineSettingsSection: View {
     private var replaceMessage: String {
         guard case .taken(let target, _) = command.status else { return "" }
         let current = Self.abbreviated(target)
-        return "\(command.link.path) runs \(current). The link will run Grok Desktop's Grok Build instead; \(current) itself is not changed."
+        return "\(command.link.path) runs \(current). The link will run Crok Desktop's Crok Build instead; \(current) itself is not changed."
     }
 
     private var detail: String {
         switch command.status {
         case .installed:
-            return "Terminals run this app's Grok Build TUI with grok, linked at \(command.link.path)."
+            return "Terminals run this app's Crok Build TUI with crok, linked at \(command.link.path)."
         case .otherCopy(let app):
-            return "grok runs the Grok Desktop at \(Self.abbreviated(app))."
+            return "crok runs the Crok Desktop at \(Self.abbreviated(app))."
         case .broken(let app):
-            return "grok links to a Grok Desktop that was moved or deleted (\(Self.abbreviated(app)))."
+            return "crok links to a Crok Desktop that was moved or deleted (\(Self.abbreviated(app)))."
         case .taken(let target, true):
             return command.unavailableReason ?? "\(command.link.path) runs \(Self.abbreviated(target)). Turning this on replaces the link."
         case .taken:
             return "Another program is installed at \(command.link.path). Remove it to turn this on."
         case .notInstalled:
-            return command.unavailableReason ?? "Type grok in any terminal to run the Grok Build TUI that comes with this app."
+            return command.unavailableReason ?? "Type crok in any terminal to run the Crok Build TUI that comes with this app."
         }
     }
 

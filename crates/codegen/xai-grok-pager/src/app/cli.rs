@@ -22,15 +22,15 @@ impl LoginProvider {
 /// Top-level commands for the pager binary.
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
-    /// Run Grok without the interactive UI
+    /// Run Crok without the interactive UI
     Agent(Box<AgentArgs>),
-    /// Show the configuration Grok discovers for this directory
+    /// Show the configuration Crok discovers for this directory
     Inspect {
         /// Emit machine-readable JSON output.
         #[arg(long)]
         json: bool,
     },
-    /// Check terminal, clipboard, color, and input support without starting Grok
+    /// Check terminal, clipboard, color, and input support without starting Crok
     Doctor(crate::doctor_cmd::DoctorArgs),
     /// Manage running leader processes
     Leader(LeaderMgmtArgs),
@@ -67,7 +67,7 @@ pub enum Command {
     Usage(crate::usage_cmd::UsageArgs),
     /// Fetch and install managed configuration
     Setup {
-        /// Print the fetched configuration as JSON instead of installing it; writes nothing to ~/.grok.
+        /// Print the fetched configuration as JSON instead of installing it; writes nothing to ~/.crok.
         #[arg(long)]
         json: bool,
     },
@@ -88,10 +88,10 @@ clipboard (containers, SSH) and your terminal does not handle OSC 52 itself
 sync with your window size.
 
 Examples:
-  grok wrap docker exec -it my-container bash
-  grok wrap kubectl exec -it my-pod -- bash
+  crok wrap docker exec -it my-container bash
+  crok wrap kubectl exec -it my-pod -- bash
 
-See ~/.grok/README.md for more information.
+See ~/.crok/README.md for more information.
 ")]
     Wrap(WrapArgs),
     /// Export a session transcript as Markdown
@@ -121,7 +121,7 @@ See ~/.grok/README.md for more information.
         /// Switch to the enterprise release channel.
         #[arg(long, conflicts_with_all = ["alpha", "stable"], hide = true)]
         enterprise: bool,
-        /// Internal: what spawned this `grok update` (`user_command`, `auto_background`, `leader_converge`). Hidden.
+        /// Internal: what spawned this `crok update` (`user_command`, `auto_background`, `leader_converge`). Hidden.
         #[arg(long, hide = true)]
         trigger: Option<String>,
         /// Internal compat alias for `--trigger=auto_background` (older parents still spawn children with it).
@@ -143,7 +143,7 @@ See ~/.grok/README.md for more information.
     },
     /// Manage git worktrees
     Worktree(crate::worktree_cmd::WorktreeArgs),
-    /// Show what the grok home (~/.grok) uses on disk
+    /// Show what the crok home (~/.crok) uses on disk
     #[command(name = "du", visible_alias = "disk-usage")]
     DiskUsage(crate::disk_usage_cmd::DiskUsageArgs),
     /// Expose this workspace to the Computer Hub (via the leader).
@@ -153,7 +153,7 @@ See ~/.grok/README.md for more information.
     Workspace(WorkspaceMgmtArgs),
     /// Open the Agent Dashboard view at startup.
     /// The dashboard shows every session, top-level and subagents.
-    /// Disabled when `[dashboard].enabled = false` in `~/.grok/config.toml` or when the `GROK_AGENT_DASHBOARD=0` env var is set.
+    /// Disabled when `[dashboard].enabled = false` in `~/.crok/config.toml` or when the `GROK_AGENT_DASHBOARD=0` env var is set.
     Dashboard,
 }
 /// Arguments for the `wrap` subcommand: the command to run, then its args.
@@ -169,10 +169,10 @@ pub struct WrapArgs {
     )]
     pub command: Vec<String>,
 }
-/// Targets a running leader process by PID (used by `grok leader` / `grok workspace`).
+/// Targets a running leader process by PID (used by `crok leader` / `crok workspace`).
 #[derive(Debug, clap::Args, Clone, Default)]
 pub struct LeaderTargetArgs {
-    /// Leader process ID from `grok leader list`.
+    /// Leader process ID from `crok leader list`.
     #[arg(long)]
     pub pid: Option<u32>,
 }
@@ -325,13 +325,13 @@ impl AgentArgs {
                 Ok(canonical) if canonical.is_dir() => Some(canonical),
                 Ok(_) => {
                     eprintln!(
-                        "grok: --plugin-dir {}: not a directory; skipping",
+                        "crok: --plugin-dir {}: not a directory; skipping",
                         p.display()
                     );
                     None
                 }
                 Err(e) => {
-                    eprintln!("grok: --plugin-dir {}: {e}; skipping", p.display());
+                    eprintln!("crok: --plugin-dir {}: {e}; skipping", p.display());
                     None
                 }
             })
@@ -343,7 +343,7 @@ impl AgentArgs {
 pub enum AgentCmd {
     /// Run the agent over stdio
     Stdio,
-    /// Run the agent headlessly over the Grok WebSocket relay
+    /// Run the agent headlessly over the Crok WebSocket relay
     Headless(HeadlessArgs),
     /// Run the agent as a WebSocket server
     Serve(ServeArgs),
@@ -407,9 +407,9 @@ pub struct LeaderArgs {
 }
 #[derive(Debug, Clone, Parser)]
 #[command(
-    name = "grok",
+    name = "crok",
     version = xai_grok_version::full_version(),
-    about = "Grok Build TUI",
+    about = "Crok Build TUI",
     disable_version_flag = true,
     next_display_order = None,
     help_template = "\
@@ -433,9 +433,9 @@ pub struct PagerArgs {
     /// Working directory.
     #[arg(long)]
     pub cwd: Option<PathBuf>,
-    /// Use a custom leader socket path instead of the default `~/.grok/leader.sock`.
+    /// Use a custom leader socket path instead of the default `~/.crok/leader.sock`.
     /// A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine
-    /// Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered
+    /// Name it `~/.crok/leader-*.sock` to keep `crok leader list/kill` able to find it; any other location works but won't be auto-discovered
     #[arg(
         long = "leader-socket",
         value_name = "PATH",
@@ -755,7 +755,7 @@ pub struct PagerArgs {
     /// Fullscreen-vs-inline still follows the alt-screen policy (--no-alt-screen, [terminal] alt_screen, terminal auto-detection).
     #[arg(long = "fullscreen", conflicts_with = "minimal")]
     pub fullscreen: bool,
-    /// Write sampling events to ~/.grok/logs/sampling.jsonl.
+    /// Write sampling events to ~/.crok/logs/sampling.jsonl.
     #[arg(long = "log-sampling", env = "GROK_LOG_SAMPLING", hide = true)]
     pub log_sampling: bool,
     /// Connect to a shared leader process.
@@ -764,7 +764,7 @@ pub struct PagerArgs {
     /// Run standalone even when leader mode is configured.
     #[arg(long, conflicts_with = "leader", hide = true)]
     pub no_leader: bool,
-    /// Initial prompt for the interactive session, e.g. `grok "fix the bug"` or `grok --worktree=feat "create this feature"`.
+    /// Initial prompt for the interactive session, e.g. `crok "fix the bug"` or `crok --worktree=feat "create this feature"`.
     #[arg(
         value_name = "PROMPT",
         conflicts_with_all = &["single",
@@ -837,8 +837,8 @@ impl PagerArgs {
             .map(std::path::Path::new)
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
-            .filter(|n| *n == "grok" || *n == "agent")
-            .unwrap_or("grok")
+            .filter(|n| *n == "crok" || *n == "agent")
+            .unwrap_or("crok")
             .to_owned();
         Self::parse_from(std::iter::once(bin_name).chain(std::env::args().skip(1)))
     }
@@ -1029,7 +1029,7 @@ impl PagerArgs {
     }
     /// The initial interactive prompt from the positional argument, trimmed.
     /// Returns `None` when no positional prompt was given or it is only whitespace.
-    /// This is the `grok "<prompt>"` launch form; the headless `-p`/`--single` path is handled separately.
+    /// This is the `crok "<prompt>"` launch form; the headless `-p`/`--single` path is handled separately.
     pub fn initial_prompt(&self) -> Option<&str> {
         self.prompt
             .as_deref()
@@ -1319,13 +1319,13 @@ mod tests {
     }
     #[test]
     fn leader_socket_flag_defaults_to_none() {
-        let args = PagerArgs::try_parse_from(["grok"]).expect("bare grok parses");
+        let args = PagerArgs::try_parse_from(["grok"]).expect("bare crok parses");
         assert!(args.leader_socket.is_none());
     }
     #[test]
     fn leader_mgmt_list_info_kill_parse() {
         let list = PagerArgs::try_parse_from(["grok", "leader", "list", "--json"])
-            .expect("grok leader list --json");
+            .expect("crok leader list --json");
         assert!(matches!(
             list.command,
             Some(Command::Leader(LeaderMgmtArgs {
@@ -1333,7 +1333,7 @@ mod tests {
             }))
         ));
         let info = PagerArgs::try_parse_from(["grok", "leader", "info", "--pid", "42"])
-            .expect("grok leader info --pid");
+            .expect("crok leader info --pid");
         assert!(matches!(
             info.command,
             Some(Command::Leader(LeaderMgmtArgs {
@@ -1343,7 +1343,7 @@ mod tests {
                 },
             }))
         ));
-        let kill = PagerArgs::try_parse_from(["grok", "leader", "kill"]).expect("grok leader kill");
+        let kill = PagerArgs::try_parse_from(["grok", "leader", "kill"]).expect("crok leader kill");
         assert!(matches!(
             kill.command,
             Some(Command::Leader(LeaderMgmtArgs {
@@ -1370,7 +1370,7 @@ mod tests {
     }
     #[test]
     fn debug_file_flag_defaults_to_none() {
-        let args = PagerArgs::try_parse_from(["grok"]).expect("bare grok parses");
+        let args = PagerArgs::try_parse_from(["grok"]).expect("bare crok parses");
         assert!(args.debug_file.is_none());
     }
     #[test]
@@ -1383,7 +1383,7 @@ mod tests {
     }
     #[test]
     fn bare_grok_has_no_initial_prompt() {
-        let args = PagerArgs::try_parse_from(["grok"]).expect("bare grok parses");
+        let args = PagerArgs::try_parse_from(["grok"]).expect("bare crok parses");
         assert_eq!(args.initial_prompt(), None);
     }
     #[test]
@@ -1441,7 +1441,7 @@ mod tests {
     #[test]
     fn usage_command_parses_session_and_optional_turn() {
         let session_only = PagerArgs::try_parse_from(["grok", "usage", "sess-1"])
-            .expect("grok usage <session-id>");
+            .expect("crok usage <session-id>");
         assert!(matches!(
             session_only.command,
             Some(Command::Usage(crate::usage_cmd::UsageArgs {
@@ -1450,7 +1450,7 @@ mod tests {
             })) if session_id == "sess-1"
         ));
         let with_turn = PagerArgs::try_parse_from(["grok", "usage", "sess-1", "3"])
-            .expect("grok usage <session-id> <turn>");
+            .expect("crok usage <session-id> <turn>");
         assert!(matches!(
             with_turn.command,
             Some(Command::Usage(crate::usage_cmd::UsageArgs {
@@ -1481,7 +1481,7 @@ mod tests {
     }
     #[test]
     fn trust_flag_parses_on_pager_and_alias() {
-        let bare = PagerArgs::try_parse_from(["grok"]).expect("bare grok parses");
+        let bare = PagerArgs::try_parse_from(["grok"]).expect("bare crok parses");
         assert!(!bare.trust);
         let long = PagerArgs::try_parse_from(["grok", "--trust"]).expect("--trust parses");
         assert!(long.trust);

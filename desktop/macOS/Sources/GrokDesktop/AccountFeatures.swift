@@ -223,7 +223,7 @@ final class AccountFeatureModel: ObservableObject {
 
     /// Sends the feedback form. The sheet stays open on failure so nothing typed is lost.
     func submitFeedback(_ composition: FeedbackComposition) async -> FeedbackSubmitResult {
-        guard let store else { return .failed("Grok Desktop is closing.") }
+        guard let store else { return .failed("Crok Desktop is closing.") }
         guard store.state.selectedConversationID != nil else { return .failed(FeedbackCopy.needsTask) }
         let text = composition.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !composition.images.isEmpty else { return .failed(FeedbackCopy.emptySubmit) }
@@ -437,7 +437,7 @@ final class AccountFeatureModel: ObservableObject {
         let home = grokHome()
         announcementWrites.async {
             do { try AnnouncementHiddenFile.write(keys, home: home) }
-            catch { NSLog("Grok Desktop could not save hidden announcements: \(error.localizedDescription)") }
+            catch { NSLog("Crok Desktop could not save hidden announcements: \(error.localizedDescription)") }
         }
     }
 

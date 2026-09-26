@@ -1873,7 +1873,7 @@ server_url = inf
     );
 
     assert_expects(
-        "grok's own signed TOML layers bind native subjects too",
+        "crok's own signed TOML layers bind native subjects too",
         &layered(
             None,
             &[(

@@ -175,7 +175,7 @@ final class ComposerFeatureModel: ObservableObject {
     /// `_x.ai/queue/remove` for an entry the harness holds (version-checked, so a stale remove is a no-op).
     func removeHarnessQueued(_ entry: HarnessPromptQueue.Entry, conversationID: UUID) {
         guard let store, let client = store.clients[conversationID], let session = store.task(conversationID)?.sessionID else {
-            store?.banner = "This task is not connected to Grok."
+            store?.banner = "This task is not connected to Crok."
             return
         }
         do { try client.notify("_x.ai/queue/remove", params: ["sessionId": session, "id": entry.id, "expectedVersion": entry.version]) }
@@ -227,7 +227,7 @@ final class ComposerFeatureModel: ObservableObject {
     private func sendQueuedPrompt(_ prompt: String, attachments: [PromptAttachment] = [], to id: UUID) {
         guard let store, let task = store.task(id), let project = store.state.projects.first(where: { $0.id == task.projectID }) else { return }
         guard FileManager.default.isExecutableFile(atPath: store.binaryPath) else {
-            store.banner = "The bundled Grok runtime is missing. Reinstall Grok Desktop to start a task."; return
+            store.banner = "The bundled Crok runtime is missing. Reinstall Crok Desktop to start a task."; return
         }
         let message = Message(kind: .user, text: prompt, createdAt: Date(), attachments: attachments.isEmpty ? nil : attachments.map(\.messageAttachment))
         store.append(message, to: id)
@@ -313,7 +313,7 @@ final class ComposerFeatureModel: ObservableObject {
     private func runCompaction(_ id: UUID, instructions: String) {
         guard let store, let task = store.task(id), let project = store.state.projects.first(where: { $0.id == task.projectID }) else { return }
         guard FileManager.default.isExecutableFile(atPath: store.binaryPath) else {
-            store.banner = "The bundled Grok runtime is missing. Reinstall Grok Desktop to start a task."; return
+            store.banner = "The bundled Crok runtime is missing. Reinstall Crok Desktop to start a task."; return
         }
         let started = Date()
         compactions[id] = .running(started: started)
@@ -538,7 +538,7 @@ final class ComposerFeatureModel: ObservableObject {
     }
 
     private func updateAutoGate() {
-        let environment = ProcessInfo.processInfo.environment["GROK_AUTO_PERMISSION_MODE"].flatMap(Self.parseFlag)
+        let environment = ProcessInfo.processInfo.environment["CROK_AUTO_PERMISSION_MODE"].flatMap(Self.parseFlag)
         let available = environment ?? configuredAutoGate ?? remoteAutoGate ?? true
         if autoModeAvailable != available { autoModeAvailable = available }
         if !available && permissionMode == .auto { permissionMode = .ask }
@@ -624,7 +624,7 @@ final class ComposerFeatureModel: ObservableObject {
             store.banner = "Voice input is turned off for this account."; return
         }
         guard VoiceDictationController.canRequestMicrophone else {
-            store.banner = "Voice input needs the Grok Desktop app: macOS grants microphone access only to the app bundle. Build it with scripts/build-app.sh and open the app to dictate."
+            store.banner = "Voice input needs the Crok Desktop app: macOS grants microphone access only to the app bundle. Build it with scripts/build-app.sh and open the app to dictate."
             return
         }
         let startID = UUID()
@@ -649,7 +649,7 @@ final class ComposerFeatureModel: ObservableObject {
         guard await VoiceDictationController.requestMicrophoneAccess() else {
             guard stillStarting() else { return }
             voice.cancel()
-            store.banner = "Microphone access is off for Grok Desktop. Turn it on in System Settings › Privacy & Security › Microphone."
+            store.banner = "Microphone access is off for Crok Desktop. Turn it on in System Settings › Privacy & Security › Microphone."
             return
         }
         let settings = VoiceSTTSettings(config: configURL.map { GrokConfig(url: $0) } ?? GrokConfig(text: ""))

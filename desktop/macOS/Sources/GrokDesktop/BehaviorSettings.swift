@@ -19,8 +19,8 @@ struct BehaviorSettingsSection: View {
                 Toggle("Multiline input", isOn: $multiline).toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
             Divider()
-            row("While Grok is working", detail: composer.followUpBehavior.detail) {
-                Picker("While Grok is working", selection: Binding(get: { composer.followUpBehavior }, set: { composer.setFollowUpBehavior($0) })) {
+            row("While Crok is working", detail: composer.followUpBehavior.detail) {
+                Picker("While Crok is working", selection: Binding(get: { composer.followUpBehavior }, set: { composer.setFollowUpBehavior($0) })) {
                     ForEach(ComposerFollowUpBehavior.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden().pickerStyle(.segmented).fixedSize()
             }

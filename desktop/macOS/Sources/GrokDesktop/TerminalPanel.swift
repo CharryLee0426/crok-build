@@ -89,7 +89,7 @@ final class TerminalSessions: ObservableObject {
 
     static func environment(shell: String, commandDirectory: String? = GrokCommand.bundledCommandDirectory) -> [String] {
         var environment = ProcessInfo.processInfo.environment
-        for key in environment.keys where key.hasPrefix("GROK_DESKTOP_") { environment.removeValue(forKey: key) }
+        for key in environment.keys where key.hasPrefix("CROK_DESKTOP_") { environment.removeValue(forKey: key) }
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "GrokDesktop"

@@ -8,7 +8,7 @@ enum DesktopCommands {
     static let catalog: [SlashCommand] = [
         // Getting around.
         command("help", "Browse commands and keyboard shortcuts", aliases: ["commands", "?"]),
-        command("tutorial", "Quick tips to get the most out of Grok Build", aliases: ["tour", "onboarding"]),
+        command("tutorial", "Quick tips to get the most out of Crok Build", aliases: ["tour", "onboarding"]),
         command("settings", "Open settings", aliases: ["config", "preferences", "prefs"]),
         command("dashboard", "Switch between your tasks and see which need you", aliases: ["agents-dashboard", "sessions"]),
         command("workflows", "Browse and launch saved workflows"),
@@ -76,16 +76,16 @@ enum DesktopCommands {
         command("changes", "Inspect changes in this project", aliases: ["diff"]),
         command("terminal", "Open a terminal in this project"),
         // Docs, account, and one-off maintenance.
-        command("docs", "Read the Grok Build guides", hint: "[web|title]", aliases: ["howto", "guides"]),
+        command("docs", "Read the Crok Build guides", hint: "[web|title]", aliases: ["howto", "guides"]),
         command("release-notes", "Show what's new in this version", aliases: ["changelog"]),
         command("announcements", "Hide or show the announcement banner", hint: "<hide|show>"),
-        command("feedback", "Send feedback to the Grok Build team", hint: "[text]"),
+        command("feedback", "Send feedback to the Crok Build team", hint: "[text]"),
         command("doctor", "Check your environment and suggest fixes", hint: "[fix [name]]", aliases: ["terminal-setup", "terminal-check", "terminal-info"]),
-        command("import-claude", "Import Claude settings into Grok"),
+        command("import-claude", "Import Claude settings into Crok"),
         command("login", "Sign in to OpenRouter or OpenAI Codex"),
         command("home", "Return to a new task without stopping this one", aliases: ["welcome"]),
         command("delete", "Delete this task"),
-        command("exit", "Quit Grok Desktop", aliases: ["quit", "q"]),
+        command("exit", "Quit Crok Desktop", aliases: ["quit", "q"]),
         // Hidden, as in the terminal: they run when typed but are never listed.
         command("gboom", "Knee-deep in the tokens", hidden: true),
         command("scroll-debug", "Toggle the scroll HUD", hidden: true),
@@ -250,7 +250,7 @@ extension AppStore {
             banner = "✓ Compact mode: \(enabled ? "on" : "off")"
         case "timestamps": features.transcript.toggleTimestamps()
         case "toggle-mouse-reporting":
-            banner = "Mouse reporting is a terminal setting. Grok Desktop always receives clicks, scrolling, and selection directly."
+            banner = "Mouse reporting is a terminal setting. Crok Desktop always receives clicks, scrolling, and selection directly."
         case "minimal":
             if minimalMode { banner = "You're already in minimal mode." }
             else { minimalMode = true; showInspector = false; banner = "Switched to minimal mode · /fullscreen to go back" }

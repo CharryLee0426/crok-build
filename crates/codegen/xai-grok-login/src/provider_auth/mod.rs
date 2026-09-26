@@ -95,14 +95,14 @@ impl ProviderCredential {
 
     fn validate(&self, provider: ModelProvider) -> anyhow::Result<()> {
         if self.provider != provider || self.access_token.is_empty() {
-            bail!("Invalid {provider} credential file; run `grok login {provider}` again");
+            bail!("Invalid {provider} credential file; run `crok login {provider}` again");
         }
         if provider == ModelProvider::OpenAiCodex
             && (self.refresh_token.as_ref().is_none_or(String::is_empty)
                 || self.account_id.as_ref().is_none_or(String::is_empty)
                 || self.expires_at.is_none())
         {
-            bail!("Incomplete Codex OAuth credential; run `grok login openai-codex` again");
+            bail!("Incomplete Codex OAuth credential; run `crok login openai-codex` again");
         }
         Ok(())
     }
@@ -199,7 +199,7 @@ async fn load_with_refresh(
     }
     let refreshed = oauth::refresh_codex(&credential, token_url)
         .await
-        .context("Codex authentication refresh failed; run `grok login openai-codex` if your session was revoked")?;
+        .context("Codex authentication refresh failed; run `crok login openai-codex` if your session was revoked")?;
     storage::write(home, &refreshed)?;
     Ok(Some(refreshed))
 }

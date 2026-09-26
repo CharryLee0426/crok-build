@@ -1,6 +1,6 @@
 //! Standalone workspace ToolServer for remote sandboxes.
 //!
-//! Reads OIDC credentials from `~/.grok/auth.json`, connects to a
+//! Reads OIDC credentials from `~/.crok/auth.json`, connects to a
 //! server, exposes workspace tools, and refreshes tokens automatically.
 #![deny(clippy::indexing_slicing)]
 use clap::Parser;
@@ -283,7 +283,7 @@ fn main() -> anyhow::Result<()> {
 }
 /// The same binary serves sandbox containers and headless user machines. Only the sandbox launcher
 /// passes a `sandbox_id` in `--metadata`, so that is the opt-in to the sandbox's full catalog and
-/// credential reach; the environment is not a policy input (a `grok --local-workspace` spawned by a
+/// credential reach; the environment is not a policy input (a `crok --local-workspace` spawned by a
 /// hook or MCP child inherits `GROK_SESSION_ID`). Pickers label the server by the same kind.
 fn host_kind_for(metadata: Option<&serde_json::Value>) -> WorkspaceHostKind {
     let is_sandbox = metadata

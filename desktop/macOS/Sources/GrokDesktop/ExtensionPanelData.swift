@@ -72,7 +72,7 @@ enum HookSourceLabel {
         if sourceDir.contains("/.claude/") { return ("Claude settings", .claude) }
         if sourceDir.hasSuffix("/.grok/hooks") || sourceDir.contains("/.grok/hooks/") { return ("Project hooks", .project) }
         if sourceDir.hasPrefix(grok + "/") {
-            let prefix = ProcessInfo.processInfo.environment["GROK_HOME"].map { _ in "$GROK_HOME" } ?? "~/.grok"
+            let prefix = ProcessInfo.processInfo.environment["CROK_HOME"].map { _ in "$CROK_HOME" } ?? "~/.crok"
             return ("Custom: \(prefix)/\(sourceDir.dropFirst(grok.count + 1))", .custom)
         }
         let homePath = home.standardizedFileURL.path

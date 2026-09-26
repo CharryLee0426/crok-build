@@ -255,7 +255,7 @@ async fn commit_if_dirty(dir: &Path, message: Option<&str>) -> Result<bool, Expo
     if status.is_empty() {
         return Ok(true);
     }
-    let message = message.unwrap_or("Export from Grok");
+    let message = message.unwrap_or("Export from Crok");
     git(dir, &["commit", "-m", message]).await?;
     Ok(false)
 }

@@ -14,7 +14,7 @@ pub async fn first_run_setup() -> Result<()> {
     if !xai_grok_shell::agent::builtin_providers::needs_provider_setup(&cfg) {
         return Ok(());
     }
-    eprintln!("Welcome to Grok. Choose a provider to sign in:");
+    eprintln!("Welcome to Crok. Choose a provider to sign in:");
     eprintln!("  1. OpenAI Codex (ChatGPT subscription)");
     eprintln!("  2. OpenRouter");
     loop {
@@ -59,7 +59,7 @@ pub async fn login(provider: LoginProvider, with_api_key: bool) -> Result<()> {
         use std::io::IsTerminal;
         ensure!(
             !std::io::stdin().is_terminal(),
-            "Pipe your key to stdin: printenv OPENROUTER_API_KEY | grok login openrouter --with-api-key"
+            "Pipe your key to stdin: printenv OPENROUTER_API_KEY | crok login openrouter --with-api-key"
         );
         let mut key = String::new();
         tokio::io::stdin()
@@ -87,17 +87,17 @@ pub async fn login(provider: LoginProvider, with_api_key: bool) -> Result<()> {
                     "Discovered {count} models. The catalog refreshes automatically every hour."
                 ),
                 Err(error) => eprintln!(
-                    "Signed in, but model discovery failed: {error}. Run `grok models --refresh` to retry."
+                    "Signed in, but model discovery failed: {error}. Run `crok models --refresh` to retry."
                 ),
             }
             println!(
-                "Run `grok models`, then select with `grok --model openrouter/<provider>/<model>` or /model."
+                "Run `crok models`, then select with `crok --model openrouter/<provider>/<model>` or /model."
             );
         }
         ModelProvider::OpenAiCodex => {
             println!("Signed in to OpenAI Codex with your ChatGPT subscription.");
             println!(
-                "Run `grok models`, then select an openai-codex/ model with --model or /model."
+                "Run `crok models`, then select an openai-codex/ model with --model or /model."
             );
         }
     }

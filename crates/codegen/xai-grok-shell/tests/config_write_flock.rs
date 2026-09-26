@@ -7,7 +7,7 @@ use std::time::Duration;
 fn settings_save_serializes_against_init_flock_writer() {
     // One #[test] per binary: the env is process-global (same rule as
     // acp_harness::run_agent_test).
-    let grok_home = tempfile::tempdir().expect("grok home");
+    let grok_home = tempfile::tempdir().expect("crok home");
     // SAFETY: no other threads are running yet.
     unsafe { std::env::set_var("GROK_HOME", grok_home.path()) };
 

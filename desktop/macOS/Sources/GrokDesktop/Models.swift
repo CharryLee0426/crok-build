@@ -206,26 +206,26 @@ enum DesktopVersion {
 
 enum DesktopPaths {
     static var stateFile: URL {
-        if let path = ProcessInfo.processInfo.environment["GROK_DESKTOP_STATE_FILE"], path.hasPrefix("/") {
+        if let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_STATE_FILE"], path.hasPrefix("/") {
             return URL(fileURLWithPath: path)
         }
         if let path = Bundle.main.object(forInfoDictionaryKey: "GrokDesktopStateFile") as? String, path.hasPrefix("/") {
             return URL(fileURLWithPath: path)
         }
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Grok Desktop", isDirectory: true).appendingPathComponent("state.json")
+            .appendingPathComponent("Crok Desktop", isDirectory: true).appendingPathComponent("state.json")
     }
 
     static func findHarness(in project: String? = nil) -> String {
         let fm = FileManager.default
         var candidates: [String] = []
-        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("grok").path { candidates.append(bundled) }
-        for base in [project, ProcessInfo.processInfo.environment["GROK_BUILD_ROOT"], fm.currentDirectoryPath].compactMap({ $0 }) {
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("crok").path { candidates.append(bundled) }
+        for base in [project, ProcessInfo.processInfo.environment["CROK_BUILD_ROOT"], fm.currentDirectoryPath].compactMap({ $0 }) {
             candidates += ["\(base)/target/release/xai-grok-pager", "\(base)/target/debug/xai-grok-pager"]
         }
         let home = fm.homeDirectoryForCurrentUser.path
-        candidates += ["\(home)/.local/bin/grok", "\(home)/.grok/bin/grok", "/opt/homebrew/bin/grok", "/usr/local/bin/grok"]
-        candidates += (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map { "\($0)/grok" }
+        candidates += ["\(home)/.local/bin/crok", "/usr/local/bin/crok"]
+        candidates += (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map { "\($0)/crok" }
         return candidates.first(where: { fm.isExecutableFile(atPath: $0) }) ?? ""
     }
 }

@@ -31,7 +31,7 @@ enum ReleaseNotesLoader {
     /// `GROK_CHANGELOG_OFFLINE` skips the network, as it does for the terminal.
     static func load(version: String?, home: URL, environment: [String: String] = ProcessInfo.processInfo.environment,
                      download: (URL, TimeInterval) async -> String?) async -> (markdown: String, source: ReleaseNotesSource)? {
-        let offline = environment["GROK_CHANGELOG_OFFLINE"].map { !$0.isEmpty && $0 != "0" } ?? false
+        let offline = environment["CROK_CHANGELOG_OFFLINE"].map { !$0.isEmpty && $0 != "0" } ?? false
         if !offline, let version, let url = url(version: version),
            let text = await download(url, timeout), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let cache = cacheFile(home: home)
@@ -107,7 +107,7 @@ struct ReleaseNotesWindow: View {
     }
 
     private var subtitle: String {
-        var parts = [state.version.map { "Grok Build \($0)" } ?? "Grok Build"]
+        var parts = [state.version.map { "Crok Build \($0)" } ?? "Crok Build"]
         switch state.source {
         case .remote: parts.append("from x.ai")
         case .cache: parts.append("saved copy — couldn't reach x.ai")

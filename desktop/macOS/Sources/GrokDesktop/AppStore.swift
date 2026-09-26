@@ -159,7 +159,7 @@ final class AppStore: ObservableObject {
                 directory.deleteLastPathComponent()
             }
         }
-        self.binaryPath = binaryPath ?? ProcessInfo.processInfo.environment["GROK_DESKTOP_HARNESS"] ?? DesktopPaths.findHarness(in: state.projects.first?.path)
+        self.binaryPath = binaryPath ?? ProcessInfo.processInfo.environment["CROK_DESKTOP_HARNESS"] ?? DesktopPaths.findHarness(in: state.projects.first?.path)
         if state.projects.contains(where: { $0.id == state.selectedProjectID }) == false { state.selectedProjectID = state.projects.first?.id }
         if let tab = defaults.string(forKey: "sidePanelTab").flatMap(SidePanelTab.init(rawValue:)) { sidePanelTab = tab }
         updateMenuState()
@@ -225,7 +225,7 @@ final class AppStore: ObservableObject {
     func addProject() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true; panel.canChooseFiles = false
-        panel.prompt = "Open project"; panel.message = "Choose the folder Grok will work in."
+        panel.prompt = "Open project"; panel.message = "Choose the folder Crok will work in."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let path = url.resolvingSymlinksInPath().path
         let project = state.projects.first(where: { $0.path == path }) ?? Project(path: path)
@@ -389,7 +389,7 @@ final class AppStore: ObservableObject {
             return
         }
         guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
-            banner = "The bundled Grok runtime is missing. Reinstall Grok Desktop to start a task."; return
+            banner = "The bundled Crok runtime is missing. Reinstall Crok Desktop to start a task."; return
         }
         let sentDraftLocation = draftLocation
         let attachments = displayText == nil ? features.attachments.take(from: sentDraftLocation) : []
@@ -543,7 +543,7 @@ final class AppStore: ObservableObject {
     func initialize(_ client: ACPClient) async throws -> [String: Any] {
         let result = try await client.request("initialize", params: [
             "protocolVersion": 1,
-            "clientInfo": ["name": "grok-desktop", "title": "Grok Desktop", "version": DesktopVersion.current],
+            "clientInfo": ["name": "grok-desktop", "title": "Crok Desktop", "version": DesktopVersion.current],
             "clientCapabilities": ["fs": ["readTextFile": false, "writeTextFile": false], "terminal": false,
                                    "_meta": ["x.ai/folderTrust": ["interactive": true]]],
             "_meta": ["clientType": "grok_desktop", "clientIdentifier": "grok-desktop", "clientVersion": DesktopVersion.current, "startupHints": ["nonInteractive": false]]
@@ -648,7 +648,7 @@ final class AppStore: ObservableObject {
             let detail: String
             if let input = tool["rawInput"], let data = try? JSONSerialization.data(withJSONObject: input, options: [.prettyPrinted, .fragmentsAllowed, .sortedKeys]) {
                 detail = String(data: data, encoding: .utf8) ?? ""
-            } else { detail = "Grok needs your permission to continue." }
+            } else { detail = "Crok needs your permission to continue." }
             runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: tool["title"] as? String ?? "Permission required", detail: detail, options: options))
         } else if method == "x.ai/folder_trust/request" {
             let kinds = (params["configKinds"] as? [String] ?? []).joined(separator: ", ")
@@ -657,7 +657,7 @@ final class AppStore: ObservableObject {
                 options: [PermissionOption(id: "folder:reject", name: "Skip configuration", kind: "reject_once"), PermissionOption(id: "folder:trust", name: "Trust project", kind: "allow_once")]))
         } else if method == "x.ai/exit_plan_mode" {
             runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: "Ready to implement this plan?",
-                detail: params["planContent"] as? String ?? "Grok has finished planning and is ready to make changes.",
+                detail: params["planContent"] as? String ?? "Crok has finished planning and is ready to make changes.",
                 options: [PermissionOption(id: "plan:cancelled", name: "Keep planning", kind: "reject_once"), PermissionOption(id: "plan:approved", name: "Approve plan", kind: "allow_once")]))
         } else if method == "x.ai/ask_user_question" {
             let questions = (params["questions"] as? [[String: Any]] ?? []).compactMap { value -> AgentQuestion? in
@@ -915,7 +915,7 @@ final class AppStore: ObservableObject {
                                   !state.deletedSessionIDs.contains(sessionID),
                                   !state.conversations.contains(where: { $0.sessionID == sessionID }) else { continue }
                             let date = (session["updatedAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? Date()
-                            state.conversations.append(Conversation(projectID: project.id, title: session["title"] as? String ?? "Grok task", sessionID: sessionID, updatedAt: date))
+                            state.conversations.append(Conversation(projectID: project.id, title: session["title"] as? String ?? "Crok task", sessionID: sessionID, updatedAt: date))
                         }
                         cursor = response["nextCursor"] as? String
                     } while cursor != nil
@@ -985,7 +985,7 @@ final class AppStore: ObservableObject {
     }
     func login(provider: String) {
         guard !loginRunning else { return }
-        guard FileManager.default.isExecutableFile(atPath: binaryPath) else { loginLog = "The bundled Grok runtime is missing. Reinstall Grok Desktop."; return }
+        guard FileManager.default.isExecutableFile(atPath: binaryPath) else { loginLog = "The bundled Crok runtime is missing. Reinstall Crok Desktop."; return }
         let process = Process(); process.executableURL = URL(fileURLWithPath: binaryPath)
         process.currentDirectoryURL = URL(fileURLWithPath: project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path, isDirectory: true)
         process.arguments = ["login", provider]

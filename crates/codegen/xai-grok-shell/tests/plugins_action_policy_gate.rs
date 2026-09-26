@@ -51,7 +51,7 @@ fn plugins_action_install_and_update_respect_marketplace_lockdown() {
             ms.marketplace_allowlist
                 .add_block_reason(&plugin_dir.display().to_string())
                 .is_some(),
-            "strict_known_marketplaces from $GROK_HOME/requirements.toml must load"
+            "strict_known_marketplaces from $CROK_HOME/requirements.toml must load"
         );
         assert!(
             ms.project_mcp.is_disabled(),

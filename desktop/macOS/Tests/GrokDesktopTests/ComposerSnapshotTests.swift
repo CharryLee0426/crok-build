@@ -10,7 +10,7 @@ final class ComposerSnapshotTests: XCTestCase {
     private var output: URL!
 
     override func setUpWithError() throws {
-        guard let path = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         output = URL(fileURLWithPath: path)
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("grok-composer-snapshots-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

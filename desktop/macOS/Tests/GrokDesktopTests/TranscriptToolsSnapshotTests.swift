@@ -11,7 +11,7 @@ final class TranscriptToolsSnapshotTests: XCTestCase {
     private var defaults: UserDefaults!
 
     override func setUpWithError() throws {
-        guard ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] != nil else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] != nil else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("grok-transcript-snapshots-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defaultsName = "GrokDesktopTranscriptSnapshots.\(UUID().uuidString)"
@@ -23,7 +23,7 @@ final class TranscriptToolsSnapshotTests: XCTestCase {
         if let directory { try? FileManager.default.removeItem(at: directory) }
     }
 
-    private var output: URL { URL(fileURLWithPath: ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] ?? NSTemporaryDirectory()) }
+    private var output: URL { URL(fileURLWithPath: ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] ?? NSTemporaryDirectory()) }
 
     private static let base = Date(timeIntervalSince1970: 1_790_000_000)
 

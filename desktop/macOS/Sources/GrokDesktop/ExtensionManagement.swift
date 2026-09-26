@@ -116,7 +116,7 @@ enum ExtensionErrorText {
     /// ACP errors often carry the useful detail in `data` (for example "session not found: …").
     static func describe(_ error: Error) -> String {
         if case ACPClientError.remote(let code, let message, let data) = error {
-            if code == -32601 { return "This version of the Grok harness doesn't support that request." }
+            if code == -32601 { return "This version of the Crok harness doesn't support that request." }
             if let detail = data as? String, !detail.isEmpty, detail != message { return "\(message): \(detail)" }
             return message
         }

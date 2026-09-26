@@ -4,10 +4,10 @@ import Foundation
 enum GrokPaths {
     /// `$GROK_HOME`, or `~/.grok`.
     static var home: URL {
-        if let value = ProcessInfo.processInfo.environment["GROK_HOME"], !value.isEmpty {
+        if let value = ProcessInfo.processInfo.environment["CROK_HOME"], !value.isEmpty {
             return URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".grok", isDirectory: true)
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".crok", isDirectory: true)
     }
     static var configFile: URL { home.appendingPathComponent("config.toml") }
 
@@ -54,8 +54,8 @@ enum GrokConfigError: LocalizedError {
     case unreadable(String)
     var errorDescription: String? {
         switch self {
-        case .unsupportedLayout(let detail): return "Grok Desktop could not safely edit config.toml: \(detail). Edit the file by hand or use the terminal."
-        case .unreadable(let detail): return "Grok Desktop left config.toml unchanged: \(detail)."
+        case .unsupportedLayout(let detail): return "Crok Desktop could not safely edit config.toml: \(detail). Edit the file by hand or use the terminal."
+        case .unreadable(let detail): return "Crok Desktop left config.toml unchanged: \(detail)."
         }
     }
 }
@@ -346,7 +346,7 @@ enum GrokCLI {
     static func run(_ executable: String, arguments: [String], cwd: String? = nil, environment: [String: String] = [:],
                     timeout: TimeInterval = 120) async throws -> Output {
         guard FileManager.default.isExecutableFile(atPath: executable) else {
-            throw DesktopError.message("The bundled Grok runtime is missing. Reinstall Grok Desktop.")
+            throw DesktopError.message("The bundled Crok runtime is missing. Reinstall Crok Desktop.")
         }
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {

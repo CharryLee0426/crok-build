@@ -928,19 +928,19 @@ async fn legacy_auth_hint_on_404_model_not_found() {
                 "404 with WebLogin must include deprecation message, got: {msg}"
             );
             assert!(
-                msg.contains("grok update"),
-                "hint must mention `grok update` before re-login, got: {msg}"
+                msg.contains("crok update"),
+                "hint must mention `crok update` before re-login, got: {msg}"
             );
             assert!(
-                msg.contains("grok logout"),
-                "hint must mention `grok logout`, got: {msg}"
+                msg.contains("crok logout"),
+                "hint must mention `crok logout`, got: {msg}"
             );
             assert!(
-                msg.contains("grok login"),
-                "hint must mention `grok login`, got: {msg}"
+                msg.contains("crok login"),
+                "hint must mention `crok login`, got: {msg}"
             );
-            let update_at = msg.find("grok update").expect("grok update");
-            let logout_at = msg.find("grok logout").expect("grok logout");
+            let update_at = msg.find("crok update").expect("crok update");
+            let logout_at = msg.find("crok logout").expect("crok logout");
             assert!(
                 update_at < logout_at,
                 "update must come before logout, got: {msg}"
@@ -1008,19 +1008,19 @@ async fn legacy_auth_hint_on_401_unauthorized() {
                 "401 with WebLogin must include deprecation message, got: {msg}"
             );
             assert!(
-                msg.contains("grok update"),
-                "hint must mention `grok update` before re-login, got: {msg}"
+                msg.contains("crok update"),
+                "hint must mention `crok update` before re-login, got: {msg}"
             );
             assert!(
-                msg.contains("grok logout"),
-                "hint must mention `grok logout`, got: {msg}"
+                msg.contains("crok logout"),
+                "hint must mention `crok logout`, got: {msg}"
             );
             assert!(
-                msg.contains("grok login"),
-                "hint must mention `grok login`, got: {msg}"
+                msg.contains("crok login"),
+                "hint must mention `crok login`, got: {msg}"
             );
-            let update_at = msg.find("grok update").expect("grok update");
-            let logout_at = msg.find("grok logout").expect("grok logout");
+            let update_at = msg.find("crok update").expect("crok update");
+            let logout_at = msg.find("crok logout").expect("crok logout");
             assert!(
                 update_at < logout_at,
                 "update must come before logout, got: {msg}"

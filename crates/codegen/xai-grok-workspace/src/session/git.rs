@@ -2091,7 +2091,7 @@ pub async fn stash_before_destructive_op(
         return StashOutcome::Skipped(reason);
     }
     let message = format!(
-        "grok: pre-{label} {} {}",
+        "crok: pre-{label} {} {}",
         session_id,
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
     );

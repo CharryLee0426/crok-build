@@ -2823,7 +2823,7 @@ fn welcome_expand_skips_conversation_and_routes_build_card_detail() {
     assert_eq!(
         welcome_card_detail(&app),
         None,
-        "Headless must not resurrect a cleared Grok row from card detail"
+        "Headless must not resurrect a cleared Crok row from card detail"
     );
 }
 fn system_texts(app: &AppView, id: AgentId) -> Vec<String> {

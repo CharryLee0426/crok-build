@@ -635,7 +635,7 @@ mod tests {
         assert!(result.contains("embedded content"));
         assert!(
             result.starts_with("<user_query>"),
-            "Grok should start with <user_query>, got: {result}"
+            "Crok should start with <user_query>, got: {result}"
         );
     }
     #[test]
@@ -648,7 +648,7 @@ mod tests {
         let rr_pos = result.find("Referenced resources:").unwrap();
         assert!(
             uq_pos < rr_pos,
-            "Grok: <user_query> ({uq_pos}) should come before resource links ({rr_pos})\ngot: {result}"
+            "Crok: <user_query> ({uq_pos}) should come before resource links ({rr_pos})\ngot: {result}"
         );
         assert!(result.contains("<system-reminder>"));
     }

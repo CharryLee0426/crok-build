@@ -61,15 +61,15 @@ enum ExternalPromptEditor {
         func quoted(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         return """
         #!/bin/sh
-        # Grok Desktop: edit the prompt, then save and quit the editor to return it to the app.
-        GROK_EDITOR=\(quoted(editor))
-        GROK_PROMPT_FILE=\(quoted(file.path))
-        GROK_STATUS_FILE=\(quoted(statusFile.path))
+        # Crok Desktop: edit the prompt, then save and quit the editor to return it to the app.
+        CROK_EDITOR=\(quoted(editor))
+        CROK_PROMPT_FILE=\(quoted(file.path))
+        CROK_STATUS_FILE=\(quoted(statusFile.path))
         clear
-        eval "$GROK_EDITOR \\"\\$GROK_PROMPT_FILE\\""
+        eval "$CROK_EDITOR \\"\\$CROK_PROMPT_FILE\\""
         status=$?
-        printf '%s' "$status" > "$GROK_STATUS_FILE.tmp" && mv "$GROK_STATUS_FILE.tmp" "$GROK_STATUS_FILE"
-        printf '\\nThe prompt is back in Grok Desktop. You can close this window.\\n'
+        printf '%s' "$status" > "$CROK_STATUS_FILE.tmp" && mv "$CROK_STATUS_FILE.tmp" "$CROK_STATUS_FILE"
+        printf '\\nThe prompt is back in Crok Desktop. You can close this window.\\n'
         exit "$status"
 
         """

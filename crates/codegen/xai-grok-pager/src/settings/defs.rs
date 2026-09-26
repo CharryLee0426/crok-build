@@ -36,12 +36,12 @@ const THEME_CHOICES: &[EnumChoice] = &[
     },
     EnumChoice {
         canonical: "groknight",
-        display: "Grok Night",
+        display: "Crok Night",
         description: "Neutral dark with magenta accent.",
     },
     EnumChoice {
         canonical: "grokday",
-        display: "Grok Day",
+        display: "Crok Day",
         description: "Light theme for bright environments.",
     },
     EnumChoice {
@@ -259,12 +259,12 @@ const SCREEN_MODE_CHOICES: &[EnumChoice] = &[
     EnumChoice {
         canonical: "fullscreen",
         display: "Fullscreen",
-        description: "Open plain grok in the standard fullscreen TUI. Default when unset.",
+        description: "Open plain crok in the standard fullscreen TUI. Default when unset.",
     },
     EnumChoice {
         canonical: "minimal",
         display: "Minimal",
-        description: "Open plain grok in scrollback-native (minimal) mode.",
+        description: "Open plain crok in scrollback-native (minimal) mode.",
     },
 ];
 
@@ -433,12 +433,12 @@ const VOICE_STT_LANGUAGE_CHOICES: &[EnumChoice] = &[
 const CONCRETE_THEME_CHOICES: &[EnumChoice] = &[
     EnumChoice {
         canonical: "groknight",
-        display: "Grok Night",
+        display: "Crok Night",
         description: "Neutral dark with magenta accent.",
     },
     EnumChoice {
         canonical: "grokday",
-        display: "Grok Day",
+        display: "Crok Day",
         description: "Light theme for bright environments.",
     },
     EnumChoice {
@@ -503,7 +503,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             category: SettingCategory::Appearance,
             owner: SettingOwner::Shell,
             label: "Default screen mode",
-            description: "How plain grok opens next time: Fullscreen (default when unset) or \
+            description: "How plain crok opens next time: Fullscreen (default when unset) or \
                           Minimal. Writes [ui] screen_mode in config.toml. Restart required. \
                           Switch this session only with /minimal or /fullscreen.",
             keywords: &[
@@ -876,8 +876,8 @@ pub fn default_settings() -> Vec<SettingMeta> {
             category: SettingCategory::Models,
             owner: SettingOwner::Shell,
             label: "Subagent model inheritance",
-            description: "On: Grok cannot set models for subagents\n\
-                          Off: Grok may choose a different model for a subagent. Takes effect \
+            description: "On: Crok cannot set models for subagents\n\
+                          Off: Crok may choose a different model for a subagent. Takes effect \
                           after restart.\n\
                           NOTE: This setting only applies when all models are xAI \
                           \"model_family\". You likely don't need to configure this setting.",
@@ -1471,7 +1471,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             owner: SettingOwner::Shell,
             label: "Voice provider",
             description: "Speech-to-text service for voice dictation. OpenRouter uses \
-                          your OpenRouter key (`grok login openrouter`) and the Voice \
+                          your OpenRouter key (`crok login openrouter`) and the Voice \
                           model below.",
             keywords: &[
                 "voice",
@@ -1641,7 +1641,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             category: SettingCategory::Advanced,
             owner: SettingOwner::Shell,
             label: "SSH wrap",
-            description: "Show a `/doctor` tip when an SSH session is not using `grok wrap`.",
+            description: "Show a `/doctor` tip when an SSH session is not using `crok wrap`.",
             keywords: &[
                 "ssh",
                 "wrap",

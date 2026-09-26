@@ -316,7 +316,7 @@ fn disable_persists_personal_disable_over_project_tier_disable() {
     );
     assert!(
         stdout.contains("Disabled MCP server 'x'.")
-            && stdout.contains("File modified: $GROK_HOME/config.toml"),
+            && stdout.contains("File modified: $CROK_HOME/config.toml"),
         "stdout: {stdout}"
     );
     let parsed: toml::Value =
@@ -444,7 +444,7 @@ fn real_toggle_writes_config_and_reports_file_modified() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("File modified: $GROK_HOME/config.toml"),
+        stdout.contains("File modified: $CROK_HOME/config.toml"),
         "stdout: {stdout}"
     );
     let enabled_body = std::fs::read(&env.config).expect("re-read config");
@@ -469,7 +469,7 @@ fn real_toggle_writes_config_and_reports_file_modified() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("File modified: $GROK_HOME/config.toml"),
+        stdout.contains("File modified: $CROK_HOME/config.toml"),
         "stdout: {stdout}"
     );
     let disabled_body = std::fs::read(&env.config).expect("re-read config");
