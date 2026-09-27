@@ -187,7 +187,7 @@ final class ComposerFeatureTests: XCTestCase {
         let store = makeStore()
         let composer = store.features.composer
         let config = directory.appendingPathComponent("config.toml")
-        try "# Grok\n[ui]\ntheme = \"grokday\"\n".write(to: config, atomically: true, encoding: .utf8)
+        try "# Crok\n[ui]\ntheme = \"grokday\"\n".write(to: config, atomically: true, encoding: .utf8)
         composer.configURL = config
         composer.reloadPreferences()
         XCTAssertEqual(composer.permissionMode, .ask)
@@ -197,7 +197,7 @@ final class ComposerFeatureTests: XCTestCase {
         try await eventually { store.banner == "⚠ Always-approve ON: all tool actions auto-run" }
         XCTAssertEqual(composer.permissionMode, .alwaysApprove)
         let saved = try String(contentsOf: config, encoding: .utf8)
-        XCTAssertEqual(saved, "# Grok\n[ui]\ntheme = \"grokday\"\npermission_mode = \"always-approve\"\n")
+        XCTAssertEqual(saved, "# Crok\n[ui]\ntheme = \"grokday\"\npermission_mode = \"always-approve\"\n")
         XCTAssertEqual(composer.sessionMeta() as NSDictionary, ["yoloMode": true, "autoMode": false] as NSDictionary)
 
         composer.toggleAutoMode()
@@ -295,9 +295,9 @@ final class ComposerFeatureTests: XCTestCase {
         XCTAssertNil(ExternalPromptEditor.editorCommand(environment: [:]))
         let script = ExternalPromptEditor.terminalScript(editor: "subl -w", file: URL(fileURLWithPath: "/tmp/it's.md"), statusFile: URL(fileURLWithPath: "/tmp/s.status"))
         XCTAssertTrue(script.hasPrefix("#!/bin/sh\n"))
-        XCTAssertTrue(script.contains("GROK_EDITOR='subl -w'"))
-        XCTAssertTrue(script.contains("GROK_PROMPT_FILE='/tmp/it'\\''s.md'"))
-        XCTAssertTrue(script.contains(#"eval "$GROK_EDITOR \"\$GROK_PROMPT_FILE\"""#))
+        XCTAssertTrue(script.contains("CROK_EDITOR='subl -w'"))
+        XCTAssertTrue(script.contains("CROK_PROMPT_FILE='/tmp/it'\\''s.md'"))
+        XCTAssertTrue(script.contains(#"eval "$CROK_EDITOR \"\$CROK_PROMPT_FILE\"""#))
     }
 
     func testEditPromptIsRefusedWhileDictating() {
@@ -320,31 +320,6 @@ final class ComposerFeatureTests: XCTestCase {
 
     // MARK: Voice
 
-    func testSTTMessagesParse() {
-        XCTAssertEqual(VoiceSTTEvent.parse(#"{"type":"transcript.created"}"#), .created)
-        XCTAssertEqual(VoiceSTTEvent.parse(#"{"type":"transcript.partial","text":"hello","is_final":false,"speech_final":false}"#),
-                       .partial(text: "hello", isFinal: false, speechFinal: false))
-        XCTAssertEqual(VoiceSTTEvent.parse(#"{"type":"transcript.partial","text":"done","is_final":true,"speech_final":true}"#),
-                       .partial(text: "done", isFinal: true, speechFinal: true))
-        XCTAssertEqual(VoiceSTTEvent.parse(#"{"type":"transcript.done","text":"all of it","duration":1.5}"#), .done(text: "all of it"))
-        XCTAssertEqual(VoiceSTTEvent.parse(#"{"type":"error","message":"quota exceeded"}"#), .error("quota exceeded"))
-        XCTAssertEqual(VoiceSTTEvent.parse(#"{"type":"session.stats"}"#), .unknown)
-        XCTAssertEqual(VoiceSTTEvent.parse("not json"), .error("parse error: expected a JSON object"))
-    }
-
-    func testTranscriptAssemblerStitchesInterimAndEmitsFinals() {
-        var assembler = VoiceTranscriptAssembler()
-        XCTAssertEqual(assembler.apply(.partial(text: "  ", isFinal: false, speechFinal: false)), nil)
-        XCTAssertEqual(assembler.apply(.partial(text: "refactor the", isFinal: false, speechFinal: false)), .interim("refactor the"))
-        XCTAssertEqual(assembler.apply(.partial(text: "refactor the parser", isFinal: true, speechFinal: false)), .interim("refactor the parser"))
-        XCTAssertEqual(assembler.apply(.partial(text: "and add", isFinal: false, speechFinal: false)), .interim("refactor the parser and add"))
-        XCTAssertEqual(assembler.apply(.partial(text: "Refactor the parser and add tests.", isFinal: true, speechFinal: true)), .final("Refactor the parser and add tests."))
-        XCTAssertEqual(assembler.lockedPrefix, "")
-        XCTAssertEqual(assembler.apply(.done(text: " ")), nil)
-        XCTAssertEqual(assembler.apply(.done(text: "Trailing words")), .final("Trailing words"))
-        XCTAssertEqual(assembler.apply(.created), nil)
-    }
-
     func testDictationSpacingMatchesTheTerminal() {
         XCTAssertEqual(VoiceTextInsertion.spaced("world", in: "hello", at: 5), " world")
         XCTAssertEqual(VoiceTextInsertion.spaced("big", in: "a  cat", at: 2), "big")
@@ -359,20 +334,11 @@ final class ComposerFeatureTests: XCTestCase {
         XCTAssertEqual(VoiceTextInsertion.merge("end", into: "emoji 😀", replacing: nil).text, "emoji 😀 end")
     }
 
-    func testSTTEndpointURLAndLanguages() throws {
-        var settings = VoiceSTTSettings()
-        XCTAssertEqual(try settings.url().absoluteString,
-                       "wss://api.x.ai/v1/stt?sample_rate=16000&encoding=pcm&interim_results=true&language=en&endpointing=400")
-        settings.apiBase = "https://proxy.example.com/xai/v1/"
-        settings.language = "pt-BR"
-        XCTAssertEqual(try settings.url().absoluteString,
-                       "wss://proxy.example.com/xai/v1/stt?sample_rate=16000&encoding=pcm&interim_results=true&language=pt&endpointing=400")
-        settings.apiBase = "http://plain.example.com"
-        XCTAssertThrowsError(try settings.url())
-        let configured = VoiceSTTSettings(config: GrokConfig(text: "[endpoints]\nxai_api_base_url = \"https://gw.example.com/\"\n[voice]\nlanguage = \"de\"\nstt_endpointing_ms = 250\n[ui]\nvoice_stt_language = \"ja\"\n"))
-        XCTAssertEqual(configured.apiBase, "https://gw.example.com")
+    func testDictationLanguages() throws {
+        let configured = VoiceSTTSettings(config: GrokConfig(text: "[voice]\nlanguage = \"de\"\n[ui]\nvoice_stt_language = \"ja\"\n"))
         XCTAssertEqual(configured.language, "ja", "[ui].voice_stt_language overrides [voice].language")
-        XCTAssertEqual(configured.endpointingMS, 250)
+        XCTAssertEqual(VoiceSTTSettings(config: GrokConfig(text: "[voice]\nlanguage = \"de\"\n")).language, "de")
+        XCTAssertEqual(VoiceSTTSettings.languageForAPI("pt-BR"), "pt")
         XCTAssertEqual(VoiceSTTSettings.canonicalLanguage("AUTO"), "auto")
         XCTAssertEqual(VoiceSTTSettings.canonicalLanguage("tl_PH"), "fil")
         XCTAssertEqual(VoiceSTTSettings.canonicalLanguage("klingon"), "en")
@@ -418,6 +384,135 @@ final class ComposerFeatureTests: XCTestCase {
         XCTAssertEqual(frames.map(\.count), [2_048, 2_048, 2_048])
         XCTAssertEqual(chunker.flush()?.count, 56)
         XCTAssertNil(chunker.flush())
+    }
+
+    func testVoiceModelComesFromTheSharedUIKeys() throws {
+        let defaults = VoiceSTTSettings(config: GrokConfig(text: ""))
+        XCTAssertEqual(defaults.model, "openai/gpt-4o-mini-transcribe")
+        XCTAssertEqual(try defaults.transcriptionURL().absoluteString, "https://openrouter.ai/api/v1/audio/transcriptions")
+        let configured = VoiceSTTSettings(config: GrokConfig(text: "[voice]\nprovider = \"openrouter\"\nmodel = \"openai/whisper-1\"\nopenrouter_api_base = \"https://proxy.example.com/api/v1/\"\n[ui]\nvoice_stt_provider = \"xai\"\nvoice_stt_model = \" mistralai/voxtral-mini-transcribe \"\n"))
+        XCTAssertEqual(configured.model, "mistralai/voxtral-mini-transcribe", "[ui] overrides [voice]")
+        XCTAssertEqual(try configured.transcriptionURL().absoluteString, "https://proxy.example.com/api/v1/audio/transcriptions")
+        let fallback = VoiceSTTSettings(config: GrokConfig(text: "[voice]\nprovider = \"xai\"\nmodel = \"openai/whisper-1\"\n[ui]\nvoice_stt_provider = \"bogus\"\nvoice_stt_model = \"\"\n"))
+        XCTAssertEqual(fallback.model, "openai/whisper-1")
+        XCTAssertEqual(try fallback.transcriptionURL().absoluteString, "https://openrouter.ai/api/v1/audio/transcriptions",
+                       "a legacy xAI provider setting still dictates with OpenRouter")
+        var insecure = VoiceSTTSettings()
+        insecure.openRouterBase = "HTTP://localhost/api/v1"
+        XCTAssertThrowsError(try insecure.transcriptionURL())
+    }
+
+    func testOpenRouterRequestAndResponses() throws {
+        let wav = VoiceOpenRouterTranscriber.wav(Data([1, 0, 2, 0]), sampleRate: 16_000)
+        XCTAssertEqual(wav.count, 48)
+        XCTAssertEqual(String(decoding: wav.prefix(4), as: UTF8.self), "RIFF")
+        XCTAssertEqual(String(decoding: wav[8..<16], as: UTF8.self), "WAVEfmt ")
+        XCTAssertEqual(wav[24..<28].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }, 16_000)
+        XCTAssertEqual(wav[40..<44].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }, 4)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: VoiceOpenRouterTranscriber.requestBody(model: "openai/whisper-1", language: "ja", wav: Data("RIFF".utf8))) as? [String: Any])
+        XCTAssertEqual(body["model"] as? String, "openai/whisper-1")
+        XCTAssertEqual(body["language"] as? String, "ja")
+        XCTAssertEqual((body["input_audio"] as? [String: String])?["data"], "UklGRg==")
+        XCTAssertEqual((body["input_audio"] as? [String: String])?["format"], "wav")
+
+        XCTAssertEqual(try VoiceOpenRouterTranscriber.result(status: 200, body: Data(#"{"text":" Hello. ","usage":{}}"#.utf8), model: "m").get(), "Hello.")
+        XCTAssertThrowsError(try VoiceOpenRouterTranscriber.result(status: 400, body: Data(#"{"error":{"message":"Model no/such does not exist"}}"#.utf8), model: "no/such").get()) { error in
+            XCTAssertTrue((error as? ComposerCommandMessage)?.text.contains("Pick a transcription model") == true)
+        }
+        XCTAssertThrowsError(try VoiceOpenRouterTranscriber.result(status: 401, body: Data(), model: "m").get()) { error in
+            XCTAssertTrue((error as? ComposerCommandMessage)?.text.contains("Sign in to OpenRouter") == true)
+        }
+        XCTAssertThrowsError(try VoiceOpenRouterTranscriber.result(status: 503, body: Data("<html>".utf8), model: "m").get()) { error in
+            XCTAssertEqual((error as? ComposerCommandMessage)?.text, "OpenRouter: HTTP 503")
+        }
+    }
+
+    func testSegmenterClosesUtterancesAtPausesAndDropsSilence() {
+        func tone(_ amplitude: Int16, ms: Int = 100) -> Data {
+            var data = Data()
+            for index in 0..<(16 * ms) {
+                var sample = (index % 2 == 0 ? amplitude : -amplitude).littleEndian
+                withUnsafeBytes(of: &sample) { data.append(contentsOf: $0) }
+            }
+            return data
+        }
+        var segmenter = VoiceSegmenter()
+        for _ in 0..<50 { XCTAssertNil(segmenter.push(tone(20)).segment) }
+        var closed: [Data] = []
+        for _ in 0..<10 { if let segment = segmenter.push(tone(3_000)).segment { closed.append(segment) } }
+        XCTAssertTrue(closed.isEmpty)
+        for _ in 0..<10 { if let segment = segmenter.push(tone(20)).segment { closed.append(segment) } }
+        XCTAssertEqual(closed.map { segmenter.milliseconds($0.count) }, [2_000], "300 ms pre-roll + 1 s speech + 700 ms pause")
+        XCTAssertNil(segmenter.finish())
+        _ = segmenter.push(tone(3_000))
+        XCTAssertEqual(segmenter.finish().map { segmenter.milliseconds($0.count) }, 100, "the last finish dropped the pre-roll")
+        var fan = VoiceSegmenter()
+        XCTAssertFalse((0..<30).contains { _ in fan.push(tone(400)).voiced })
+        XCTAssertTrue(fan.push(tone(4_000)).voiced)
+        XCTAssertEqual(VoiceSegmenter.rms(tone(1_000)), 1_000, accuracy: 1e-9)
+    }
+
+    func testSegmentSinkKeepsUtterancesInOrderThroughTheStop() {
+        var notified = 0
+        let sink = VoiceSegmentSink(sampleRate: 16_000) { notified += 1 }
+        var speech = Data(), quiet = Data()
+        for index in 0..<1_600 {
+            var loud = (index % 2 == 0 ? Int16(3_000) : -3_000).littleEndian
+            withUnsafeBytes(of: &loud) { speech.append(contentsOf: $0) }
+            var soft = (index % 2 == 0 ? Int16(20) : -20).littleEndian
+            withUnsafeBytes(of: &soft) { quiet.append(contentsOf: $0) }
+        }
+        for _ in 0..<10 { sink.push(speech) }
+        for _ in 0..<7 { sink.push(quiet) }
+        sink.push(speech)
+        XCTAssertEqual(notified, 2, "first speech, then the closed utterance")
+        let finished = sink.finish()
+        XCTAssertEqual(finished.map(\.count), [3_200 * 17, 3_200], "the undrained utterance precedes the trailing one")
+        XCTAssertTrue(sink.drain().segments.isEmpty)
+    }
+
+    func testOpenRouterCredentialPrefersTheEnvironment() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        XCTAssertNil(VoiceOpenRouterCredential.read(home: home, environment: [:]))
+        let auth = home.appendingPathComponent("provider-auth", isDirectory: true)
+        try FileManager.default.createDirectory(at: auth, withIntermediateDirectories: true)
+        try Data(#"{"provider":"openrouter","access_token":" sk-or-file ","issued_at":1}"#.utf8).write(to: auth.appendingPathComponent("openrouter.json"))
+        XCTAssertEqual(VoiceOpenRouterCredential.read(home: home, environment: [:]), "sk-or-file")
+        XCTAssertEqual(VoiceOpenRouterCredential.read(home: home, environment: ["OPENROUTER_API_KEY": "sk-or-env"]), "sk-or-env")
+        XCTAssertEqual(VoiceOpenRouterCredential.read(home: home, environment: ["OPENROUTER_API_KEY": "  "]), "sk-or-file")
+    }
+
+    func testModelCatalogParsesAndSortsOpenRouterModels() {
+        let json = #"{"data":[{"id":"openai/whisper-1","name":"OpenAI: Whisper 1"},{"id":"deepgram/nova-3","name":"Deepgram: Nova-3"},{"name":"missing id"}]}"#
+        XCTAssertEqual(VoiceModelCatalog.parse(Data(json.utf8)), [
+            VoiceModelOption(id: "deepgram/nova-3", name: "Deepgram: Nova-3"),
+            VoiceModelOption(id: "openai/whisper-1", name: "OpenAI: Whisper 1"),
+        ])
+        XCTAssertEqual(VoiceModelCatalog.parse(Data("nope".utf8)), [])
+    }
+
+    func testVoiceModelSettingPersistsToTheUITable() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).toml")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("[ui]\nvoice_stt_language = \"fr\"\n".utf8).write(to: url)
+        let store = makeStore()
+        let composer = store.features.composer
+        composer.configURL = url
+        composer.reloadPreferences()
+        XCTAssertEqual(composer.voiceModel, VoiceSTTSettings.defaultModel)
+        composer.setVoiceModel("  openai/whisper-1 ")
+        composer.setVoiceModel("has space")
+        XCTAssertEqual(composer.voiceModel, "openai/whisper-1")
+        XCTAssertNotNil(store.banner)
+        for _ in 0..<50 {
+            let saved = VoiceSTTSettings(config: GrokConfig(url: url))
+            if saved.model == "openai/whisper-1" { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let saved = VoiceSTTSettings(config: GrokConfig(url: url))
+        XCTAssertEqual(saved.model, "openai/whisper-1")
+        XCTAssertEqual(saved.language, "fr")
     }
 
     func testVoiceRefusesToTouchTheMicrophoneOutsideTheAppBundle() throws {

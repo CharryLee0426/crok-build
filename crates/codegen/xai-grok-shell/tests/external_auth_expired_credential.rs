@@ -126,7 +126,7 @@ fn seed_credential(grok_home: &Path, expires_at: chrono::DateTime<chrono::Utc>) 
             "expires_at": expires_at.to_rfc3339(),
         }
     });
-    std::fs::create_dir_all(grok_home).expect("create grok home");
+    std::fs::create_dir_all(grok_home).expect("create crok home");
     std::fs::write(
         grok_home.join("auth.json"),
         serde_json::to_string_pretty(&auth).expect("serialize auth.json"),
@@ -267,7 +267,7 @@ fn expired_external_credential_routes_to_the_provider_login_flow() {
         ))
         .expect("mock server");
 
-    let grok_home = TempDir::new().expect("grok home");
+    let grok_home = TempDir::new().expect("crok home");
     let workdir = TempDir::new().expect("workdir");
     seed_credential(
         grok_home.path(),

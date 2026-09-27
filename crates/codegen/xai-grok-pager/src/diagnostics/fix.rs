@@ -18,13 +18,13 @@ pub const TMUX_CLIPBOARD_ID: DiagnosticId = DiagnosticId::new("terminal", "tmux-
 pub const DCS_PASSTHROUGH_ID: DiagnosticId = DiagnosticId::new("terminal", "dcs-passthrough");
 pub const TMUX_EXTENDED_KEYS_ID: DiagnosticId = DiagnosticId::new("terminal", "tmux-extended-keys");
 pub const TMUX_TRUECOLOR_ID: DiagnosticId = DiagnosticId::new("terminal", "tmux-truecolor");
-pub const SSH_WRAP_FIX_COMMAND: &str = "grok doctor fix terminal.ssh-wrap";
-pub const SSH_WRAP_ONE_OFF: &str = "grok wrap ssh <host>";
+pub const SSH_WRAP_FIX_COMMAND: &str = "crok doctor fix terminal.ssh-wrap";
+pub const SSH_WRAP_ONE_OFF: &str = "crok wrap ssh <host>";
 
-const MANAGED_NAMESPACE: &str = "grok doctor";
-const SSH_WRAP_ALIAS_POSIX: &str = "alias ssh='grok wrap ssh'";
-const SSH_WRAP_ALIAS_FISH: &str = "alias ssh 'grok wrap ssh'";
-const TMUX_SCANNER_CAVEAT: &str = "Grok checks this file for direct global assignments of this option. Review sourced files, conditionals, plugins, and generated tmux setup yourself.";
+const MANAGED_NAMESPACE: &str = "crok doctor";
+const SSH_WRAP_ALIAS_POSIX: &str = "alias ssh='crok wrap ssh'";
+const SSH_WRAP_ALIAS_FISH: &str = "alias ssh 'crok wrap ssh'";
+const TMUX_SCANNER_CAVEAT: &str = "Crok checks this file for direct global assignments of this option. Review sourced files, conditionals, plugins, and generated tmux setup yourself.";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AutomaticRemediation {
@@ -311,13 +311,13 @@ impl std::fmt::Display for FixError {
         match self {
             Self::UnknownId(id) => write!(
                 formatter,
-                "`{id}` is not an available Doctor fix. Run `grok doctor fix` to list available fixes."
+                "`{id}` is not an available Doctor fix. Run `crok doctor fix` to list available fixes."
             ),
             Self::PlatformUnsupported => write!(
                 formatter,
                 "Automatic SSH setup is not available on Windows. Run `{SSH_WRAP_ONE_OFF}` when needed."
             ),
-            Self::HomeUnavailable => formatter.write_str("Grok could not find your home directory."),
+            Self::HomeUnavailable => formatter.write_str("Crok could not find your home directory."),
             Self::NotApplicable => formatter
                 .write_str("This fix does not apply to VS Code Remote sessions."),
             Self::TmuxNotApplicable => formatter
@@ -329,11 +329,11 @@ impl std::fmt::Display for FixError {
                 "Automatic setup supports Bash, zsh, and fish. For another shell, run `{SSH_WRAP_ONE_OFF}` when needed."
             ),
             Self::ByobuConfigUnavailable => formatter.write_str(
-                "Grok could not determine Byobu's effective config directory. Keep `BYOBU_CONFIG_DIR` set in this session, then run the fix again.",
+                "Crok could not determine Byobu's effective config directory. Keep `BYOBU_CONFIG_DIR` set in this session, then run the fix again.",
             ),
             Self::UnsafeDirectory { label, path } => write!(
                 formatter,
-                "Grok refused unsafe {label} `{}`. Use a non-root absolute directory without control characters, `~`, `.` or `..` components.",
+                "Crok refused unsafe {label} `{}`. Use a non-root absolute directory without control characters, `~`, `.` or `..` components.",
                 path.display()
             ),
             Self::ExistingCustomization { path, detail }
@@ -342,13 +342,13 @@ impl std::fmt::Display for FixError {
             {
                 write!(
                     formatter,
-                    "Grok found an existing SSH alias or function in {} and did not change it: {detail}",
+                    "Crok found an existing SSH alias or function in {} and did not change it: {detail}",
                     path.display()
                 )
             }
             Self::ExistingCustomization { path, detail } => write!(
                 formatter,
-                "Grok found an existing customization in {} and did not change it: {detail}",
+                "Crok found an existing customization in {} and did not change it: {detail}",
                 path.display()
             ),
             Self::Managed(error) => write!(
@@ -359,9 +359,9 @@ impl std::fmt::Display for FixError {
                 write!(formatter, "Could not update your tmux configuration: {error}")
             }
             Self::PostconditionFailed => formatter
-                .write_str("The configuration changed, but Grok could not verify the SSH alias."),
+                .write_str("The configuration changed, but Crok could not verify the SSH alias."),
             Self::TmuxPostconditionFailed => formatter.write_str(
-                "The configuration changed, but Grok could not verify the managed tmux option.",
+                "The configuration changed, but Crok could not verify the managed tmux option.",
             ),
         }
     }
@@ -489,28 +489,28 @@ const FIX_REGISTRY: &[FixSpec] = &[
         id: TMUX_CLIPBOARD_ID,
         handle: "tmux-clipboard",
         label: TMUX_CLIPBOARD_SPEC.label,
-        command: "grok doctor fix terminal.tmux-clipboard",
+        command: "crok doctor fix terminal.tmux-clipboard",
         kind: FixKind::TmuxOption(&TMUX_CLIPBOARD_SPEC),
     },
     FixSpec {
         id: DCS_PASSTHROUGH_ID,
         handle: "dcs-passthrough",
         label: DCS_PASSTHROUGH_SPEC.label,
-        command: "grok doctor fix terminal.dcs-passthrough",
+        command: "crok doctor fix terminal.dcs-passthrough",
         kind: FixKind::TmuxOption(&DCS_PASSTHROUGH_SPEC),
     },
     FixSpec {
         id: TMUX_EXTENDED_KEYS_ID,
         handle: "tmux-extended-keys",
         label: TMUX_EXTENDED_KEYS_SPEC.label,
-        command: "grok doctor fix terminal.tmux-extended-keys",
+        command: "crok doctor fix terminal.tmux-extended-keys",
         kind: FixKind::TmuxOption(&TMUX_EXTENDED_KEYS_SPEC),
     },
     FixSpec {
         id: TMUX_TRUECOLOR_ID,
         handle: "tmux-truecolor",
         label: TMUX_TRUECOLOR_SPEC.label,
-        command: "grok doctor fix terminal.tmux-truecolor",
+        command: "crok doctor fix terminal.tmux-truecolor",
         kind: FixKind::TmuxOption(&TMUX_TRUECOLOR_SPEC),
     },
 ];
@@ -528,7 +528,7 @@ pub fn resolve_fix_id(value: &str) -> Result<DiagnosticId, FixError> {
 }
 
 pub(crate) fn human_fix_command(id: DiagnosticId) -> Option<String> {
-    fix_spec(id).map(|spec| format!("grok doctor fix {}", spec.handle))
+    fix_spec(id).map(|spec| format!("crok doctor fix {}", spec.handle))
 }
 
 pub(crate) fn automatic_fix_choices()
@@ -609,10 +609,10 @@ pub(crate) fn format_applicable_automatic_fixes(
         output.push_str(&format!("  {handle:<20} {label}\n"));
         match availability {
             AutomaticFixAvailability::Here => output.push_str(&format!(
-                "    Run: grok doctor fix {handle}\n    In Grok: /doctor fix {handle}\n"
+                "    Run: crok doctor fix {handle}\n    In Crok: /doctor fix {handle}\n"
             )),
             AutomaticFixAvailability::RunLocally => output.push_str(&format!(
-                "    On your local computer, run: grok doctor fix {handle}\n"
+                "    On your local computer, run: crok doctor fix {handle}\n"
             )),
         }
     }
@@ -645,7 +645,7 @@ pub(crate) fn format_fix_preview(plan: &FixPlan) -> String {
         Some(path) => {
             let _ = writeln!(
                 output,
-                "\nBackup will be saved to: {}\nIf that file exists, Grok will choose a unique name.",
+                "\nBackup will be saved to: {}\nIf that file exists, Crok will choose a unique name.",
                 preview_path(path)
             );
         }
@@ -654,7 +654,7 @@ pub(crate) fn format_fix_preview(plan: &FixPlan) -> String {
     match &plan.payload {
         FixPayload::SshWrap(_) => {
             output.push_str(
-                "\nWhat this changes:\n  In new interactive shells, `ssh ...` runs as `grok wrap ssh ...`.\n",
+                "\nWhat this changes:\n  In new interactive shells, `ssh ...` runs as `crok wrap ssh ...`.\n",
             );
             let _ = writeln!(
                 output,
@@ -666,7 +666,7 @@ pub(crate) fn format_fix_preview(plan: &FixPlan) -> String {
                 tmux_activation_instruction(payload.spec, &plan.change.requested_path);
             let _ = writeln!(
                 output,
-                "\nWhat this changes:\n  Persists `{}`.\n  Grok does not reload or modify the live tmux server.\n  After applying, {instruction}\n  Run /doctor again to verify the live setting.",
+                "\nWhat this changes:\n  Persists `{}`.\n  Crok does not reload or modify the live tmux server.\n  After applying, {instruction}\n  Run /doctor again to verify the live setting.",
                 payload.spec.line,
             );
         }
@@ -732,8 +732,8 @@ fn plan_ssh_wrap(
             "The alias loads only in new interactive shells.",
             "Use `command ssh ...` to bypass the alias.",
             "For manually entered `ssh -f`, ControlPersist workflows, or OpenSSH `~^Z` local suspend, use `command ssh ...`. Wrapping does not fully preserve those behaviors.",
-            "`grok wrap` starts the SSH process directly, so the alias does not loop.",
-            "Grok checks this file for direct SSH aliases and functions. Review sourced files, plugins, and generated shell setup yourself.",
+            "`crok wrap` starts the SSH process directly, so the alias does not loop.",
+            "Crok checks this file for direct SSH aliases and functions. Review sourced files, plugins, and generated shell setup yourself.",
         ],
         payload: FixPayload::SshWrap(SshWrapPlan { shell, managed }),
     })

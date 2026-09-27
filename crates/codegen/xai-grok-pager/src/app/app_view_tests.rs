@@ -844,7 +844,7 @@ fn tick_demand_fast_while_modal_session_picker_loads() {
     assert_eq!(
         app.tick_demand(),
         TickDemand::Fast,
-        "foreign rows hidden by the Grok filter must not end the loading spinner"
+        "foreign rows hidden by the Crok filter must not end the loading spinner"
     );
     if let Some(crate::views::modal::ActiveModal::SessionPicker { loading, .. }) =
         app.agents.get_mut(&id).unwrap().active_modal.as_mut()
@@ -2132,6 +2132,7 @@ fn apply_auth_meta_clears_api_key_flag_and_restores_billing_on_personal_login() 
 #[test]
 fn apply_auth_meta_api_key_enables_voice_and_skips_tier_gate() {
     let mut app = test_app();
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
     advertise_media_tools(&mut app);
     assert!(!app.voice_mode_enabled);
     app.apply_auth_meta(&xai_grok_login::AuthMeta {
@@ -2146,6 +2147,7 @@ fn apply_auth_meta_api_key_enables_voice_and_skips_tier_gate() {
     assert!(!app.is_voice_tier_restricted());
     assert!(app.voice_mode_enabled);
     let mut app = test_app();
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
     app.apply_auth_meta(&xai_grok_login::AuthMeta {
         subscription_tier: Some("api_key".into()),
         ..Default::default()
@@ -2206,6 +2208,7 @@ fn assert_tier_restricted_commands_present(app: &AppView) {
 #[test]
 fn apply_auth_meta_restricts_usage_for_free_tier() {
     let mut app = test_app();
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
     advertise_media_tools(&mut app);
     app.apply_auth_meta(&xai_grok_login::AuthMeta::default());
     assert_eq!(
@@ -2218,6 +2221,7 @@ fn apply_auth_meta_restricts_usage_for_free_tier() {
 #[test]
 fn apply_auth_meta_restricts_usage_for_x_basic_tier() {
     let mut app = test_app();
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
     advertise_media_tools(&mut app);
     let meta = xai_grok_login::AuthMeta {
         subscription_tier: Some("X Basic".into()),
@@ -2278,9 +2282,11 @@ fn voice_included_in_tier_restricted_commands() {
 #[test]
 fn is_voice_tier_restricted_tracks_tier() {
     let mut app = test_app();
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
     app.apply_auth_meta(&xai_grok_login::AuthMeta::default());
     assert!(app.is_voice_tier_restricted());
     let mut app = test_app();
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
     let meta = xai_grok_login::AuthMeta {
         subscription_tier: Some("SuperGrok".into()),
         ..Default::default()
@@ -2292,7 +2298,7 @@ fn is_voice_tier_restricted_tracks_tier() {
 fn apply_auth_meta_clears_gate_on_subscription() {
     let mut app = test_app();
     app.gate = Some(xai_grok_login::GateInfo {
-        message: "Subscribe to use Grok Build".into(),
+        message: "Subscribe to use Crok Build".into(),
         url: Some("https://grok.com/supergrok?referrer=grok-build".into()),
         label: None,
     });
@@ -4816,20 +4822,20 @@ fn prompt_focused_bare_text_chars_promote_no_action() {
     }
 }
 #[test]
-fn welcome_pending_l_triggers_login() {
+fn welcome_pending_l_never_starts_xai_login() {
     let mut app = test_app();
     app.auth_state = AuthState::Pending { error: None };
     app.welcome_prompt_focused = false;
     let outcome = app.handle_input(&key_event(KeyCode::Char('l'), KeyModifiers::NONE));
-    assert!(matches!(outcome, InputOutcome::Action(Action::Login)));
+    assert!(!matches!(outcome, InputOutcome::Action(Action::Login)), "{outcome:?}");
 }
 #[test]
-fn welcome_pending_enter_triggers_login() {
+fn welcome_pending_enter_never_starts_xai_login() {
     let mut app = test_app();
     app.auth_state = AuthState::Pending { error: None };
     app.welcome_prompt_focused = false;
     let outcome = app.handle_input(&key_event(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(matches!(outcome, InputOutcome::Action(Action::Login)));
+    assert!(!matches!(outcome, InputOutcome::Action(Action::Login)), "{outcome:?}");
 }
 #[test]
 fn welcome_pending_n_is_unchanged() {
@@ -8164,4 +8170,61 @@ fn popup_dashboard_button_dismisses_the_popup_not_the_dashboard() {
         matches!(app.active_view, ActiveView::AgentDashboard),
         "the dashboard itself stays open"
     );
+}
+#[test]
+fn openrouter_voice_is_not_tier_restricted() {
+    // OpenRouter transcription is billed to the OpenRouter key, so a free xAI tier must not upsell or hide /voice
+    let mut app = test_app();
+    advertise_media_tools(&mut app);
+    assert_eq!(
+        app.voice_config.provider,
+        xai_grok_voice::VoiceProvider::OpenRouter
+    );
+    app.apply_auth_meta(&xai_grok_login::AuthMeta::default());
+    assert!(!app.is_voice_tier_restricted());
+    assert!(
+        !app.tier_restricted_commands.iter().any(|c| c == "voice"),
+        "voice is not on the deny list"
+    );
+    assert!(app.tier_restricted_commands.iter().any(|c| c == "usage"));
+    assert!(app.welcome_prompt.slash_controller.registry().get("voice").is_some());
+    // Switching to xAI re-applies the xAI tier gate
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai;
+    app.apply_tier_restrictions();
+    assert!(app.is_voice_tier_restricted());
+}
+#[test]
+fn openrouter_voice_ignores_remote_only_kill_switch() {
+    let mut app = test_app();
+    app.apply_voice_mode_enabled(false);
+    app.ensure_voice_for_api_key();
+    assert!(
+        app.voice_mode_enabled,
+        "a remote-only xAI voice kill switch does not apply to OpenRouter voice"
+    );
+    let mut app = test_app();
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai;
+    app.apply_voice_mode_enabled(false);
+    app.ensure_voice_for_api_key();
+    assert!(!app.voice_mode_enabled);
+}
+#[test]
+fn enter_while_recording_with_openrouter_stops_instead_of_sending() {
+    let mut app = test_app_with_agent();
+    let target = VoiceTarget::Agent(super::super::agent::AgentId(0));
+    app.voice_begin_recording(target, false);
+    let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let outcome = app.handle_input(&enter);
+    assert!(
+        matches!(outcome, InputOutcome::Action(Action::VoiceToggle)),
+        "Enter stops OpenRouter dictation so its last utterance can land before sending"
+    );
+    // xAI keeps the send-on-Enter behavior: the interim is committed and the key falls through
+    let mut app = test_app_with_agent();
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai;
+    app.voice_begin_recording(target, false);
+    app.voice_set_interim("hello there".into());
+    let outcome = app.handle_input(&enter);
+    assert!(!matches!(outcome, InputOutcome::Action(Action::VoiceToggle)));
+    assert_eq!(app.voice_interim(), None);
 }

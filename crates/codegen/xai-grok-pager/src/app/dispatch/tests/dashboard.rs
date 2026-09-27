@@ -1017,7 +1017,7 @@ fn auth_complete_opens_deferred_dashboard() {
     assert!(matches!(app.auth_state, AuthState::Done));
     assert!(
         matches!(app.active_view, ActiveView::AgentDashboard),
-        "deferred `grok dashboard` must open the dashboard after login",
+        "deferred `crok dashboard` must open the dashboard after login",
     );
     assert!(
         !app.deferred_startup.open_dashboard,

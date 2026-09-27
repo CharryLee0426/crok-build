@@ -5,6 +5,69 @@ use crate::error::VoiceError;
 /// Default STT capture rate (Hz). Shared with the `__mic-capture` helper's argv default so parent and child agree when `--rate` is omitted.
 pub const DEFAULT_SAMPLE_RATE: u32 = 16_000;
 
+/// OpenRouter speech-to-text model used when none is configured (`[ui].voice_stt_model` / `[voice].model`).
+/// Any slug from `https://openrouter.ai/api/v1/models?output_modalities=transcription` works.
+pub const DEFAULT_OPENROUTER_STT_MODEL: &str = "openai/gpt-4o-mini-transcribe";
+
+/// OpenRouter API root; transcription posts to `{base}/audio/transcriptions`.
+pub const DEFAULT_OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1";
+
+/// Which speech-to-text service dictation uses.
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VoiceProvider {
+    /// OpenRouter's `/audio/transcriptions` with a configurable model, billed to the OpenRouter key.
+    #[default]
+    #[serde(rename = "openrouter")]
+    OpenRouter,
+    /// xAI streaming STT (`wss://api.x.ai/v1/stt`), which needs an xAI credential.
+    Xai,
+}
+
+impl VoiceProvider {
+    /// The value stored in `config.toml`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "openrouter",
+            Self::Xai => "xai",
+        }
+    }
+
+    /// Parses a stored value, ignoring case and separators; `None` for anything unrecognized.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['_', '-', ' '], "")
+            .as_str()
+        {
+            "openrouter" => Some(Self::OpenRouter),
+            // xAI account sign-in is not supported, so a stored `xai` falls back to OpenRouter.
+            _ => None,
+        }
+    }
+
+    /// A stored value, with blank and unknown values falling back to the default provider.
+    pub fn canonical(value: Option<&str>) -> Self {
+        value.and_then(Self::parse).unwrap_or_default()
+    }
+}
+
+impl<'de> Deserialize<'de> for VoiceProvider {
+    /// Lenient so a typo in `[voice].provider` falls back to the default instead of discarding the whole `[voice]` table.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Ok(Self::canonical(Some(&raw)))
+    }
+}
+
+/// The OpenRouter model slug to use: the trimmed value, or [`DEFAULT_OPENROUTER_STT_MODEL`] when blank.
+pub fn canonical_stt_model(value: Option<&str>) -> String {
+    non_empty_str(value)
+        .unwrap_or(DEFAULT_OPENROUTER_STT_MODEL)
+        .to_owned()
+}
+
 /// Prefer https `api_base` (same shape as chat). [`Self::stt_ws_url`] derives `wss://`. When `[voice].api_base` is unset,
 /// inherits `[endpoints].xai_api_base_url` so enterprise proxies need no second knob.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -19,6 +82,12 @@ pub struct VoiceConfig {
     pub sample_rate: u32,
     pub stt_endpointing_ms: u32,
     pub stt_interim_results: bool,
+    /// Speech-to-text service. `[ui].voice_stt_provider` (written by the settings UIs) overrides `[voice].provider`.
+    pub provider: VoiceProvider,
+    /// OpenRouter transcription model slug. `[ui].voice_stt_model` overrides `[voice].model`.
+    pub model: String,
+    /// OpenRouter API root (HTTPS). Independent of `api_base`, which is the xAI endpoint.
+    pub openrouter_api_base: String,
 
     /// The pager stamps this request identity; `serde(skip)` keeps user config from setting it.
     #[serde(skip)]
@@ -36,6 +105,9 @@ impl Default for VoiceConfig {
             sample_rate: DEFAULT_SAMPLE_RATE,
             stt_endpointing_ms: 400,
             stt_interim_results: true,
+            provider: VoiceProvider::default(),
+            model: DEFAULT_OPENROUTER_STT_MODEL.into(),
+            openrouter_api_base: DEFAULT_OPENROUTER_API_BASE.into(),
             client_identifier: String::new(),
             user_agent: String::new(),
         }
@@ -73,7 +145,40 @@ impl VoiceConfig {
         .or_else(|| non_empty_str(resolved_endpoints_base))
         .map(|base| base.trim_end_matches('/').to_owned())
         .unwrap_or_else(|| Self::default().api_base);
+        cfg.model = canonical_stt_model(Some(&cfg.model));
+        cfg.openrouter_api_base = non_empty_str(Some(&cfg.openrouter_api_base))
+            .unwrap_or(DEFAULT_OPENROUTER_API_BASE)
+            .trim_end_matches('/')
+            .to_owned();
+        // The settings UIs (TUI and desktop) persist to `[ui]`, which wins over the hand-edited `[voice]` table
+        let ui = root.get("ui").and_then(|v| v.as_table());
+        if let Some(provider) = ui
+            .and_then(|t| t.get("voice_stt_provider"))
+            .and_then(|v| v.as_str())
+            .and_then(VoiceProvider::parse)
+        {
+            cfg.provider = provider;
+        }
+        if let Some(model) = non_empty_str(
+            ui.and_then(|t| t.get("voice_stt_model"))
+                .and_then(|v| v.as_str()),
+        ) {
+            cfg.model = model.to_owned();
+        }
         cfg
+    }
+
+    /// OpenRouter transcription endpoint. Rejects plaintext `http://` so the API key never travels unencrypted.
+    pub fn openrouter_transcriptions_url(&self) -> Result<String, VoiceError> {
+        let base = self.openrouter_api_base.trim().trim_end_matches('/');
+        if strip_scheme(base, "http://").is_some() {
+            return Err(VoiceError::Config(format!(
+                "insecure voice openrouter_api_base {base:?}: voice requires an https:// endpoint. \
+                 Refusing to send the API key over a plaintext connection."
+            )));
+        }
+        let rest = strip_scheme(base, "https://").unwrap_or(base);
+        Ok(format!("https://{rest}/audio/transcriptions"))
     }
 }
 
@@ -262,6 +367,105 @@ language = "es"
         assert_eq!(cfg.api_base, "https://api.x.ai");
         assert_eq!(cfg.language, "es");
         assert_eq!(cfg.stt_ws_url().unwrap(), "wss://api.x.ai/v1/stt");
+    }
+
+    #[test]
+    fn defaults_to_openrouter_with_default_model() {
+        let cfg = VoiceConfig::from_config_table(&toml::Table::new(), None);
+        assert_eq!(cfg.provider, VoiceProvider::OpenRouter);
+        assert_eq!(cfg.model, DEFAULT_OPENROUTER_STT_MODEL);
+        assert_eq!(
+            cfg.openrouter_transcriptions_url().unwrap(),
+            "https://openrouter.ai/api/v1/audio/transcriptions"
+        );
+    }
+
+    #[test]
+    fn ui_provider_and_model_override_voice_table() {
+        let table: toml::Table = toml::from_str(
+            r#"
+[voice]
+provider = "openrouter"
+model = "openai/whisper-1"
+language = "fr"
+[ui]
+voice_stt_provider = "xai"
+voice_stt_model = "  mistralai/voxtral-mini-transcribe "
+"#,
+        )
+        .unwrap();
+        let cfg = VoiceConfig::from_config_table(&table, None);
+        assert_eq!(cfg.provider, VoiceProvider::OpenRouter);
+        assert_eq!(cfg.model, "mistralai/voxtral-mini-transcribe");
+        assert_eq!(cfg.language, "fr");
+    }
+
+    #[test]
+    fn voice_table_provider_and_model_apply_without_ui() {
+        let table: toml::Table = toml::from_str(
+            r#"
+[voice]
+provider = "xai"
+model = "openai/whisper-1"
+"#,
+        )
+        .unwrap();
+        let cfg = VoiceConfig::from_config_table(&table, None);
+        assert_eq!(cfg.provider, VoiceProvider::OpenRouter);
+        assert_eq!(cfg.model, "openai/whisper-1");
+    }
+
+    #[test]
+    fn unknown_provider_keeps_rest_of_voice_table() {
+        let table: toml::Table = toml::from_str(
+            r#"
+[voice]
+provider = "whisper-local"
+model = ""
+language = "de"
+openrouter_api_base = "https://proxy.example.com/api/v1/"
+[ui]
+voice_stt_provider = "nonsense"
+voice_stt_model = " "
+"#,
+        )
+        .unwrap();
+        let cfg = VoiceConfig::from_config_table(&table, None);
+        assert_eq!(cfg.provider, VoiceProvider::OpenRouter);
+        assert_eq!(cfg.model, DEFAULT_OPENROUTER_STT_MODEL);
+        assert_eq!(cfg.language, "de");
+        assert_eq!(
+            cfg.openrouter_transcriptions_url().unwrap(),
+            "https://proxy.example.com/api/v1/audio/transcriptions"
+        );
+    }
+
+    #[test]
+    fn provider_parse_accepts_aliases() {
+        assert_eq!(
+            VoiceProvider::parse("OpenRouter"),
+            Some(VoiceProvider::OpenRouter)
+        );
+        assert_eq!(
+            VoiceProvider::parse("open_router"),
+            Some(VoiceProvider::OpenRouter)
+        );
+        assert_eq!(VoiceProvider::parse(" XAI "), None);
+        assert_eq!(VoiceProvider::parse("grok"), None);
+        assert_eq!(VoiceProvider::parse("other"), None);
+        assert_eq!(VoiceProvider::canonical(None), VoiceProvider::OpenRouter);
+    }
+
+    #[test]
+    fn rejects_plaintext_openrouter_base() {
+        let cfg = VoiceConfig {
+            openrouter_api_base: "HTTP://localhost:8080/api/v1".into(),
+            ..VoiceConfig::default()
+        };
+        assert!(matches!(
+            cfg.openrouter_transcriptions_url(),
+            Err(VoiceError::Config(_))
+        ));
     }
 
     #[test]

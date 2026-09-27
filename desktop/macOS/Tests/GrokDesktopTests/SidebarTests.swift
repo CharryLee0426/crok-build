@@ -88,7 +88,7 @@ final class SidebarTests: XCTestCase {
 
     /// Writes PNGs of the sidebar when GROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
     func testRenderSidebarSnapshots() throws {
-        guard let output = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let (store, _, _) = makeStore()
         store.state.selectedConversationID = store.state.conversations[2].id
         store.unreadConversationIDs = [store.state.conversations[1].id]

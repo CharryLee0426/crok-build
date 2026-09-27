@@ -391,7 +391,7 @@ pub fn run_agent_test_with_models<F, Fut>(
             .block_on(xai_grok_test_support::MockInferenceServer::start_with_models(models))
             .expect("mock server"),
     );
-    let grok_home = tempfile::TempDir::new().expect("grok home");
+    let grok_home = tempfile::TempDir::new().expect("crok home");
     let workdir = tempfile::TempDir::new().expect("workdir");
     set_test_env(grok_home.path(), &server.url());
     // After GROK_HOME is the temp dir, so teardown cannot OnceLock ~/.grok.

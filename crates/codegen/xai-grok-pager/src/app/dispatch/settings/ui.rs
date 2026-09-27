@@ -14,7 +14,8 @@ use super::setters::{
     set_scroll_mode_inner, set_scroll_speed_inner, set_show_thinking_blocks_inner,
     set_show_tips_inner, set_simple_mode_inner, set_theme_inner, set_timeline_inner,
     set_timestamps, set_timestamps_inner, set_vim_mode_inner, set_voice_capture_mode_inner,
-    set_voice_keybind_enabled_inner, set_voice_stt_language_inner,
+    set_voice_keybind_enabled_inner, set_voice_stt_language_inner, set_voice_stt_model_inner,
+    set_voice_stt_provider_inner,
 };
 use crate::app::actions::{Action, Effect};
 use crate::app::app_view::{ActiveView, AppView};
@@ -54,6 +55,8 @@ pub(crate) fn refresh_open_settings_modals(app: &mut AppView) {
     let auto_mode_gate_from_app = app.auto_mode_gate;
     let ask_user_question_timeout_enabled_from_app = app.ask_user_question_timeout_enabled;
     let voice_stt_language_from_app = app.voice_config.language.clone();
+    let voice_stt_provider_from_app = app.voice_config.provider.as_str();
+    let voice_stt_model_from_app = app.voice_config.model.clone();
     let subagent_model_inheritance_from_app = app.subagent_model_inheritance;
     for agent in app.agents.values_mut() {
         // Walk both `Settings` and `ResetSettingsConfirm`
@@ -92,6 +95,8 @@ pub(crate) fn refresh_open_settings_modals(app: &mut AppView) {
                 auto_mode_gate: auto_mode_gate_from_app,
                 ask_user_question_timeout_enabled: ask_user_question_timeout_enabled_from_app,
                 voice_stt_language: voice_stt_language_from_app.clone(),
+                voice_stt_provider: voice_stt_provider_from_app,
+                voice_stt_model: voice_stt_model_from_app.clone(),
                 subagent_model_inheritance: subagent_model_inheritance_from_app,
             };
         }
@@ -188,11 +193,15 @@ pub(in crate::app::dispatch) fn dispatch_open_settings(
     let auto_mode_gate_from_app = app.auto_mode_gate;
     let ask_user_question_timeout_enabled_from_app = app.ask_user_question_timeout_enabled;
     let voice_stt_language_from_app = app.voice_config.language.clone();
+    let voice_stt_provider_from_app = app.voice_config.provider.as_str();
+    let voice_stt_model_from_app = app.voice_config.model.clone();
     let subagent_model_inheritance_from_app = app.subagent_model_inheritance;
     // Theme rows are `hidden_in_minimal`. Snapshot this AppView's mode, not `MINIMAL_MODE_ACTIVE`
     // (other tests flip that process flag in parallel and would drop `theme` from the list).
+    // xAI account sign-in is not supported, so provider-credential sessions drop its rows.
     let visibility = RowVisibility {
         hide_appearance: app.screen_mode.is_minimal(),
+        hide_xai_account_rows: app.is_api_key_auth,
     };
 
     let Some(agent) = app.agents.get_mut(&id) else {
@@ -239,6 +248,8 @@ pub(in crate::app::dispatch) fn dispatch_open_settings(
         auto_mode_gate: auto_mode_gate_from_app,
         ask_user_question_timeout_enabled: ask_user_question_timeout_enabled_from_app,
         voice_stt_language: voice_stt_language_from_app,
+        voice_stt_provider: voice_stt_provider_from_app,
+        voice_stt_model: voice_stt_model_from_app.clone(),
         subagent_model_inheritance: subagent_model_inheritance_from_app,
     };
     let mut state = Box::new(SettingsModalState::new_with_row_visibility(
@@ -628,6 +639,8 @@ pub(crate) fn build_pager_snapshot(app: &AppView) -> crate::settings::PagerLocal
         auto_mode_gate: app.auto_mode_gate,
         ask_user_question_timeout_enabled: app.ask_user_question_timeout_enabled,
         voice_stt_language: app.voice_config.language.clone(),
+        voice_stt_provider: app.voice_config.provider.as_str(),
+        voice_stt_model: app.voice_config.model.clone(),
         subagent_model_inheritance: app.subagent_model_inheritance,
     }
 }
@@ -785,6 +798,10 @@ pub(in crate::app::dispatch) fn action_for_reset(
         ("voice_stt_language", SettingValue::Enum(s)) => {
             Some(Action::SetVoiceSttLanguage((*s).to_string()))
         }
+        ("voice_stt_provider", SettingValue::Enum(s)) => {
+            Some(Action::SetVoiceSttProvider((*s).to_string()))
+        }
+        ("voice_stt_model", SettingValue::String(s)) => Some(Action::SetVoiceSttModel(s.clone())),
         // fork_secondary_model: empty becomes Clear, non-empty is a skew guard
         ("fork_secondary_model", SettingValue::String(s)) => {
             if s.is_empty() {
@@ -1068,6 +1085,12 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
                 app,
                 crate::settings::canonical_voice_stt_language(Some(s)),
             );
+        }
+        ("voice_stt_provider", SettingValue::Enum(s)) => {
+            set_voice_stt_provider_inner(app, xai_grok_voice::VoiceProvider::canonical(Some(s)));
+        }
+        ("voice_stt_model", SettingValue::String(s)) => {
+            set_voice_stt_model_inner(app, &xai_grok_voice::canonical_stt_model(Some(s)));
         }
         // show_tips / auto_update: if the rollback equals the effective default, restore to None (keeps the mirror in sync with disk)
         ("show_tips", SettingValue::Bool(b)) => {

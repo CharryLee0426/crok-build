@@ -493,7 +493,7 @@ pub fn sweep_env_init() -> SweepEnv {
         .enable_all()
         .build()
         .expect("mock runtime");
-    let grok_home = TempDir::new().expect("grok home");
+    let grok_home = TempDir::new().expect("crok home");
     unsafe {
         std::env::set_var("GROK_HOME", grok_home.path());
         std::env::set_var("XAI_API_KEY", "test-key-for-ci");

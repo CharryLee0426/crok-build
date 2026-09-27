@@ -4,7 +4,7 @@ import AppKit
 extension FeaturePanel {
     var subtitle: String {
         switch self {
-        case .mcps: return "Connect Grok to tools and data in your workspace."
+        case .mcps: return "Connect Crok to tools and data in your workspace."
         case .skills: return "Reusable instructions, discovered from your project and plugins."
         case .agents: return "Follow the agents working alongside this task."
         case .agentDefinitions: return "Agent roles available to the harness. Changes apply to new sessions."
@@ -12,10 +12,10 @@ extension FeaturePanel {
         case .goals: return "Keep working toward an objective across turns."
         case .plan: return "Review the steps before implementation."
         case .workflows: return "Launch a workflow or check its progress."
-        case .plugins: return "Extensions loaded by your Grok harness."
+        case .plugins: return "Extensions loaded by your Crok harness."
         case .marketplace: return "Plugins available from your marketplace sources."
         case .hooks: return "Actions triggered by events in the harness."
-        case .memory: return "What Grok remembers across sessions, for this task's workspace and everywhere."
+        case .memory: return "What Crok remembers across sessions, for this task's workspace and everywhere."
         case .models: return "Choose the model for your next message."
         case .reasoning: return "Control how much the selected model thinks."
         case .history: return "Choose a prompt to reuse it in the composer."
@@ -104,7 +104,7 @@ struct FeatureBrowser: View {
             }
             .confirmationDialog("Remove MCP server \"\(removeServer?.title ?? "")\"?", isPresented: Binding(get: { removeServer != nil }, set: { if !$0 { removeServer = nil } }), titleVisibility: .visible) {
                 if let server = removeServer { Button("Remove \(server.title)", role: .destructive) { store.removeMCPServer(server.id); removeServer = nil } }
-            } message: { Text("The server will be removed from your Grok configuration. You can add it again later.") }
+            } message: { Text("The server will be removed from your Crok configuration. You can add it again later.") }
             .confirmationDialog(extensions.pendingConfirmation?.message ?? "", isPresented: Binding(get: { extensions.pendingConfirmation?.panel == panel }, set: { if !$0 { extensions.pendingConfirmation = nil } }), titleVisibility: .visible) {
                 if let confirmation = extensions.pendingConfirmation {
                     Button(confirmation.confirmTitle, role: confirmation.destructive ? .destructive : nil) {
@@ -169,14 +169,7 @@ struct FeatureBrowser: View {
 
     @ViewBuilder private var remoteContent: some View {
         if panel == .goals { goalForm }
-        if panel == .mcps {
-            if extensions.awaitingConnectors {
-                ExtensionCallout(symbol: "safari", title: "Finish in the browser.", detail: "Connectors you add on grok.com appear here when you come back to Grok.") {
-                    Button("Refresh now") { extensions.connectorsReturned() }
-                }
-            }
-            if showAddMCP { mcpForm }
-        }
+        if panel == .mcps, showAddMCP { mcpForm }
         if store.featureLoading && store.featureRows.isEmpty && !(panel == .marketplace && extensions.marketplace.loaded) {
             ProgressView("Loading \(panel.title.lowercased())…").frame(maxWidth: .infinity).padding(25)
         }
@@ -219,7 +212,7 @@ struct FeatureBrowser: View {
             if store.savedPlanLoading { ProgressView("Loading saved plan…").padding(20) }
             if let error = store.savedPlanError { Text(error).foregroundStyle(Theme.muted).padding(10) }
             if let content = store.savedPlanContent { MarkdownContent(text: content, style: .panel).padding(10) }
-            if store.run.plan.isEmpty && store.savedPlanContent == nil && !store.savedPlanLoading { Text("No saved plan yet. Use /plan to ask Grok to prepare a plan.").foregroundStyle(Theme.muted).padding(20) }
+            if store.run.plan.isEmpty && store.savedPlanContent == nil && !store.savedPlanLoading { Text("No saved plan yet. Use /plan to ask Crok to prepare a plan.").foregroundStyle(Theme.muted).padding(20) }
             ForEach(store.run.plan) { entry in
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: entry.status == "completed" ? "checkmark.circle.fill" : "circle")
@@ -245,7 +238,7 @@ struct FeatureBrowser: View {
 
     private var goalForm: some View {
         VStack(alignment: .leading, spacing: 18) {
-            DesktopTextField("What should Grok work toward?", text: $objective, title: "Objective", symbol: "scope", multiline: true)
+            DesktopTextField("What should Crok work toward?", text: $objective, title: "Objective", symbol: "scope", multiline: true)
             HStack(alignment: .bottom, spacing: 16) {
                 DesktopTextField("e.g. 100000", text: $budget, title: "Token budget (optional)", symbol: "number")
                     .frame(width: 250)
@@ -354,7 +347,7 @@ struct FeatureBrowser: View {
                     extensions.marketplace.perform(.addSource(url: sourceInput.trimmingCharacters(in: .whitespacesAndNewlines))); sourceInput = ""
                 }
             case .hooks:
-                sourceField(title: "Add a hook directory", placeholder: "~/.grok/hooks/my-hooks", symbol: "folder.badge.plus", action: "Add path", browse: true) {
+                sourceField(title: "Add a hook directory", placeholder: "~/.crok/hooks/my-hooks", symbol: "folder.badge.plus", action: "Add path", browse: true) {
                     let path = (sourceInput.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).expandingTildeInPath
                     store.runHooksAction(.add(path: path)); sourceInput = ""
                 }
@@ -372,8 +365,6 @@ struct FeatureBrowser: View {
         switch panel {
         case .mcps:
             Button(showAddMCP ? "Cancel adding" : "Add server") { showAddMCP.toggle() }.disabled(controlsDisabled)
-            Button { extensions.openConnectors() } label: { Label("Browse connectors", systemImage: "safari") }
-                .help("Open grok.com connectors. The list refreshes when you come back.")
         case .skills:
             Button("Add skill…") { store.addSkillFolder() }.disabled(controlsDisabled)
             Button("Reset…") {

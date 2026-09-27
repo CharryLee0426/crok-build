@@ -214,7 +214,7 @@ final class ClaudeImportTests: XCTestCase {
     func testApplyMergesAdditivelyAndPreservesEverythingElse() throws {
         let configURL = grokHome.appendingPathComponent("config.toml")
         let original = """
-        # Grok settings
+        # Crok settings
         [ui]
         theme = "dark" # keep me
 
@@ -246,7 +246,7 @@ final class ClaudeImportTests: XCTestCase {
         ], projectRoot: repo)
         let result = try ClaudeImporter.apply(plan, environment: environment)
         XCTAssertEqual(try read(configURL), """
-        # Grok settings
+        # Crok settings
         [ui]
         theme = "dark" # keep me
 
@@ -505,7 +505,7 @@ final class ClaudeImportTests: XCTestCase {
         nested = [ [1, 2], ["a", 'b'], ] # trailing comma
         inline = { a.b = 1, a.c = 2 }
         multiline_inline = {
-          esc = "\e\x41", # TOML 1.1, which Grok's parser reads
+          esc = "\e\x41", # TOML 1.1, which Crok's parser reads
           short_time = 07:32,
         }
 
@@ -599,7 +599,7 @@ final class ClaudeImportTests: XCTestCase {
         let model = ClaudeImportModel(plan: try samplePlan(), environment: environment)
         XCTAssertEqual(model.selectedCount, 13)
         XCTAssertEqual(model.rows.filter(\.isHeader).map(model.label), [
-            "Global  ~/.grok/config.toml", "Permissions (3)", "Env vars (1)", "MCP servers (2)", "Hooks (1)", "Paths (2)",
+            "Global  ~/.crok/config.toml", "Permissions (3)", "Env vars (1)", "MCP servers (2)", "Hooks (1)", "Paths (2)",
             "Project  /Users/you/code/billing-api/.grok/config.toml", "Permissions (1)", "Env vars (1)", "Hooks (1)", "Paths (1)",
         ])
         XCTAssertEqual(model.focus, .item(1), "focus starts on the first item")
@@ -648,7 +648,7 @@ final class ClaudeImportTests: XCTestCase {
     /// Writes the sheet in light and dark when GROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
     @MainActor
     func testRenderImportClaudeSnapshots() throws {
-        guard let output = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let store = AppStore(stateFile: root.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
         for (name, appearance, fold) in [("import-claude-light", NSAppearance.Name.aqua, false), ("import-claude-dark", .darkAqua, true)] {
             let model = ClaudeImportModel(plan: try samplePlan(), environment: environment)

@@ -28,7 +28,7 @@ async fn requirements_version_failure_exits_2_with_guidance() {
     )
     .expect("spawn pager");
 
-    let msg = "Update Grok to a version the policy allows";
+    let msg = "Update Crok to a version the policy allows";
     // The observed flake was an empty screen and empty raw output (the child had produced no bytes
     // yet), not a wrong exit or guidance.
     let deadline = Instant::now() + Duration::from_secs(120);

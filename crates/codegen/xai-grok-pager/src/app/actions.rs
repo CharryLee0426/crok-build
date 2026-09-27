@@ -506,6 +506,12 @@ pub enum Action {
     /// Set the voice STT language (catalog code or `auto`). SHELL-owned; persisted to `[ui].voice_stt_language`.
     /// Takes effect for the next voice capture.
     SetVoiceSttLanguage(String),
+    /// Set the voice STT provider (`openrouter` | `xai`). SHELL-owned; persisted to `[ui].voice_stt_provider`.
+    /// Takes effect for the next voice capture.
+    SetVoiceSttProvider(String),
+    /// Set the OpenRouter transcription model slug. SHELL-owned; persisted to `[ui].voice_stt_model`.
+    /// Takes effect for the next voice capture.
+    SetVoiceSttModel(String),
     /// Toggle timestamp display on messages.
     ToggleTimestamps,
     /// Toggle compact mode (reduce user message padding).

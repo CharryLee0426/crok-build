@@ -19,8 +19,8 @@ struct BehaviorSettingsSection: View {
                 Toggle("Multiline input", isOn: $multiline).toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
             Divider()
-            row("While Grok is working", detail: composer.followUpBehavior.detail) {
-                Picker("While Grok is working", selection: Binding(get: { composer.followUpBehavior }, set: { composer.setFollowUpBehavior($0) })) {
+            row("While Crok is working", detail: composer.followUpBehavior.detail) {
+                Picker("While Crok is working", selection: Binding(get: { composer.followUpBehavior }, set: { composer.setFollowUpBehavior($0) })) {
                     ForEach(ComposerFollowUpBehavior.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden().pickerStyle(.segmented).fixedSize()
             }
@@ -36,12 +36,49 @@ struct BehaviorSettingsSection: View {
                     ForEach(VoiceSTTSettings.languages, id: \.code) { Text($0.name).tag($0.code) }
                 }.labelsHidden().pickerStyle(.menu).fixedSize()
             }
+            row("Dictation model", detail: "Any OpenRouter transcription model. Pick one or type its ID and press Return. Without an OpenRouter sign-in, dictation runs on this Mac.") {
+                VoiceModelControl()
+            }
         }
         .settingsCard()
     }
 
     private var permissionModes: [ComposerPermissionMode] {
         ComposerPermissionMode.allCases.filter { $0 != .auto || composer.autoModeAvailable || composer.permissionMode == .auto }
+    }
+
+    /// The OpenRouter model ID with a menu of OpenRouter's transcription models (fetched live, with a built-in fallback).
+    private struct VoiceModelControl: View {
+        @EnvironmentObject var composer: ComposerFeatureModel
+        @State private var draft = ""
+        @State private var catalog: [VoiceModelOption] = []
+
+        var body: some View {
+            HStack(spacing: 4) {
+                TextField("Model ID", text: $draft)
+                    .textFieldStyle(.roundedBorder).frame(width: 250)
+                    .onSubmit { composer.setVoiceModel(draft); draft = composer.voiceModel }
+                    .accessibilityLabel("Dictation model")
+                Menu {
+                    ForEach(models) { model in
+                        Button(model.id == composer.voiceModel ? "✓ \(model.name)" : model.name) {
+                            composer.setVoiceModel(model.id)
+                            draft = composer.voiceModel
+                        }
+                    }
+                } label: { Image(systemName: "chevron.down") }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .help("Transcription models on OpenRouter")
+            }
+            .onAppear { draft = composer.voiceModel }
+            .onChange(of: composer.voiceModel) { _, model in draft = model }
+            .task {
+                let fetched = await VoiceModelCatalog.fetch()
+                if !fetched.isEmpty { catalog = fetched }
+            }
+        }
+
+        private var models: [VoiceModelOption] { catalog.isEmpty ? VoiceSTTSettings.suggestedModels : catalog }
     }
 
     private func row<Control: View>(_ title: String, detail: String, warning: Bool = false, @ViewBuilder control: () -> Control) -> some View {

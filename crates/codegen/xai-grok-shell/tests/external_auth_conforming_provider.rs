@@ -85,7 +85,7 @@ fn dead_endpoint() -> String {
 
 #[tokio::test]
 async fn a_provider_that_declines_the_headless_run_can_still_sign_the_user_in() {
-    let home = tempfile::tempdir().expect("grok home");
+    let home = tempfile::tempdir().expect("crok home");
     let provider = write_conforming_provider(home.path());
     let dead = dead_endpoint();
 

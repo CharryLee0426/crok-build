@@ -34,7 +34,7 @@ struct GrokDesktopApp: App {
     }
 
     private var displayName: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Grok Desktop"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Crok Desktop"
     }
 
     private func auxiliary(_ window: DesktopWindow) -> some Scene {
@@ -78,7 +78,7 @@ private struct AppCommands: Commands {
             Button("Reveal Project in Finder") { store.revealProject() }.disabled(!menu.hasProject)
         }
         CommandGroup(replacing: .help) {
-            Button("Grok Build Guides") { store.executeCommand(name: "docs") }
+            Button("Crok Build Guides") { store.executeCommand(name: "docs") }
             Button("Tutorial") { store.executeCommand(name: "tutorial") }
             Divider()
             Button("Keyboard Shortcuts") { store.features.extras.openKeyboardShortcuts() }.keyboardShortcut("/")
@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if store?.runs.values.contains(where: { $0.isRunning }) == true {
             let alert = NSAlert()
-            alert.messageText = "Quit while Grok is working?"
+            alert.messageText = "Quit while Crok is working?"
             alert.informativeText = "Active tasks will stop. Your conversations are saved and can be resumed."
             alert.addButton(withTitle: "Keep Working"); alert.addButton(withTitle: "Quit")
             if alert.runModal() == .alertFirstButtonReturn { return .terminateCancel }

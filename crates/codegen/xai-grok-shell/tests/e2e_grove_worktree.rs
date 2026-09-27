@@ -701,7 +701,7 @@ fn worktree_create_from_grove_clone_dest_forks_fuse() {
                 &["config", "--get", "remote.origin.partialclonefilter"]
             ),
             "blob:none",
-            "clone dest must be the blob:none store grok -w has to skip libgit2 for"
+            "clone dest must be the blob:none store crok -w has to skip libgit2 for"
         );
         std::fs::write(clone_dest.join("from-clone.txt"), b"p").expect("dirty clone dest");
 

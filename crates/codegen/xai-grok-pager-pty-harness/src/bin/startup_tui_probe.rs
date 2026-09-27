@@ -15,7 +15,7 @@ const EXIT_WAIT: Duration = Duration::from_secs(60);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum BootMode {
-    /// A first boot into an empty grok home.
+    /// A first boot into an empty crok home.
     Cold,
     /// Seed a session with real turns, quit, then measure `--continue`.
     Resume,

@@ -223,7 +223,7 @@ struct ThemeSheet: View {
     private static let rows: [GrokTheme] = [.auto] + GrokTheme.concrete
 
     var body: some View {
-        DesktopPanel(title: "Pick theme", subtitle: "Select a theme to preview it. Grok Build in the terminal shares this setting.", width: 620, onClose: cancel) {
+        DesktopPanel(title: "Pick theme", subtitle: "Select a theme to preview it. Crok Build in the terminal shares this setting.", width: 620, onClose: cancel) {
             VStack(spacing: 4) {
                 ForEach(Self.rows) { theme in
                     ThemePickerRow(theme: theme, isSelected: theme == current, isActive: theme == extras.activeTheme)

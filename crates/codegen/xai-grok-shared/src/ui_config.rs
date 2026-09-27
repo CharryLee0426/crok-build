@@ -94,6 +94,14 @@ pub struct UiConfig {
     /// `[voice].language` / default `en`. When set, overrides `[voice].language` for the session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice_stt_language: Option<String>,
+    /// Speech-to-text service for voice dictation: `openrouter` (OpenRouter transcription models, the default) or `xai`
+    /// (Grok streaming STT). Written by the settings modal and Grok Desktop; overrides `[voice].provider`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_stt_provider: Option<String>,
+    /// OpenRouter transcription model slug for voice dictation (e.g. `openai/gpt-4o-mini-transcribe`). Written by the
+    /// settings modal and Grok Desktop; overrides `[voice].model`. Unset uses the default model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_stt_model: Option<String>,
     /// Whether the Ctrl+Space / F8 voice-dictation shortcut is active.
     /// Written by the settings modal; unset defaults to `true` (shortcut on).
     /// When `false` the chord is ignored; `/voice` still starts dictation.
@@ -274,6 +282,8 @@ impl Default for UiConfig {
             hunk_tracker_mode: None,
             voice_capture_mode: None,
             voice_stt_language: None,
+            voice_stt_provider: None,
+            voice_stt_model: None,
             voice_keybind_enabled: None,
             mouse_reporting_toggle: None,
             remember_tool_approvals: None,

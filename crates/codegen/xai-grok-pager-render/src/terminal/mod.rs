@@ -88,7 +88,7 @@ pub enum TerminalName {
     #[strum(to_string = "JetBrains")]
     JetBrains,
     /// Grok Desktop (Electron app).
-    #[strum(to_string = "Grok Desktop")]
+    #[strum(to_string = "Crok Desktop")]
     GrokDesktop,
     /// VTE-based terminal (GNOME Terminal, kgx/GNOME Console, Tilix, etc.).
     #[strum(to_string = "VTE")]

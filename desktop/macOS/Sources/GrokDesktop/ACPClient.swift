@@ -10,8 +10,8 @@ enum ACPClientError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notRunning: return "The Grok harness is not running."
-        case .timedOut(let method): return "Grok did not respond to \(method) in time."
+        case .notRunning: return "The Crok harness is not running."
+        case .timedOut(let method): return "Crok did not respond to \(method) in time."
         case .disconnected(let reason), .invalidMessage(let reason): return reason
         case .remote(_, let message, _): return message
         }
@@ -83,7 +83,7 @@ final class ACPClient {
             .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
             .joined(separator: ":")
         // The harness ships with the app. A leader it starts must not replace itself with another release.
-        environment["GROK_DISABLE_AUTOUPDATER"] = "1"
+        environment["CROK_DISABLE_AUTOUPDATER"] = "1"
         process.environment = environment
         process.standardInput = newConnection.input
         process.standardOutput = newConnection.output
@@ -159,7 +159,7 @@ final class ACPClient {
     func stop() {
         let previous = connection
         connection = nil
-        failPending(ACPClientError.disconnected("The Grok connection was closed."))
+        failPending(ACPClientError.disconnected("The Crok connection was closed."))
         previous?.terminate()
     }
 
@@ -183,7 +183,7 @@ final class ACPClient {
                 try connection.input.fileHandleForWriting.write(contentsOf: bytes)
             } catch {
                 DispatchQueue.main.async { [weak self] in
-                    self?.disconnect(connection.id, reason: "Could not write to the Grok harness: \(error.localizedDescription)")
+                    self?.disconnect(connection.id, reason: "Could not write to the Crok harness: \(error.localizedDescription)")
                 }
             }
         }
@@ -217,7 +217,7 @@ final class ACPClient {
                     }
                     buffer.removeSubrange(..<lineStart)
                     guard buffer.count <= Self.maximumFrameBytes else {
-                        throw ACPClientError.invalidMessage("The Grok harness sent an ACP message larger than 16 MB.")
+                        throw ACPClientError.invalidMessage("The Crok harness sent an ACP message larger than 16 MB.")
                     }
                 }
                 if !buffer.isEmpty {
@@ -237,16 +237,16 @@ final class ACPClient {
 
     nonisolated private static func decode(_ line: Data) throws -> [String: Any] {
         guard line.count <= maximumFrameBytes else {
-            throw ACPClientError.invalidMessage("The Grok harness sent an ACP message larger than 16 MB.")
+            throw ACPClientError.invalidMessage("The Crok harness sent an ACP message larger than 16 MB.")
         }
         do {
             guard let message = try JSONSerialization.jsonObject(with: line) as? [String: Any],
                   message["jsonrpc"] as? String == "2.0" else {
-                throw ACPClientError.invalidMessage("The Grok harness sent an invalid JSON-RPC message.")
+                throw ACPClientError.invalidMessage("The Crok harness sent an invalid JSON-RPC message.")
             }
             return message
         } catch let error as ACPClientError { throw error }
-        catch { throw ACPClientError.invalidMessage("The Grok harness sent malformed JSON on its ACP output.") }
+        catch { throw ACPClientError.invalidMessage("The Crok harness sent malformed JSON on its ACP output.") }
     }
 
     nonisolated private static func readChunk(from handle: FileHandle, limit: Int) throws -> Data? {
@@ -280,7 +280,7 @@ final class ACPClient {
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     guard self?.connection?.id == connection.id else { return }
-                    self?.onLog?("Could not read Grok stderr: \(error.localizedDescription)")
+                    self?.onLog?("Could not read Crok stderr: \(error.localizedDescription)")
                 }
             }
             DispatchQueue.main.async { [weak self] in
@@ -308,14 +308,14 @@ final class ACPClient {
         if let error = message["error"] as? [String: Any] {
             complete(key, connectionID: connectionID, result: .failure(ACPClientError.remote(
                 code: (error["code"] as? NSNumber)?.intValue ?? -32603,
-                message: error["message"] as? String ?? "The Grok harness returned an error.", data: error["data"]
+                message: error["message"] as? String ?? "The Crok harness returned an error.", data: error["data"]
             )))
         } else if let result = message["result"] as? [String: Any] {
             complete(key, connectionID: connectionID, result: .success(result))
         } else if message["result"] is NSNull {
             complete(key, connectionID: connectionID, result: .success([:]))
         } else {
-            complete(key, connectionID: connectionID, result: .failure(ACPClientError.invalidMessage("The Grok harness returned an invalid ACP result.")))
+            complete(key, connectionID: connectionID, result: .failure(ACPClientError.invalidMessage("The Crok harness returned an invalid ACP result.")))
         }
     }
 
@@ -339,7 +339,7 @@ final class ACPClient {
               connection.stdoutFinished, connection.stderrFinished, let status = connection.exitStatus else { return }
         let stderr = String(decoding: connection.stderrTail, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let suffix = stderr.isEmpty ? "" : "\n\(stderr)"
-        disconnect(connectionID, reason: "The Grok harness exited with status \(status).\(suffix)")
+        disconnect(connectionID, reason: "The Crok harness exited with status \(status).\(suffix)")
     }
 
     private func disconnect(_ connectionID: UUID, reason: String) {

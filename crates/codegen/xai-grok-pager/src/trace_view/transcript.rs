@@ -12,7 +12,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::data::{TraceData, TraceEvent, number, payload, string, text_content, time_ms};
+use super::data::{
+    Encryption, TraceData, TraceEvent, number, payload, string, text_content, time_ms,
+};
 
 /// Timeline lane of a transcript entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -69,11 +71,53 @@ pub struct TranscriptEntry {
     pub wait_ms: Option<u64>,
     pub tool_call_id: Option<String>,
     pub status: Option<String>,
-    /// The reasoning entry carries an opaque encrypted/signature payload.
+    /// Whether this reasoning can be read, and whether an encrypted copy was recorded with it.
     #[serde(default)]
-    pub encrypted: bool,
+    pub encryption: Encryption,
     /// Indices of the raw records behind this entry in `TraceData::events`.
     pub event_indices: Vec<usize>,
+}
+
+/// Classify a transcript entry from the records it was built from.
+///
+/// A signature or ciphertext attached to readable text means the text is a summary,
+/// not that the summary itself is unreadable.
+pub(super) fn entry_encryption(entry: &TranscriptEntry, events: &[TraceEvent]) -> Encryption {
+    if entry.kind != EntryKind::Reasoning {
+        return Encryption::None;
+    }
+    let sealed = entry
+        .event_indices
+        .iter()
+        .fold(Encryption::None, |level, index| {
+            level.join(
+                events
+                    .get(*index)
+                    .map(|event| event.encryption)
+                    .unwrap_or_default(),
+            )
+        });
+    if sealed.is_encrypted() && reasoning_is_readable(&entry.text) {
+        Encryption::Partial
+    } else {
+        sealed
+    }
+}
+
+fn reasoning_is_readable(text: &str) -> bool {
+    let text = text.trim();
+    !text.is_empty() && text != super::data::ENCRYPTED_ONLY
+}
+
+/// Streamed chunks and the stored record of one block differ only in whitespace.
+fn same_text(left: &str, right: &str) -> bool {
+    let visible = |text: &str| {
+        text.chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>()
+    };
+    let left = visible(left);
+    !left.is_empty() && left == visible(right)
 }
 
 impl TranscriptEntry {
@@ -343,6 +387,7 @@ pub fn build(data: &TraceData) -> (Vec<TranscriptEntry>, Vec<String>) {
             builder.system(system);
         }
         builder.read_updates(&updates);
+        builder.attach_chat_reasoning(&chat);
         if compacted {
             notes.push("The chat history was compacted, so the transcript is rebuilt from the client update stream (updates.jsonl). Context the harness injected before compaction is not included.".into());
         }
@@ -351,7 +396,10 @@ pub fn build(data: &TraceData) -> (Vec<TranscriptEntry>, Vec<String>) {
     for (index, entry) in entries.iter_mut().enumerate() {
         entry.index = index;
     }
-    mark_update_encryption(data, &mut entries);
+    link_sealed_updates(data, updates_source.as_deref(), &mut entries);
+    for entry in &mut entries {
+        entry.encryption = entry_encryption(entry, &data.events);
+    }
     let untimed = entries
         .iter()
         .filter(|entry| entry.start_ms.is_none())
@@ -425,7 +473,7 @@ impl<'a> Builder<'a> {
             wait_ms: None,
             tool_call_id: None,
             status: None,
-            encrypted: false,
+            encryption: Encryption::None,
             event_indices: vec![event.index],
         });
         self.entries.len() - 1
@@ -485,12 +533,8 @@ impl<'a> Builder<'a> {
                 }
                 "reasoning" => {
                     self.resolve_users(UserBoundary::MidTurn);
-                    let encrypted = super::data::encrypted_reasoning(value, event.kind.as_str());
-                    let text = reasoning_text(value);
+                    let text = super::data::reasoning_text(value);
                     let entry = self.push(EntryKind::Reasoning, "Reasoning", text, event);
-                    if let Some(entry) = self.entries.get_mut(entry) {
-                        entry.encrypted = encrypted;
-                    }
                     self.pending_reasoning.push(entry);
                 }
                 "assistant" => {
@@ -652,6 +696,116 @@ impl<'a> Builder<'a> {
             })
     }
 
+    /// Join the chat history's reasoning records to the entries rebuilt from the update stream.
+    ///
+    /// Updates carry only readable thought text; whether the model also returned encrypted
+    /// reasoning is recorded in chat history. A session that switches between models that do
+    /// and do not encrypt is compacted, so the history covers only later turns and each record
+    /// is matched to its own entry: readable reasoning by its text, and sealed reasoning by the
+    /// reply that followed it. Records that match nothing stay in the record view.
+    fn attach_chat_reasoning(&mut self, chat: &[&TraceEvent]) {
+        let mut cursor = 0;
+        for (position, event) in chat.iter().enumerate() {
+            if event.kind != "reasoning" {
+                continue;
+            }
+            let same_turn = |entry: &TranscriptEntry| {
+                event.turn.is_none() || entry.turn.is_none() || entry.turn == event.turn
+            };
+            let text = super::data::reasoning_text(payload(&event.raw));
+            let found = if reasoning_is_readable(&text) {
+                (cursor..self.entries.len()).find(|&index| {
+                    let entry = &self.entries[index];
+                    entry.kind == EntryKind::Reasoning
+                        && same_turn(entry)
+                        && same_text(&entry.text, &text)
+                })
+            } else {
+                let reply = chat[position + 1..]
+                    .iter()
+                    .take_while(|next| next.kind != "reasoning" && next.kind != "user")
+                    .find(|next| next.kind == "assistant");
+                reply
+                    .and_then(|reply| self.reply_entry(reply, cursor))
+                    .filter(|&anchor| same_turn(&self.entries[anchor]))
+                    .map(|anchor| {
+                        let previous = anchor.checked_sub(1).filter(|&index| {
+                            let entry = &self.entries[index];
+                            index >= cursor
+                                && entry.kind == EntryKind::Reasoning
+                                && same_turn(entry)
+                        });
+                        previous.unwrap_or_else(|| self.insert_sealed_reasoning(anchor, event))
+                    })
+            };
+            if let Some(index) = found {
+                if let Some(entry) = self.entries.get_mut(index)
+                    && !entry.event_indices.contains(&event.index)
+                {
+                    entry.event_indices.push(event.index);
+                    entry.event_indices.sort_unstable();
+                }
+                cursor = index + 1;
+            }
+        }
+    }
+
+    /// The first entry at or after `from` that shows a chat history reply.
+    fn reply_entry(&self, reply: &TraceEvent, from: usize) -> Option<usize> {
+        let value = payload(&reply.raw);
+        let text = text_content(value.get("content").unwrap_or(&Value::Null));
+        let ids: Vec<String> = value
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|call| string(call, &["id", "call_id"]))
+            .collect();
+        (from..self.entries.len()).find(|&index| {
+            let entry = &self.entries[index];
+            match entry.kind {
+                EntryKind::Tool => entry
+                    .tool_call_id
+                    .as_ref()
+                    .is_some_and(|id| ids.contains(id)),
+                EntryKind::Assistant => !text.trim().is_empty() && same_text(&entry.text, &text),
+                _ => false,
+            }
+        })
+    }
+
+    /// Show sealed reasoning that produced no thought text, before the reply it led to.
+    fn insert_sealed_reasoning(&mut self, anchor: usize, event: &TraceEvent) -> usize {
+        let reply = &self.entries[anchor];
+        let call = reply
+            .start_ms
+            .and_then(|time| self.timing.call_before(time));
+        let (start, end, wait) = match call {
+            Some(call) => (
+                Some(call.start),
+                call.text_start.or(call.end),
+                call.wait_ms(),
+            ),
+            None => (reply.start_ms, reply.start_ms, None),
+        };
+        let entry = TranscriptEntry {
+            index: 0,
+            kind: EntryKind::Reasoning,
+            title: "Reasoning".into(),
+            text: super::data::ENCRYPTED_ONLY.into(),
+            turn: reply.turn,
+            start_ms: start,
+            end_ms: end,
+            wait_ms: wait,
+            tool_call_id: None,
+            status: None,
+            encryption: Encryption::None,
+            event_indices: vec![],
+        };
+        self.entries.insert(anchor, entry);
+        anchor
+    }
+
     fn read_updates(&mut self, updates: &[&TraceEvent]) {
         // (kind, entry, whether the entry's timing came from its model call)
         let mut previous: Option<(&str, usize, bool)> = None;
@@ -673,7 +827,6 @@ impl<'a> Builder<'a> {
                     continue;
                 };
                 merged.text.push_str(&text);
-                merged.encrypted |= event.encrypted;
                 merged.event_indices.push(event.index);
                 let (start, end) = (merged.start_ms, merged.end_ms);
                 if kind != "user_message_chunk" && !from_call {
@@ -703,14 +856,11 @@ impl<'a> Builder<'a> {
                         (EntryKind::Assistant, "Assistant")
                     };
                     let entry_text = if reasoning && text.is_empty() {
-                        reasoning_text(value)
+                        super::data::reasoning_text(value)
                     } else {
                         text
                     };
                     let entry = self.push(entry_kind, title, entry_text, event);
-                    if reasoning && let Some(entry) = self.entries.get_mut(entry) {
-                        entry.encrypted = event.encrypted;
-                    }
                     if reasoning {
                         latest_reasoning = Some(entry);
                     }
@@ -745,25 +895,26 @@ impl<'a> Builder<'a> {
                     previous = Some((kind, entry, from_call));
                 }
                 "reasoning" | "reasoning_completed" => {
-                    if kind == "reasoning" || event.encrypted {
-                        let text = if kind == "reasoning" {
-                            reasoning_text(value)
-                        } else {
-                            "Only encrypted reasoning was recorded; readable reasoning is unavailable."
-                                .into()
-                        };
+                    if kind == "reasoning" || event.encryption.is_encrypted() {
+                        let text = super::data::reasoning_text(value);
+                        // A call that returned only sealed reasoning must not lock the
+                        // readable reasoning of an earlier call.
+                        let call_start = time
+                            .and_then(|time| self.timing.call_before(time))
+                            .map(|call| call.start);
                         let entry = latest_reasoning
                             .filter(|index| {
                                 self.entries.get(*index).is_some_and(|entry| {
-                                    entry.kind == EntryKind::Reasoning && entry.turn == self.turn
+                                    entry.kind == EntryKind::Reasoning
+                                        && entry.turn == self.turn
+                                        && call_start.is_none_or(|call| {
+                                            entry.start_ms.is_none_or(|start| start >= call)
+                                        })
                                 })
                             })
                             .unwrap_or_else(|| {
                                 self.push(EntryKind::Reasoning, "Reasoning", text, event)
                             });
-                        if let Some(entry) = self.entries.get_mut(entry) {
-                            entry.encrypted |= event.encrypted;
-                        }
                         self.link(entry, event.index);
                         latest_reasoning = Some(entry);
                     }
@@ -818,41 +969,42 @@ fn user_title(value: &Value, text: &str) -> &'static str {
     }
 }
 
-fn mark_update_encryption(data: &TraceData, entries: &mut [TranscriptEntry]) {
-    for event in data.events.iter().filter(|event| {
-        event.encrypted
-            && Path::new(&event.source)
-                .file_name()
-                .and_then(|name| name.to_str())
-                == Some("updates.jsonl")
-    }) {
+/// Attach a sealed update that never met its reasoning entry.
+///
+/// The Messages backend sends a thinking block's signature on a separate
+/// `reasoning_completed` update. When chat history is the transcript, that update
+/// is not part of the entry yet, so the signature would not be classified with it.
+/// Only the session's own stream is used: a subagent or bundled copy may run a different model.
+fn link_sealed_updates(data: &TraceData, source: Option<&str>, entries: &mut [TranscriptEntry]) {
+    let Some(source) = source else {
+        return;
+    };
+    for event in data
+        .events
+        .iter()
+        .filter(|event| event.encryption.is_encrypted() && event.source == source)
+    {
+        if entries
+            .iter()
+            .any(|entry| entry.event_indices.contains(&event.index))
+        {
+            continue;
+        }
         let event_time = time_ms(&event.timestamp);
-        let Some((entry_index, _)) = entries.iter().enumerate().rev().find(|(_, entry)| {
-            entry.kind == EntryKind::Reasoning
+        let Some(entry_index) = entries.iter().enumerate().rev().find_map(|(index, entry)| {
+            (entry.kind == EntryKind::Reasoning
                 && (event.turn.is_none() || entry.turn.is_none() || entry.turn == event.turn)
-                && event_time.is_none_or(|time| entry.start_ms.is_none_or(|start| time >= start))
+                && event_time.is_none_or(|time| entry.start_ms.is_none_or(|start| time >= start)))
+            .then_some(index)
         }) else {
             continue;
         };
-        let entry = &mut entries[entry_index];
-        entry.encrypted = true;
-        if !entry.event_indices.contains(&event.index) {
-            entry.event_indices.push(event.index);
-            entry.event_indices.sort_unstable();
-        }
+        let Some(entry) = entries.get_mut(entry_index) else {
+            continue;
+        };
+        entry.event_indices.push(event.index);
+        entry.event_indices.sort_unstable();
     }
-}
-
-fn reasoning_text(value: &Value) -> String {
-    let text = value.get("content").map(text_content).unwrap_or_default();
-    if !text.is_empty() {
-        return text;
-    }
-    let summary = value.get("summary").map(text_content).unwrap_or_default();
-    if !summary.is_empty() || !super::data::encrypted_reasoning(value, "reasoning") {
-        return summary;
-    }
-    "Only encrypted reasoning was recorded; readable reasoning is unavailable.".into()
 }
 
 /// A one-line description of a tool input for lists and timeline labels.
@@ -887,6 +1039,7 @@ mod tests {
     use std::fs;
 
     use super::super::data::load;
+    use super::Encryption;
     use super::*;
 
     fn kinds(data: &TraceData) -> Vec<(EntryKind, &str)> {
@@ -1047,7 +1200,8 @@ mod tests {
             ]
         );
         let reasoning = &data.transcript[2];
-        assert!(reasoning.encrypted);
+        // The thought text is readable; the signature is an encrypted copy of the full reasoning.
+        assert_eq!(reasoning.encryption, Encryption::Partial);
         // Chunks of one block merge; boundaries come from the call's phases.
         assert_eq!(reasoning.text, "Find it first.");
         assert_eq!(
@@ -1080,12 +1234,229 @@ mod tests {
             ),
         ]);
         let data = load(directory.path()).unwrap();
-        assert!(data.transcript[1].encrypted);
+        let reasoning = &data.transcript[1];
+        assert_eq!(reasoning.encryption, Encryption::Partial);
+        assert_eq!(reasoning.text, "Visible");
         assert!(
-            data.transcript[1]
+            reasoning
                 .event_indices
                 .iter()
-                .any(|index| data.events[*index].encrypted)
+                .any(|index| data.events[*index].encryption == Encryption::Full)
+        );
+    }
+
+    #[test]
+    fn switching_between_encrypting_and_plain_models_classifies_each_turn() {
+        let update = |ms: u64, update: &str| {
+            format!(
+                "{{\"method\":\"session/update\",\"params\":{{\"update\":{update},\"_meta\":{{\"agentTimestampMs\":{ms}}}}}}}\n"
+            )
+        };
+        let thought = |ms: u64, text: &str| {
+            update(
+                ms,
+                &format!(
+                    r#"{{"sessionUpdate":"agent_thought_chunk","content":{{"type":"text","text":"{text}"}}}}"#
+                ),
+            )
+        };
+        let tool = |ms: u64, id: &str| {
+            [
+                update(
+                    ms,
+                    &format!(
+                        r#"{{"sessionUpdate":"tool_call","toolCallId":"{id}","title":"ls","rawInput":{{"command":"ls"}}}}"#
+                    ),
+                ),
+                update(
+                    ms + 10,
+                    &format!(
+                        r#"{{"sessionUpdate":"tool_call_update","toolCallId":"{id}","status":"completed","rawOutput":"ok"}}"#
+                    ),
+                ),
+            ]
+            .concat()
+        };
+        let base = 1_767_225_600_000_u64;
+        // Turn 0 ran a plain model; its history was compacted away when the model switched.
+        // Turn 1 ran a model that returns a summary with, or without, encrypted reasoning.
+        let updates = [
+            update(base, r#"{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"First"},"_meta":{"promptIndex":0}}"#),
+            thought(base + 100, "Plain thinking."),
+            update(base + 200, r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"One"}}"#),
+            update(base + 1_000, r#"{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Second"},"_meta":{"promptIndex":1}}"#),
+            thought(base + 1_100, "**Plan**"),
+            thought(base + 1_101, "\\n\\nList it."),
+            tool(base + 1_200, "a"),
+            tool(base + 1_400, "b"),
+            thought(base + 1_500, "Wrap up."),
+            update(base + 1_600, r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Two"}}"#),
+        ]
+        .concat();
+        let details = |details: serde_json::Value| serde_json::Value::String(details.to_string());
+        let reasoning = |summary: &str, encrypted: serde_json::Value| {
+            serde_json::json!({"type": "reasoning", "id": "grok_openrouter_reasoning_v1",
+                "summary": [{"type": "summary_text", "text": summary}],
+                "encrypted_content": encrypted})
+            .to_string()
+        };
+        let chat = [
+            r#"{"type":"system","content":"You are Grok"}"#.to_owned(),
+            r#"{"type":"user","content":"This session is being continued from a previous conversation."}"#.into(),
+            r#"{"type":"user","prompt_index":1,"content":"Second"}"#.into(),
+            reasoning(
+                "**Plan**\nList it.",
+                details(serde_json::json!([
+                    {"type": "reasoning.summary", "summary": "**Plan**\nList it."},
+                    {"type": "reasoning.encrypted", "data": "gAAAAABopaque"}
+                ])),
+            ),
+            r#"{"type":"assistant","content":"","tool_calls":[{"id":"a","name":"ls","arguments":"{}"}]}"#.into(),
+            r#"{"type":"tool_result","tool_call_id":"a","content":"ok"}"#.into(),
+            reasoning(
+                "",
+                details(serde_json::json!([{"type": "reasoning.encrypted", "data": "gAAAAAB"}])),
+            ),
+            r#"{"type":"assistant","content":"","tool_calls":[{"id":"b","name":"ls","arguments":"{}"}]}"#.into(),
+            r#"{"type":"tool_result","tool_call_id":"b","content":"ok"}"#.into(),
+            reasoning(
+                "Wrap up.",
+                details(serde_json::json!([{"type": "reasoning.text", "text": "Wrap up."}])),
+            ),
+            r#"{"type":"assistant","content":"Two"}"#.into(),
+        ]
+        .join("\n");
+        let directory = session(&[
+            ("chat_history.jsonl", &chat),
+            (
+                "compaction_checkpoints/c1.json",
+                "{\"compacted_history\":[]}",
+            ),
+            ("updates.jsonl", &updates),
+        ]);
+        let data = load(directory.path()).unwrap();
+        let entries: Vec<_> = data
+            .transcript
+            .iter()
+            .filter(|entry| entry.kind != EntryKind::System)
+            .map(|entry| {
+                (
+                    entry.kind,
+                    entry.turn,
+                    entry.encryption,
+                    entry.text.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            entries,
+            vec![
+                (EntryKind::User, Some(0), Encryption::None, "First"),
+                (
+                    EntryKind::Reasoning,
+                    Some(0),
+                    Encryption::None,
+                    "Plain thinking."
+                ),
+                (EntryKind::Assistant, Some(0), Encryption::None, "One"),
+                (EntryKind::User, Some(1), Encryption::None, "Second"),
+                (
+                    EntryKind::Reasoning,
+                    Some(1),
+                    Encryption::Partial,
+                    "**Plan**\n\nList it."
+                ),
+                (EntryKind::Tool, Some(1), Encryption::None, "{}"),
+                (
+                    EntryKind::Reasoning,
+                    Some(1),
+                    Encryption::Full,
+                    super::super::data::ENCRYPTED_ONLY
+                ),
+                (EntryKind::Tool, Some(1), Encryption::None, "{}"),
+                (EntryKind::Reasoning, Some(1), Encryption::None, "Wrap up."),
+                (EntryKind::Assistant, Some(1), Encryption::None, "Two"),
+            ]
+        );
+        // Sealed reasoning with no thought text sits where its call ran.
+        let sealed = data
+            .transcript
+            .iter()
+            .find(|entry| entry.encryption == Encryption::Full)
+            .unwrap();
+        assert!(sealed.start_ms.is_some());
+    }
+
+    #[test]
+    fn a_signature_from_another_stream_or_call_does_not_lock_plain_reasoning() {
+        let update = |ms: u64, update: &str| {
+            format!(
+                "{{\"method\":\"session/update\",\"params\":{{\"update\":{update},\"_meta\":{{\"agentTimestampMs\":{ms}}}}}}}\n"
+            )
+        };
+        let signature = r#"{"sessionUpdate":"reasoning_completed","signature":"opaque"}"#;
+        // The session's plain model shares the directory with a subagent that signs its thinking.
+        let directory = session(&[
+            (
+                "chat_history.jsonl",
+                concat!(
+                    "{\"type\":\"user\",\"prompt_index\":0,\"content\":\"Hi\"}\n",
+                    "{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Visible\"}]}\n",
+                    "{\"type\":\"assistant\",\"content\":\"Hello\"}\n"
+                ),
+            ),
+            (
+                "updates.jsonl",
+                &update(
+                    1_767_225_600_000,
+                    r#"{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Hi"},"_meta":{"promptIndex":0}}"#,
+                ),
+            ),
+            (
+                "subagents/child/updates.jsonl",
+                &update(1_767_225_600_500, signature),
+            ),
+        ]);
+        let data = load(directory.path()).unwrap();
+        assert_eq!(data.transcript[1].encryption, Encryption::None);
+
+        // Two calls in one turn: plain reasoning, then a call that returned only a signature.
+        let base = 1_767_225_600_000_u64;
+        let updates = [
+            update(base, r#"{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Go"},"_meta":{"promptIndex":0}}"#),
+            update(base + 1_100, r#"{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Plain."}}"#),
+            update(base + 1_200, r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"One"}}"#),
+            update(base + 3_100, signature),
+            update(base + 3_200, r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Two"}}"#),
+        ]
+        .concat();
+        let directory = session(&[
+            (
+                "events.jsonl",
+                concat!(
+                    "{\"ts\":\"2026-01-01T00:00:00.000Z\",\"type\":\"turn_started\",\"turn_number\":0}\n",
+                    "{\"ts\":\"2026-01-01T00:00:01.000Z\",\"type\":\"loop_started\",\"loop_index\":0}\n",
+                    "{\"ts\":\"2026-01-01T00:00:01.050Z\",\"type\":\"first_token\"}\n",
+                    "{\"ts\":\"2026-01-01T00:00:03.000Z\",\"type\":\"loop_started\",\"loop_index\":1}\n",
+                    "{\"ts\":\"2026-01-01T00:00:03.050Z\",\"type\":\"first_token\"}\n",
+                    "{\"ts\":\"2026-01-01T00:00:04.000Z\",\"type\":\"turn_ended\",\"outcome\":\"completed\"}\n"
+                ),
+            ),
+            ("updates.jsonl", &updates),
+        ]);
+        let data = load(directory.path()).unwrap();
+        let reasoning: Vec<_> = data
+            .transcript
+            .iter()
+            .filter(|entry| entry.kind == EntryKind::Reasoning)
+            .map(|entry| (entry.encryption, entry.text.as_str()))
+            .collect();
+        assert_eq!(
+            reasoning,
+            vec![
+                (Encryption::None, "Plain."),
+                (Encryption::Full, super::super::data::ENCRYPTED_ONLY),
+            ]
         );
     }
 
@@ -1102,7 +1473,7 @@ mod tests {
         let data = load(directory.path()).unwrap();
         assert_eq!(data.transcript.len(), 3);
         assert!(data.transcript.iter().all(|entry| entry.start_ms.is_none()));
-        assert!(data.transcript[1].encrypted);
+        assert_eq!(data.transcript[1].encryption, Encryption::Full);
         assert!(data.transcript[1].text.contains("unavailable"));
         assert!(
             data.warnings

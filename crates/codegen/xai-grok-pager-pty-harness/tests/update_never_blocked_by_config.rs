@@ -47,7 +47,7 @@ fn run_update(base: &str, config_toml: &str, extra_args: &[&str]) -> std::proces
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("GROK_CLI_BASE_URL", base)
         .output()
-        .expect("spawn grok update")
+        .expect("spawn crok update")
 }
 
 /// The valid run proves the environment resolves to success, so a nonzero corrupt run can only mean a config failure aborted the update.
@@ -69,7 +69,7 @@ fn corrupt_config_never_changes_update_outcome() {
     let valid = run_update(&base, "[cli]\n", &[]);
     assert!(
         valid.status.success(),
-        "healthy grok update against the local base must exit 0\nstdout:\n{}\nstderr:\n{}",
+        "healthy crok update against the local base must exit 0\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&valid.stdout),
         String::from_utf8_lossy(&valid.stderr)
     );
@@ -77,7 +77,7 @@ fn corrupt_config_never_changes_update_outcome() {
     let corrupt = run_update(&base, "this is not toml {{{[[[", &[]);
     assert!(
         corrupt.status.success(),
-        "a corrupt config.toml must not block grok update\nstdout:\n{}\nstderr:\n{}",
+        "a corrupt config.toml must not block crok update\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&corrupt.stdout),
         String::from_utf8_lossy(&corrupt.stderr)
     );

@@ -285,9 +285,7 @@ fn new_with_row_visibility_controls_theme_row() {
         Arc::clone(&registry),
         UiConfig::default(),
         PagerLocalSnapshot::default(),
-        RowVisibility {
-            hide_appearance: false,
-        },
+        RowVisibility::default(),
     );
     let hidden = SettingsModalState::new_with_row_visibility(
         registry,
@@ -295,6 +293,7 @@ fn new_with_row_visibility_controls_theme_row() {
         PagerLocalSnapshot::default(),
         RowVisibility {
             hide_appearance: true,
+            ..RowVisibility::default()
         },
     );
     assert!(
@@ -311,6 +310,27 @@ fn new_with_row_visibility_controls_theme_row() {
             .any(|r| matches!(r, RowEntry::Setting { key: "theme", .. })),
         "hide_appearance true must hide theme"
     );
+}
+
+#[test]
+fn new_with_row_visibility_hides_xai_account_rows() {
+    let registry = Arc::new(SettingsRegistry::defaults());
+    let lists = |hide_xai_account_rows| {
+        SettingsModalState::new_with_row_visibility(
+            Arc::clone(&registry),
+            UiConfig::default(),
+            PagerLocalSnapshot::default(),
+            RowVisibility {
+                hide_xai_account_rows,
+                ..RowVisibility::default()
+            },
+        )
+        .rows
+        .iter()
+        .any(|r| matches!(r, RowEntry::Setting { key: "coding_data_sharing", .. }))
+    };
+    assert!(lists(false), "the flag off keeps the registry's coding-data row");
+    assert!(!lists(true), "provider sessions never list the xAI account's coding-data row");
 }
 
 /// `action_for_bool` mirrors `current_value_for`: every registered Bool setting must have an arm here too.
@@ -1576,7 +1596,7 @@ fn editor_render_fixture(buffer: &str, cursor_byte: usize) -> SettingsModalState
     let registry = SettingsRegistry::from_entries(vec![synthetic_meta]);
     let snapshot = PagerLocalSnapshot {
         available_models: vec![(
-            "Grok Test".to_string(),
+            "Crok Test".to_string(),
             acp::ModelId::new(Arc::from("grok-test")),
         )],
         ..PagerLocalSnapshot::default()
@@ -1602,7 +1622,7 @@ fn editor_render_fixture(buffer: &str, cursor_byte: usize) -> SettingsModalState
 /// Cursor lands at the visual column matching `cursor_byte` for buffers that fit entirely within the visible window.
 #[test]
 fn render_editing_value_cursor_at_logical_position_when_buffer_fits() {
-    let mut s = editor_render_fixture("Grok Test", 4); // cursor between "Grok" and " Test"
+    let mut s = editor_render_fixture("Crok Test", 4); // cursor between "Grok" and " Test"
     let area = Rect {
         x: 0,
         y: 0,
@@ -4244,7 +4264,7 @@ fn string_editor_uses_canonical_edits_policy_and_live_validation() {
     assert!(matches!(outcome, SettingsKeyOutcome::Changed));
     assert_eq!(state.editing_buffer(), Some("alpha-"));
 
-    let mut state = editor_render_fixture("Grok Tes", "Grok Tes".len());
+    let mut state = editor_render_fixture("Crok Tes", "Crok Tes".len());
     assert!(state.editing_validation_error().is_some());
     let _ = handle_settings_key(
         &mut state,
@@ -4259,7 +4279,7 @@ fn string_editor_uses_canonical_edits_policy_and_live_validation() {
         &mut state,
         &KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE),
     );
-    assert_eq!(state.editing_buffer(), Some("Grok Test"));
+    assert_eq!(state.editing_buffer(), Some("Crok Test"));
     assert!(state.editing_validation_error().is_none());
 
     let cursor = state.editing_cursor_byte();
@@ -4268,7 +4288,7 @@ fn string_editor_uses_canonical_edits_policy_and_live_validation() {
         &KeyEvent::new(KeyCode::Char('\u{202e}'), KeyModifiers::NONE),
     );
     assert!(matches!(outcome, SettingsKeyOutcome::Changed));
-    assert_eq!(state.editing_buffer(), Some("Grok Test"));
+    assert_eq!(state.editing_buffer(), Some("Crok Test"));
     assert_eq!(state.editing_cursor_byte(), cursor);
 
     let outcome = handle_settings_key(
@@ -5410,15 +5430,15 @@ fn ctrl_u_clears_the_entire_filter_from_mid_query() {
 
 #[test]
 fn string_editor_paste_sanitizes_validates_and_consumes_rejected_text() {
-    let mut state = editor_render_fixture("Grok Tst", "Grok T".len());
+    let mut state = editor_render_fixture("Crok Tst", "Crok T".len());
     let outcome = handle_settings_paste(&mut state, "e\r\n");
     assert!(matches!(outcome, SettingsKeyOutcome::Changed));
-    assert_eq!(state.editing_buffer(), Some("Grok Test"));
+    assert_eq!(state.editing_buffer(), Some("Crok Test"));
     assert!(state.editing_validation_error().is_none());
 
     let outcome = handle_settings_paste(&mut state, "\u{202e}\r\n");
     assert!(matches!(outcome, SettingsKeyOutcome::Changed));
-    assert_eq!(state.editing_buffer(), Some("Grok Test"));
+    assert_eq!(state.editing_buffer(), Some("Crok Test"));
     assert!(state.editing_validation_error().is_none());
 }
 
@@ -5847,7 +5867,7 @@ fn tip_line_has_blank_row_above() {
     let mut tip_y: Option<u16> = None;
     for y in 0..area.height {
         let txt = buf_row_text(&buf, y, area.x, area.width);
-        if txt.contains("Tip") && txt.contains("Ask Grok") {
+        if txt.contains("Tip") && txt.contains("Ask Crok") {
             tip_y = Some(y);
             break;
         }
@@ -6453,7 +6473,7 @@ fn consent_chooser_drops_tip_and_reset() {
     let mut consent = enter_picker_for("coding_data_sharing");
     let text = screen(&mut consent);
     assert!(
-        !text.contains("Ask Grok"),
+        !text.contains("Ask Crok"),
         "consent chooser must not render the docs tip:\n{text}"
     );
     assert!(
@@ -6482,7 +6502,7 @@ fn consent_chooser_drops_tip_and_reset() {
     let mut ordinary = enter_picker_for("theme");
     let text = screen(&mut ordinary);
     assert!(
-        text.contains("d reset") && text.contains("Ask Grok"),
+        text.contains("d reset") && text.contains("Ask Crok"),
         "ordinary pickers keep the tip and the reset hint:\n{text}"
     );
     assert!(

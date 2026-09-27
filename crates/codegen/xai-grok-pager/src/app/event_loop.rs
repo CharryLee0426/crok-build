@@ -1166,7 +1166,6 @@ pub(crate) async fn run(
         .as_deref()
         .map(agent_client_protocol::ModelId::new);
     app.cli_effort_token = args.reasoning_effort.clone();
-    app.auth_use_oauth = args.oauth;
     app.show_resolved_model = remote_settings
         .as_ref()
         .and_then(|s| s.show_resolved_model)
@@ -1229,62 +1228,17 @@ pub(crate) async fn run(
     apply_session_recap_available(&mut app, connection.session_recap_available);
     app.shell_feedback_trace_offer = connection.feedback_trace_offer;
     app.auth_methods = connection.auth_methods.clone();
-    let force_login = args.force_login && !connection.auth_methods.is_empty();
-    let needs_interactive_login = connection.needs_login || force_login;
-    if needs_interactive_login {
+    // xAI account sign-in is not supported, so the harness only withholds its
+    // provider-credential method when nothing is signed in; say how to sign in.
+    if connection.needs_login {
         app.welcome_prompt_focused = false;
-        if connection.needs_login {
-            app.login_label = connection.login_label;
-            app.login_method_id = connection.login_method_id;
-            app.auth_start_mode = match connection.auth_start_mode {
-                crate::acp::AuthStartMode::Pending => super::app_view::AuthMode::Pending,
-                crate::acp::AuthStartMode::Command => super::app_view::AuthMode::Command,
-            };
-        } else {
-            let grok_com = connection
-                .auth_methods
-                .iter()
-                .find(|m| m.id().0.as_ref() == "grok.com");
-            if let Some(method) = grok_com {
-                app.login_label = Some(method.name().to_string());
-                app.login_method_id = Some(method.id().clone());
-                let is_provider = method
-                    .meta()
-                    .as_ref()
-                    .and_then(|v| v.get("external_provider"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                app.auth_start_mode = if is_provider {
-                    super::app_view::AuthMode::Command
-                } else {
-                    super::app_view::AuthMode::Pending
-                };
-            } else if let Some(first) = connection.auth_methods.first() {
-                app.login_label = Some(first.name().to_string());
-                app.login_method_id = Some(first.id().clone());
-                app.auth_start_mode = super::app_view::AuthMode::Pending;
-            }
-        }
-        tracing::info!(
-            method_id = ?app.login_method_id,
-            methods_empty = connection.auth_methods.is_empty(),
-            "auto-triggering login at startup"
-        );
+        app.auth_state = super::app_view::AuthState::Pending {
+            error: Some(
+                xai_grok_shell::agent::builtin_providers::PROVIDER_SIGN_IN_REQUIRED.to_string(),
+            ),
+        };
     }
-    let mut post_render_effects = if needs_interactive_login {
-        if connection.auth_methods.is_empty() {
-            app.auth_state = super::app_view::AuthState::Pending {
-                error: Some(
-                    xai_grok_shell::agent::auth_method::PREFERRED_API_KEY_UNAVAILABLE.to_string(),
-                ),
-            };
-            vec![]
-        } else {
-            dispatch::dispatch(Action::Login, &mut app)
-        }
-    } else {
-        vec![]
-    };
+    let mut post_render_effects = Vec::new();
     app.has_external_auth_provider =
         crate::slash::commands::usage::detect_external_auth_provider(&app.auth_methods);
     if let Some(meta) = connection.auth_meta.as_ref() {
@@ -1301,9 +1255,15 @@ pub(crate) async fn run(
             app.sync_billing_surface_to_agents();
         }
     }
+    // `app.voice_config` is loaded further down; read the provider now so OpenRouter voice ignores a remote-only xAI kill switch
+    let voice_provider = launch_effective_config
+        .as_ref()
+        .and_then(|root| root.as_table())
+        .map(|table| xai_grok_voice::VoiceConfig::from_config_table(table, None).provider)
+        .unwrap_or_default();
     let voice_mode_enabled = crate::app::resolve_voice_mode_live(
         remote_settings.as_ref().and_then(|s| s.voice_mode_enabled),
-        app.is_api_key_auth,
+        app.is_api_key_auth || voice_provider == xai_grok_voice::VoiceProvider::OpenRouter,
     );
     if !voice_mode_enabled {
         app.voice_reset();
@@ -1555,6 +1515,21 @@ pub(crate) async fn run(
         app.voice_config.language =
             crate::settings::canonical_voice_stt_language(Some(pref)).to_string();
     }
+    if let Some(provider) = app
+        .current_ui
+        .voice_stt_provider
+        .as_deref()
+        .and_then(xai_grok_voice::VoiceProvider::parse)
+    {
+        app.voice_config.provider = provider;
+    }
+    if let Some(ref model) = app.current_ui.voice_stt_model
+        && !model.trim().is_empty()
+    {
+        app.voice_config.model = xai_grok_voice::canonical_stt_model(Some(model));
+    }
+    // The auth meta above computed the tier gate before the voice provider was known; voice is gated only for xAI
+    app.apply_tier_restrictions();
     crate::app::VOICE_KEYBIND_ENABLED.store(
         app.current_ui.voice_keybind_enabled.unwrap_or(true),
         std::sync::atomic::Ordering::Release,
@@ -1928,7 +1903,10 @@ pub(crate) async fn run(
         }
         if let VoiceState::ColdStart { hold, target } = app.voice_state {
             if app.voice_cmd_tx.is_none() && app.voice_can_start_pipeline() {
-                let voice_auth = crate::voice::build_voice_auth(voice_auth_factory.clone());
+                let voice_auth = crate::voice::build_voice_auth(
+                    voice_auth_factory.clone(),
+                    app.voice_config.provider,
+                );
                 let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(32);
                 let (event_tx, event_rx) = tokio::sync::mpsc::channel(128);
                 let voice_config = app.voice_config.clone();
@@ -1954,7 +1932,7 @@ pub(crate) async fn run(
             } else if app.voice_cmd_tx.is_none() {
                 app.voice_state = VoiceState::Idle;
                 app.voice_ui_active = false;
-                app.show_toast("Voice could not start. Restart Grok.");
+                app.show_toast("Voice could not start. Restart Crok.");
             } else {
                 app.voice_state = VoiceState::Idle;
             }

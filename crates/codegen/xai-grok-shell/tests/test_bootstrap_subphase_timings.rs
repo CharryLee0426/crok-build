@@ -1,6 +1,6 @@
 #[test]
 fn startup_completed_carries_bootstrap_subphase_fields() {
-    let home = tempfile::TempDir::new().expect("grok home");
+    let home = tempfile::TempDir::new().expect("crok home");
     // SAFETY: this binary has one test; no other thread reads the environment.
     unsafe { xai_grok_test_support::isolate_grok_env(home.path()) };
     xai_grok_telemetry::unified_log::redirect_to_temp_for_tests();

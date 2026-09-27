@@ -1426,7 +1426,7 @@ fn enforced_label(p: &EnforcedPolicy) -> String {
 /// to the caller.
 fn claude_bypass_advisory_message(p: &PermissionsReport) -> Option<&'static str> {
     p.claude_bypass_lock_advisory.then_some(
-        "Claude disableBypassPermissionsMode: advisory only -- not enforced for grok \
+        "Claude disableBypassPermissionsMode: advisory only -- not enforced for crok \
          (lock via requirements.toml [ui] disable_bypass_permissions_mode)",
     )
 }
@@ -1722,7 +1722,7 @@ fn print_human(r: &InspectReport, out: &mut impl Write) -> std::io::Result<()> {
     if r.mcp_servers.is_empty() {
         writeln!(out)?;
         writeln!(out, "  MCP Servers (0)")?;
-        writeln!(out, "  {TREE} (none) \u{2014} see `grok mcp add --help`")?;
+        writeln!(out, "  {TREE} (none) \u{2014} see `crok mcp add --help`")?;
     } else {
         print_columns(
             out,

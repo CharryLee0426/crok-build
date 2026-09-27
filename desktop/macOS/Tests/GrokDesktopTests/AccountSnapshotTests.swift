@@ -16,7 +16,7 @@ final class AccountSnapshotTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: directory) }
 
     private func output() throws -> URL {
-        guard let path = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         return URL(fileURLWithPath: path)
     }
 
@@ -39,7 +39,6 @@ final class AccountSnapshotTests: XCTestCase {
 
     private var usageState: UsageSheetState {
         var state = UsageSheetState()
-        state.hasSession = true
         state.context = .loaded(UsageContextSnapshot(["used": 61_450, "total": 256_000, "systemPromptTokens": 9_800, "messageTokens": 44_200,
                                                       "toolDefinitionsCount": 38, "toolDefinitionsTokens": 12_400, "turnCount": 6,
                                                       "toolCallCount": 23, "compactionCount": 1, "usagePct": 24, "autoCompactThresholdPercent": 85,
@@ -47,24 +46,16 @@ final class AccountSnapshotTests: XCTestCase {
                                                                           ["label": "MCP servers", "tokens": 3_900, "detail": "2 servers"],
                                                                           ["label": "AGENTS.md", "tokens": 860, "detail": "1 file"]]]))
         state.contextModel = "grok-build"
-        state.billing = .loaded({
-            var billing = UsageBilling(["config": ["creditUsagePercent": 62.4, "prepaidBalance": ["val": -1850],
-                                                   "currentPeriod": ["type": "USAGE_PERIOD_TYPE_WEEKLY", "end": "2026-09-28T16:00:00Z"]],
-                                        "subscription_tier": "SuperGrok"])
-            billing.autoTopup = UsageAutoTopup(enabled: true, topupAmountCents: 1000, maxAmountCents: 5000)
-            return billing
-        }())
-        state.subscriptionTier = "SuperGrok"
         state.sessionUsage = .loaded(UsageSessionSummary(["inputTokens": 184_220, "cachedReadTokens": 151_900, "outputTokens": 9_870,
                                                           "reasoningTokens": 4_310, "totalTokens": 194_090, "modelCalls": 14,
                                                           "apiDurationMs": 96_400, "costUsdTicks": 4_128_000_000,
                                                           "modelUsage": ["grok-build": ["inputTokens": 170_000, "outputTokens": 9_100, "costUsdTicks": 3_900_000_000],
                                                                          "grok-fast": ["inputTokens": 14_220, "outputTokens": 770, "costUsdTicks": 228_000_000]]]))
         let info = UsageSessionInfo(["sessionId": "0199a7c4-5e21-7b3a-9c1f-2d8e4b6a1f03", "cwd": "/Users/dev/Projects/grok-desktop",
-                                     "model": "grok-build", "modelDisplayName": "Grok Build", "apiBackend": "responses", "turnIndex": 6,
+                                     "model": "grok-build", "modelDisplayName": "Crok Build", "apiBackend": "responses", "turnIndex": 6,
                                      "context": ["used": 61_450, "total": 256_000, "usagePct": 24]])
         state.sessionInfo = .loaded(UsageFormatting.sessionInfoRows(info, title: "Render tables and math", shellVersion: "1.0.41",
-                                                                   auth: AccountAuthDescription(method: "OAuth", note: nil), showResolvedModel: false))
+                                                                   auth: .providerCredentials, showResolvedModel: false))
         return state
     }
 
@@ -76,13 +67,12 @@ final class AccountSnapshotTests: XCTestCase {
             account.usageTab = tab
             try render("usage-\(tab.rawValue)", UsageSheet(initialTab: tab, loadsOnAppear: false), store: store, size: CGSize(width: 680, height: 700))
         }
-        var team = usageState
-        team.billingVisible = false
-        team.hasSession = false
-        team.context = .unavailable("No active session.")
-        account.showPreviewState(usage: team)
-        account.usageTab = .limit
-        try render("usage-team", UsageSheet(initialTab: .limit, loadsOnAppear: false), store: store, size: CGSize(width: 680, height: 700))
+        var noSession = usageState
+        noSession.context = .unavailable("No active session.")
+        noSession.sessionUsage = .unavailable("No active session.")
+        account.showPreviewState(usage: noSession)
+        account.usageTab = .usage
+        try render("usage-no-session-usage", UsageSheet(initialTab: .usage, loadsOnAppear: false), store: store, size: CGSize(width: 680, height: 700))
         account.usageTab = .context
         try render("usage-no-session", UsageSheet(initialTab: .context, loadsOnAppear: false), store: store, size: CGSize(width: 680, height: 700))
     }
@@ -110,29 +100,13 @@ final class AccountSnapshotTests: XCTestCase {
                    store: store, size: CGSize(width: 660, height: 640))
     }
 
-    func testRenderPrivacy() throws {
-        let store = makeStore()
-        store.features.account.showPreviewState(privacy: AccountPrivacyState(optOut: false))
-        try render("privacy", PrivacySheet(loadsOnAppear: false), store: store, size: CGSize(width: 580, height: 400))
-        store.features.account.showPreviewState(privacy: AccountPrivacyState(optOut: true, teamName: "Acme", teamRole: "member"))
-        try render("privacy-locked", PrivacySheet(loadsOnAppear: false), store: store, size: CGSize(width: 580, height: 400))
-        store.features.account.showPreviewState(privacy: AccountPrivacyState(optOut: true, error: "✗ Couldn't update coding data sharing: server returned HTTP 503"))
-        try render("settings-accounts-extras",
-                   VStack(alignment: .leading, spacing: 14) {
-                       Label("Accounts", systemImage: "person.crop.circle").font(.system(size: 15, weight: .semibold))
-                       AccountSettingsExtras()
-                   // Glass has nothing to sample offscreen, so the card is drawn as with Reduce Transparency.
-                   }.padding(18).background(Theme.surface, in: RoundedRectangle(cornerRadius: 18)).padding(24).foregroundStyle(Theme.ink),
-                   store: store, size: CGSize(width: 660, height: 360))
-    }
-
     func testRenderReleaseNotes() throws {
         let store = makeStore()
         store.features.account.showPreviewState(releaseNotes: ReleaseNotesState(version: "1.0.41", markdown: """
             ## 1.0.41
 
             ### Features
-            - **Usage sheet**: context window, weekly limits, and session info in one place.
+            - **Usage sheet**: context window, session usage, and session info in one place.
             - `/feedback` now attaches screenshots.
 
             ### Fixes
@@ -147,7 +121,7 @@ final class AccountSnapshotTests: XCTestCase {
         let store = makeStore()
         let critical = GrokAnnouncement(identifier: "incident", title: "Degraded performance",
                                         message: "Some responses are slower than usual. We're working on a fix.", severity: "critical")
-        let promo = GrokAnnouncement(identifier: "heavy", title: "Grok 4 Heavy is here", message: "Our most capable model is now available in Grok Build.",
+        let promo = GrokAnnouncement(identifier: "heavy", title: "Grok 4 Heavy is here", message: "Our most capable model is now available in Crok Build.",
                                      severity: "promo", action: .init(label: "Try it", url: URL(string: "https://x.ai")!, caption: nil))
         store.features.account.showPreviewState(announcements: [critical])
         try render("announcement-critical", VStack(spacing: 0) { AnnouncementBanner(); Spacer() }, store: store, size: CGSize(width: 900, height: 90))

@@ -11,7 +11,7 @@ use std::borrow::Cow;
 /// after the prefix are unchanged.
 pub(crate) fn shorten_location_path(path: &str) -> Cow<'_, str> {
     const KEEP_FULL: usize = 2;
-    const GROK_HOME_PREFIX: &str = "$GROK_HOME";
+    const GROK_HOME_PREFIX: &str = "$CROK_HOME";
     const VERBATIM_UNC_PREFIX: &str = r"\\?\UNC\";
 
     let sep = if path.contains('\\') && !path.contains('/') {

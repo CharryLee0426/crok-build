@@ -1,6 +1,6 @@
 # Agent trace explorer
 
-Use `/trace` in a session, or `grok trace view` from a shell, to inspect how an
+Use `/trace` in a session, or `crok trace view` from a shell, to inspect how an
 agent ran: its prompts and recorded reasoning, tool calls and results, turn
 boundaries, failures, usage, and saved configuration. The terminal and HTML views
 read the same local snapshot.
@@ -11,24 +11,24 @@ to the conversation.
 
 ```sh
 # Open a saved session in the terminal explorer.
-grok trace view <session-id>
+crok trace view <session-id>
 
 # Inspect a session directory or an exported trace bundle.
-grok trace view ~/.grok/sessions/<encoded-cwd>/<session-id>
-grok trace view ./session.tar.gz
+crok trace view ~/.crok/sessions/<encoded-cwd>/<session-id>
+crok trace view ./session.tar.gz
 
 # Generate a portable HTML report and open it in a browser.
-grok trace view <session-id> --html --open
-grok trace view ./session.tar.gz --format html -o trace.html
+crok trace view <session-id> --html --open
+crok trace view ./session.tar.gz --format html -o trace.html
 
 # Export the normalized data for your own analysis.
-grok trace view ./updates.jsonl --format json -o trace.json
-grok trace view <session-id> --format json -o -
+crok trace view ./updates.jsonl --format json -o trace.json
+crok trace view <session-id> --format json -o -
 ```
 
 `--format` accepts `tui` (default), `html`, and `json`. `--html` is shorthand
 for `--format html`. Without `-o`, HTML and JSON files are saved in
-`$GROK_HOME/trace-exports/` (normally `~/.grok/trace-exports/`). `--open` is
+`$CROK_HOME/trace-exports/` (normally `~/.crok/trace-exports/`). `--open` is
 available for HTML files. Terminal inspection requires an interactive terminal;
 use HTML or JSON in CI and redirected shells.
 
@@ -98,7 +98,7 @@ Terminal controls:
 | `Esc` | Clear search and filters; close when none are set |
 | `r` | Take a new snapshot (`/trace` only) |
 | `?` | Show help |
-| `q` / `Ctrl-C` | Exit (`Ctrl-C` in `grok trace view` only) |
+| `q` / `Ctrl-C` | Exit (`Ctrl-C` in `crok trace view` only) |
 
 On narrow terminals, `Tab` switches between the two full-width panes. Terminals
 shorter than 24 rows hide the timeline lanes.
@@ -136,8 +136,8 @@ Viewing a trace does not authenticate, contact the model provider, or upload
 session contents. Existing trace exports continue to work:
 
 ```sh
-grok trace <session-id> --local -o session.tar.gz
-grok trace <session-id> --local --json
+crok trace <session-id> --local -o session.tar.gz
+crok trace <session-id> --local --json
 ```
 
 HTML and JSON contain the recorded prompts, source code, tool arguments, output,

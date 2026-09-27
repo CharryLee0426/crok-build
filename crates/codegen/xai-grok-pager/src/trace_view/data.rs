@@ -66,10 +66,38 @@ pub struct TraceEvent {
     pub turn: Option<u64>,
     pub tool_call_id: Option<String>,
     pub status: Option<String>,
-    /// The record contains an opaque encrypted/signature payload for reasoning.
+    /// How much of the record's reasoning can be read.
     #[serde(default)]
-    pub encrypted: bool,
+    pub encryption: Encryption,
     pub raw: Value,
+}
+
+/// How much of a reasoning record, or of a transcript entry built from records, can be read.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Encryption {
+    /// Readable, or not reasoning.
+    #[default]
+    None,
+    /// Readable text, usually a summary, came with an encrypted copy of the full reasoning.
+    Partial,
+    /// Only encrypted reasoning was recorded.
+    Full,
+}
+
+impl Encryption {
+    pub fn is_encrypted(self) -> bool {
+        self != Self::None
+    }
+
+    /// The stronger classification. Fully sealed reasoning wins over a readable summary.
+    pub fn join(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Full, _) | (_, Self::Full) => Self::Full,
+            (Self::Partial, _) | (_, Self::Partial) => Self::Partial,
+            _ => Self::None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -293,13 +321,12 @@ fn build(source: &Path, input: Input) -> Result<TraceData> {
         }
         saved.source = source.display().to_string();
         saved.warnings.extend(input.warnings);
-        refresh_encrypted_flags(&mut saved);
+        refresh_encryption(&mut saved);
         if saved.transcript.is_empty() {
             let (entries, notes) = transcript::build(&saved);
             saved.transcript = entries;
             saved.warnings.extend(notes);
         }
-        refresh_encrypted_flags(&mut saved);
         return Ok(saved);
     }
     let mut data = TraceData {
@@ -374,7 +401,7 @@ fn build(source: &Path, input: Input) -> Result<TraceData> {
                             turn: stream_turn,
                             tool_call_id: None,
                             status: Some("error".into()),
-                            encrypted: false,
+                            encryption: Encryption::None,
                             raw: Value::String(record.into()),
                         });
                     }
@@ -526,7 +553,19 @@ pub(super) fn payload(record: &Value) -> &Value {
         .unwrap_or(record)
 }
 
-fn has_encrypted_value(value: Option<&Value>) -> bool {
+/// Transcript text for reasoning recorded only in encrypted form.
+pub(super) const ENCRYPTED_ONLY: &str =
+    "Only encrypted reasoning was recorded; readable reasoning is unavailable.";
+
+pub(super) fn is_reasoning_kind(kind: &str) -> bool {
+    let kind = kind.trim().to_ascii_lowercase();
+    kind.contains("reasoning")
+        || kind == "agent_thought_chunk"
+        || kind == "thinking"
+        || kind.ends_with("_thinking")
+}
+
+fn has_payload(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) => false,
         Some(Value::String(value)) => !value.trim().is_empty(),
@@ -537,54 +576,146 @@ fn has_encrypted_value(value: Option<&Value>) -> bool {
     }
 }
 
-/// Return true only for a reasoning record carrying an actual opaque payload.
-///
-/// A present-but-empty field is not evidence of encrypted reasoning. The
-/// signatures used by the Messages backend arrive on a separate
-/// `reasoning_completed` update, and redacted thinking uses `data`; both are
-/// included here so the viewers use the same definition for every provider.
-pub(super) fn encrypted_reasoning(value: &Value, kind: &str) -> bool {
-    let kind = kind.trim().to_ascii_lowercase();
-    let is_reasoning = kind.contains("reasoning")
-        || kind == "agent_thought_chunk"
-        || kind == "thinking"
-        || kind.ends_with("_thinking");
-    if !is_reasoning {
-        return false;
-    }
-    if has_encrypted_value(value.get("encrypted_content"))
-        || has_encrypted_value(value.get("encrypted"))
-        || has_encrypted_value(value.get("signature"))
-        || has_encrypted_value(value.pointer("/reasoning/encrypted"))
-        || has_encrypted_value(value.pointer("/reasoning/encrypted_content"))
-        || (value.get("type").and_then(Value::as_str) == Some("redacted_thinking")
-            && has_encrypted_value(value.get("data")))
-    {
-        return true;
-    }
-    ["content", "summary"]
-        .into_iter()
-        .filter_map(|key| value.get(key).and_then(Value::as_array))
-        .flatten()
-        .any(|part| {
-            part.get("type").and_then(Value::as_str) == Some("redacted_thinking")
-                && has_encrypted_value(part.get("data"))
-        })
+/// A signature is an encrypted copy of the full reasoning (Anthropic thinking blocks), and
+/// redacted thinking carries only encrypted data.
+fn sealed(block: &Value) -> bool {
+    has_payload(block.get("signature"))
+        || (block.get("type").and_then(Value::as_str) == Some("redacted_thinking")
+            && has_payload(block.get("data")))
 }
 
-fn refresh_encrypted_flags(data: &mut TraceData) {
+/// Ciphertext, signatures, and base64 are unbroken ASCII; prose has spaces or non-ASCII letters.
+fn reads_as_text(text: &str) -> bool {
+    text.contains(' ') || !text.is_ascii()
+}
+
+fn same_words(left: &str, right: &str) -> bool {
+    left.split_whitespace().eq(right.split_whitespace())
+}
+
+/// What the payload fields of a reasoning record actually hold.
+#[derive(Default)]
+struct Payload {
+    /// Readable reasoning stored in a payload field, such as OpenRouter's `reasoning.text`.
+    text: Vec<String>,
+    /// Ciphertext, a signature, or redacted data.
+    opaque: bool,
+}
+
+impl Payload {
+    /// `encrypted_content` also holds readable copies: OpenRouter stores its
+    /// `reasoning_details` there, and their `reasoning.text` repeats the summary.
+    fn inspect(&mut self, value: &Value, readable: &str) {
+        match value {
+            Value::Null => {}
+            Value::Bool(encrypted) => self.opaque |= *encrypted,
+            Value::Number(_) => self.opaque = true,
+            Value::String(text) => {
+                let text = text.trim();
+                if text.is_empty() {
+                    return;
+                }
+                match serde_json::from_str::<Value>(text) {
+                    Ok(parsed @ (Value::Array(_) | Value::Object(_))) => {
+                        self.inspect(&parsed, readable);
+                    }
+                    _ if reads_as_text(text) || same_words(text, readable) => {
+                        self.text.push(text.to_owned());
+                    }
+                    _ => self.opaque = true,
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    self.inspect(item, readable);
+                }
+            }
+            Value::Object(_) => self.block(value),
+        }
+    }
+
+    /// An OpenRouter reasoning detail or a provider thinking block.
+    fn block(&mut self, block: &Value) {
+        for key in ["text", "summary", "thinking"] {
+            let text = block.get(key).map(text_content).unwrap_or_default();
+            if !text.trim().is_empty() {
+                self.text.push(text);
+            }
+        }
+        self.opaque |= ["signature", "data", "encrypted_content", "encrypted"]
+            .into_iter()
+            .any(|key| has_payload(block.get(key)));
+    }
+}
+
+/// A reasoning record's readable text, and whether it also carries reasoning that can't be read.
+fn read_reasoning(value: &Value) -> (String, bool) {
+    let recorded = [
+        value.get("content"),
+        value.get("summary"),
+        value.get("thinking"),
+        value.pointer("/reasoning/text"),
+    ]
+    .into_iter()
+    .flatten()
+    .map(text_content)
+    .find(|text| !text.trim().is_empty())
+    .unwrap_or_default();
+    let mut payload = Payload::default();
+    for field in [
+        value.get("encrypted_content"),
+        value.get("encrypted"),
+        value.pointer("/reasoning/encrypted"),
+        value.pointer("/reasoning/encrypted_content"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        payload.inspect(field, &recorded);
+    }
+    payload.opaque |= sealed(value)
+        || ["content", "summary"]
+            .into_iter()
+            .filter_map(|key| value.get(key).and_then(Value::as_array))
+            .flatten()
+            .any(sealed);
+    let text = if recorded.trim().is_empty() {
+        payload.text.join("\n")
+    } else {
+        recorded
+    };
+    (text, payload.opaque)
+}
+
+/// Classify a reasoning record by what a reader can see. A payload that only repeats the
+/// readable text, such as OpenRouter's `reasoning.text`, is not encryption; ciphertext,
+/// signatures, and redacted data are.
+pub(super) fn reasoning_encryption(value: &Value, kind: &str) -> Encryption {
+    if !is_reasoning_kind(kind) {
+        return Encryption::None;
+    }
+    match read_reasoning(value) {
+        (_, false) => Encryption::None,
+        (text, true) if text.trim().is_empty() => Encryption::Full,
+        (_, true) => Encryption::Partial,
+    }
+}
+
+/// The readable reasoning of a record, or a notice when only encrypted reasoning was recorded.
+pub(super) fn reasoning_text(value: &Value) -> String {
+    match read_reasoning(value) {
+        (text, true) if text.trim().is_empty() => ENCRYPTED_ONLY.into(),
+        (text, _) => text,
+    }
+}
+
+/// Recompute from the raw records; saved traces may carry flags from an older rule.
+fn refresh_encryption(data: &mut TraceData) {
     for event in &mut data.events {
-        event.encrypted |= encrypted_reasoning(payload(&event.raw), &event.kind);
+        event.encryption = reasoning_encryption(payload(&event.raw), &event.kind);
     }
     for entry in &mut data.transcript {
-        if entry.kind == transcript::EntryKind::Reasoning
-            && entry
-                .event_indices
-                .iter()
-                .any(|index| data.events.get(*index).is_some_and(|event| event.encrypted))
-        {
-            entry.encrypted = true;
-        }
+        entry.encryption = transcript::entry_encryption(entry, &data.events);
     }
 }
 
@@ -672,7 +803,7 @@ fn add_record(
     let value = payload(&raw);
     let kind = string(value, &["sessionUpdate", "session_update", "type", "role"])
         .unwrap_or_else(|| "record".into());
-    let encrypted = encrypted_reasoning(value, &kind);
+    let encryption = reasoning_encryption(value, &kind);
     if kind == "turn_started" {
         *stream_turn = number(value, &["turn_number", "turnNumber"]);
         if let Some(session_id) = string(value, &["session_id", "sessionId"]) {
@@ -717,11 +848,7 @@ fn add_record(
         .unwrap_or_default();
     }
     if kind == "reasoning" && text.is_empty() {
-        text = value.get("summary").map(text_content).unwrap_or_default();
-        if text.is_empty() && encrypted {
-            text =
-                "Only encrypted reasoning was recorded; readable reasoning is unavailable.".into();
-        }
+        text = reasoning_text(value);
     }
     let duration_ms = number(
         value,
@@ -748,7 +875,7 @@ fn add_record(
         turn,
         tool_call_id: call_id,
         status,
-        encrypted,
+        encryption,
         raw,
     });
     for call in calls {
@@ -771,7 +898,7 @@ fn add_record(
             turn,
             tool_call_id: string(&call, &["id", "call_id"]),
             status: None,
-            encrypted: false,
+            encryption: Encryption::None,
             raw: call,
         });
     }
@@ -801,7 +928,7 @@ fn add_artifact_event(data: &mut TraceData, name: &str, value: &Value) {
         turn: None,
         tool_call_id: None,
         status: string(value, &["status"]),
-        encrypted: false,
+        encryption: Encryption::None,
         raw: value.clone(),
     });
 }
@@ -1015,10 +1142,8 @@ fn finish(data: &mut TraceData) {
     if missing_ids > 0 {
         data.warnings.push(format!("{missing_ids} tool records have no call ID and cannot be reliably correlated; they remain visible as individual records."));
     }
-    refresh_encrypted_flags(data);
     let (entries, notes) = transcript::build(data);
     data.transcript = entries;
-    refresh_encrypted_flags(data);
     data.warnings.extend(notes);
     let mut seen = BTreeSet::new();
     data.warnings.retain(|warning| seen.insert(warning.clone()));
@@ -1133,58 +1258,226 @@ mod tests {
         );
     }
 
+    fn reasoning_record(summary: &str, encrypted_content: Value) -> Value {
+        json!({"type": "reasoning", "summary": [{"type": "summary_text", "text": summary}],
+            "encrypted_content": encrypted_content})
+    }
+
     #[test]
-    fn encrypted_reasoning_requires_an_actual_opaque_payload() {
+    fn readable_copies_are_not_encrypted_but_ciphertext_and_signatures_are() {
+        // OpenRouter stores its reasoning details as JSON in `encrypted_content`.
+        let details = |details: Value| Value::String(details.to_string());
         let cases = [
+            (
+                reasoning_record(
+                    "Check the branch.",
+                    details(
+                        json!([{"type": "reasoning.text", "text": "Check the branch.",
+                        "format": "unknown", "index": 0}]),
+                    ),
+                ),
+                "reasoning",
+                Encryption::None,
+            ),
+            (
+                reasoning_record(
+                    "**Plan**",
+                    details(json!([
+                        {"type": "reasoning.summary", "summary": "**Plan**"},
+                        {"type": "reasoning.encrypted", "data": "gAAAAABopaque"}
+                    ])),
+                ),
+                "reasoning",
+                Encryption::Partial,
+            ),
+            (
+                reasoning_record(
+                    "",
+                    details(json!([{"type": "reasoning.encrypted", "data": "gAAAAABopaque"}])),
+                ),
+                "reasoning",
+                Encryption::Full,
+            ),
+            (
+                reasoning_record(
+                    "Count the files.",
+                    details(
+                        json!([{"type": "reasoning.text", "text": "Count the files.",
+                        "signature": "EqQBopaque"}]),
+                    ),
+                ),
+                "reasoning",
+                Encryption::Partial,
+            ),
+            (
+                reasoning_record("Done.", json!("Done.")),
+                "reasoning",
+                Encryption::None,
+            ),
+            (
+                json!({"type": "reasoning", "encrypted_content": "The user wants a list."}),
+                "reasoning",
+                Encryption::None,
+            ),
+            // The Messages backend stores a thinking block's signature in `encrypted_content`.
+            (
+                reasoning_record("Count the files.", json!("EqQBCgIYAhIM1gbcDa9G")),
+                "reasoning",
+                Encryption::Partial,
+            ),
             (
                 json!({"type": "reasoning", "encrypted_content": "opaque"}),
                 "reasoning",
-                true,
+                Encryption::Full,
             ),
             (
                 json!({"type": "reasoning", "encrypted_content": "  "}),
                 "reasoning",
-                false,
+                Encryption::None,
             ),
             (
                 json!({"type": "reasoning", "encrypted_content": null}),
                 "reasoning",
-                false,
+                Encryption::None,
             ),
             (
                 json!({"type": "reasoning", "encrypted": false}),
                 "reasoning",
-                false,
+                Encryption::None,
             ),
             (
                 json!({"type": "reasoning", "signature": "opaque"}),
                 "reasoning",
-                true,
+                Encryption::Full,
+            ),
+            (
+                json!({"sessionUpdate": "reasoning_completed", "signature": "opaque"}),
+                "reasoning_completed",
+                Encryption::Full,
+            ),
+            (
+                json!({"sessionUpdate": "agent_thought_chunk",
+                    "content": {"type": "text", "text": "Look."}}),
+                "agent_thought_chunk",
+                Encryption::None,
             ),
             (
                 json!({"type": "redacted_thinking", "data": "opaque"}),
                 "redacted_thinking",
-                true,
-            ),
-            (
-                json!({"type": "response_completed", "signature": "opaque"}),
-                "response_completed",
-                false,
-            ),
-            (
-                json!({"type": "thinking_config", "signature": "opaque"}),
-                "thinking_config",
-                false,
+                Encryption::Full,
             ),
             (
                 json!({"type": "reasoning", "reasoning": {"encrypted": "opaque"}}),
                 "reasoning",
-                true,
+                Encryption::Full,
+            ),
+            (
+                json!({"type": "response_completed", "signature": "opaque"}),
+                "response_completed",
+                Encryption::None,
+            ),
+            (
+                json!({"type": "thinking_config", "signature": "opaque"}),
+                "thinking_config",
+                Encryption::None,
             ),
         ];
         for (value, kind, expected) in cases {
-            assert_eq!(encrypted_reasoning(&value, kind), expected, "value={value}");
+            assert_eq!(
+                reasoning_encryption(&value, kind),
+                expected,
+                "value={value}"
+            );
         }
+        assert_eq!(
+            reasoning_text(&json!({"type": "reasoning",
+                "encrypted_content": "The user wants a list."})),
+            "The user wants a list."
+        );
+        assert_eq!(
+            reasoning_text(&reasoning_record("", json!("opaque"))),
+            ENCRYPTED_ONLY
+        );
+    }
+
+    #[test]
+    fn openrouter_details_lock_only_reasoning_that_cannot_be_read() {
+        let directory = tempfile::tempdir().unwrap();
+        let record = |summary: &str, details: Value| {
+            let mut record = reasoning_record(summary, Value::String(details.to_string()));
+            record["id"] = json!("grok_openrouter_reasoning_v1");
+            record.to_string()
+        };
+        let lines = [
+            json!({"type": "user", "prompt_index": 0, "content": "Hi"}).to_string(),
+            record(
+                "Read the log.",
+                json!([{"type": "reasoning.text", "text": "Read the log.", "format": "unknown", "index": 0}]),
+            ),
+            record(
+                "**Checking**",
+                json!([{"type": "reasoning.summary", "summary": "**Checking**"},
+                    {"type": "reasoning.encrypted", "data": "gAAAAAB"}]),
+            ),
+            record(
+                "",
+                json!([{"type": "reasoning.encrypted", "data": "gAAAAAB"}]),
+            ),
+            json!({"type": "assistant", "content": "Done"}).to_string(),
+        ];
+        write(directory.path(), "chat_history.jsonl", &lines.join("\n"));
+        let trace = load(directory.path()).unwrap();
+        let reasoning: Vec<_> = trace
+            .transcript
+            .iter()
+            .filter(|entry| entry.kind == transcript::EntryKind::Reasoning)
+            .map(|entry| (entry.encryption, entry.text.as_str()))
+            .collect();
+        assert_eq!(
+            reasoning,
+            vec![
+                (Encryption::None, "Read the log."),
+                (Encryption::Partial, "**Checking**"),
+                (Encryption::Full, ENCRYPTED_ONLY),
+            ]
+        );
+    }
+
+    #[test]
+    fn saved_traces_are_reclassified_with_the_current_rule() {
+        let directory = tempfile::tempdir().unwrap();
+        let lines = [
+            json!({"type": "user", "prompt_index": 0, "content": "Hi"}).to_string(),
+            reasoning_record(
+                "Plan",
+                Value::String(json!([{"type": "reasoning.text", "text": "Plan"}]).to_string()),
+            )
+            .to_string(),
+            json!({"type": "assistant", "content": "Hello"}).to_string(),
+        ];
+        write(directory.path(), "chat_history.jsonl", &lines.join("\n"));
+        let mut saved = serde_json::to_value(load(directory.path()).unwrap()).unwrap();
+        for list in ["events", "transcript"] {
+            for item in saved[list].as_array_mut().unwrap() {
+                item["encrypted"] = json!(true);
+                item["encryption"] = json!("full");
+            }
+        }
+        let output = directory.path().join("normalized.json");
+        fs::write(&output, saved.to_string()).unwrap();
+        let restored = load(&output).unwrap();
+        assert!(
+            restored
+                .events
+                .iter()
+                .all(|event| event.encryption == Encryption::None)
+        );
+        assert!(
+            restored
+                .transcript
+                .iter()
+                .all(|entry| entry.encryption == Encryption::None)
+        );
     }
 
     #[test]
@@ -1202,14 +1495,11 @@ mod tests {
         let trace = load(directory.path()).unwrap();
         assert_eq!(trace.turns.first().unwrap().number, 4);
         assert!(trace.events.iter().any(|event| event.kind == "reasoning"
-            && event.encrypted
-            && event.text.contains("unavailable")));
-        assert!(
-            trace
-                .transcript
-                .iter()
-                .any(|entry| entry.kind == transcript::EntryKind::Reasoning && entry.encrypted)
-        );
+            && event.encryption == Encryption::Full
+            && event.text == ENCRYPTED_ONLY));
+        assert!(trace.transcript.iter().any(|entry| {
+            entry.kind == transcript::EntryKind::Reasoning && entry.encryption == Encryption::Full
+        }));
         assert!(
             trace
                 .events

@@ -226,7 +226,7 @@ struct HarnessSessionRow: Identifiable, Equatable {
     static func displayTitle(summary: String, firstPrompt: String?) -> String {
         if !summary.isEmpty { return String(summary.prefix(200)) }
         if let prompt = firstPrompt?.split(whereSeparator: \.isNewline).first, !prompt.isEmpty { return String(prompt.prefix(64)) }
-        return "Grok task"
+        return "Crok task"
     }
 
     /// Search snippets mark matches with brackets or HTML; the list shows them as plain text.
@@ -556,7 +556,7 @@ enum DoctorRequest: Equatable {
         case 1 where tokens[0] == "fix": return .listFixes
         case 2 where tokens[0] == "fix":
             guard let spec = DoctorFixSpec.resolve(tokens[1]) else {
-                throw DesktopError.message("`\(tokens[1])` is not an available Doctor fix. Run `grok doctor fix` to list available fixes.\n\(usage)")
+                throw DesktopError.message("`\(tokens[1])` is not an available Doctor fix. Run `crok doctor fix` to list available fixes.\n\(usage)")
             }
             return .fix(spec)
         default: throw DesktopError.message(usage)
@@ -569,7 +569,7 @@ struct DoctorFixSpec: Equatable, Identifiable {
     let handle: String
     let label: String
     var id: String { "terminal.\(handle)" }
-    var command: String { "grok doctor fix \(handle)" }
+    var command: String { "crok doctor fix \(handle)" }
 
     static let registry = [
         DoctorFixSpec(handle: "ssh-wrap", label: "Set up local SSH wrapping"),
@@ -666,7 +666,7 @@ struct DoctorReport: Decodable, Equatable {
 
     static func decode(_ data: Data) throws -> DoctorReport {
         do { return try JSONDecoder().decode(DoctorReport.self, from: data) }
-        catch { throw DesktopError.message("grok doctor returned a report this version of Grok Desktop cannot read.") }
+        catch { throw DesktopError.message("crok doctor returned a report this version of Crok Desktop cannot read.") }
     }
 
     /// Facts grouped the way the terminal's Environment block lists them.
@@ -737,7 +737,7 @@ enum TraceExport {
     /// The last meaningful lines of the CLI's error output, for the failure view.
     static func errorSummary(status: Int32, stderr: String) -> String {
         let lines = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && !$0.hasPrefix("Trace saved to") }
-        return lines.isEmpty ? "grok trace view exited with status \(status)." : lines.suffix(6).joined(separator: "\n")
+        return lines.isEmpty ? "crok trace view exited with status \(status)." : lines.suffix(6).joined(separator: "\n")
     }
 }
 

@@ -84,7 +84,7 @@ final class ExtrasFeatureTests: XCTestCase {
         store.executeCommand(name: "t", arguments: "Dark")
         XCTAssertEqual(extras.activeTheme, .groknight)
         XCTAssertEqual(Theme.palette.theme, .groknight)
-        XCTAssertEqual(store.banner, "✓ Theme: Grok Night")
+        XCTAssertEqual(store.banner, "✓ Theme: Crok Night")
         XCTAssertGreaterThan(extras.themeRevision, revision)
         XCTAssertEqual(defaults.string(forKey: "theme"), "groknight")
         XCTAssertEqual(defaults.string(forKey: "appearance"), "dark")
@@ -98,7 +98,7 @@ final class ExtrasFeatureTests: XCTestCase {
 
         store.executeCommand(name: "theme", arguments: "")
         XCTAssertEqual(extras.activeTheme, .grokday)
-        XCTAssertEqual(store.banner, "✓ Theme: Grok Day")
+        XCTAssertEqual(store.banner, "✓ Theme: Crok Day")
         XCTAssertEqual(defaults.string(forKey: "appearance"), "light")
 
         store.executeCommand(name: "theme", arguments: "system")
@@ -260,7 +260,7 @@ final class ExtrasFeatureTests: XCTestCase {
 
     func testGuideSearchCoversTitlesAndText() {
         let guides = [
-            GuideDocument(fileName: "01-a.md", title: "Getting Started", summary: "First launch", content: "# Getting Started\nRun `grok` in a repo.\n"),
+            GuideDocument(fileName: "01-a.md", title: "Getting Started", summary: "First launch", content: "# Getting Started\nRun `crok` in a repo.\n"),
             GuideDocument(fileName: "02-b.md", title: "Theming", summary: "Themes", content: "# Theming\n\nEnable **truecolor** in tmux.\nTruecolor again.\n"),
             GuideDocument(fileName: "03-c.md", title: "Truecolor Notes", summary: "", content: "# Notes\n"),
         ]
@@ -286,7 +286,7 @@ final class ExtrasFeatureTests: XCTestCase {
 
     func testReflowJoinsWrappedLinesButKeepsBlocks() {
         let source = """
-        Grok Build is a conversation with an agent that can read your
+        Crok Build is a conversation with an agent that can read your
         code, run commands.
 
         - **Rules** — `AGENTS.md` and
@@ -306,7 +306,7 @@ final class ExtrasFeatureTests: XCTestCase {
         Text after.
         """
         XCTAssertEqual(GuideLibrary.reflow(source), """
-        Grok Build is a conversation with an agent that can read your code, run commands.
+        Crok Build is a conversation with an agent that can read your code, run commands.
 
         - **Rules** — `AGENTS.md` and `CLAUDE.md` files.
         - Second item
@@ -348,7 +348,7 @@ final class ExtrasFeatureTests: XCTestCase {
 
     /// In the repository, the embedded pages must match the terminal's files.
     func testTutorialTextMatchesTheTerminalPages() throws {
-        let repository = ProcessInfo.processInfo.environment["GROK_BUILD_REPOSITORY"].map { URL(fileURLWithPath: $0) }
+        let repository = ProcessInfo.processInfo.environment["CROK_BUILD_REPOSITORY"].map { URL(fileURLWithPath: $0) }
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
                 .deletingLastPathComponent().deletingLastPathComponent()
         let pages = repository.appendingPathComponent("crates/codegen/xai-grok-pager/docs/tutorial")

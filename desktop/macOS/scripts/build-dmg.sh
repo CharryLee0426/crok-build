@@ -1,17 +1,17 @@
 #!/bin/bash
-# Packages dist/Grok Desktop.app as a drag-to-Applications disk image in dist/.
+# Packages dist/Crok Desktop.app as a drag-to-Applications disk image in dist/.
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 package_dir="$(cd -- "$script_dir/.." && pwd)"
-app_name="Grok Desktop"
+app_name="Crok Desktop"
 app_dir="$package_dir/dist/$app_name.app"
 volume_name="$app_name"
 # LZMA makes the smallest download; images in it open on macOS 10.15 and later, below the app's minimum.
 format="${DMG_FORMAT:-ULMO}"
 
-harness="$app_dir/Contents/Resources/grok"
-launcher="$app_dir/Contents/Resources/bin/grok"
+harness="$app_dir/Contents/Resources/crok"
+launcher="$app_dir/Contents/Resources/bin/crok"
 for required in "$app_dir/Contents/MacOS/GrokDesktop" "$harness" "$launcher"; do
     if [[ ! -x "$required" ]]; then
         printf 'Build the app first (make build-desktop); missing %s\n' "$required" >&2
@@ -29,11 +29,11 @@ architectures() {
 arch="$(architectures "$app_dir/Contents/MacOS/GrokDesktop")"
 harness_arch="$(architectures "$harness")"
 if [[ "$arch" != "$harness_arch" ]]; then
-    printf 'The app is built for %s but its Grok Build for %s; rebuild them for the same architectures.\n' "$arch" "$harness_arch" >&2
+    printf 'The app is built for %s but its Crok Build for %s; rebuild them for the same architectures.\n' "$arch" "$harness_arch" >&2
     exit 1
 fi
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_dir/Contents/Info.plist")"
-dmg="$package_dir/dist/Grok-Desktop-$version-$arch.dmg"
+dmg="$package_dir/dist/Crok-Desktop-$version-$arch.dmg"
 
 # Finder addresses the new volume by name, so another volume with that name would get the layout.
 if [[ -e "/Volumes/$volume_name" ]]; then
@@ -41,7 +41,7 @@ if [[ -e "/Volumes/$volume_name" ]]; then
     exit 1
 fi
 
-work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/grok-dmg.XXXXXX")"
+work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/crok-dmg.XXXXXX")"
 device=""
 cleanup() {
     if [[ -n "$device" ]]; then /usr/bin/hdiutil detach "$device" -force -quiet >/dev/null 2>&1 || true; fi
@@ -144,13 +144,13 @@ if [[ -n "${SIGN_IDENTITY:-}" && "$SIGN_IDENTITY" != "-" ]]; then
 fi
 /usr/bin/hdiutil verify "$dmg" >/dev/null
 
-# Check what a user gets: the signed app and a working grok command inside the finished image.
+# Check what a user gets: the signed app and a working crok command inside the finished image.
 check="$work/check"
 /bin/mkdir -p "$check"
 attached="$(/usr/bin/hdiutil attach "$dmg" -readonly -nobrowse -noautoopen -mountpoint "$check")"
 device="$(printf '%s\n' "$attached" | /usr/bin/awk '/^\/dev\// { print $1; exit }')"
 /usr/bin/codesign --verify --deep --strict "$check/$app_name.app"
-bundled_version="$("$check/$app_name.app/Contents/Resources/bin/grok" --version)"
+bundled_version="$("$check/$app_name.app/Contents/Resources/bin/crok" --version)"
 if [[ ! -L "$check/Applications" || ! -f "$check/.VolumeIcon.icns" ]]; then
     printf 'The image is missing its Applications link or volume icon.\n' >&2
     exit 1
@@ -159,7 +159,7 @@ detach "$device"
 device=""
 
 printf 'Built %s\n' "$dmg"
-printf '  Grok Desktop %s for %s, bundling %s\n' "$version" "$arch" "$bundled_version"
+printf '  Crok Desktop %s for %s, bundling %s\n' "$version" "$arch" "$bundled_version"
 printf '  %s, SHA-256 %s\n' "$(/usr/bin/du -h "$dmg" | /usr/bin/cut -f1 | /usr/bin/tr -d ' ')" "$(/usr/bin/shasum -a 256 "$dmg" | /usr/bin/cut -d ' ' -f1)"
 if [[ -z "${SIGN_IDENTITY:-}" || "$SIGN_IDENTITY" == "-" ]]; then
     printf '  Ad hoc signed and not notarized: on first launch macOS asks users to allow it in System Settings > Privacy & Security.\n'

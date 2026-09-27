@@ -16,7 +16,7 @@ final class SessionSnapshotTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: directory) }
 
     func testRenderSessionSheetSnapshots() throws {
-        guard let output = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let store = makeStore()
         let model = store.features.sessions
         let panels: [(String, AnyView, CGSize)] = [
@@ -132,8 +132,8 @@ final class SessionSnapshotTests: XCTestCase {
         model.resumeCursor = "next"
         if let report = try? DoctorReport.decode(Data(SessionFeatureTests.doctorSample.utf8)) { model.doctorReport = report }
         model.desktopChecks = [
-            DoctorDesktopCheck(id: "runtime", title: "Grok runtime", value: "Version 1.0.41 (ef60bab1fc85) [stable]", detail: "~/Applications/Grok Desktop.app/Contents/Resources/grok", status: .ok, symbol: "cpu"),
-            DoctorDesktopCheck.signIn([.xai: AccountStatus(state: .connected, identity: "dev@example.com", detail: "Signed in")]),
+            DoctorDesktopCheck(id: "runtime", title: "Crok runtime", value: "Version 1.0.41 (ef60bab1fc85) [stable]", detail: "~/Applications/Crok Desktop.app/Contents/Resources/grok", status: .ok, symbol: "cpu"),
+            DoctorDesktopCheck.signIn([.codex: AccountStatus(state: .connected, identity: "dev@example.com", detail: "Signed in")]),
             DoctorDesktopCheck.microphone(.denied),
             DoctorDesktopCheck.notifications(.notDetermined),
         ]

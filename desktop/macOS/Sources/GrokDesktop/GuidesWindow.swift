@@ -92,7 +92,7 @@ struct DocsWindow: View {
         case .loading: return "Loading…"
         case .missing: return "Not on this Mac yet"
         case .loaded(let guides):
-            if query.isEmpty { return "\(guides.count) guides for Grok Build" }
+            if query.isEmpty { return "\(guides.count) guides for Crok Build" }
             return hits == 1 ? "1 guide matches" : "\(hits) guides match"
         }
     }
@@ -297,7 +297,7 @@ private struct GuidesMissingView: View {
         VStack(spacing: 14) {
             Image(systemName: "books.vertical").font(.system(size: 34)).foregroundStyle(Theme.muted)
             Text("The guides aren’t on this Mac yet").font(.system(size: 17, weight: .semibold))
-            Text("Grok Build unpacks its how-to guides into \((directory.path as NSString).abbreviatingWithTildeInPath) each time it starts. Start a task so Grok runs once, then check again — or read them online.")
+            Text("Crok Build unpacks its how-to guides into \((directory.path as NSString).abbreviatingWithTildeInPath) each time it starts. Start a task so Crok runs once, then check again — or read them online.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                 .frame(maxWidth: 420).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {

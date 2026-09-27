@@ -5,15 +5,10 @@ extension AppStore {
     var availableCommands: [SlashCommand] {
         var commands = DesktopCommands.catalog.filter { command in
             guard !command.isHidden else { return false }
-            // As in the terminal: no /usage for external sign-ins, and /announcements only while there are some.
-            if command.name == "usage" && !harnessMeta.allowsUsageCommand { return false }
+            // As in the terminal: /announcements only while there are some.
             if command.name == "announcements" && !features.account.hasSessionAnnouncements { return false }
             guard let tool = MediaCommand.requiredTool(command.name) else { return true }
             return run.availableTools?.contains(tool) == true
-        }.map { command in
-            // Only personal subscriptions take `show` or `manage`.
-            guard command.name == "usage", !harnessMeta.showsConsumerBilling else { return command }
-            var bare = command; bare.argumentHint = nil; return bare
         }
         for command in run.commands {
             if let index = commands.firstIndex(where: { $0.name == command.name }) {
@@ -46,7 +41,7 @@ extension AppStore {
     func open(_ window: DesktopWindow) { windowRequest = window }
 
     func pendingFeature(_ command: String) {
-        banner = "\(command) is not available in this build of Grok Desktop yet."
+        banner = "\(command) is not available in this build of Crok Desktop yet."
     }
 
     func executeCommand(name: String, arguments: String = "") {

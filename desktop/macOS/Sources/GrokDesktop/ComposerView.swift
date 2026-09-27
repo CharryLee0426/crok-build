@@ -167,9 +167,9 @@ struct ComposerView: View {
 
     private var placeholder: String {
         if store.run.isRunning && store.conversation != nil {
-            return features.followUpBehavior == .steer ? "Steer Grok while it works…" : "Queue a follow-up…"
+            return features.followUpBehavior == .steer ? "Steer Crok while it works…" : "Queue a follow-up…"
         }
-        return store.conversation == nil ? "Ask Grok to build, fix, or explore anything…" : "Continue the conversation…"
+        return store.conversation == nil ? "Ask Crok to build, fix, or explore anything…" : "Continue the conversation…"
     }
 
     private var showSlashCommands: Bool {
@@ -178,7 +178,9 @@ struct ComposerView: View {
     }
     private var slashCommands: [SlashCommand] { DesktopCommands.matches(store.availableCommands, query: store.draft) }
     private func submitDraft() {
-        // Return while dictating keeps the words heard so far, stops, and sends.
+        // Return while dictating keeps the words heard so far, stops, and sends. With OpenRouter the last
+        // words are transcribed after the stop, so Return only stops; the next Return sends.
+        if features.voice.finalArrivesAfterStop { features.stopVoice(); return }
         if features.voice.isActive { features.finishVoiceForSubmit() }
         if showSlashCommands && slashCommands.indices.contains(selectedCommand) { chooseCommand(slashCommands[selectedCommand]) }
         else if let command = SlashCommand.split(store.draft), command.name == "btw" || (command.name == "goal" && ["status", "pause", "resume", "clear"].contains(command.arguments)) {
@@ -578,7 +580,7 @@ struct PromptEditor: NSViewRepresentable {
         editor.font = .systemFont(ofSize: 16); editor.textColor = .labelColor; editor.backgroundColor = .clear
         editor.textContainerInset = NSSize(width: 0, height: 7); editor.isVerticallyResizable = true; editor.isHorizontallyResizable = false
         editor.autoresizingMask = [.width]; editor.textContainer?.widthTracksTextView = true
-        editor.setAccessibilityLabel("Message Grok")
+        editor.setAccessibilityLabel("Message Crok")
         editor.placeholder = placeholder
         scroll.documentView = editor
         onTextView?(editor)

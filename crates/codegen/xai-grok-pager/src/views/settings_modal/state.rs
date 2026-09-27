@@ -153,9 +153,12 @@ pub(super) fn mode_is_consent_chooser(mode: &SettingsMode) -> bool {
 }
 
 /// Settings-domain visibility policy, snapshotted at OpenSettings.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct RowVisibility {
     pub hide_appearance: bool,
+    /// Drop rows that only an xAI account can use: coding-data sharing is stored with the
+    /// account, and OpenRouter is the only voice provider without one.
+    pub hide_xai_account_rows: bool,
 }
 
 /// Settings modal state. Boxed inside `ActiveModal::Settings` to avoid clippy `large_enum_variant`.
@@ -221,9 +224,7 @@ impl SettingsModalState {
             registry,
             ui_snapshot,
             pager_snapshot,
-            RowVisibility {
-                hide_appearance: false,
-            },
+            RowVisibility::default(),
         )
     }
 
@@ -854,7 +855,11 @@ pub(super) fn setting_row_visible(
     if !voice_mode
         && matches!(
             meta.key,
-            "voice_keybind_enabled" | "voice_capture_mode" | "voice_stt_language"
+            "voice_keybind_enabled"
+                | "voice_capture_mode"
+                | "voice_stt_language"
+                | "voice_stt_provider"
+                | "voice_stt_model"
         )
     {
         return false;
@@ -890,6 +895,11 @@ fn build_rows(registry: &SettingsRegistry, visibility: RowVisibility) -> Vec<Row
                 continue;
             }
             if !setting_row_visible(meta, kitty_releases, visibility.hide_appearance, voice_mode) {
+                continue;
+            }
+            if visibility.hide_xai_account_rows
+                && matches!(meta.key, "coding_data_sharing" | "voice_stt_provider")
+            {
                 continue;
             }
             if group_children.contains(meta.key) {
@@ -1006,6 +1016,7 @@ pub(super) fn action_for_enum_commit(key: SettingKey, choice: &'static str) -> O
         "screen_mode" => Some(Action::SetScreenMode(choice.to_string())),
         "voice_capture_mode" => Some(Action::SetVoiceCaptureMode(choice.to_string())),
         "voice_stt_language" => Some(Action::SetVoiceSttLanguage(choice.to_string())),
+        "voice_stt_provider" => Some(Action::SetVoiceSttProvider(choice.to_string())),
         "render_mermaid" => {
             crate::appearance::RenderMermaid::from_canonical(choice).map(Action::SetRenderMermaid)
         }
@@ -1051,6 +1062,7 @@ pub(super) fn action_for_string(
                     .map(Action::SetForkSecondaryModel)
             }
         }
+        "voice_stt_model" => Some(Action::SetVoiceSttModel(value)),
 
         _ => {
             let _ = value;

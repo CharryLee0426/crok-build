@@ -18,9 +18,9 @@ final class GrokConfigTests: XCTestCase {
     }
 
     func testReplacesOnlyTheValueAndKeepsCommentsAndOtherTables() throws {
-        let original = "# Grok settings\n[ui]\ntheme = \"groknight\" # mine\nvim_mode = true\n\n[models]\ndefault = \"grok-4\"\n"
+        let original = "# Crok settings\n[ui]\ntheme = \"groknight\" # mine\nvim_mode = true\n\n[models]\ndefault = \"grok-4\"\n"
         let result = try edited(original) { try $0.set("theme", to: .string("grokday"), in: "ui") }
-        XCTAssertEqual(result, "# Grok settings\n[ui]\ntheme = \"grokday\" # mine\nvim_mode = true\n\n[models]\ndefault = \"grok-4\"\n")
+        XCTAssertEqual(result, "# Crok settings\n[ui]\ntheme = \"grokday\" # mine\nvim_mode = true\n\n[models]\ndefault = \"grok-4\"\n")
     }
 
     func testAddsKeysAfterTheTablesLastStatementAndNewTablesAtTheEnd() throws {

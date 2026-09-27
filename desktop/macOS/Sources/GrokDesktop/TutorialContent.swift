@@ -12,7 +12,7 @@ enum GrokTutorial {
             content: #"""
             # Coming from Claude, Cursor, or Codex?
 
-            Fear not — your settings, rules, and skills come with you. Grok Build
+            Fear not — your settings, rules, and skills come with you. Crok Build
             reads the same project conventions other agents use, and imports the rest.
 
             ## Picked up automatically
@@ -41,8 +41,8 @@ enum GrokTutorial {
 
             ## Check what was discovered
 
-            Run **`grok inspect`** in a repo to see every rules file, skill, and MCP
-            server Grok picked up, tagged with where it came from. Each compat source
+            Run **`crok inspect`** in a repo to see every rules file, skill, and MCP
+            server Crok picked up, tagged with where it came from. Each compat source
             can be toggled in `[compat.claude]` / `[compat.cursor]` config sections.
 
             And a few things you might have missed elsewhere: `/btw` asks a side
@@ -60,13 +60,13 @@ enum GrokTutorial {
             content: #"""
             # Your First Prompt
 
-            Grok Build is a conversation with an agent that can read your code, run
+            Crok Build is a conversation with an agent that can read your code, run
             commands, and edit files — right here in your terminal.
 
-            Type what you want and press `Enter`. Grok streams its work into the
+            Type what you want and press `Enter`. Crok streams its work into the
             **scrollback** above the prompt: responses, shell commands, file edits.
 
-            ## Keep typing while Grok works
+            ## Keep typing while Crok works
 
             While a turn is running, `Enter` **queues** your next message instead of
             interrupting. Change your mind? Press `Enter` on the empty prompt to stop
@@ -93,7 +93,7 @@ enum GrokTutorial {
             content: #"""
             # Attach Files, Images & Paste
 
-            The more precisely you point Grok at the right context, the better the
+            The more precisely you point Crok at the right context, the better the
             result. Three ways to get things into the prompt:
 
             ## Mention files with `@`
@@ -114,7 +114,7 @@ enum GrokTutorial {
             ## Run shell commands yourself
 
             Type `!` on an empty prompt to run a shell command directly — the output
-            lands in the scrollback where Grok can see it too.
+            lands in the scrollback where Crok can see it too.
 
             *Go deeper: `/docs Getting Started`*
             """#
@@ -148,7 +148,7 @@ enum GrokTutorial {
 
             ## Panes
 
-            - **`Ctrl+T`** — toggle the **todos pane**: Grok's live plan for the
+            - **`Ctrl+T`** — toggle the **todos pane**: Crok's live plan for the
               current task.
             - **`Ctrl+G`** — toggle the **tasks pane**: everything running in the
               background, with its status.
@@ -177,7 +177,7 @@ enum GrokTutorial {
             | `/resume` | Pick up a previous session where you left off |
             | `/new` | Start a fresh session |
             | `/compact` | Compress a long conversation to free up context |
-            | `/btw` | Send Grok an aside *without* interrupting its current task |
+            | `/btw` | Send Crok an aside *without* interrupting its current task |
             | `/rewind` (alias `/undo`) | Rewind the conversation to an earlier turn |
             | `/docs` | Full How-to Guides, in the TUI or on the web |
             | `/feedback` | Send feedback to the team |
@@ -185,7 +185,7 @@ enum GrokTutorial {
             Two of those deserve a second look:
 
             - **`/compact`** takes an optional hint: `/compact keep the auth details`.
-              Check context usage anytime with `/context` — Grok also auto-compacts
+              Check context usage anytime with `/context` — Crok also auto-compacts
               when the window fills up.
             - **`/rewind`** (or **`/undo`**) rewinds the conversation to an earlier
               turn, dropping later turns (file changes are left as-is).
@@ -211,7 +211,7 @@ enum GrokTutorial {
             content: #"""
             # Parallel Work: Worktrees
 
-            Want Grok working on a feature while you (or another Grok session) work on
+            Want Crok working on a feature while you (or another Crok session) work on
             something else in the same repo? **Git worktrees** give each session its own
             isolated checkout — no stepping on each other's changes, no stashing.
 
@@ -224,14 +224,14 @@ enum GrokTutorial {
             - **From the shell:**
 
               ```bash
-              grok --worktree=my-feature "refactor the auth module"
+              crok --worktree=my-feature "refactor the auth module"
               ```
 
               (Use `=` — otherwise the prompt is taken as the worktree name.)
 
             ## Why this is great
 
-            - Run two or three Grok sessions on the same repo simultaneously.
+            - Run two or three Crok sessions on the same repo simultaneously.
             - Experiments stay isolated — if a change doesn't work out, your main
               checkout is untouched.
             - When the work is done, apply the changes back like any git branch.
@@ -253,11 +253,11 @@ enum GrokTutorial {
             content: #"""
             # Plan Mode & Permissions
 
-            Grok asks before doing anything risky — and can plan before it codes.
+            Crok asks before doing anything risky — and can plan before it codes.
 
             ## Permissions
 
-            When Grok wants to run a risky command or edit a file, it pauses and asks:
+            When Crok wants to run a risky command or edit a file, it pauses and asks:
             allow once, always allow that kind of action, or deny.
 
             Reading is always free: file reads, searches, and safe read-only commands
@@ -268,7 +268,7 @@ enum GrokTutorial {
 
             ## Plan mode
 
-            For bigger or more ambiguous tasks, use **plan mode**: Grok explores the
+            For bigger or more ambiguous tasks, use **plan mode**: Crok explores the
             codebase read-only, designs an approach, and presents a plan you approve
             *before* any code is written.
 
@@ -278,7 +278,7 @@ enum GrokTutorial {
               one step.
 
             When the plan is ready: `a` approves, `c` comments on a specific line,
-            `s` requests changes — Grok iterates until you're happy, then implements.
+            `s` requests changes — Crok iterates until you're happy, then implements.
 
             A good habit: plan mode for "how should we even do this?", normal mode for
             "just do it".
@@ -286,7 +286,7 @@ enum GrokTutorial {
             ## Long-running commands
 
             A build or test run hogging the turn? **`Ctrl+B`** sends it to the
-            background — Grok keeps working and you're notified when it finishes
+            background — Crok keeps working and you're notified when it finishes
             (`Ctrl+G` shows the tasks pane).
 
             *Go deeper: `/docs Plan Mode` or `/docs Permissions and Safety`*
@@ -302,7 +302,7 @@ enum GrokTutorial {
 
             ## The easiest way: just ask
 
-            Grok knows its own capabilities and can configure itself. Try:
+            Crok knows its own capabilities and can configure itself. Try:
 
             - *"add the Postgres MCP server for our staging db"*
             - *"switch to a light theme"*
@@ -310,10 +310,10 @@ enum GrokTutorial {
 
             If you'd rather drive, everything below has a command too.
 
-            ## Teach Grok your project: AGENTS.md
+            ## Teach Crok your project: AGENTS.md
 
             Drop an `AGENTS.md` file in your repo root with build commands, conventions,
-            and gotchas. Grok reads it automatically in every session — it's the single
+            and gotchas. Crok reads it automatically in every session — it's the single
             highest-leverage customization:
 
             ```markdown
@@ -322,7 +322,7 @@ enum GrokTutorial {
             - Never edit files under generated/
             ```
 
-            ## Teach Grok your facts: memory
+            ## Teach Crok your facts: memory
 
             Start a prompt with `#` (or use `/remember`) to save a note for future
             sessions: `# the staging deploy uses eu-west`.
@@ -356,18 +356,18 @@ enum GrokTutorial {
             - **`/docs`** — the full How-to Guides inside the TUI (`/docs web` for the
               online docs). Covers sessions, headless mode, subagents, sandboxing,
               memory, and much more.
-            - **Ask Grok itself** — it can read its own user guide and set itself up.
+            - **Ask Crok itself** — it can read its own user guide and set itself up.
               Try: "How do I run you in CI?" or "add an MCP server for GitHub".
 
             ## Good habits
 
-            - Sessions save automatically. Resume the latest with `grok -c`, or pick
+            - Sessions save automatically. Resume the latest with `crok -c`, or pick
               one with `/resume` (`Ctrl+R`).
             - Long session getting slow? `/compact` frees context; `/context` shows
               where it's going.
-            - Automate anything: `grok -p "summarize new TODOs" --output-format json`
+            - Automate anything: `crok -p "summarize new TODOs" --output-format json`
               runs headless — great for scripts and CI.
-            - Stay current with `grok update`; see what changed with `/release-notes`.
+            - Stay current with `crok update`; see what changed with `/release-notes`.
             - Something feel off? `/feedback <text>` goes straight to the team, and bare
               `/feedback` opens a form with your saved drafts.
 

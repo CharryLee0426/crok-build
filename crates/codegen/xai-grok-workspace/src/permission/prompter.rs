@@ -13,7 +13,7 @@ use xai_grok_mcp::servers::parse_mcp_qualified_name;
 use xai_grok_session_events::{Event, EventWriter, PermissionDecision};
 use xai_grok_tools::implementations::grok_build::web_fetch::domain_from_url;
 
-const REJECT_ONCE_LABEL: &str = "No, and tell Grok what to do differently";
+const REJECT_ONCE_LABEL: &str = "No, and tell Crok what to do differently";
 
 /// Stable option id for "allow all edits this session", distinct from `"always-allow"` so it maps to [`PromptOutcome::AllowEditsForSession`].
 /// Session-only and never persisted; exposed so the pager does not record it as a sticky cursor target.

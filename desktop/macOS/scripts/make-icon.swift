@@ -161,11 +161,44 @@ let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("Gro
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: iconset) }
 
-// Standard macOS icon footprint, with a restrained monochrome mark. The test variant uses a bright
-// orange field and a dark banner so a workspace build remains recognizable beside the production app.
-let backgroundInset: CGFloat = 0.065
-let backgroundRadius: CGFloat = 0.21
-let markFraction: CGFloat = isTestVariant ? 0.52 : 0.58
+// Apple's macOS icon grid, which the other coding agents' icons (ChatGPT, Claude, Cursor) follow: an
+// 824 pt continuous-corner tile centred on the 1024 pt canvas, leaving room for the drop shadow, with
+// the mark at about half the tile. The test variant uses a bright orange tile and a dark "TESTING"
+// pill so a workspace build stays recognizable beside the production app.
+let tileInset: CGFloat = 100.0 / 1024.0
+/// The tile's outline: a superellipse, which matches the system's continuous-corner icon shape.
+let tileExponent: CGFloat = 5
+let markFraction: CGFloat = isTestVariant ? 0.37 : 0.44
+let markCenterFraction: CGFloat = isTestVariant ? 0.435 : 0.5
+let testPill = CGRect(x: 0.215, y: 0.69, width: 0.57, height: 0.125)
+let tileTop = isTestVariant ? (1.0, 0.525, 0.184) : (0.184, 0.184, 0.196)
+let tileBottom = isTestVariant ? (0.945, 0.353, 0.024) : (0.043, 0.043, 0.047)
+
+/// Points on the tile's outline within `frame`, clockwise from the right-hand edge.
+func tileOutline(in frame: CGRect, samples: Int = 720) -> [CGPoint] {
+    (0..<samples).map { index in
+        let angle = CGFloat(index) / CGFloat(samples) * 2 * .pi
+        let cosine = cos(angle), sine = sin(angle)
+        let x = pow(abs(cosine), 2 / tileExponent) * (cosine < 0 ? -1 : 1)
+        let y = pow(abs(sine), 2 / tileExponent) * (sine < 0 ? -1 : 1)
+        return CGPoint(x: frame.midX + x * frame.width / 2, y: frame.midY + y * frame.height / 2)
+    }
+}
+
+func tilePath(in frame: CGRect) -> CGPath {
+    let path = CGMutablePath()
+    path.addLines(between: tileOutline(in: frame))
+    path.closeSubpath()
+    return path
+}
+
+func color(_ rgb: (Double, Double, Double), alpha: CGFloat = 1) -> CGColor {
+    CGColor(red: rgb.0, green: rgb.1, blue: rgb.2, alpha: alpha)
+}
+
+func hex(_ rgb: (Double, Double, Double)) -> String {
+    String(format: "#%02X%02X%02X", Int((rgb.0 * 255).rounded()), Int((rgb.1 * 255).rounded()), Int((rgb.2 * 255).rounded()))
+}
 
 func render(pixels: Int) throws -> Data {
     guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
@@ -177,17 +210,44 @@ func render(pixels: Int) throws -> Data {
     let side = CGFloat(pixels)
     context.setAllowsAntialiasing(true); context.setShouldAntialias(true)
     context.translateBy(x: 0, y: side); context.scaleBy(x: 1, y: -1)
-    let frame = CGRect(x: side * backgroundInset, y: side * backgroundInset,
-                       width: side * (1 - 2 * backgroundInset), height: side * (1 - 2 * backgroundInset))
-    context.setFillColor(isTestVariant
-        ? CGColor(red: 1.0, green: 0.42, blue: 0.055, alpha: 1)
-        : CGColor(gray: 17.0 / 255.0, alpha: 1))
-    context.addPath(CGPath(roundedRect: frame, cornerWidth: side * backgroundRadius, cornerHeight: side * backgroundRadius, transform: nil))
+    let frame = CGRect(x: side * tileInset, y: side * tileInset,
+                       width: side * (1 - 2 * tileInset), height: side * (1 - 2 * tileInset))
+    let tile = tilePath(in: frame)
+
+    // The system's icon shadow: soft, and a little below the tile. Shadow offsets ignore the flip.
+    context.saveGState()
+    context.setShadow(offset: CGSize(width: 0, height: -side * 10 / 1024), blur: side * 22 / 1024,
+                      color: CGColor(gray: 0, alpha: isTestVariant ? 0.28 : 0.4))
+    context.addPath(tile)
+    context.setFillColor(color(tileBottom))
     context.fillPath()
+    context.restoreGState()
+
+    // A gentle top-to-bottom gradient, lighter at the top as though lit from above.
+    context.saveGState()
+    context.addPath(tile)
+    context.clip()
+    if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+       let gradient = CGGradient(colorsSpace: colorSpace, colors: [color(tileTop), color(tileBottom)] as CFArray, locations: [0, 1]) {
+        context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: frame.minY), end: CGPoint(x: 0, y: frame.maxY), options: [])
+    }
+    context.restoreGState()
+
+    // A faint bezel along the edge, as on the system's icons.
+    if pixels >= 64 {
+        context.saveGState()
+        context.addPath(tile)
+        context.clip()
+        context.addPath(tile)
+        context.setLineWidth(side * 5 / 1024)
+        context.setStrokeColor(CGColor(gray: 1, alpha: isTestVariant ? 0.22 : 0.14))
+        context.strokePath()
+        context.restoreGState()
+    }
 
     context.saveGState()
     let scale = side * markFraction / max(viewBox.width, viewBox.height)
-    let markCenterY = isTestVariant ? side * 0.39 : side / 2
+    let markCenterY = side * markCenterFraction
     context.translateBy(x: (side - viewBox.width * scale) / 2, y: markCenterY - viewBox.height * scale / 2)
     context.scaleBy(x: scale, y: scale)
     context.translateBy(x: -viewBox.minX, y: -viewBox.minY)
@@ -199,16 +259,17 @@ func render(pixels: Int) throws -> Data {
     context.restoreGState()
 
     if isTestVariant {
-        let banner = CGRect(x: side * 0.09, y: side * 0.755, width: side * 0.82, height: side * 0.165)
-        context.setFillColor(CGColor(red: 0.70, green: 0.20, blue: 0.025, alpha: 1))
-        context.addPath(CGPath(roundedRect: banner, cornerWidth: side * 0.045, cornerHeight: side * 0.045, transform: nil))
+        let banner = CGRect(x: side * testPill.minX, y: side * testPill.minY, width: side * testPill.width, height: side * testPill.height)
+        context.setFillColor(CGColor(red: 0.15, green: 0.06, blue: 0.02, alpha: 0.82))
+        context.addPath(CGPath(roundedRect: banner, cornerWidth: banner.height / 2, cornerHeight: banner.height / 2, transform: nil))
         context.fillPath()
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         let text = "TESTING" as NSString
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: side * 0.09, weight: .heavy),
+            .font: NSFont.systemFont(ofSize: side * 0.068, weight: .heavy),
+            .kern: side * 0.004,
             .foregroundColor: NSColor.white,
             .paragraphStyle: paragraph
         ]
@@ -255,19 +316,34 @@ if let preview {
 let vectorSide: CGFloat = 1024
 let vectorScale = vectorSide * markFraction / max(viewBox.width, viewBox.height)
 let vectorX = (vectorSide - viewBox.width * vectorScale) / 2 - viewBox.minX * vectorScale
-let vectorMarkCenterY = isTestVariant ? vectorSide * 0.39 : vectorSide / 2
+let vectorMarkCenterY = vectorSide * markCenterFraction
 let vectorY = vectorMarkCenterY - viewBox.height * vectorScale / 2 - viewBox.minY * vectorScale
 let paths = reader.shapes.map { "    <path d=\"\(escapedXML($0.data))\" fill-rule=\"\($0.evenOdd ? "evenodd" : "nonzero")\"/>" }.joined(separator: "\n")
-let title = isTestVariant ? "Grok Desktop test app icon" : "Grok Desktop app icon"
-let backgroundFill = isTestVariant ? "#FF6B0E" : "#111"
+let title = isTestVariant ? "Crok Desktop test app icon" : "Crok Desktop app icon"
+let vectorTile = CGRect(x: vectorSide * tileInset, y: vectorSide * tileInset,
+                        width: vectorSide * (1 - 2 * tileInset), height: vectorSide * (1 - 2 * tileInset))
+let tileOutlineData = tileOutline(in: vectorTile, samples: 240).enumerated()
+    .map { String(format: "%@%.2f %.2f", $0.offset == 0 ? "M" : "L", $0.element.x, $0.element.y) }.joined(separator: " ") + " Z"
+let pill = CGRect(x: vectorSide * testPill.minX, y: vectorSide * testPill.minY, width: vectorSide * testPill.width, height: vectorSide * testPill.height)
 let banner = isTestVariant ? """
-  <rect x="92.16" y="773.12" width="839.68" height="168.96" rx="46.08" fill="#B33306"/>
-  <text x="512" y="858" fill="#fff" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" font-size="92" font-weight="800" text-anchor="middle" dominant-baseline="middle">TESTING</text>
+  <rect x="\(pill.minX)" y="\(pill.minY)" width="\(pill.width)" height="\(pill.height)" rx="\(pill.height / 2)" fill="#260F05" fill-opacity="0.82"/>
+  <text x="512" y="\(pill.midY)" fill="#fff" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" font-size="70" font-weight="800" letter-spacing="4" text-anchor="middle" dominant-baseline="central">TESTING</text>
 """ : ""
 let svg = """
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <title>\(title)</title>
-  <rect x="\(vectorSide * backgroundInset)" y="\(vectorSide * backgroundInset)" width="\(vectorSide * (1 - 2 * backgroundInset))" height="\(vectorSide * (1 - 2 * backgroundInset))" rx="\(vectorSide * backgroundRadius)" fill="\(backgroundFill)"/>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="\(hex(tileTop))"/>
+      <stop offset="1" stop-color="\(hex(tileBottom))"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="10" stdDeviation="11" flood-color="#000" flood-opacity="\(isTestVariant ? 0.28 : 0.4)"/>
+    </filter>
+    <clipPath id="tile-clip"><path d="\(tileOutlineData)"/></clipPath>
+  </defs>
+  <path d="\(tileOutlineData)" fill="url(#tile)" filter="url(#shadow)"/>
+  <path d="\(tileOutlineData)" fill="none" stroke="#fff" stroke-opacity="\(isTestVariant ? 0.22 : 0.14)" stroke-width="5" clip-path="url(#tile-clip)"/>
   <g fill="#fff" transform="translate(\(vectorX) \(vectorY)) scale(\(vectorScale))">
 \(paths)
   </g>

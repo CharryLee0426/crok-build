@@ -116,7 +116,7 @@ enum ExtensionErrorText {
     /// ACP errors often carry the useful detail in `data` (for example "session not found: …").
     static func describe(_ error: Error) -> String {
         if case ACPClientError.remote(let code, let message, let data) = error {
-            if code == -32601 { return "This version of the Grok harness doesn't support that request." }
+            if code == -32601 { return "This version of the Crok harness doesn't support that request." }
             if let detail = data as? String, !detail.isEmpty, detail != message { return "\(message): \(detail)" }
             return message
         }
@@ -156,15 +156,6 @@ struct MCPAddRequest: Equatable {
         var value: [String: Any] = ["server_name": name, "enabled": true]
         if let url { value["url"] = url } else { value["command"] = command ?? ""; value["args"] = arguments }
         return value
-    }
-}
-
-/// grok.com connectors, with the team deep link when the account belongs to a team.
-enum ConnectorsLink {
-    static func url(teamID: String?) -> URL {
-        var components = URLComponents(string: "https://grok.com/connectors")!
-        if let teamID, !teamID.isEmpty { components.queryItems = [URLQueryItem(name: "teamId", value: teamID)] }
-        return components.url!
     }
 }
 

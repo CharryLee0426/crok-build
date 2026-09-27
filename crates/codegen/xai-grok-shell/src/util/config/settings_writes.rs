@@ -465,6 +465,17 @@ pub async fn set_voice_stt_language(value: String) -> Result<()> {
     update_config(|cfg| cfg.ui.voice_stt_language = Some(value)).await
 }
 
+/// Persist `[ui].voice_stt_provider` via `update_config`.
+/// Value is one of the canonical strings `openrouter` | `xai`.
+pub async fn set_voice_stt_provider(value: String) -> Result<()> {
+    update_config(|cfg| cfg.ui.voice_stt_provider = Some(value)).await
+}
+
+/// Persist `[ui].voice_stt_model` via `update_config`. Value is an OpenRouter transcription model slug.
+pub async fn set_voice_stt_model(value: String) -> Result<()> {
+    update_config(|cfg| cfg.ui.voice_stt_model = Some(value)).await
+}
+
 /// Persist `[ui].voice_keybind_enabled` via `update_config`.
 /// When `false` the Ctrl+Space / F8 voice chord is ignored (`/voice` still works).
 pub async fn set_voice_keybind_enabled(value: bool) -> Result<()> {

@@ -57,6 +57,7 @@ struct ContentView: View {
                     }
                 }
             }
+            .overlay { TitleBarGlass() }
             .overlay(alignment: .topTrailing) { DebugOverlay() }
             .background { GlassBackdrop(role: .canvas).ignoresSafeArea() }
             .navigationTitle(store.conversation?.title ?? "New task")

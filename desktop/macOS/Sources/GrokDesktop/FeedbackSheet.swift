@@ -125,7 +125,7 @@ enum FeedbackTraceChoice: CaseIterable, Identifiable {
 // MARK: - Copy
 
 enum FeedbackCopy {
-    static let thanks = "Thanks for the feedback! The Grok Build team is on it."
+    static let thanks = "Thanks for the feedback! The Crok Build team is on it."
     static let emptySubmit = "Add feedback text or an image before sending."
     static let draftNeedsType = "Choose a type before sending this draft."
     static let needsTask = "Open a task to send feedback: it is sent with that task's session details."
@@ -513,7 +513,7 @@ struct FeedbackSheet: View {
     }
 
     var body: some View {
-        DesktopPanel(title: "Feedback", subtitle: "Tell the Grok Build team what worked, what didn't, and what's missing.",
+        DesktopPanel(title: "Feedback", subtitle: "Tell the Crok Build team what worked, what didn't, and what's missing.",
                      width: 660, height: 640, onClose: close) {
             VStack(spacing: 0) {
                 if !traceStep {
@@ -694,7 +694,7 @@ struct FeedbackSheet: View {
                         let visible = rows.filter { $0.matches(draftQuery) }
                         if visible.isEmpty {
                             UsageEmptyState(symbol: rows.isEmpty ? "tray" : "magnifyingglass", title: rows.isEmpty ? "No drafts." : "No matching drafts.",
-                                            detail: rows.isEmpty ? "Reports that could not be sent, and drafts Grok prepares for you, appear here." : "Try a different search.")
+                                            detail: rows.isEmpty ? "Reports that could not be sent, and drafts Crok prepares for you, appear here." : "Try a different search.")
                         }
                         ForEach(visible) { draftRow($0) }
                     }
@@ -741,7 +741,7 @@ struct FeedbackSheet: View {
             Button("Cancel", action: close)
             Button(sending ? "Sending…" : "Send", action: submit).keyboardShortcut(.defaultAction).disabled(sending)
         } else if tab == .write {
-            Text("⌘↩ to send · Goes to the Grok Build team with this task's session ID.")
+            Text("⌘↩ to send · Goes to the Crok Build team with this task's session ID.")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
             Spacer(minLength: 0)
             if sending { ProgressView().controlSize(.small) }

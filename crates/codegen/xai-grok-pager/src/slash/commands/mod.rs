@@ -31,8 +31,6 @@ pub mod imagine;
 pub mod imagine_video;
 pub mod import_claude;
 pub mod jump;
-pub mod login;
-pub mod logout;
 pub mod loop_cmd;
 pub mod mcps;
 pub mod memory;
@@ -43,7 +41,6 @@ pub mod new;
 pub mod personas;
 pub mod plan;
 pub mod plugin;
-pub mod privacy;
 pub mod queue;
 pub mod recap;
 pub mod release_notes;
@@ -149,11 +146,8 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(release_notes::ReleaseNotesCommand),
         Arc::new(announcements::AnnouncementsCommand),
         Arc::new(feedback::FeedbackCommand),
-        Arc::new(privacy::PrivacyCommand),
         Arc::new(doctor::DoctorCommand),
         Arc::new(import_claude::ImportClaudeCommand),
-        Arc::new(login::LoginCommand),
-        Arc::new(logout::LogoutCommand),
         Arc::new(home::HomeCommand),
         Arc::new(delete::DeleteCommand),
         Arc::new(help::HelpCommand),

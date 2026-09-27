@@ -371,6 +371,10 @@ pub struct PagerLocalSnapshot {
     /// Live `voice_config.language` at snapshot time.
     /// Lets the modal show the language actually in effect when `[ui].voice_stt_language` is unset but an explicit `[voice].language` applies.
     pub voice_stt_language: String,
+    /// Live `voice_config.provider` at snapshot time (shown when `[ui].voice_stt_provider` is unset).
+    pub voice_stt_provider: &'static str,
+    /// Live `voice_config.model` at snapshot time (shown when `[ui].voice_stt_model` is unset).
+    pub voice_stt_model: String,
     /// Mirrors `AppView::subagent_model_inheritance` at snapshot time.
     pub subagent_model_inheritance: FeatureOverrideState,
 }
@@ -396,6 +400,8 @@ impl Default for PagerLocalSnapshot {
             auto_mode_gate: false,
             ask_user_question_timeout_enabled: None,
             voice_stt_language: xai_grok_voice::STT_LANGUAGE_DEFAULT.to_string(),
+            voice_stt_provider: xai_grok_voice::VoiceProvider::default().as_str(),
+            voice_stt_model: xai_grok_voice::DEFAULT_OPENROUTER_STT_MODEL.to_string(),
             subagent_model_inheritance: FeatureOverrideState::new(
                 Feature::SubagentModelInheritance,
             ),
@@ -419,6 +425,11 @@ pub fn canonical_voice_capture_mode(value: Option<&str>) -> &'static str {
 /// the official Grok STT languages plus the client-only `auto`.
 pub fn canonical_voice_stt_language(value: Option<&str>) -> &'static str {
     xai_grok_voice::canonicalize_stt_language(value)
+}
+
+/// Canonicalize a raw voice STT provider (`openrouter` | `xai`); blank and unknown values fall back to `openrouter`.
+pub fn canonical_voice_stt_provider(value: Option<&str>) -> &'static str {
+    xai_grok_voice::VoiceProvider::canonical(value).as_str()
 }
 
 /// Canonicalize a raw hunk-tracker mode to a registry choice.
@@ -673,6 +684,21 @@ pub fn current_value_for(
                 .as_deref()
                 .unwrap_or(&pager.voice_stt_language),
         )))),
+        // SHELL: `[ui].voice_stt_provider`, else the live provider (which may come from `[voice].provider`)
+        "voice_stt_provider" => Some(SettingValue::Enum(canonical_voice_stt_provider(Some(
+            ui.voice_stt_provider
+                .as_deref()
+                .unwrap_or(pager.voice_stt_provider),
+        )))),
+        // SHELL: `[ui].voice_stt_model`, else the live model (which may come from `[voice].model`)
+        "voice_stt_model" => Some(SettingValue::String(xai_grok_voice::canonical_stt_model(
+            Some(
+                ui.voice_stt_model
+                    .as_deref()
+                    .filter(|m| !m.trim().is_empty())
+                    .unwrap_or(&pager.voice_stt_model),
+            ),
+        ))),
         // Theme: unknown disk values fall through to the canonical default
         // auto_dark_theme and auto_light_theme additionally filter out "auto" (a circular reference)
         "theme" => Some(SettingValue::Enum(
@@ -1144,6 +1170,24 @@ mod tests {
                         *default,
                         canonical_voice_stt_language(ui.voice_stt_language.as_deref()),
                         "voice_stt_language default drifts from UiConfig::default()",
+                    );
+                }
+                // voice_stt_provider: Option<String>; None reads as "openrouter"
+                ("voice_stt_provider", SettingKind::Enum { default, .. }) => {
+                    assert_eq!(ui.voice_stt_provider, None);
+                    assert_eq!(
+                        *default,
+                        canonical_voice_stt_provider(ui.voice_stt_provider.as_deref()),
+                        "voice_stt_provider default drifts from UiConfig::default()",
+                    );
+                }
+                // voice_stt_model: Option<String>; None reads as the voice crate's default model
+                ("voice_stt_model", SettingKind::String { default, .. }) => {
+                    assert_eq!(ui.voice_stt_model, None);
+                    assert_eq!(
+                        *default,
+                        xai_grok_voice::canonical_stt_model(ui.voice_stt_model.as_deref()),
+                        "voice_stt_model default drifts from the voice crate default",
                     );
                 }
                 // hunk_tracker_mode: Option<String>; None reads as "off"

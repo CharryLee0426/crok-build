@@ -92,53 +92,38 @@
     element.addEventListener("click", action);
     return element;
   }
-  const hasPayload = value => {
-    if (value == null) return false;
-    if (typeof value === "string") return value.trim() !== "";
-    if (Array.isArray(value)) return value.length > 0;
-    if (typeof value === "object") return Object.keys(value).length > 0;
-    if (typeof value === "boolean") return value;
-    return true;
-  };
-  function rawIsEncrypted(event) {
-    if (!event) return false;
-    const raw = eventPayload(event);
-    const kind = String(event.kind || "").trim().toLowerCase();
-    const reasoningKind = kind.includes("reasoning") || kind === "agent_thought_chunk"
-      || kind === "thinking" || kind.endsWith("_thinking");
-    if (!reasoningKind) return false;
-    if (event.encrypted === true) return true;
-    if (!raw || typeof raw !== "object") return false;
-    if (hasPayload(raw.encrypted_content) || hasPayload(raw.encrypted) || hasPayload(raw.signature)
-      || hasPayload(raw.reasoning?.encrypted) || hasPayload(raw.reasoning?.encrypted_content)) return true;
-    if (raw.type === "redacted_thinking" && hasPayload(raw.data)) return true;
-    return [raw.content, raw.summary].some(parts => Array.isArray(parts) && parts.some(part =>
-      part && part.type === "redacted_thinking" && hasPayload(part.data)
-    ));
+  /* Rust classifies reasoning before export. A readable copy of the summary is "none". */
+  function encryptionOf(item) {
+    const value = item && item.encryption;
+    return value === "partial" || value === "full" ? value : "none";
   }
-  function isEncrypted(item) {
-    if (!item || item.kind !== "reasoning") return false;
-    if (item.encrypted === true) return true;
-    return Array.isArray(item.event_indices)
-      && item.event_indices.some(index => rawIsEncrypted(eventsByIndex.get(index)));
+  function encryptionPhrase(level) {
+    return level === "partial"
+      ? "Encrypted reasoning; the text shown is a summary"
+      : "Encrypted reasoning; readable contents are unavailable";
   }
-  function encryptedBadge() {
+  function encryptedBadge(level) {
     const badge = node("span", "encrypted-badge");
-    badge.append(node("span", "encrypted-glyph", "🔒"), node("span", "", "Encrypted"));
-    badge.setAttribute("aria-label", "Encrypted reasoning");
+    badge.append(node("span", "encrypted-glyph", "🔒"), node("span", "", level === "partial" ? "Summary" : "Encrypted"));
+    badge.setAttribute("aria-label", encryptionPhrase(level));
     return badge;
   }
-  function encryptedNotice() {
-    return node("p", "encrypted-note", "🔒 Encrypted reasoning was recorded; its readable contents are unavailable.");
+  function encryptedNotice(level) {
+    return node("p", "encrypted-note", level === "partial"
+      ? "🔒 This is a readable summary. The full reasoning was recorded only in encrypted form."
+      : "🔒 Encrypted reasoning was recorded; its readable contents are unavailable.");
   }
-  function encryptedLock(select) {
+  function isEncrypted(item) {
+    return encryptionOf(item) !== "none";
+  }
+  function encryptedLock(level, select) {
     const lock = button("", "encrypted-lock", event => {
       event.stopPropagation();
       select();
-      announce("Encrypted reasoning is recorded; its readable contents are unavailable.");
+      announce(encryptionPhrase(level) + ".");
     });
-    lock.setAttribute("aria-label", "Encrypted reasoning");
-    lock.title = "Encrypted reasoning; readable contents are unavailable";
+    lock.setAttribute("aria-label", encryptionPhrase(level));
+    lock.title = encryptionPhrase(level);
     lock.append(node("span", "encrypted-glyph", "🔒"));
     return lock;
   }
@@ -224,8 +209,8 @@
       kinds: () => [...new Set(events.map(event => event.kind))].sort().map(kind => [kind, human(kind)]),
       kindOf: event => event.kind,
       isError: isEventError,
-      isEncrypted: rawIsEncrypted,
-      summary: event => `${event.title}\n${event.text}\n${event.kind}\n${event.source}\n${event.tool_call_id || ""}\n${event.status || ""}\n${event.timestamp || ""}\n${rawIsEncrypted(event) ? "encrypted reasoning" : ""}`,
+      isEncrypted,
+      summary: event => `${event.title}\n${event.text}\n${event.kind}\n${event.source}\n${event.tool_call_id || ""}\n${event.status || ""}\n${event.timestamp || ""}\n${isEncrypted(event) ? "encrypted reasoning" : ""}`,
       deep: event => cachedSearch(`r${event.index}`, () => JSON.stringify(event.raw)),
       boundary: event => {
         if (!event.timestamp) return `Recorded transcript · ${event.source}${event.turn == null ? "" : ` · Turn ${event.turn}`}`;
@@ -378,7 +363,7 @@
       element.type = "button";
       element.tabIndex = -1;
       element.dataset.entry = String(span.entry.index);
-      element.setAttribute("aria-label", `${KIND_LABELS[span.entry.kind]}: ${span.entry.title}${isEncrypted(span.entry) ? ", encrypted reasoning" : ""}`);
+      element.setAttribute("aria-label", `${KIND_LABELS[span.entry.kind]}: ${span.entry.title}${isEncrypted(span.entry) ? `, ${encryptionPhrase(encryptionOf(span.entry))}` : ""}`);
       element.style.setProperty("--color", `var(--${span.entry.kind})`);
       element.style.left = percent(start);
       element.style.width = percent(width);
@@ -485,7 +470,7 @@
     const total = entryDuration(entry);
     if (total != null && total > 0) facts.push(`Total ${duration(total)}`);
     if (entry.wait_ms != null) facts.push(`First token after ${duration(entry.wait_ms)}`);
-    if (isEncrypted(entry)) facts.push("Encrypted reasoning");
+    if (isEncrypted(entry)) facts.push(encryptionOf(entry) === "partial" ? "Summary of encrypted reasoning" : "Encrypted reasoning");
     if (entry.status) facts.push(entry.status);
     if (facts.length) lines.push(facts.join(" · "));
     return lines;
@@ -659,7 +644,7 @@
     const requested = entry.kind === "assistant" && !entry.text.trim() ? requestedTools(entry) : [];
     const preview = requested.length ? `→ ${requested.join(", ")}` : entry.text.slice(0, 1200).replace(/\s+/g, " ").slice(0, 500);
     if (preview) summary.append(node("span", "event-preview", preview));
-    if (isEncrypted(entry)) summary.append(encryptedBadge());
+    if (isEncrypted(entry)) summary.append(encryptedBadge(encryptionOf(entry)));
     const offset = entry.start_ms == null ? "—" : `+${duration(entry.start_ms - timeline.origin)}`;
     const total = entryDuration(entry);
     const title = entry.start_ms == null ? "Timing not recorded" : `${date(entry.start_ms)}${entry.end_ms == null && entry.kind === "tool" ? " · no completion recorded" : ""}`;
@@ -670,7 +655,7 @@
     summary.append(node("span", "event-title", event.title || human(event.kind)));
     const preview = recordPreview(event);
     if (preview) summary.append(node("span", "event-preview", preview));
-    if (rawIsEncrypted(event)) summary.append(encryptedBadge());
+    if (isEncrypted(event)) summary.append(encryptedBadge(encryptionOf(event)));
     const offset = event.elapsed_ms != null ? `+${duration(event.elapsed_ms)}` : event.timestamp ? time(event.timestamp) : "—";
     const title = event.timestamp ? date(event.timestamp) : "Timestamp not recorded";
     return { label: `Record ${event.index + 1}, ${human(event.kind)}: ${event.title}`, cells: [node("span", `event-kind ${category(event)}`, recordKindLabel(event)), summary, timeCell(offset, event.duration_ms, title)] };
@@ -719,13 +704,14 @@
       const { label, cells } = current.row(item);
       row.dataset.index = String(item.index);
       row.setAttribute("aria-current", String(item.index === state.selected));
-      row.setAttribute("aria-label", `${label}${current.isError(item) ? ", error" : ""}${current.isEncrypted(item) ? ", encrypted reasoning" : ""}`);
-      if (current.isEncrypted(item)) row.dataset.encrypted = "true";
+      const level = encryptionOf(item);
+      row.setAttribute("aria-label", `${label}${current.isError(item) ? ", error" : ""}${level === "none" ? "" : `, ${encryptionPhrase(level)}`}`);
+      if (level !== "none") row.dataset.encrypted = "true";
       row.append(...cells);
       wrapper.append(row);
-      if (current.isEncrypted(item)) {
+      if (level !== "none") {
         wrapper.classList.add("has-encrypted");
-        wrapper.append(encryptedLock(() => selectItem(item.index, true, true)));
+        wrapper.append(encryptedLock(level, () => selectItem(item.index, true, true)));
       }
       fragment.append(wrapper);
     }
@@ -844,10 +830,14 @@
     return panel;
   }
   function syncDetailLock(item) {
-    const encrypted = view().isEncrypted(item);
+    const level = encryptionOf(item);
     const lock = $("detail-lock");
-    lock.hidden = !encrypted;
-    lock.setAttribute("aria-hidden", String(!encrypted));
+    lock.hidden = level === "none";
+    lock.dataset.encryption = level;
+    const phrase = level === "none" ? "Encrypted reasoning" : encryptionPhrase(level);
+    lock.title = phrase;
+    lock.setAttribute("aria-label", phrase);
+    lock.setAttribute("aria-hidden", String(level === "none"));
   }
   function renderInspector(focusTab = false) {
     const item = view().byIndex.get(state.selected);
@@ -875,7 +865,7 @@
     const tools = entryTools(entry);
     const tabs = entry.kind === "tool" ? [["input", "Input"], ["output", "Output"], ["raw", "Raw"]] : [["content", "Content"], ["raw", "Raw"]];
     const panel = renderTabs(tabs, focusTab);
-    if (isEncrypted(entry)) panel.append(encryptedNotice());
+    if (isEncrypted(entry)) panel.append(encryptedNotice(encryptionOf(entry)));
     if (state.tab === "raw") {
       panel.append(button("Download records JSON", "text-button", () => download(entryRaw(entry), `grok-trace-entry-${entry.index + 1}.json`)));
       for (const index of entry.event_indices) {
@@ -936,7 +926,7 @@
     $("detail-title").textContent = event.title || human(event.kind);
     $("detail-meta").textContent = [`#${event.index + 1}`, event.turn == null ? null : `Turn ${event.turn}`, event.status, event.duration_ms == null ? null : duration(event.duration_ms)].filter(present).join(" · ");
     const panel = renderTabs(linked.length ? [["input", "Input"], ["output", "Output"], ["raw", "Raw"]] : [["content", "Content"], ["raw", "Raw"]], focusTab);
-    if (rawIsEncrypted(event)) panel.append(encryptedNotice());
+    if (isEncrypted(event)) panel.append(encryptedNotice(encryptionOf(event)));
     if (state.tab === "raw") {
       panel.append(button("Download record JSON", "text-button", () => download(event.raw, `grok-trace-record-${event.index + 1}.json`)), code(event.raw));
     } else if (linked.length) {
@@ -1113,7 +1103,10 @@
   $("view-records").addEventListener("click", () => switchView("records"));
   $("reset-filters").addEventListener("click", clearFilters);
   $("next-error").addEventListener("click", nextError);
-  $("detail-lock").addEventListener("click", () => announce("Encrypted reasoning is recorded; its readable contents are unavailable."));
+  $("detail-lock").addEventListener("click", () => {
+    const level = $("detail-lock").dataset.encryption;
+    announce(`${encryptionPhrase(level === "partial" ? "partial" : "full")}.`);
+  });
   $("copy").addEventListener("click", copyJson);
   $("close-inspector").addEventListener("click", () => closeInspector());
   // Export the exact embedded document: JSON.parse would round integers above 2^53.

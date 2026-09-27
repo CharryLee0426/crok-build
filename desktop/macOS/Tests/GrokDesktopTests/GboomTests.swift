@@ -496,7 +496,7 @@ final class GboomTests: XCTestCase {
     /// Writes the frames and the window when GROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
     @MainActor
     func testRenderGboomSnapshots() throws {
-        guard let output = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let directory = URL(fileURLWithPath: output)
         func write(_ session: GboomSession, _ name: String, paused: Bool = false) throws {
             session.render(width: 480, height: 320, paused: paused)

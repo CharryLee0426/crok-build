@@ -132,7 +132,7 @@ final class SessionFeatureTests: XCTestCase {
         XCTAssertTrue(parsed.bootstrapping)
         XCTAssertEqual(parsed.rows.map(\.id), ["s-2", "s-3"])
         XCTAssertEqual(parsed.rows[0].snippet, "the flaky test")
-        XCTAssertEqual(parsed.rows[1].title, "Grok task")
+        XCTAssertEqual(parsed.rows[1].title, "Crok task")
         XCTAssertNil(parsed.rows[1].updatedAt)
     }
 
@@ -230,7 +230,7 @@ final class SessionFeatureTests: XCTestCase {
         XCTAssertEqual(try DoctorRequest.parse("fix terminal.ssh-wrap"), .fix(DoctorFixSpec.resolve("ssh-wrap")!))
         XCTAssertEqual(try DoctorRequest.parse("fix tmux-truecolor"), .fix(DoctorFixSpec.resolve("terminal.tmux-truecolor")!))
         XCTAssertThrowsError(try DoctorRequest.parse("fix nope")) { error in
-            XCTAssertEqual(error.localizedDescription, "`nope` is not an available Doctor fix. Run `grok doctor fix` to list available fixes.\nUsage: /doctor [fix [ssh-wrap|tmux-clipboard|dcs-passthrough|tmux-extended-keys]]")
+            XCTAssertEqual(error.localizedDescription, "`nope` is not an available Doctor fix. Run `crok doctor fix` to list available fixes.\nUsage: /doctor [fix [ssh-wrap|tmux-clipboard|dcs-passthrough|tmux-extended-keys]]")
         }
         XCTAssertThrowsError(try DoctorRequest.parse("status")) { XCTAssertEqual($0.localizedDescription, DoctorRequest.usage) }
         XCTAssertThrowsError(try DoctorRequest.parse("fix a b")) { XCTAssertEqual($0.localizedDescription, DoctorRequest.usage) }
@@ -259,7 +259,7 @@ final class SessionFeatureTests: XCTestCase {
     func testDoctorFindingsCarryRemediationsAndAutomaticFixes() throws {
         let report = try DoctorReport.decode(Data(#"""
         {"schemaVersion":"1","facts":{"terminal":{"name":"iterm2","xtversion":{"status":"available","value":"iTerm2 3.5"}},
-         "multiplexer":{"kind":"tmux","byobu":null},"ssh":true,"color":{"level":{"status":"available","value":"truecolor"},"availableThemes":["Grok Night"],"totalThemes":5},
+         "multiplexer":{"kind":"tmux","byobu":null},"ssh":true,"color":{"level":{"status":"available","value":"truecolor"},"availableThemes":["Crok Night"],"totalThemes":5},
          "keyboard":{"cmd":"delivered","opt":"meta","os":"macos"},"newline":{"kind":"vte","version":"7600"},"clipboard":{"nativeRoute":false,"nativeTool":"","nativePreflight":"not_applicable",
          "tmuxRoute":true,"osc52Route":true,"osc52Capability":"supported","wrapSink":false,"displayServer":"none","containerNoDisplay":false,"dataControl":"not_applicable","delivery":"unverified","fix":"set -g set-clipboard on"}},
          "findings":[{"id":"clipboard.delivery-unverified","disposition":"issue","message":"Copy may not reach your computer","remediation":{"fix":"set -g set-clipboard on","configPath":"~/.tmux.conf"},
@@ -276,10 +276,10 @@ final class SessionFeatureTests: XCTestCase {
 
     func testDoctorTerminalScriptQuotesTheRuntimePath() throws {
         let fix = try XCTUnwrap(DoctorFixSpec.resolve("tmux-extended-keys"))
-        let script = DoctorTerminalScript.contents(binary: "/Applications/Grok Desktop.app/Contents/Resources/it's/grok", fix: fix)
+        let script = DoctorTerminalScript.contents(binary: "/Applications/Crok Desktop.app/Contents/Resources/it's/grok", fix: fix)
         XCTAssertTrue(script.hasPrefix("#!/bin/zsh\n"))
-        XCTAssertTrue(script.contains("'/Applications/Grok Desktop.app/Contents/Resources/it'\\''s/grok' doctor fix tmux-extended-keys\n"))
-        XCTAssertTrue(script.contains("print -r -- 'Grok Doctor · Enable tmux extended keys'"))
+        XCTAssertTrue(script.contains("'/Applications/Crok Desktop.app/Contents/Resources/it'\\''s/grok' doctor fix tmux-extended-keys\n"))
+        XCTAssertTrue(script.contains("print -r -- 'Crok Doctor · Enable tmux extended keys'"))
         let url = try DoctorTerminalScript.write(binary: "/usr/local/bin/grok", fix: fix)
         defer { try? FileManager.default.removeItem(at: url) }
         XCTAssertEqual(url.pathExtension, "command")
@@ -293,8 +293,11 @@ final class SessionFeatureTests: XCTestCase {
         XCTAssertEqual(DoctorDesktopCheck.microphone(.notDetermined).value, "Not requested yet")
         XCTAssertEqual(DoctorDesktopCheck.notifications(.denied).value, "Off")
         XCTAssertEqual(DoctorDesktopCheck.signIn([:]).value, "Not signed in")
-        XCTAssertEqual(DoctorDesktopCheck.signIn([.xai: AccountStatus(state: .connected, identity: "dev@example.com", detail: "Signed in")]).value, "Signed in · xAI")
-        XCTAssertEqual(DoctorDesktopCheck.signIn([.xai: AccountStatus(state: .expired)]).status, .warning)
+        XCTAssertEqual(DoctorDesktopCheck.signIn([:]).detail, "Open Settings and sign in to OpenRouter or OpenAI Codex.")
+        XCTAssertEqual(DoctorDesktopCheck.signIn([.codex: AccountStatus(state: .connected, identity: "dev@example.com", detail: "Signed in")]).value, "Signed in · OpenAI Codex")
+        XCTAssertEqual(DoctorDesktopCheck.signIn([.openrouter: AccountStatus(state: .connected), .codex: AccountStatus(state: .connected)]).value,
+                       "Signed in · OpenRouter, OpenAI Codex")
+        XCTAssertEqual(DoctorDesktopCheck.signIn([.codex: AccountStatus(state: .expired)]).status, .warning)
     }
 
     // MARK: /trace
@@ -309,7 +312,7 @@ final class SessionFeatureTests: XCTestCase {
         let permissions = try FileManager.default.attributesOfItem(atPath: output.deletingLastPathComponent().path)[.posixPermissions] as? NSNumber
         XCTAssertEqual(permissions?.intValue, 0o700)
         XCTAssertEqual(TraceExport.errorSummary(status: 1, stderr: "\nError: bad input\n  caused by: parse\nTrace saved to /x\n"), "Error: bad input\ncaused by: parse")
-        XCTAssertEqual(TraceExport.errorSummary(status: 3, stderr: ""), "grok trace view exited with status 3.")
+        XCTAssertEqual(TraceExport.errorSummary(status: 3, stderr: ""), "crok trace view exited with status 3.")
     }
 
     func testTraceAndDoctorRunTheCLIAndReportFailures() async throws {
@@ -327,7 +330,7 @@ final class SessionFeatureTests: XCTestCase {
           exit 0
         fi
         if [ "$1" = "doctor" ]; then cat "$here/doctor.json"; exit 0; fi
-        if [ "$1" = "--version" ]; then echo "grok 9.9.9 (test) [stable]"; exit 0; fi
+        if [ "$1" = "--version" ]; then echo "crok 9.9.9 (test) [stable]"; exit 0; fi
         exit 2
         """#.write(to: binary, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)
@@ -435,13 +438,13 @@ final class SessionFeatureTests: XCTestCase {
           "id": "terminal.newline-fallback", "disposition": "recommendation",
           "message": "Shift+Enter can't insert a newline because the keyboard protocol is unavailable",
           "remediation": null, "automaticRemediation": null,
-          "note": "Use Alt+Enter to insert a newline. If your terminal supports the Kitty keyboard protocol, enable it and restart Grok."
+          "note": "Use Alt+Enter to insert a newline. If your terminal supports the Kitty keyboard protocol, enable it and restart Crok."
         },
         {
           "id": "voice.no-input-device", "disposition": "issue",
           "message": "Voice dictation is unavailable: mic device lookup did not start within 5s",
           "remediation": null, "automaticRemediation": null,
-          "note": "Connect or select a microphone in your system sound settings. On Linux, install a supported audio recorder if none was found on PATH. Then run `/doctor` or `grok doctor` again. Doctor can't detect denied macOS microphone access when the system returns silence; follow the message shown when dictation fails."
+          "note": "Connect or select a microphone in your system sound settings. On Linux, install a supported audio recorder if none was found on PATH. Then run `/doctor` or `crok doctor` again. Doctor can't detect denied macOS microphone access when the system returns silence; follow the message shown when dictation fails."
         }
       ],
       "probeNotes": [

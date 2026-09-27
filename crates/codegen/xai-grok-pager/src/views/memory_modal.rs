@@ -81,7 +81,7 @@ fn disabled_state_markdown(reason: Option<MemoryDisabledReason>) -> &'static str
             "\
 **Memory is off for this session.** Press **t** to turn it back on.
 
-While off, Grok isn't reading or saving notes; anything already remembered is kept on disk. \
+While off, Crok isn't reading or saving notes; anything already remembered is kept on disk. \
 Memory carries conventions, decisions, and project facts between sessions so you don't have \
 to repeat yourself."
         }
@@ -98,7 +98,7 @@ there (or remove the line) to keep memory on. Anything already remembered is kep
 **Memory is off for this process.** Start a new session without `--no-memory` or \
 `GROK_MEMORY=0` to use it.
 
-Memory was turned off when Grok Build started, so it can't be turned on here. Anything already \
+Memory was turned off when Crok Build started, so it can't be turned on here. Anything already \
 remembered is kept on disk."
         }
         Some(MemoryDisabledReason::RolloutRestricted) => {
@@ -118,7 +118,7 @@ No memory storage is set up for this session, so there is nothing to browse or t
             "\
 **Memory is off for this session.** Press **s** for details.
 
-This session reports a reason this version of Grok Build doesn't recognize; press **t** to try \
+This session reports a reason this version of Crok Build doesn't recognize; press **t** to try \
 turning it back on."
         }
     }

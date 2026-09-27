@@ -209,7 +209,7 @@ fn unchanged_source_is_a_no_op_and_a_changed_source_imports_only_the_delta() {
     assert_eq!(first, fixture.topic("build-test"));
 
     fixture.write_legacy(&format!(
-        "{DREAM_SHAPED}\n## Build & Test\n\nAlso run `cargo fmt --all`.\n\n## Releases\n\nAlpha is `grok update --alpha`.\n"
+        "{DREAM_SHAPED}\n## Build & Test\n\nAlso run `cargo fmt --all`.\n\n## Releases\n\nAlpha is `crok update --alpha`.\n"
     ));
     let report = fixture.run_imported();
     assert_eq!(1, report.topics_created, "Releases is new");
@@ -315,7 +315,7 @@ fn tombstoned_topic_name_is_not_recreated() {
 fn hand_curated_outline_splits_on_top_level_headings() {
     let fixture = Fixture::new();
     fixture.write_legacy(
-        "# Global Memory\n\n# Identity\n\nI work on the Developer org.\n\n## Role\n\nLead.\n\n# People\n\nThe team lead owns Grok Build.\n",
+        "# Global Memory\n\n# Identity\n\nI work on the Developer org.\n\n## Role\n\nLead.\n\n# People\n\nThe team lead owns Crok Build.\n",
     );
     assert_eq!(2, fixture.run_imported().topics_created);
     assert_eq!(
@@ -325,7 +325,7 @@ fn hand_curated_outline_splits_on_top_level_headings() {
     assert!(
         fixture
             .topic("people")
-            .starts_with("# People\nThe team lead owns Grok Build.\n")
+            .starts_with("# People\nThe team lead owns Crok Build.\n")
     );
 }
 

@@ -3,12 +3,12 @@ use super::*;
 #[test]
 fn shorten_location_path_kerem_grok_home() {
     assert_eq!(
-        shorten_location_path("~/.grok/worktrees/code-xai/dashboard-design").as_ref(),
+        shorten_location_path("~/.crok/worktrees/code-xai/dashboard-design").as_ref(),
         "~/.g/w/code-xai/dashboard-design"
     );
     assert_eq!(
-        shorten_location_path("$GROK_HOME/worktrees/code-xai/dashboard-design").as_ref(),
-        "$GROK_HOME/w/code-xai/dashboard-design"
+        shorten_location_path("$CROK_HOME/worktrees/code-xai/dashboard-design").as_ref(),
+        "$CROK_HOME/w/code-xai/dashboard-design"
     );
 }
 
@@ -30,15 +30,15 @@ fn shorten_location_path_short_paths_leave_alone() {
     assert_eq!(shorten_location_path("~").as_ref(), "~");
     assert_eq!(shorten_location_path("~/src").as_ref(), "~/src");
     assert_eq!(shorten_location_path("~/src/repo").as_ref(), "~/src/repo");
-    assert_eq!(shorten_location_path("~/.grok").as_ref(), "~/.grok");
+    assert_eq!(shorten_location_path("~/.crok").as_ref(), "~/.crok");
     assert_eq!(
-        shorten_location_path("~/.grok/worktrees").as_ref(),
-        "~/.grok/worktrees"
+        shorten_location_path("~/.crok/worktrees").as_ref(),
+        "~/.crok/worktrees"
     );
-    assert_eq!(shorten_location_path("$GROK_HOME").as_ref(), "$GROK_HOME");
+    assert_eq!(shorten_location_path("$CROK_HOME").as_ref(), "$CROK_HOME");
     assert_eq!(
-        shorten_location_path("$GROK_HOME/worktrees").as_ref(),
-        "$GROK_HOME/worktrees"
+        shorten_location_path("$CROK_HOME/worktrees").as_ref(),
+        "$CROK_HOME/worktrees"
     );
     assert_eq!(shorten_location_path("/work/xai").as_ref(), "/work/xai");
     assert_eq!(shorten_location_path("relative").as_ref(), "relative");

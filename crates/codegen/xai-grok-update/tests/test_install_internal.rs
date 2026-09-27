@@ -95,7 +95,7 @@ async fn install_internal_pinned_version_writes_binary_and_symlink() {
     assert_eq!(std::fs::read(&downloaded).unwrap(), b"#!/bin/sh\nexit 0\n");
 
     let symlink = home.join("bin").join("grok");
-    assert!(symlink.is_symlink(), "grok symlink created");
+    assert!(symlink.is_symlink(), "crok symlink created");
     let target = std::fs::read_link(&symlink).unwrap();
     assert_eq!(
         target.file_name().unwrap(),
@@ -106,7 +106,7 @@ async fn install_internal_pinned_version_writes_binary_and_symlink() {
     let agent_link = home.join("bin").join("agent");
     assert!(agent_link.is_symlink(), "agent symlink created");
     let agent_target = std::fs::read_link(&agent_link).unwrap();
-    assert_eq!(agent_target, target, "agent and grok point at same target");
+    assert_eq!(agent_target, target, "agent and crok point at same target");
 }
 
 /// Regression: pre-existing `agent` symlink from a prior install must be swapped to the new version, not left stale (the original bug).
@@ -182,7 +182,7 @@ async fn install_internal_rolls_back_grok_when_agent_swap_fails() {
     assert_eq!(
         grok_target.file_name().unwrap(),
         format!("grok-0.1.180-{platform}").as_str(),
-        "grok must be rolled back when agent swap fails"
+        "crok must be rolled back when agent swap fails"
     );
 }
 
@@ -207,7 +207,7 @@ async fn install_internal_rollback_removes_absent_prior_grok_link() {
     std::fs::write(agent_dir.join("blocker"), b"x").unwrap();
     assert!(
         !bin_dir.join("grok").exists() && !bin_dir.join("grok").is_symlink(),
-        "precondition: grok must not exist before install",
+        "precondition: crok must not exist before install",
     );
 
     let err = install_internal_from_base(Some("0.1.181"), &cfg, &server.uri())
@@ -218,7 +218,7 @@ async fn install_internal_rollback_removes_absent_prior_grok_link() {
     let grok_path = bin_dir.join("grok");
     assert!(
         !grok_path.is_symlink() && !grok_path.exists(),
-        "grok must be removed on rollback when there was no prior link",
+        "crok must be removed on rollback when there was no prior link",
     );
 }
 

@@ -88,8 +88,8 @@ struct TutorialWindow: View {
     private var topicList: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Welcome to Grok Build").font(.system(size: 18, weight: .semibold))
-                Text("Quick tips to get the most out of Grok Build.").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text("Welcome to Crok Build").font(.system(size: 18, weight: .semibold))
+                Text("Quick tips to get the most out of Crok Build.").font(.system(size: 12)).foregroundStyle(Theme.muted)
             }.padding(.horizontal, 18).padding(.top, 20).padding(.bottom, 14)
             Divider()
             ScrollView {
@@ -110,9 +110,9 @@ struct TutorialWindow: View {
     private var welcome: some View {
         VStack(spacing: 16) {
             GrokMark(size: 54)
-            Text("Welcome to Grok Build").font(.system(size: 26, weight: .semibold))
+            Text("Welcome to Crok Build").font(.system(size: 26, weight: .semibold))
             VStack(spacing: 4) {
-                Text("Quick tips to get the most out of Grok Build.")
+                Text("Quick tips to get the most out of Crok Build.")
                 Text("Pick a topic. Close the window when you're done.")
             }.font(.system(size: 14)).foregroundStyle(Theme.muted)
             Button { open(firstUnexplored) } label: {
@@ -276,7 +276,7 @@ private struct TutorialDesktopNote: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "macwindow").font(.system(size: 14)).foregroundStyle(Theme.accent).padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text("On Grok Desktop").font(.system(size: 12, weight: .semibold))
+                Text("On Crok Desktop").font(.system(size: 12, weight: .semibold))
                 Text(text).font(.system(size: 13)).foregroundStyle(Theme.ink.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)

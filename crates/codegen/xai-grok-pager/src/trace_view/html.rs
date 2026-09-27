@@ -68,12 +68,12 @@ mod tests {
             "transcript": [{
                 "index": 0, "kind": "reasoning", "title": "Reasoning", "text": "unavailable",
                 "turn": null, "start_ms": null, "end_ms": null, "wait_ms": null,
-                "tool_call_id": null, "status": null, "encrypted": true, "event_indices": []
+                "tool_call_id": null, "status": null, "encryption": "full", "event_indices": []
             }]
         }))
         .unwrap();
         let html = render(&data).unwrap();
-        assert!(html.contains("\"encrypted\":true"));
+        assert!(html.contains("\"encryption\":\"full\""));
         assert!(html.contains("id=\"detail-lock\""));
     }
 

@@ -275,6 +275,103 @@ pub(in crate::app::dispatch) fn set_voice_stt_language(
     }]
 }
 
+/// Shut down a running voice pipeline so the next capture spawns one with the current `voice_config`.
+/// The pipeline holds the config it was spawned with; the event loop respawns lazily whenever `voice_cmd_tx` is None.
+/// Tears down any in-flight session first so the mic indicator clears at once.
+fn recycle_voice_pipeline(app: &mut AppView) {
+    if let Some(tx) = app.voice_cmd_tx.take() {
+        app.voice_reset();
+        let _ = tx.try_send(xai_grok_voice::VoiceCommand::Shutdown);
+    }
+}
+
+/// Mirror the STT provider into `app.current_ui` and `app.voice_config`. Also the rollback path.
+/// The provider decides the auth source and whether the xAI tier gate applies, so both are recomputed.
+pub(super) fn set_voice_stt_provider_inner(app: &mut AppView, provider: xai_grok_voice::VoiceProvider) {
+    let changed = app.voice_config.provider != provider;
+    app.current_ui.voice_stt_provider = Some(provider.as_str().to_string());
+    app.voice_config.provider = provider;
+    if changed {
+        recycle_voice_pipeline(app);
+        app.apply_tier_restrictions();
+        app.ensure_voice_for_api_key();
+    }
+}
+
+/// Set the voice STT provider (`openrouter` | `xai`).
+/// SHELL-owned; persists to `[ui].voice_stt_provider`. Applies to the next capture (no restart).
+pub(in crate::app::dispatch) fn set_voice_stt_provider(
+    app: &mut AppView,
+    value: String,
+) -> Vec<Effect> {
+    let Some(provider) = xai_grok_voice::VoiceProvider::parse(&value) else {
+        app.show_toast(&format!(
+            "Unknown voice provider {:?}: use openrouter or xai",
+            value.trim()
+        ));
+        return vec![];
+    };
+    let prev = app.voice_config.provider;
+    if prev == provider && app.current_ui.voice_stt_provider.as_deref() == Some(provider.as_str())
+    {
+        return vec![];
+    }
+    set_voice_stt_provider_inner(app, provider);
+    refresh_open_settings_modals(app);
+    tracing::info!(target: "settings", key = "voice_stt_provider", value = provider.as_str(), "setting changed");
+    let name = match provider {
+        xai_grok_voice::VoiceProvider::OpenRouter => "OpenRouter",
+        xai_grok_voice::VoiceProvider::Xai => "xAI (Grok STT)",
+    };
+    app.show_toast(&format!("\u{2713} Voice provider: {name}"));
+    vec![Effect::PersistSetting {
+        key: "voice_stt_provider",
+        value: crate::settings::SettingValue::Enum(provider.as_str()),
+        rollback_value: crate::settings::SettingValue::Enum(prev.as_str()),
+    }]
+}
+
+/// Mirror the OpenRouter STT model into `app.current_ui` and `app.voice_config`. Also the rollback path.
+pub(super) fn set_voice_stt_model_inner(app: &mut AppView, model: &str) {
+    let changed = app.voice_config.model != model;
+    app.current_ui.voice_stt_model = Some(model.to_string());
+    app.voice_config.model = model.to_string();
+    if changed {
+        recycle_voice_pipeline(app);
+    }
+}
+
+/// Set the OpenRouter transcription model used for voice dictation (any slug from OpenRouter's transcription models).
+/// SHELL-owned; persists to `[ui].voice_stt_model`. Applies to the next capture (no restart).
+pub(in crate::app::dispatch) fn set_voice_stt_model(
+    app: &mut AppView,
+    value: String,
+) -> Vec<Effect> {
+    let model = value.trim();
+    if model.is_empty() || model.chars().any(char::is_whitespace) {
+        app.show_toast("Voice model must be an OpenRouter model slug, e.g. openai/whisper-1");
+        return vec![];
+    }
+    let prev = app.voice_config.model.clone();
+    if prev == model && app.current_ui.voice_stt_model.as_deref() == Some(model) {
+        return vec![];
+    }
+    set_voice_stt_model_inner(app, model);
+    refresh_open_settings_modals(app);
+    tracing::info!(target: "settings", key = "voice_stt_model", value = model, "setting changed");
+    let note = if app.voice_config.provider == xai_grok_voice::VoiceProvider::OpenRouter {
+        ""
+    } else {
+        " (used when Voice provider is OpenRouter)"
+    };
+    app.show_toast(&format!("\u{2713} Voice model: {model}{note}"));
+    vec![Effect::PersistSetting {
+        key: "voice_stt_model",
+        value: crate::settings::SettingValue::String(model.to_string()),
+        rollback_value: crate::settings::SettingValue::String(prev),
+    }]
+}
+
 /// State-only mutation for `vim_mode`.
 /// Propagates to every in-process agent so background subagents and side panes pick up the change without restart.
 /// The cache mirror lets new agents created later read the same value via `cache::load_vim_mode()` in `AgentView::new`.

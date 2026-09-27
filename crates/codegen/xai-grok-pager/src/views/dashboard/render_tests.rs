@@ -2198,14 +2198,14 @@ fn feedback_badge_renders_verbatim_in_neutral_color() {
     let theme = Theme::current();
     let mut state = DashboardState::new();
     let check = crate::glyphs::check_mark();
-    state.error_toast = Some(format!("{check} Theme: Grok Day"));
+    state.error_toast = Some(format!("{check} Theme: Crok Day"));
     let _ = render_dispatch(&mut buf, Rect::new(0, 0, 80, 3), &theme, &mut state, None);
 
     let top_row: String = (0..80)
         .map(|x| buf_cell(&buf, x, 0).symbol().to_string())
         .collect();
     assert!(
-        top_row.contains(&format!("{check} Theme: Grok Day")),
+        top_row.contains(&format!("{check} Theme: Crok Day")),
         "badge must paint the message verbatim, got: {top_row:?}",
     );
     assert!(

@@ -1315,7 +1315,7 @@ impl AppView {
         self.usage_visible = self.team_name.is_none() && self.consumer_account();
         self.sync_billing_surface_to_agents();
         self.apply_tier_restrictions();
-        if self.is_api_key_auth {
+        if self.voice_overrides_remote_gate() {
             self.ensure_voice_for_api_key();
         } else if was_api_key && is_restricted_tier(self.subscription_tier.as_deref()) {
             self.voice_reset();
@@ -1355,10 +1355,14 @@ impl AppView {
                 .set_usage_command_visible(usage_cmd);
         }
     }
-    /// Force voice on for API-key sessions when only a remote rule left it off.
+    /// Voice billed outside the xAI subscription (an API key, or OpenRouter transcription) is not subject to a remote-only kill switch.
+    pub(crate) fn voice_overrides_remote_gate(&self) -> bool {
+        self.is_api_key_auth || self.voice_config.provider == xai_grok_voice::VoiceProvider::OpenRouter
+    }
+    /// Force voice on for API-key or OpenRouter voice sessions when only a remote rule left it off.
     /// Requirement / env / config pins still win.
     pub(crate) fn ensure_voice_for_api_key(&mut self) {
-        if !self.is_api_key_auth || self.voice_mode_enabled {
+        if !self.voice_overrides_remote_gate() || self.voice_mode_enabled {
             return;
         }
         if crate::app::resolve_voice_mode_live(None, false) {
@@ -1693,9 +1697,13 @@ impl AppView {
         let restricted = self.team_name.is_none()
             && self.consumer_account()
             && is_restricted_tier(self.subscription_tier.as_deref());
+        // Voice through OpenRouter is billed to the OpenRouter key, so the xAI subscription tier does not apply to it
+        let voice_via_openrouter =
+            self.voice_config.provider == xai_grok_voice::VoiceProvider::OpenRouter;
         let names: Vec<String> = if restricted {
             TIER_RESTRICTED_COMMANDS
                 .iter()
+                .filter(|n| !(voice_via_openrouter && **n == "voice"))
                 .map(|n| (*n).to_string())
                 .collect()
         } else {
@@ -1897,25 +1905,37 @@ impl AppView {
         }
     }
     /// Commit interim on real send keys only (not multiline bare Enter).
-    fn maybe_commit_voice_interim_before_submit_key(&mut self, key: &crossterm::event::KeyEvent) {
-        if self.registry.matches_id(ActionId::InterjectPrompt, key) {
-            let _ = crate::voice::commit_interim_into_prompt(self);
-            return;
-        }
-        let multiline = match self.active_view {
-            ActiveView::Agent(id) => self.agents.get(&id).is_some_and(|a| a.multiline_mode),
-            ActiveView::AgentDashboard => self.dashboard.as_ref().is_some_and(|d| d.multiline_mode),
-            _ => false,
+    /// OpenRouter transcribes each utterance after it ends, so while recording the last words are not in the prompt yet.
+    /// There a send key only stops dictation (consuming the key); the text lands and the next press sends it.
+    fn voice_submit_key_outcome(
+        &mut self,
+        key: &crossterm::event::KeyEvent,
+    ) -> Option<InputOutcome> {
+        let is_send = self.registry.matches_id(ActionId::InterjectPrompt, key) || {
+            let multiline = match self.active_view {
+                ActiveView::Agent(id) => self.agents.get(&id).is_some_and(|a| a.multiline_mode),
+                ActiveView::AgentDashboard => {
+                    self.dashboard.as_ref().is_some_and(|d| d.multiline_mode)
+                }
+                _ => false,
+            };
+            if multiline {
+                crate::input::is_mod_enter(key)
+            } else {
+                matches!(key.code, KeyCode::Enter)
+                    || self.registry.matches_id(ActionId::SendPrompt, key)
+            }
         };
-        let is_send = if multiline {
-            crate::input::is_mod_enter(key)
-        } else {
-            matches!(key.code, KeyCode::Enter)
-                || self.registry.matches_id(ActionId::SendPrompt, key)
-        };
-        if is_send {
-            let _ = crate::voice::commit_interim_into_prompt(self);
+        if !is_send {
+            return None;
         }
+        if self.voice_listening()
+            && self.voice_config.provider == xai_grok_voice::VoiceProvider::OpenRouter
+        {
+            return Some(InputOutcome::Action(Action::VoiceToggle));
+        }
+        let _ = crate::voice::commit_interim_into_prompt(self);
+        None
     }
     /// The agent tab on screen.
     /// Always the root agent, even when a subagent view is focused within the tab.
@@ -2679,8 +2699,9 @@ impl AppView {
                 }
                 if let Event::Key(key) = ev
                     && key.kind != KeyEventKind::Release
+                    && let Some(outcome) = self.voice_submit_key_outcome(key)
                 {
-                    self.maybe_commit_voice_interim_before_submit_key(key);
+                    return outcome;
                 }
                 if self.screen_mode.is_minimal()
                     && let Event::Key(key) = ev
@@ -2741,8 +2762,9 @@ impl AppView {
                 }
                 if let Event::Key(key) = ev
                     && key.kind != KeyEventKind::Release
+                    && let Some(outcome) = self.voice_submit_key_outcome(key)
                 {
-                    self.maybe_commit_voice_interim_before_submit_key(key);
+                    return outcome;
                 }
                 let attached_raw = self.dashboard.as_ref().and_then(|d| d.attached_agent);
                 let attached = attached_raw.filter(|id| self.agents.contains_key(id));
@@ -3781,9 +3803,6 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                     }
                     return InputOutcome::Action(Action::QuitConfirmed);
                 }
-                if key!('l').matches(key) || key!(Enter).matches(key) {
-                    return InputOutcome::Action(Action::Login);
-                }
             }
             AuthState::Authenticating { .. } if *ctx.show_raw_url => {
                 if key!('q', CONTROL).matches(key) || key!('c', CONTROL).matches(key) {
@@ -4120,11 +4139,10 @@ fn handle_menu_nav(
     }
 }
 /// Dispatch an action for a welcome menu item when not yet authenticated.
-/// Menu layout: item 0 is Login, item 1 is Quit.
+/// Menu layout: item 0 is Quit (provider sign-in happens outside the TUI).
 fn dispatch_pending_menu_action(index: usize) -> InputOutcome {
     match index {
-        0 => InputOutcome::Action(Action::Login),
-        1 => InputOutcome::Action(Action::Quit),
+        0 => InputOutcome::Action(Action::Quit),
         _ => InputOutcome::Unchanged,
     }
 }

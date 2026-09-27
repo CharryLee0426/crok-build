@@ -23,6 +23,7 @@ final class ComposerFeatureModel: ObservableObject {
     @Published private(set) var followUpBehavior: ComposerFollowUpBehavior = .queue
     @Published private(set) var voiceShortcutEnabled = true
     @Published private(set) var voiceLanguage = "en"
+    @Published private(set) var voiceModel = VoiceSTTSettings.defaultModel
 
     let voice = VoiceDictationController()
     /// The composer's text view, so dictation lands at the cursor.
@@ -174,7 +175,7 @@ final class ComposerFeatureModel: ObservableObject {
     /// `_x.ai/queue/remove` for an entry the harness holds (version-checked, so a stale remove is a no-op).
     func removeHarnessQueued(_ entry: HarnessPromptQueue.Entry, conversationID: UUID) {
         guard let store, let client = store.clients[conversationID], let session = store.task(conversationID)?.sessionID else {
-            store?.banner = "This task is not connected to Grok."
+            store?.banner = "This task is not connected to Crok."
             return
         }
         do { try client.notify("_x.ai/queue/remove", params: ["sessionId": session, "id": entry.id, "expectedVersion": entry.version]) }
@@ -226,7 +227,7 @@ final class ComposerFeatureModel: ObservableObject {
     private func sendQueuedPrompt(_ prompt: String, attachments: [PromptAttachment] = [], to id: UUID) {
         guard let store, let task = store.task(id), let project = store.state.projects.first(where: { $0.id == task.projectID }) else { return }
         guard FileManager.default.isExecutableFile(atPath: store.binaryPath) else {
-            store.banner = "The bundled Grok runtime is missing. Reinstall Grok Desktop to start a task."; return
+            store.banner = "The bundled Crok runtime is missing. Reinstall Crok Desktop to start a task."; return
         }
         let message = Message(kind: .user, text: prompt, createdAt: Date(), attachments: attachments.isEmpty ? nil : attachments.map(\.messageAttachment))
         store.append(message, to: id)
@@ -312,7 +313,7 @@ final class ComposerFeatureModel: ObservableObject {
     private func runCompaction(_ id: UUID, instructions: String) {
         guard let store, let task = store.task(id), let project = store.state.projects.first(where: { $0.id == task.projectID }) else { return }
         guard FileManager.default.isExecutableFile(atPath: store.binaryPath) else {
-            store.banner = "The bundled Grok runtime is missing. Reinstall Grok Desktop to start a task."; return
+            store.banner = "The bundled Crok runtime is missing. Reinstall Crok Desktop to start a task."; return
         }
         let started = Date()
         compactions[id] = .running(started: started)
@@ -537,7 +538,7 @@ final class ComposerFeatureModel: ObservableObject {
     }
 
     private func updateAutoGate() {
-        let environment = ProcessInfo.processInfo.environment["GROK_AUTO_PERMISSION_MODE"].flatMap(Self.parseFlag)
+        let environment = ProcessInfo.processInfo.environment["CROK_AUTO_PERMISSION_MODE"].flatMap(Self.parseFlag)
         let available = environment ?? configuredAutoGate ?? remoteAutoGate ?? true
         if autoModeAvailable != available { autoModeAvailable = available }
         if !available && permissionMode == .auto { permissionMode = .ask }
@@ -563,6 +564,7 @@ final class ComposerFeatureModel: ObservableObject {
         followUpBehavior = config.string("follow_up_behavior", in: "ui").flatMap(ComposerFollowUpBehavior.init(rawValue:)) ?? .queue
         voiceShortcutEnabled = config.bool("voice_keybind_enabled", in: "ui") ?? true
         voiceLanguage = VoiceSTTSettings.canonicalLanguage(config.string("voice_stt_language", in: "ui") ?? config.string("language", in: "voice"))
+        voiceModel = VoiceSTTSettings(config: config).model
         updateAutoGate()
     }
 
@@ -579,6 +581,18 @@ final class ComposerFeatureModel: ObservableObject {
     func setVoiceLanguage(_ code: String) {
         voiceLanguage = VoiceSTTSettings.canonicalLanguage(code)
         persist("voice_stt_language", .string(voiceLanguage))
+    }
+
+    /// Any OpenRouter transcription model slug; blank restores the default.
+    func setVoiceModel(_ model: String) {
+        let model = VoiceSTTSettings.canonicalModel(model)
+        guard !model.contains(where: \.isWhitespace) else {
+            store?.banner = "The dictation model must be an OpenRouter model ID such as openai/whisper-1."
+            return
+        }
+        guard model != voiceModel else { return }
+        voiceModel = model
+        persist("voice_stt_model", .string(model))
     }
 
     private func persist(_ key: String, _ value: GrokConfigValue) {
@@ -610,7 +624,7 @@ final class ComposerFeatureModel: ObservableObject {
             store.banner = "Voice input is turned off for this account."; return
         }
         guard VoiceDictationController.canRequestMicrophone else {
-            store.banner = "Voice input needs the Grok Desktop app: macOS grants microphone access only to the app bundle. Build it with scripts/build-app.sh and open the app to dictate."
+            store.banner = "Voice input needs the Crok Desktop app: macOS grants microphone access only to the app bundle. Build it with scripts/build-app.sh and open the app to dictate."
             return
         }
         let startID = UUID()
@@ -635,65 +649,28 @@ final class ComposerFeatureModel: ObservableObject {
         guard await VoiceDictationController.requestMicrophoneAccess() else {
             guard stillStarting() else { return }
             voice.cancel()
-            store.banner = "Microphone access is off for Grok Desktop. Turn it on in System Settings › Privacy & Security › Microphone."
+            store.banner = "Microphone access is off for Crok Desktop. Turn it on in System Settings › Privacy & Security › Microphone."
             return
         }
         let settings = VoiceSTTSettings(config: configURL.map { GrokConfig(url: $0) } ?? GrokConfig(text: ""))
-        let credential = await voiceCredential()
+        let key = await Task.detached(priority: .userInitiated) { VoiceOpenRouterCredential.read() }.value
         guard stillStarting() else { return }
         if !store.harnessMeta.initialize.isEmpty && !store.harnessMeta.voiceMode {
             voice.cancel()
             store.banner = "Voice input is turned off for this account."
             return
         }
-        switch credential {
-        case .token(let token):
-            voice.startXAI(token: token, settings: settings)
-        case .unavailable(let reason):
-            let language = VoiceSTTSettings.languageForAPI(settings.language)
-            let onDevice = await VoiceDictationController.prepareOnDeviceRecognition(language: language)
-            guard stillStarting() else { return }
-            if onDevice { voice.startOnDevice(language: language) }
-            else { voice.cancel(); store.banner = "Voice: \(reason)" }
+        if let key {
+            voice.startOpenRouter(key: key, settings: settings)
+            return
         }
-    }
-
-    private enum VoiceCredential { case token(String), unavailable(String) }
-
-    /// An xAI bearer for speech-to-text. Only a credential issued by xAI (a first-party login or an
-    /// xAI API key) is ever sent to the speech endpoint.
-    private func voiceCredential() async -> VoiceCredential {
-        let foreign = "voice needs an xAI credential for this account: sign in with an xAI login or set XAI_API_KEY"
-        let signedOut = "not signed in — run `grok login`, set XAI_API_KEY, or set a model api_key/env_key"
-        guard let store else { return .unavailable(signedOut) }
-        if store.harnessMeta.usesExternalProvider { return .unavailable(foreign) }
-        let hasXAICredential = await Task.detached(priority: .userInitiated) { AccountStatusReader().read()[.xai]?.isConnected == true }.value
-        guard hasXAICredential else { return .unavailable(foreign) }
-        do {
-            let token = try await withHarnessClient { client in
-                try ExtensionResponse.unwrap(try await client.request("_x.ai/auth/getBearerToken"))["token"] as? String
-            }
-            guard let token, !token.isEmpty else { return .unavailable(signedOut) }
-            return .token(token)
-        } catch {
-            return .unavailable(error.localizedDescription)
-        }
-    }
-
-    /// The selected task's live connection, or a short-lived one when the task is not connected.
-    private func withHarnessClient<T>(_ body: (ACPClient) async throws -> T) async throws -> T {
-        guard let store, let project = store.project else { throw DesktopError.message("Open a project first.") }
-        if let id = store.state.selectedConversationID, let client = store.clients[id], store.loaded.contains(id) {
-            return try await body(client)
-        }
-        let client = ACPClient()
-        let key = UUID()
-        store.auxiliaryClients[key] = client
-        defer { client.stop(); store.auxiliaryClients.removeValue(forKey: key) }
-        try client.start(executable: store.binaryPath, cwd: project.path)
-        let initial = try await store.initialize(client)
-        try await store.authenticate(client, initial: initial)
-        return try await body(client)
+        // Without an OpenRouter key, transcribe on this Mac when it can.
+        let language = VoiceSTTSettings.languageForAPI(settings.language)
+        let onDevice = await VoiceDictationController.prepareOnDeviceRecognition(language: language)
+        guard stillStarting() else { return }
+        if onDevice { voice.startOnDevice(language: language); return }
+        voice.cancel()
+        store.banner = "Voice: dictation uses OpenRouter transcription. Sign in to OpenRouter in Settings (or set OPENROUTER_API_KEY)."
     }
 
     /// Inserts finalized dictation at the cursor, spaced as its own words; a blank draft is replaced.

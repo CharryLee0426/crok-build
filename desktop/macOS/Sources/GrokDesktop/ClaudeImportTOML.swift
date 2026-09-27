@@ -668,7 +668,7 @@ struct ClaudeTOMLEditor {
                 guard !incoming.isEmpty else { return 0 }
                 append(incoming, to: array, document: document)
             case .value(.array, _), .tableArray:
-                throw ClaudeTOMLError.unsupportedLayout("\(table).\(key) is written in a form Grok Desktop cannot extend")
+                throw ClaudeTOMLError.unsupportedLayout("\(table).\(key) is written in a form Crok Desktop cannot extend")
             default:
                 throw ClaudeTOMLError.type("\(table).\(key) is not an array")
             }
@@ -739,7 +739,7 @@ struct ClaudeTOMLEditor {
             case .value(_, let statement?) where document.keyValues[statement].keys == [key]:
                 replace(document.keyValues[statement].valueRange, with: "true", document: document)
             default:
-                throw ClaudeTOMLError.unsupportedLayout("\(table).\(key) is written in a form Grok Desktop cannot change")
+                throw ClaudeTOMLError.unsupportedLayout("\(table).\(key) is written in a form Crok Desktop cannot change")
             }
         }
     }

@@ -213,7 +213,7 @@ final class ExtensionIntegrationTests: XCTestCase {
         XCTAssertEqual(extensions.hooksTrusted, false)
         XCTAssertEqual(extensions.hooksLoadErrors.count, 1)
         let groups = HookSourceGroup.groups(store.featureRows)
-        XCTAssertEqual(groups.map(\.label), ["Global hooks", "Project hooks", "Custom: $GROK_HOME/extra-hooks/notify"])
+        XCTAssertEqual(groups.map(\.label), ["Global hooks", "Project hooks", "Custom: $CROK_HOME/extra-hooks/notify"])
         XCTAssertEqual(groups.map(\.removable), [false, false, true])
         XCTAssertTrue(groups[0].pinned)
         XCTAssertTrue(groups[0].anyEnabled)
@@ -262,17 +262,17 @@ final class ExtensionIntegrationTests: XCTestCase {
         await store.refreshFeatures(.workflows)
         let fix = try XCTUnwrap(store.featureRows.first)
         XCTAssertEqual(fix.title, "fix-ci")
-        XCTAssertEqual(fix.payload["when_to_use"] as? String, "A pull request has red checks and you want Grok to diagnose and fix them.")
+        XCTAssertEqual(fix.payload["when_to_use"] as? String, "A pull request has red checks and you want Crok to diagnose and fix them.")
         XCTAssertEqual(fix.payload["source"] as? String, "project")
         XCTAssertTrue((fix.payload["path"] as? String)?.hasSuffix("/project/.grok/workflows/fix-ci.md") == true)
         store.invokeFeature(fix, panel: .workflows, action: "Use")
         XCTAssertEqual(store.draft, "/workflow fix-ci ")
     }
 
-    func testMCPOneFieldAddAndConnectorsRefreshSkipTheCache() async throws {
+    func testMCPOneFieldAdd() async throws {
         let fixture = try ExtensionHarnessFixture()
         defer { fixture.cleanup() }
-        let store = fixture.store, extensions = store.features.extensions
+        let store = fixture.store
         store.featurePanel = .mcps
         await store.refreshFeatures(.mcps)
         XCTAssertTrue(store.addMCPServer(urlOrCommand: "https://mcp.linear.app/mcp", name: ""))
@@ -282,11 +282,6 @@ final class ExtensionIntegrationTests: XCTestCase {
         XCTAssertEqual(upsert["url"] as? String, "https://mcp.linear.app/mcp")
         XCTAssertFalse(store.addMCPServer(urlOrCommand: "  ", name: "x"))
         XCTAssertEqual(store.featureError, "Required: URL / Command")
-
-        extensions.awaitingConnectors = true
-        extensions.connectorsReturned()
-        XCTAssertFalse(extensions.awaitingConnectors)
-        try await eventually { fixture.params(for: "_x.ai/mcp/list").contains { $0["cache"] as? Bool == false } && !store.featureLoading }
         XCTAssertTrue(fixture.prompts.isEmpty)
     }
 

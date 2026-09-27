@@ -131,7 +131,7 @@ final class MarkdownRenderingTests: XCTestCase {
 
     /// Writes PNGs of a rendered reply and of reasoning when GROK_DESKTOP_SNAPSHOT_DIR is set.
     func testRenderMarkdownSnapshots() throws {
-        guard let output = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let reply = Message(kind: .assistant, text: Self.sample)
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             try SnapshotRenderer.write(MessageView(message: reply).padding(28).frame(width: 760, alignment: .topLeading),

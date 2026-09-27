@@ -6,6 +6,7 @@
         // A `/voice` queued a lazy spawn; then the remote flag turns off
         // The teardown must drop the queued spawn so the event loop won't consume it and show a misleading "could not start" toast
         let mut app = make_app_with_agent("sess-1");
+        app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
         app.voice_mode_enabled = true;
         app.voice_ui_active = true;
         app.voice_state = crate::app::app_view::VoiceState::ColdStart {
@@ -31,6 +32,7 @@
     fn settings_api_key_keeps_voice_despite_remote_false() {
         // Remote false alone must not disable an already API-key session.
         let mut app = make_app_with_agent("sess-api-key");
+        app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
         app.is_api_key_auth = true;
         app.apply_voice_mode_enabled(true);
         app.voice_ui_active = true;
@@ -43,6 +45,7 @@
 
         // Same update can stamp API Key while remote settings sends voice false.
         let mut app = make_app_with_agent("sess-combined");
+        app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
         let notif = acp::ExtNotification::new(
             "x.ai/settings/update",
             std::sync::Arc::from(
@@ -62,6 +65,7 @@
     #[test]
     fn settings_non_api_key_tier_clears_stale_api_key_flag() {
         let mut app = make_app_with_agent("sess-stale-key");
+        app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
         assert!(handle_ext_notification(
             &tier_settings_update("API Key"),
             &mut app
@@ -83,6 +87,7 @@
 
         // Paid tier after API Key must not force voice off (omit voice field).
         let mut app = make_app_with_agent("sess-paid-keep-voice");
+        app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
         assert!(handle_ext_notification(
             &tier_settings_update("API Key"),
             &mut app
@@ -116,6 +121,7 @@
     fn voice_settings_update_omitted_leaves_gate_unchanged() {
         // Unrelated settings push must not flip the gate (default-on stays on; kill-switch stays off until an explicit true/false)
         let mut app = make_app_with_agent("sess-1");
+        app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
         app.apply_voice_mode_enabled(true);
         let omit = acp::ExtNotification::new(
             "x.ai/settings/update",

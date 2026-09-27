@@ -19,13 +19,13 @@ struct DoctorDesktopCheck: Identifiable, Equatable {
         if FileManager.default.isExecutableFile(atPath: binaryPath) {
             var version = agentVersion
             if version == nil, let output = try? await GrokCLI.run(binaryPath, arguments: ["--version"], timeout: 10), output.status == 0 {
-                version = output.text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "grok ", with: "")
+                version = output.text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "crok ", with: "")
             }
-            checks.append(DoctorDesktopCheck(id: "runtime", title: "Grok runtime", value: version.map { "Version \($0)" } ?? "Installed",
+            checks.append(DoctorDesktopCheck(id: "runtime", title: "Crok runtime", value: version.map { "Version \($0)" } ?? "Installed",
                                              detail: SessionFormat.abbreviatedPath(binaryPath), status: .ok, symbol: "cpu"))
         } else {
-            checks.append(DoctorDesktopCheck(id: "runtime", title: "Grok runtime", value: "Missing",
-                                             detail: "Reinstall Grok Desktop, or point GROK_DESKTOP_HARNESS at a grok executable.", status: .problem, symbol: "cpu"))
+            checks.append(DoctorDesktopCheck(id: "runtime", title: "Crok runtime", value: "Missing",
+                                             detail: "Reinstall Crok Desktop, or point CROK_DESKTOP_HARNESS at a crok executable.", status: .problem, symbol: "cpu"))
         }
         checks.append(signIn(accounts))
         checks.append(microphone(AVCaptureDevice.authorizationStatus(for: .audio)))
@@ -42,7 +42,7 @@ struct DoctorDesktopCheck: Identifiable, Equatable {
         if accounts.values.contains(where: { $0.state == .expired }) {
             return DoctorDesktopCheck(id: "sign-in", title: "Sign-in", value: "Session expired", detail: "Open Settings and sign in again.", status: .warning, symbol: "person.crop.circle.badge.exclamationmark")
         }
-        return DoctorDesktopCheck(id: "sign-in", title: "Sign-in", value: "Not signed in", detail: "Open Settings and sign in to xAI, OpenRouter, or OpenAI Codex.", status: .problem, symbol: "person.crop.circle.badge.xmark")
+        return DoctorDesktopCheck(id: "sign-in", title: "Sign-in", value: "Not signed in", detail: "Open Settings and sign in to OpenRouter or OpenAI Codex.", status: .problem, symbol: "person.crop.circle.badge.xmark")
     }
 
     static func microphone(_ status: AVAuthorizationStatus) -> DoctorDesktopCheck {
@@ -51,11 +51,11 @@ struct DoctorDesktopCheck: Identifiable, Equatable {
             return DoctorDesktopCheck(id: "microphone", title: "Microphone", value: "Allowed", status: .ok, symbol: "mic")
         case .denied:
             return DoctorDesktopCheck(id: "microphone", title: "Microphone", value: "Denied",
-                                      detail: "Allow Grok Desktop in System Settings › Privacy & Security › Microphone to dictate prompts.", status: .problem, symbol: "mic.slash")
+                                      detail: "Allow Crok Desktop in System Settings › Privacy & Security › Microphone to dictate prompts.", status: .problem, symbol: "mic.slash")
         case .restricted:
             return DoctorDesktopCheck(id: "microphone", title: "Microphone", value: "Restricted", detail: "A device policy blocks microphone access.", status: .warning, symbol: "mic.slash")
         default:
-            return DoctorDesktopCheck(id: "microphone", title: "Microphone", value: "Not requested yet", detail: "Grok Desktop asks the first time you use voice input.", status: .info, symbol: "mic")
+            return DoctorDesktopCheck(id: "microphone", title: "Microphone", value: "Not requested yet", detail: "Crok Desktop asks the first time you use voice input.", status: .info, symbol: "mic")
         }
     }
 
@@ -74,7 +74,7 @@ struct DoctorDesktopCheck: Identifiable, Equatable {
             return DoctorDesktopCheck(id: "notifications", title: "Notifications", value: "Allowed", status: .ok, symbol: "bell")
         case .denied:
             return DoctorDesktopCheck(id: "notifications", title: "Notifications", value: "Off",
-                                      detail: "Turn on notifications for Grok Desktop in System Settings › Notifications to hear when a task needs you.", status: .warning, symbol: "bell.slash")
+                                      detail: "Turn on notifications for Crok Desktop in System Settings › Notifications to hear when a task needs you.", status: .warning, symbol: "bell.slash")
         default:
             return DoctorDesktopCheck(id: "notifications", title: "Notifications", value: "Not requested yet", status: .info, symbol: "bell")
         }
@@ -88,10 +88,10 @@ enum DoctorTerminalScript {
         let quoted = "'" + binary.replacingOccurrences(of: "'", with: "'\\''") + "'"
         return """
         #!/bin/zsh
-        # Written by Grok Desktop for /doctor fix \(fix.handle). It removes itself when it starts.
+        # Written by Crok Desktop for /doctor fix \(fix.handle). It removes itself when it starts.
         rm -f -- "$0"
         clear
-        print -r -- 'Grok Doctor · \(fix.label)'
+        print -r -- 'Crok Doctor · \(fix.label)'
         print
         \(quoted) doctor fix \(fix.handle)
         print
@@ -164,7 +164,7 @@ struct DoctorReportView: View {
             if request != .report { fixes }
             if !checks.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    SessionSectionTitle(title: "Grok Desktop", symbol: "macwindow")
+                    SessionSectionTitle(title: "Crok Desktop", symbol: "macwindow")
                     VStack(spacing: 0) {
                         ForEach(Array(checks.enumerated()), id: \.element.id) { index, check in
                             if index > 0 { Divider().padding(.leading, 44) }
@@ -181,7 +181,7 @@ struct DoctorReportView: View {
                 } else if let error {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "exclamationmark.circle").foregroundStyle(.orange)
-                        Text("grok doctor could not run: \(error)").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        Text("crok doctor could not run: \(error)").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                         Button("Retry", action: retry).buttonStyle(SubtleButtonStyle())
                     }.font(.system(size: 13)).sessionCard()
@@ -195,7 +195,7 @@ struct DoctorReportView: View {
             if let report, !report.factGroups.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     SessionSectionTitle(title: "Environment", symbol: "list.bullet.rectangle")
-                    Text("Terminal facts describe where Grok Desktop runs. Run grok doctor in your terminal to check that terminal.")
+                    Text("Terminal facts describe where Crok Desktop runs. Run crok doctor in your terminal to check that terminal.")
                         .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                     VStack(spacing: 0) {
                         ForEach(Array(report.factGroups.enumerated()), id: \.offset) { index, group in

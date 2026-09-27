@@ -92,7 +92,7 @@ struct MemoryPanelView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) { Text("•").foregroundStyle(Theme.muted); Text(line) }.font(.system(size: 13))
                 }
             }
-            Text("Grok Build remembers conventions, decisions, and project facts across sessions so you don't have to repeat yourself. Notes live in workspace memory for this repository and global memory shared across all your projects.")
+            Text("Crok Build remembers conventions, decisions, and project facts across sessions so you don't have to repeat yourself. Notes live in workspace memory for this repository and global memory shared across all your projects.")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: 520, alignment: .leading).frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -31,6 +31,20 @@ pub enum VoiceCommand {
 struct ActivePtt {
     finish_tx: mpsc::Sender<()>,
     reader: JoinHandle<()>,
+    /// A release was sent; the session is only delivering its trailing transcript now.
+    finishing: bool,
+    /// The session keeps no device or socket open once stopped (OpenRouter's queued requests), so a new press lets it
+    /// finish instead of aborting it and losing the last utterance.
+    completes_after_stop: bool,
+}
+
+impl ActivePtt {
+    /// Make way for a new session: abort unless this one is stopped and only finishing its transcripts.
+    fn supersede(self) {
+        if !(self.finishing && self.completes_after_stop) {
+            self.reader.abort();
+        }
+    }
 }
 
 /// Run until [`VoiceCommand::Shutdown`].
@@ -50,7 +64,7 @@ pub async fn run_voice_pipeline(
                 // a `PttRelease` between presses, so an `active` session is one that's stopping, never a live duplicate.). We don't join
                 // the old reader, so its stream may still be releasing as the new one opens; cpal handles that brief overlap
                 if let Some(prev) = active.take() {
-                    prev.reader.abort();
+                    prev.supersede();
                 }
 
                 // Otherwise a quick tap-and-release would open a hot mic and append a spurious final after the user already let go
@@ -73,11 +87,12 @@ pub async fn run_voice_pipeline(
                 }
             }
             VoiceCommand::PttRelease => {
-                let Some(session) = active.as_ref() else {
+                let Some(session) = active.as_mut() else {
                     continue;
                 };
                 // The reader task owns the capture handle
                 // Signalling it lets the reader stop the mic and send `audio.done` in a single place, matching the no-speech-watchdog teardown below
+                session.finishing = true;
                 let _ = session.finish_tx.send(()).await;
             }
         }
@@ -183,6 +198,146 @@ fn no_speech_error() -> (String, Option<String>) {
 
 #[cfg(feature = "audio")]
 async fn start_capture_session(
+    config: &VoiceConfig,
+    auth: &SharedVoiceAuth,
+    event_tx: &mpsc::Sender<VoiceEvent>,
+) -> Result<ActivePtt, VoiceError> {
+    match config.provider {
+        crate::config::VoiceProvider::Xai => {
+            start_streaming_session(config, auth, event_tx).await
+        }
+        crate::config::VoiceProvider::OpenRouter => {
+            start_openrouter_session(config, auth, event_tx).await
+        }
+    }
+}
+
+/// How long to keep draining the mic after a stop, for chunks already in flight from the capture helper.
+#[cfg(feature = "audio")]
+const MIC_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// OpenRouter: record locally, cut the stream into utterances at pauses, and transcribe each one with a request.
+/// Finals arrive in speaking order while the user keeps talking; a stop flushes the trailing utterance and waits for it.
+#[cfg(feature = "audio")]
+async fn start_openrouter_session(
+    config: &VoiceConfig,
+    auth: &SharedVoiceAuth,
+    event_tx: &mpsc::Sender<VoiceEvent>,
+) -> Result<ActivePtt, VoiceError> {
+    // Fail before opening the mic when there is no key; the credential is a local read, so this costs nothing
+    crate::auth::require_bearer(auth).await?;
+    let transcriber = crate::stt::OpenRouterTranscriber::new(config)?;
+
+    let (mic_tx, mut mic_rx) = mpsc::channel::<Vec<u8>>(64);
+    let sample_rate = config.sample_rate;
+    let capture = tokio::task::spawn_blocking(move || {
+        crate::audio::spawn_pcm_capture(sample_rate, mic_tx)
+    })
+    .await
+    .map_err(|join_err| VoiceError::Config(format!("voice capture task failed: {join_err}")))??;
+
+    let (finish_tx, mut finish_rx) = mpsc::channel::<()>(1);
+    let out = event_tx.clone();
+    let auth = auth.clone();
+    let reader = tokio::spawn(async move {
+        let mut capture = Some(capture);
+        let stop_capture = |capture: &mut Option<crate::audio::CaptureHandle>| {
+            if let Some(handle) = capture.take() {
+                handle.stop();
+            }
+        };
+        // Utterances queue here and are transcribed one at a time, so finals land in the order they were spoken
+        let (segment_tx, mut segment_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let transcribe_out = out.clone();
+        let transcribe = async move {
+            while let Some(pcm) = segment_rx.recv().await {
+                let result = match crate::auth::require_bearer(&auth).await {
+                    Ok(bearer) => transcriber.transcribe(&bearer, &pcm).await,
+                    Err(e) => Err(e),
+                };
+                let event = match result {
+                    Ok(text) if text.is_empty() => continue,
+                    Ok(text) => VoiceEvent::UtteranceFinal { text },
+                    Err(e) => VoiceEvent::Error {
+                        message: e.to_string(),
+                        hint: None,
+                    },
+                };
+                let failed = matches!(event, VoiceEvent::Error { .. });
+                if transcribe_out.send(event).await.is_err() || failed {
+                    return;
+                }
+            }
+        };
+
+        let record = async move {
+            let mut segmenter = crate::segment::Segmenter::new(sample_rate);
+            // Tear down when nothing that sounds like speech arrives in time (a dead or permission-muted mic)
+            let no_speech_deadline = tokio::time::Instant::now() + NO_SPEECH_TIMEOUT;
+            let mut awaiting_speech = true;
+            loop {
+                tokio::select! {
+                    msg = finish_rx.recv() => {
+                        stop_capture(&mut capture);
+                        if msg.is_none() {
+                            return;
+                        }
+                        // Chunks the helper already produced still belong to this utterance
+                        while let Ok(Some(chunk)) =
+                            tokio::time::timeout(MIC_DRAIN_TIMEOUT, mic_rx.recv()).await
+                        {
+                            if let Some(segment) = segmenter.push(&chunk).segment {
+                                let _ = segment_tx.send(segment);
+                            }
+                        }
+                        if let Some(segment) = segmenter.finish() {
+                            let _ = segment_tx.send(segment);
+                        }
+                        return;
+                    }
+                    _ = tokio::time::sleep_until(no_speech_deadline), if awaiting_speech => {
+                        stop_capture(&mut capture);
+                        let (message, hint) = no_speech_error();
+                        let _ = out.send(VoiceEvent::Error { message, hint }).await;
+                        return;
+                    }
+                    chunk = mic_rx.recv() => match chunk {
+                        Some(chunk) => {
+                            let push = segmenter.push(&chunk);
+                            if push.voiced {
+                                awaiting_speech = false;
+                            }
+                            if let Some(segment) = push.segment {
+                                let _ = segment_tx.send(segment);
+                            }
+                        }
+                        // The mic ended on its own (device gone); transcribe what was captured
+                        None => {
+                            stop_capture(&mut capture);
+                            if let Some(segment) = segmenter.finish() {
+                                let _ = segment_tx.send(segment);
+                            }
+                            return;
+                        }
+                    },
+                }
+            }
+        };
+        // Returning from `record` drops `segment_tx`, which lets the transcriber finish its queue and exit
+        tokio::join!(record, transcribe);
+    });
+
+    Ok(ActivePtt {
+        finish_tx,
+        reader,
+        finishing: false,
+        completes_after_stop: true,
+    })
+}
+
+/// xAI: stream audio over a WebSocket and relay interim and final transcripts.
+#[cfg(feature = "audio")]
+async fn start_streaming_session(
     config: &VoiceConfig,
     auth: &SharedVoiceAuth,
     event_tx: &mpsc::Sender<VoiceEvent>,
@@ -317,7 +472,12 @@ async fn start_capture_session(
         }
     });
 
-    Ok(ActivePtt { finish_tx, reader })
+    Ok(ActivePtt {
+        finish_tx,
+        reader,
+        finishing: false,
+        completes_after_stop: false,
+    })
 }
 
 #[cfg(all(test, feature = "audio"))]

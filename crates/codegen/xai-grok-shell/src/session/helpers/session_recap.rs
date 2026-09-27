@@ -733,7 +733,7 @@ mod tests {
         assert!(
             out.iter()
                 .any(|i| matches!(i, ConversationItem::Reasoning(_))),
-            "fits path on grok must keep reasoning verbatim"
+            "fits path on crok must keep reasoning verbatim"
         );
     }
 

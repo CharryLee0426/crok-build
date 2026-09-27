@@ -28,17 +28,30 @@ enum SidePanelTab: String, CaseIterable, Identifiable {
 /// Drag its leading edge to resize it; double-click the edge to restore the default width.
 struct SidePanelView: View {
     @EnvironmentObject var store: AppStore
+    @EnvironmentObject var files: FilesPanelModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The width of the detail area, which bounds how wide the panel may grow.
     let containerWidth: CGFloat
     @AppStorage("sidePanelWidth") private var width = SidePanelView.defaultWidth
+    /// The width while a file is previewed beside the file tree, remembered separately.
+    @AppStorage("sidePanelPreviewWidth") private var previewWidth = SidePanelView.defaultPreviewWidth
 
     static let defaultWidth = 400.0
+    static let defaultPreviewWidth = 820.0
     static let minimumWidth = 300.0
     /// Room the conversation keeps beside the panel.
     static let conversationRoom = 440.0
+    /// While a file is previewed, the conversation gives up more of the window.
+    static let previewConversationRoom = 360.0
+
+    /// The Files tab shows the tree and a file side by side, which needs a wider panel.
+    private var isPreviewing: Bool { store.sidePanelTab == .files && store.project != nil && files.selection != nil }
 
     var body: some View {
-        let maximum = max(Self.minimumWidth, min(1_000, Double(containerWidth) - Self.conversationRoom))
+        let previewing = isPreviewing
+        let room = previewing ? Self.previewConversationRoom : Self.conversationRoom
+        let maximum = max(Self.minimumWidth, min(previewing ? 1_400 : 1_000, Double(containerWidth) - room))
+        let binding = previewing ? $previewWidth : $width
         VStack(spacing: 0) {
             SidePanelTabBar(selection: $store.sidePanelTab) {
                 withAnimation(.easeInOut(duration: 0.18)) { store.showInspector = false }
@@ -53,10 +66,12 @@ struct SidePanelView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: min(max(width, Self.minimumWidth), maximum))
+        .frame(width: min(max(binding.wrappedValue, Self.minimumWidth), maximum))
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: previewing)
         .background { GlassBackdrop(role: .panel).ignoresSafeArea() }
         .overlay(alignment: .leading) {
-            ResizeHandle(axis: .horizontal, value: $width, range: Self.minimumWidth...maximum, defaultValue: Self.defaultWidth, growsTowardStart: true,
+            ResizeHandle(axis: .horizontal, value: binding, range: Self.minimumWidth...maximum,
+                         defaultValue: previewing ? Self.defaultPreviewWidth : Self.defaultWidth, growsTowardStart: true,
                          label: "Side panel width")
                 .offset(x: -4.5)
         }

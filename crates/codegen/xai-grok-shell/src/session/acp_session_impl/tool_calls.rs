@@ -3593,7 +3593,7 @@ mod plan_mode_edit_gate_tests {
         assert_eq!(
             gate(&t, &write("/tmp/README.md")),
             PlanEditGate::RejectNonPlanFile,
-            "grok tools get no markdown exception — plan file only"
+            "crok tools get no markdown exception — plan file only"
         );
     }
     /// The carve-out and the permission bypass share `should_auto_approve_edit`, so the plan file itself stays editable.

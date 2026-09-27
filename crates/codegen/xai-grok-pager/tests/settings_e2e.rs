@@ -64,6 +64,8 @@ const ALL_SETTINGS_EXERCISED: &[&str] = &[
     "voice_keybind_enabled",
     "voice_capture_mode",
     "voice_stt_language",
+    "voice_stt_provider",
+    "voice_stt_model",
     // Contextual-hints group and its per-tip child toggles (exercised via the group sub-sheet, not as top-level rows)
     "contextual_hints",
     "contextual_hints.undo",
@@ -1912,15 +1914,17 @@ fn registry_kind_membership_through_pr_14() {
             "theme",
             "voice_capture_mode",
             "voice_stt_language",
+            "voice_stt_provider",
         ],
         "Enum kind membership drift",
     );
 
     let string_keys = by_kind.remove("String").unwrap_or_default();
-    assert!(
-        string_keys.is_empty(),
-        "no String-kind settings should remain — `default_model` + `fork_secondary_model` \
-         migrated to DynamicEnum; got: {string_keys:?}",
+    assert_eq!(
+        string_keys,
+        vec!["voice_stt_model"],
+        "String kind membership drift: only the free-form OpenRouter voice model slug is a String \
+         (`default_model` + `fork_secondary_model` migrated to DynamicEnum)",
     );
 
     let dynamic_enum_keys = by_kind.remove("DynamicEnum").unwrap_or_default();
@@ -1982,6 +1986,7 @@ fn enum_settings_membership_through_pr_14() {
             "theme",
             "voice_capture_mode",
             "voice_stt_language",
+            "voice_stt_provider",
         ],
     );
 }
@@ -2051,6 +2056,8 @@ fn defaults_round_trip_through_registry() {
             "voice_keybind_enabled" => SettingValue::Bool(true),
             "voice_capture_mode" => SettingValue::Enum("hold"),
             "voice_stt_language" => SettingValue::Enum("en"),
+            "voice_stt_provider" => SettingValue::Enum("openrouter"),
+            "voice_stt_model" => SettingValue::String("openai/gpt-4o-mini-transcribe".into()),
             "plan_mode" => SettingValue::Enum("off"),
             "show_tips" => SettingValue::Bool(true),
             "auto_update" => SettingValue::Bool(true),
@@ -3720,8 +3727,8 @@ fn docs_footer_renders_for_browse_and_picker() {
             all_text.push('\n');
         }
         assert!(
-            all_text.contains("Ask Grok"),
-            "[{fixture_label}] docs footer (`Ask Grok`) must appear in the rendered modal:\n\
+            all_text.contains("Ask Crok"),
+            "[{fixture_label}] docs footer (`Ask Crok`) must appear in the rendered modal:\n\
              {all_text}"
         );
         assert!(
@@ -5985,6 +5992,118 @@ fn voice_stt_language_picker_enter_dispatches_set_commit() {
     assert!(
         matches!(s.mode(), SettingsModalMode::Browse),
         "Enter commit must return to Browse"
+    );
+}
+
+/// Enter on the voice_stt_provider row opens the picker seeded at the default `openrouter`; Down + Enter picks xAI.
+#[test]
+fn voice_stt_provider_picker_dispatches_set_commit() {
+    let mut s = make_state();
+    navigate_to(&mut s, "voice_stt_provider");
+    let _ = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    match &s.mode() {
+        SettingsModalMode::PickingEnum {
+            key,
+            original_value,
+            ..
+        } => {
+            assert_eq!(*key, "voice_stt_provider");
+            assert_eq!(original_value, &SettingValue::Enum("openrouter"));
+        }
+        other => panic!("expected PickingEnum mode, got {other:?}"),
+    }
+    let _ = handle_settings_key(&mut s, &press(KeyCode::Down));
+    match handle_settings_key(&mut s, &press(KeyCode::Enter)) {
+        SettingsKeyOutcome::Action(Action::SetVoiceSttProvider(provider)) => {
+            assert_eq!(provider, "xai");
+        }
+        other => panic!("expected Action::SetVoiceSttProvider commit, got {other:?}"),
+    }
+    assert!(matches!(s.mode(), SettingsModalMode::Browse));
+}
+
+/// Value-column click on the voice_stt_provider row opens the picker in one click.
+#[test]
+fn mouse_click_on_voice_stt_provider_indicator_opens_picker_in_one_click() {
+    let mut s = make_state();
+    synth_rects(&mut s);
+    let row_y = row_idx_for(&s, "voice_stt_provider") as u16;
+    let outcome = handle_settings_mouse(
+        &mut s,
+        MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        72,
+        row_y,
+    );
+    assert!(matches!(outcome, SettingsKeyOutcome::Changed), "{outcome:?}");
+    match &s.mode() {
+        SettingsModalMode::PickingEnum { key, .. } => assert_eq!(*key, "voice_stt_provider"),
+        other => panic!("value click on voice_stt_provider must enter PickingEnum, got {other:?}"),
+    }
+}
+
+/// Enter on the voice_stt_model row edits the slug in place; Enter commits `Action::SetVoiceSttModel`.
+#[test]
+fn voice_stt_model_editor_dispatches_set_commit() {
+    let mut s = make_state();
+    navigate_to(&mut s, "voice_stt_model");
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    assert!(matches!(outcome, SettingsKeyOutcome::Changed), "{outcome:?}");
+    assert!(
+        matches!(s.mode(), SettingsModalMode::EditingValue { key } if key == "voice_stt_model"),
+        "Enter on the voice model row must open the inline editor, got {:?}",
+        s.mode()
+    );
+    for _ in 0.."openai/gpt-4o-mini-transcribe".len() {
+        let _ = handle_settings_key(&mut s, &press(KeyCode::Backspace));
+    }
+    for ch in "openai/whisper-1".chars() {
+        let _ = handle_settings_key(&mut s, &press(KeyCode::Char(ch)));
+    }
+    match handle_settings_key(&mut s, &press(KeyCode::Enter)) {
+        SettingsKeyOutcome::Action(Action::SetVoiceSttModel(model)) => {
+            assert_eq!(model, "openai/whisper-1");
+        }
+        other => panic!("expected Action::SetVoiceSttModel commit, got {other:?}"),
+    }
+    assert!(matches!(s.mode(), SettingsModalMode::Browse));
+}
+
+/// An empty slug is rejected in the editor instead of committing.
+#[test]
+fn voice_stt_model_editor_rejects_empty_slug() {
+    let mut s = make_state();
+    navigate_to(&mut s, "voice_stt_model");
+    let _ = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    for _ in 0.."openai/gpt-4o-mini-transcribe".len() {
+        let _ = handle_settings_key(&mut s, &press(KeyCode::Backspace));
+    }
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    assert!(matches!(outcome, SettingsKeyOutcome::Unchanged), "{outcome:?}");
+    assert!(matches!(s.mode(), SettingsModalMode::EditingValue { .. }));
+}
+
+/// A value-column click on the selected voice_stt_model row opens the inline editor.
+#[test]
+fn mouse_click_on_voice_stt_model_value_opens_editor() {
+    let mut s = make_state();
+    synth_rects(&mut s);
+    let row_y = row_idx_for(&s, "voice_stt_model") as u16;
+    let click = |s: &mut SettingsModalState| {
+        handle_settings_mouse(
+            s,
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            72,
+            row_y,
+        )
+    };
+    let _ = click(&mut s);
+    if !matches!(s.mode(), SettingsModalMode::EditingValue { .. }) {
+        let _ = click(&mut s);
+    }
+    assert!(
+        matches!(s.mode(), SettingsModalMode::EditingValue { key } if key == "voice_stt_model"),
+        "clicking the voice model value must open the editor, got {:?}",
+        s.mode()
     );
 }
 

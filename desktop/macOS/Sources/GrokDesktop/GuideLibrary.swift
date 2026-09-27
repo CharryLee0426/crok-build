@@ -46,7 +46,7 @@ enum GuideLibrary {
 
     static let catalog: [Entry] = [
         Entry(fileName: "01-getting-started.md", title: "Getting Started", summary: "Installation, first launch, and basic interaction"),
-        Entry(fileName: "02-authentication.md", title: "Authentication", summary: "Browser login, API keys, OIDC, external auth providers"),
+        Entry(fileName: "02-authentication.md", title: "Authentication", summary: "Sign in to OpenRouter or OpenAI Codex"),
         Entry(fileName: "03-keyboard-shortcuts.md", title: "Keyboard Shortcuts", summary: "Complete reference for all TUI key bindings"),
         Entry(fileName: "04-slash-commands.md", title: "Slash Commands", summary: "All / commands, including goals, research, and workflow management"),
         Entry(fileName: "05-configuration.md", title: "Configuration", summary: "config.toml, pager.toml, environment variables, file locations"),
@@ -71,7 +71,7 @@ enum GuideLibrary {
         Entry(fileName: "24-monitoring-usage.md", title: "Monitoring Usage (External OpenTelemetry)", summary: "Export usage metrics to a customer OpenTelemetry collector"),
         Entry(fileName: "25-status-line.md", title: "Status Line", summary: "A bottom row of live session context, or the output of your own script"),
         Entry(fileName: "26-config-reference.md", title: "Configuration Reference", summary: "Field list for config.toml, managed_config.toml, and requirements.toml"),
-        Entry(fileName: "27-grok-clone.md", title: "grok clone", summary: "Depth-1 Grove clone, --full-history, and safe deepen/switch commands"),
+        Entry(fileName: "27-grok-clone.md", title: "crok clone", summary: "Depth-1 Grove clone, --full-history, and safe deepen/switch commands"),
     ]
 
     static func directory(home: URL = GrokPaths.home) -> URL {

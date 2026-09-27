@@ -36,14 +36,10 @@ pub(super) fn ensure_login_method(app: &mut AppView) {
     // No interactive method: leave login_method_id unset (fail-closed).
 }
 
-/// Error when no interactive login method is available (empty auth_methods, e.g. `preferred_method=api_key` with no credentials).
-/// When the list is empty, prefer the shell's `PREFERRED_API_KEY_UNAVAILABLE` copy.
-fn no_login_method_error(app: &AppView) -> String {
-    if app.auth_methods.is_empty() {
-        xai_grok_shell::agent::auth_method::PREFERRED_API_KEY_UNAVAILABLE.to_string()
-    } else {
-        "No login method available".to_string()
-    }
+/// Error when no interactive login method is available. The harness never advertises one now that
+/// xAI account sign-in is gone, so point at provider sign-in.
+fn no_login_method_error(_app: &AppView) -> String {
+    xai_grok_shell::agent::builtin_providers::PROVIDER_SIGN_IN_REQUIRED.to_string()
 }
 
 /// Abort any in-flight Authenticate/SwitchAccount task *and* its URL poll (single-flight).

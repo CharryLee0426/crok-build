@@ -1,6 +1,8 @@
-//! Voice input for Grok Build CLI: an xAI streaming STT client and the [`run_voice_pipeline`] task that emits [`VoiceEvent`]s for the pager.
+//! Voice input for Grok Build CLI: STT clients (OpenRouter transcription models by default, or xAI streaming STT) and the
+//! [`run_voice_pipeline`] task that emits [`VoiceEvent`]s for the pager.
 //!
 //! Voice is dictation only: the mic streams to STT and the transcript lands in the prompt box.
+//! [`VoiceConfig::provider`] picks the service and [`VoiceConfig::model`] the OpenRouter model.
 //!
 //! On macOS and Linux the mic is opened in a short-lived subprocess, so the long-lived TUI never pays the audio stack's permanent memory cost.
 //! See [`audio`] and [`maybe_run_capture_subprocess`].
@@ -16,10 +18,14 @@ pub mod event;
 pub mod language;
 pub mod pipeline;
 pub mod probe;
+#[cfg(any(feature = "audio", test))]
+mod segment;
 pub mod stt;
 
 pub use auth::{SharedVoiceAuth, StaticVoiceAuth, VoiceAuthError, VoiceAuthProvider};
-pub use config::VoiceConfig;
+pub use config::{
+    DEFAULT_OPENROUTER_STT_MODEL, VoiceConfig, VoiceProvider, canonical_stt_model,
+};
 pub use error::VoiceError;
 pub use event::VoiceEvent;
 pub use language::{

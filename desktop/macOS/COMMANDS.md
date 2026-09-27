@@ -1,4 +1,4 @@
-# Grok Build command inventory and desktop routing
+# Crok Build command inventory and desktop routing
 
 Audited against this checkout on 2026-09-23. This is a source inventory and
 integration contract. The running harness remains authoritative for feature,
@@ -89,7 +89,7 @@ for preferences, and the same harness methods, files, and messages the terminal
 uses. **Harness** means the command is forwarded as a prompt because the shell
 implements it. Desktop preferences that the terminal also reads (`[ui]` keys,
 `[models]` defaults, `[agent]`, `[subagents.toggle]`, `[hints]`) are written to
-`$GROK_HOME/config.toml` one key at a time, keeping the rest of the file intact.
+`$CROK_HOME/config.toml` one key at a time, keeping the rest of the file intact.
 
 While a turn is streaming, native panels and toggles still open at once;
 prompts, skills, and harness commands wait in the queue (see `/queue`); and the
@@ -97,12 +97,14 @@ few commands that need an idle task (`/plan`, `/imagine`, `/imagine-video`,
 `/flush`, `/dream`, `/rewind`, `/fork`, `/delete`, and `/model` or `/effort`
 with an argument) keep your draft and ask you to wait or stop the turn.
 
-The registry contains 75 pager commands.
+The registry contains 72 pager commands. `/login` is desktop-only: the terminal
+signs in with `crok login <provider>` instead. xAI accounts are not supported, so
+there is no `/logout` or `/privacy`, and `/usage` has no billing.
 
 | Command (source) | Aliases | Syntax | Desktop behavior |
 | --- | --- | --- | --- |
 | [`/always-approve`](../../crates/codegen/xai-grok-pager/src/slash/commands/always_approve.rs) | `/yolo` (shell) | `/always-approve [on\|off]` | Native: composer permission menu; sends `_x.ai/yolo_mode_changed` to every task, saves `[ui].permission_mode`, answers waiting permission requests once enabled |
-| [`/announcements`](../../crates/codegen/xai-grok-pager/src/slash/commands/announcements.rs) | — | `/announcements hide \| show` | Native: banner from `_x.ai/announcements/update` with CTA and Hide; hidden ids shared through `$GROK_HOME/announcements.json`; listed only while announcements exist |
+| [`/announcements`](../../crates/codegen/xai-grok-pager/src/slash/commands/announcements.rs) | — | `/announcements hide \| show` | Native: banner from `_x.ai/announcements/update` with CTA and Hide; hidden ids shared through `$CROK_HOME/announcements.json`; listed only while announcements exist |
 | [`/auto`](../../crates/codegen/xai-grok-pager/src/slash/commands/auto.rs) | — | `/auto` | Native: toggles Auto ↔ Ask via the permission menu; honours the Auto gate from env, config, and `x.ai/settings/update` |
 | [`/btw`](../../crates/codegen/xai-grok-pager/src/slash/commands/btw.rs) | — | `/btw <question>` | Asks in the side panel's Side chat over `_x.ai/btw`; runs while the main turn continues, and each task keeps its thread. Bare `/btw` opens the Side chat |
 | [`/cd`](../../crates/codegen/xai-grok-pager/src/slash/commands/cd.rs) | — | `/cd [path]` | Native: chooses the project for new tasks (folder picker without a path); running tasks stay put |
@@ -110,17 +112,17 @@ The registry contains 75 pager commands.
 | [`/compact-mode`](../../crates/codegen/xai-grok-pager/src/slash/commands/compact_mode.rs) | — | `/compact-mode` | Native conversation density toggle |
 | [`/config-agents`](../../crates/codegen/xai-grok-pager/src/slash/commands/config_agents.rs) | `/agents` | `/config-agents` | Native agents panel: definitions from every source the pager reads, Set/Clear default (`[agent] name`), per-agent enable (`[subagents.toggle]`), active-agent badge |
 | [`/context`](../../crates/codegen/xai-grok-pager/src/slash/commands/context.rs) | — | `/context` | Native: Context usage tab of the Usage sheet from `_x.ai/session/info` (never forwarded; the shell route is a no-op) |
-| [`/copy`](../../crates/codegen/xai-grok-pager/src/slash/commands/copy.rs) | — | `/copy [N] [file]` | Native: pager parsing and counting; clipboard plus `$GROK_HOME/last-copy.txt` backup, or a 0600 file |
+| [`/copy`](../../crates/codegen/xai-grok-pager/src/slash/commands/copy.rs) | — | `/copy [N] [file]` | Native: pager parsing and counting; clipboard plus `$CROK_HOME/last-copy.txt` backup, or a 0600 file |
 | [`/dashboard`](../../crates/codegen/xai-grok-pager/src/slash/commands/dashboard.rs) | `/agents-dashboard`, `/sessions` | `/dashboard` | Native roster of every desktop task grouped by state (Needs input, Working, Idle, …) with Open, Stop, Reply, Rename, Delete |
-| [`/debug`](../../crates/codegen/xai-grok-pager/src/slash/commands/debug.rs) | — | `/debug [scroll\|fps\|log]` | Native (hidden): FPS and scroll HUDs over the conversation; `log` writes `$GROK_HOME/logs/scroll-log-*.jsonl` |
+| [`/debug`](../../crates/codegen/xai-grok-pager/src/slash/commands/debug.rs) | — | `/debug [scroll\|fps\|log]` | Native (hidden): FPS and scroll HUDs over the conversation; `log` writes `$CROK_HOME/logs/scroll-log-*.jsonl` |
 | [`/delete`](../../crates/codegen/xai-grok-pager/src/slash/commands/delete.rs) | — | `/delete` | Native: confirmation, then `session/cancel`, `_x.ai/task/kill`, `_x.ai/session/delete`; the local task is removed after the harness succeeds (sidebar Delete uses the same path) |
-| [`/docs`](../../crates/codegen/xai-grok-pager/src/slash/commands/docs.rs) | `/howto`, `/guides` | `/docs [web\|title]` | Native Guides window over `$GROK_HOME/docs/user-guide` with search and in-guide links; `web` opens the online docs; a title opens that guide |
-| [`/doctor`](../../crates/codegen/xai-grok-pager/src/slash/commands/doctor.rs) | `/terminal-setup`, `/terminal-check`, `/terminal-info` | `/doctor [fix [FIX]]` | Native Diagnostics sheet from `grok doctor --json` plus desktop checks (runtime, sign-in, microphone, notifications); fixes run in Terminal |
+| [`/docs`](../../crates/codegen/xai-grok-pager/src/slash/commands/docs.rs) | `/howto`, `/guides` | `/docs [web\|title]` | Native Guides window over `$CROK_HOME/docs/user-guide` with search and in-guide links; `web` opens the online docs; a title opens that guide |
+| [`/doctor`](../../crates/codegen/xai-grok-pager/src/slash/commands/doctor.rs) | `/terminal-setup`, `/terminal-check`, `/terminal-info` | `/doctor [fix [FIX]]` | Native Diagnostics sheet from `crok doctor --json` plus desktop checks (runtime, sign-in, microphone, notifications); fixes run in Terminal |
 | [`/edit-prompt`](../../crates/codegen/xai-grok-pager/src/slash/commands/edit_prompt.rs) | — | `/edit-prompt` | Native large editor sheet; "Open in External Editor…" uses `$VISUAL`/`$EDITOR` with the pager's read-back rules |
 | [`/effort`](../../crates/codegen/xai-grok-pager/src/slash/commands/effort.rs) | — | `/effort <level>` | Native: accepts ids, labels, and standard level names; bare opens the picker; saves `[models].default_reasoning_effort` |
 | [`/quit`](../../crates/codegen/xai-grok-pager/src/slash/commands/exit.rs) | `/exit` | `/quit` | Native application quit |
 | [`/expand`](../../crates/codegen/xai-grok-pager/src/slash/commands/expand.rs) | — | `/expand` | Native: opens the newest folded reasoning or tool output and scrolls to it; repeating walks back |
-| [`/export`](../../crates/codegen/xai-grok-pager/src/slash/commands/export.rs) | — | `/export [filename]` | Native: `grok export <session>` Markdown (local renderer fallback) to a file, or to the clipboard plus backup file |
+| [`/export`](../../crates/codegen/xai-grok-pager/src/slash/commands/export.rs) | — | `/export [filename]` | Native: `crok export <session>` Markdown (local renderer fallback) to a file, or to the clipboard plus backup file |
 | [`/feedback`](../../crates/codegen/xai-grok-pager/src/slash/commands/feedback.rs) | — | `/feedback [text]` | Native: inline send via `_x.ai/feedback`, or the Feedback sheet (Write and Drafts tabs, taxonomy, images, optional trace upload) |
 | [`/find`](../../crates/codegen/xai-grok-pager/src/slash/commands/find.rs) | — | `/find [text]` | Native find bar (⌘F) with regex smart case, match count, next/previous, and message highlight |
 | [`/fork`](../../crates/codegen/xai-grok-pager/src/slash/commands/fork.rs) | — | `/fork [--worktree\|--no-worktree] [directive]` | Native: in place via `_x.ai/session/fork` or in a git worktree via `_x.ai/git/worktree/resume_session`; the ask sheet honours `[hints].fork_worktree_mode`; the directive is the child's first prompt |
@@ -130,12 +132,11 @@ The registry contains 75 pager commands.
 | [`/home`](../../crates/codegen/xai-grok-pager/src/slash/commands/home.rs) | `/welcome` | `/home` | Native: new-task screen without stopping the current task |
 | [`/imagine`](../../crates/codegen/xai-grok-pager/src/slash/commands/imagine.rs) | — | `/imagine <description>` | Adapted: explicit image-generation prompt when the `image_gen` tool is advertised |
 | [`/imagine-video`](../../crates/codegen/xai-grok-pager/src/slash/commands/imagine_video.rs) | — | `/imagine-video <description>` | Adapted: the pager's video workflow prompt when `image_to_video` is advertised |
-| [`/import-claude`](../../crates/codegen/xai-grok-pager/src/slash/commands/import_claude.rs) | — | `/import-claude` | Native: scans Claude settings, MCP servers, hooks, and skill/rule folders; the sheet merges selected items into Grok's configuration as the pager does, keeping comments |
+| [`/import-claude`](../../crates/codegen/xai-grok-pager/src/slash/commands/import_claude.rs) | — | `/import-claude` | Native: scans Claude settings, MCP servers, hooks, and skill/rule folders; the sheet merges selected items into Crok's configuration as the pager does, keeping comments |
 | [`/jump`](../../crates/codegen/xai-grok-pager/src/slash/commands/jump.rs) | — | `/jump` | Native turn picker with live scrolling; Escape restores the previous position |
-| [`/login`](../../crates/codegen/xai-grok-pager/src/slash/commands/login.rs) | — | `/login` | Native Accounts settings (browser sign-in through `grok login`) |
-| [`/logout`](../../crates/codegen/xai-grok-pager/src/slash/commands/logout.rs) | — | `/logout` | Native: `_x.ai/auth/logout`, with the `XAI_API_KEY` warning; Settings has Sign Out… |
+| `/login` (desktop only) | — | `/login` | Native Accounts settings: sign in to OpenRouter or OpenAI Codex (browser sign-in through `crok login openrouter` or `crok login openai-codex`) |
 | [`/loop`](../../crates/codegen/xai-grok-pager/src/slash/commands/loop_cmd.rs) | — | `/loop [interval] <prompt>` | Harness: forwarded; scheduled runs appear in `/tasks` with Delete |
-| [`/mcps`](../../crates/codegen/xai-grok-pager/src/slash/commands/mcps.rs) | — | `/mcps` | Native servers panel: status, tools, add (one URL-or-command field), toggle, restart, authorize, remove, Browse connectors |
+| [`/mcps`](../../crates/codegen/xai-grok-pager/src/slash/commands/mcps.rs) | — | `/mcps` | Native servers panel: status, tools, add (one URL-or-command field), toggle, restart, authorize, remove |
 | [`/memory`](../../crates/codegen/xai-grok-pager/src/slash/commands/memory.rs) | `/mem` | `/memory` | Native Memory panel: grouped notes with preview, search, enable toggle with reasons, Delete via `memory/forget` (BLAKE3 hash), Flush and Dream |
 | [`/flush`](../../crates/codegen/xai-grok-pager/src/slash/commands/memory_ops.rs) | — | `/flush` | Native: `_x.ai/memory/flush` with the shell's summary |
 | [`/dream`](../../crates/codegen/xai-grok-pager/src/slash/commands/memory_ops.rs) | — | `/dream` | Native: `_x.ai/memory/dream` with the shell's summary |
@@ -148,17 +149,16 @@ The registry contains 75 pager commands.
 | [`/plugins`](../../crates/codegen/xai-grok-pager/src/slash/commands/plugin.rs) | `/plugin` | `/plugins` | Native panel: filter, badges, install, update (one or all), uninstall with confirmation, reload |
 | [`/marketplace`](../../crates/codegen/xai-grok-pager/src/slash/commands/plugin.rs) | — | `/marketplace` | Native: marketplace sources and plugins with install, update, uninstall, refresh, add and remove source |
 | [`/skills`](../../crates/codegen/xai-grok-pager/src/slash/commands/plugin.rs) | — | `/skills` | Native: filter, toggles, add folder, discovery sources with remove and reset, exact advertised invocation |
-| [`/privacy`](../../crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs) | — | `/privacy` | Native: coding-data opt in/out via `_x.ai/privacy/setCodingDataRetention`, locked for ZDR and non-admin team members; also in Settings |
 | [`/queue`](../../crates/codegen/xai-grok-pager/src/slash/commands/queue.rs) | — | `/queue` | Native queue panel above the composer: prompts sent during a turn are queued and sent in order; edit, reorder, copy, remove, Send now; harness-owned entries shown with Remove |
 | [`/recap`](../../crates/codegen/xai-grok-pager/src/slash/commands/recap.rs) | `/summarize` | `/recap` | Native session recap through `_x.ai/recap` and its notification |
-| [`/release-notes`](../../crates/codegen/xai-grok-pager/src/slash/commands/release_notes.rs) | `/changelog` | `/release-notes` | Native window: the version's changelog from x.ai, cached in `$GROK_HOME/CHANGELOG.md` |
+| [`/release-notes`](../../crates/codegen/xai-grok-pager/src/slash/commands/release_notes.rs) | `/changelog` | `/release-notes` | Native window: the version's changelog from x.ai, cached in `$CROK_HOME/CHANGELOG.md` |
 | [`/remember`](../../crates/codegen/xai-grok-pager/src/slash/commands/remember.rs) | — | `/remember [text]` | Native sheet: Raw/Enhanced via `_x.ai/memory/rewrite`, saved locally like the pager (legacy `MEMORY.md` or v2 inbox note) |
 | [`/rename`](../../crates/codegen/xai-grok-pager/src/slash/commands/rename.rs) | `/title` | `/rename <title> \| --auto` | Native: `_x.ai/session/rename` (and `resetToAuto`) with the pager's validation; bare opens the rename sheet |
 | [`/resume`](../../crates/codegen/xai-grok-pager/src/slash/commands/resume.rs) | — | `/resume` | Native sheet over `_x.ai/session/list` and `_x.ai/session/search` with paging; resumes into the sidebar |
 | [`/rewind`](../../crates/codegen/xai-grok-pager/src/slash/commands/rewind.rs) | `/undo` | `/rewind` | Native checkpoint picker, affected-file preview, and confirmed conversation/files/both restore; external conflicts block restore |
 | [`/scroll-debug`](../../crates/codegen/xai-grok-pager/src/slash/commands/scroll_debug.rs) | — | `/scroll-debug` | Native (hidden): toggles the scroll HUD; with arguments the text goes to the model |
 | [`/session-info`](../../crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs) | `/status`, `/info` (shell) | `/session-info` | Native: Session info tab of the Usage sheet with click-to-copy rows |
-| [`/settings`](../../crates/codegen/xai-grok-pager/src/slash/commands/settings_cmd.rs) | `/config`, `/preferences`, `/prefs` | `/settings` | Native Settings: themes, accounts and privacy, conversation display, permissions, input, and voice |
+| [`/settings`](../../crates/codegen/xai-grok-pager/src/slash/commands/settings_cmd.rs) | `/config`, `/preferences`, `/prefs` | `/settings` | Native Settings: themes, accounts (OpenRouter and OpenAI Codex), conversation display, permissions, input, and voice |
 | [`/share`](../../crates/codegen/xai-grok-pager/src/slash/commands/share.rs) | — | `/share` | Same as the terminal: "Session sharing is temporarily disabled" |
 | [`/tasks`](../../crates/codegen/xai-grok-pager/src/slash/commands/tasks.rs) | — | `/tasks` | Native sheet: workflows, subagents, background tasks, and scheduled tasks with Stop/Delete |
 | [`/theme`](../../crates/codegen/xai-grok-pager/src/slash/commands/theme.rs) | `/t` | `/theme [name]` | Native: the terminal's themes (auto, groknight, grokday, tokyonight, rosepine-moon, oscura-midnight) with live preview; saved to `[ui].theme` |
@@ -166,12 +166,12 @@ The registry contains 75 pager commands.
 | [`/timestamps`](../../crates/codegen/xai-grok-pager/src/slash/commands/timestamps.rs) | — | `/timestamps` | Native message timestamps (on by default); saved to `[ui].show_timestamps` |
 | [`/toggle-mouse-reporting`](../../crates/codegen/xai-grok-pager/src/slash/commands/toggle_mouse_reporting.rs) | — | `/toggle-mouse-reporting` | Not applicable: explains that the desktop always receives mouse input |
 | [`/transcript`](../../crates/codegen/xai-grok-pager/src/slash/commands/transcript.rs) | `/log` | `/transcript` | Native Transcript window with the export Markdown, find, copy, and Save As… |
-| [`/trace`](../../crates/codegen/xai-grok-pager/src/slash/commands/trace.rs) | — | `/trace` | Native Trace window: `grok trace view <session> --format html` shown in a web view, with reload and Save As… |
+| [`/trace`](../../crates/codegen/xai-grok-pager/src/slash/commands/trace.rs) | — | `/trace` | Native Trace window: `crok trace view <session> --format html` shown in a web view, with reload and Save As… |
 | [`/tutorial`](../../crates/codegen/xai-grok-pager/src/slash/commands/tutorial.rs) | `/tour`, `/onboarding` | `/tutorial` | Native tutorial window with the nine topics, progress, and links into the guides |
-| [`/usage`](../../crates/codegen/xai-grok-pager/src/slash/commands/usage.rs) | `/cost` | `/usage [show\|manage]` | Native Usage sheet (Usage limit tab): billing, credits, auto top-up, session usage; `manage` opens billing; hidden for external sign-in |
+| [`/usage`](../../crates/codegen/xai-grok-pager/src/slash/commands/usage.rs) | `/cost` | `/usage` | Native Usage sheet (Session usage tab): the session's tokens and cost from `_x.ai/session/usage`; takes no arguments (no xAI billing, so no `show` or `manage`) |
 | [`/view-plan`](../../crates/codegen/xai-grok-pager/src/slash/commands/view_plan.rs) | `/show-plan`, `/plan-view` | `/view-plan` | Native saved Markdown plan preview plus ACP steps and pending plan approval |
 | [`/vim-mode`](../../crates/codegen/xai-grok-pager/src/slash/commands/vim_mode.rs) | — | `/vim-mode` | Native transcript keys (j/k, g/G, y, i); saved to `[ui].vim_mode` |
-| [`/voice`](../../crates/codegen/xai-grok-pager/src/slash/commands/voice.rs) | — | `/voice` | Native dictation (mic button, ⇧⌘D): xAI speech-to-text stream, or on-device recognition without an xAI credential |
+| [`/voice`](../../crates/codegen/xai-grok-pager/src/slash/commands/voice.rs) | — | `/voice` | Native dictation (mic button, ⇧⌘D): each utterance transcribed by an OpenRouter model with the OpenRouter key, or on-device recognition without one |
 | [`/workflow`](../../crates/codegen/xai-grok-pager/src/slash/commands/workflow.rs) | — | `/workflow <name> [input] \| runs \| …` | `runs` opens the native Workflow Runs sheet (pause, resume, stop, save); other forms go to the harness |
 | [`/workflows`](../../crates/codegen/xai-grok-pager/src/slash/commands/workflows.rs) | — | `/workflows` | Native saved-workflow browser with when-to-use, source, path, and launch |
 | [`/minimal`](../../crates/codegen/xai-grok-pager/src/slash/commands/screen_mode_switch.rs) | — | `/minimal` | Adapted: minimal window mode (conversation only; sidebar, inspector, and toolbar hidden) |
@@ -326,44 +326,44 @@ Sources: [mode dispatch](../../crates/codegen/xai-grok-pager/src/app/dispatch/mo
 - `_x.ai/session/usage {sessionId}` returns raw `{usage}`. Token fields are
   camelCase; `costUsdTicks` uses 10 billion ticks per USD. A missing cost or
   `costIsPartial`/`usageIsIncomplete` flag must not be presented as zero cost.
-  These in-memory totals reset with a new runtime process. CLI `grok usage` reads
+  These in-memory totals reset with a new runtime process. CLI `crok usage` reads
   persisted totals.
 
 ## Process-level CLI inventory
 
-These commands configure or launch Grok itself. They are not slash commands and
+These commands configure or launch Crok itself. They are not slash commands and
 should not be inserted into `session/prompt`. Native account, project, extensions,
 and task controls can cover applicable operations; process maintenance and
 terminal transport commands remain available in the side panel's **Terminal**.
 
 | CLI family | Subcommands / primary operation | Source |
 | --- | --- | --- |
-| `grok agent` | `stdio`, `headless`, `serve`, `leader`; desktop uses `stdio` | `app/cli.rs` |
-| `grok inspect` | Show discovered configuration; `--json` | `app/cli.rs` |
-| `grok doctor` | Report; `fix [id]` | `doctor_cmd/mod.rs` |
-| `grok leader` | `list`, `info`, `kill` | `app/cli.rs` |
-| `grok login`, `logout` | Grok, OpenRouter, OpenAI Codex providers | `app/cli.rs` |
-| `grok mcp` | `list`, `add`, `remove`, `enable`, `disable`, `doctor` | `mcp_cmd.rs` |
-| `grok plugin` | `list`, `install`, `uninstall` (`rm`/`remove`), `update`, `enable`, `disable`, `details`, `validate`, `tag` | `plugin_cmd.rs` |
-| `grok plugin marketplace` | `list`, `add`, `remove`, `update` | `plugin_cmd.rs` |
-| `grok memory` | `clear` with workspace/global/all scope | `memory_cmd.rs` |
-| `grok models` | List models; optional `--refresh` | `app/cli.rs` |
-| `grok sessions` | `list`, `search`, `delete` | `sessions_cmd.rs` |
-| `grok usage` | Persisted session/turn token and cost totals | `usage_cmd.rs` |
-| `grok setup` | Fetch/install managed configuration; `--json` is read-only | `app/cli.rs` |
-| `grok share` | Share session URL; hidden CLI entry | `share_cmd.rs` |
-| `grok wrap` | Run another command in PTY with clipboard forwarding | `app/cli.rs` |
-| `grok export` | Export a session transcript as Markdown | `export_cmd.rs` |
-| `grok trace` | Export/upload trace; `view` opens viewer or exports HTML | `trace_cmd.rs` |
-| `grok update` | Check/install version; channel selection | `app/cli.rs` |
-| `grok version`, `v` | Version information; `--json` | `app/cli.rs` |
-| `grok completions` | Generate shell completions | `app/cli.rs` |
-| `grok worktree` | `list` (`ls`), `show`, `rm`, `gc` (`prune`), `db rebuild/stats/path` | `worktree_cmd/mod.rs` |
-| `grok du`, `disk-usage` | Grok home disk usage | `disk_usage_cmd.rs` |
-| `grok workspace` | `start`, `pause`, `resume`, `stop`, `restart`, `status` (`list`); feature-gated | `app/cli.rs` |
-| `grok dashboard` | Launch terminal multi-session dashboard | `app/cli.rs` |
+| `crok agent` | `stdio`, `headless`, `serve`, `leader`; desktop uses `stdio` | `app/cli.rs` |
+| `crok inspect` | Show discovered configuration; `--json` | `app/cli.rs` |
+| `crok doctor` | Report; `fix [id]` | `doctor_cmd/mod.rs` |
+| `crok leader` | `list`, `info`, `kill` | `app/cli.rs` |
+| `crok login`, `logout` | `login openrouter` or `login openai-codex`; `logout [provider]` (all providers when omitted); xAI accounts are not supported | `app/cli.rs` |
+| `crok mcp` | `list`, `add`, `remove`, `enable`, `disable`, `doctor` | `mcp_cmd.rs` |
+| `crok plugin` | `list`, `install`, `uninstall` (`rm`/`remove`), `update`, `enable`, `disable`, `details`, `validate`, `tag` | `plugin_cmd.rs` |
+| `crok plugin marketplace` | `list`, `add`, `remove`, `update` | `plugin_cmd.rs` |
+| `crok memory` | `clear` with workspace/global/all scope | `memory_cmd.rs` |
+| `crok models` | List models; optional `--refresh` | `app/cli.rs` |
+| `crok sessions` | `list`, `search`, `delete` | `sessions_cmd.rs` |
+| `crok usage` | Persisted session/turn token and cost totals | `usage_cmd.rs` |
+| `crok setup` | Fetch/install managed configuration; `--json` is read-only | `app/cli.rs` |
+| `crok share` | Share session URL; hidden CLI entry | `share_cmd.rs` |
+| `crok wrap` | Run another command in PTY with clipboard forwarding | `app/cli.rs` |
+| `crok export` | Export a session transcript as Markdown | `export_cmd.rs` |
+| `crok trace` | Export/upload trace; `view` opens viewer or exports HTML | `trace_cmd.rs` |
+| `crok update` | Check/install version; channel selection | `app/cli.rs` |
+| `crok version`, `v` | Version information; `--json` | `app/cli.rs` |
+| `crok completions` | Generate shell completions | `app/cli.rs` |
+| `crok worktree` | `list` (`ls`), `show`, `rm`, `gc` (`prune`), `db rebuild/stats/path` | `worktree_cmd/mod.rs` |
+| `crok du`, `disk-usage` | Crok home disk usage | `disk_usage_cmd.rs` |
+| `crok workspace` | `start`, `pause`, `resume`, `stop`, `restart`, `status` (`list`); feature-gated | `app/cli.rs` |
+| `crok dashboard` | Launch terminal multi-session dashboard | `app/cli.rs` |
 
 Source paths in this table are relative to
 [`crates/codegen/xai-grok-pager/src`](../../crates/codegen/xai-grok-pager/src).
 Argument flags are defined alongside each command; the live executable's
-`grok <family> --help` is the final authority for a packaged version.
+`crok <family> --help` is the final authority for a packaged version.

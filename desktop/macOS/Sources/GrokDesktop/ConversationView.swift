@@ -150,7 +150,7 @@ struct QuestionCard: View {
     @State private var notes: [String: String] = [:]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("A question from Grok", systemImage: "bubble.left.and.bubble.right").font(.system(size: 15, weight: .semibold))
+            Label("A question from Crok", systemImage: "bubble.left.and.bubble.right").font(.system(size: 15, weight: .semibold))
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(request.questions) { question in

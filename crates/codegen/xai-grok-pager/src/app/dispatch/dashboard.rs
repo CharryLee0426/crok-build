@@ -1195,6 +1195,8 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
     let auto_mode_gate_from_app = app.auto_mode_gate;
     let ask_user_question_timeout_enabled_from_app = app.ask_user_question_timeout_enabled;
     let voice_stt_language_from_app = app.voice_config.language.clone();
+    let voice_stt_provider_from_app = app.voice_config.provider.as_str();
+    let voice_stt_model_from_app = app.voice_config.model.clone();
     let subagent_model_inheritance_from_app = app.subagent_model_inheritance;
     let result = {
         let Some(invocation) = parse_invocation(trimmed.as_str()) else {
@@ -1282,6 +1284,8 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
                 auto_mode_gate: auto_mode_gate_from_app,
                 ask_user_question_timeout_enabled: ask_user_question_timeout_enabled_from_app,
                 voice_stt_language: voice_stt_language_from_app,
+                voice_stt_provider: voice_stt_provider_from_app,
+                voice_stt_model: voice_stt_model_from_app.clone(),
                 subagent_model_inheritance: subagent_model_inheritance_from_app,
             },
         };

@@ -4,7 +4,7 @@
 #[test]
 fn cli_marketplace_remove_fails_closed_when_init_flock_held() {
     // One #[test] per binary: the env is process-global.
-    let grok_home = tempfile::tempdir().expect("grok home");
+    let grok_home = tempfile::tempdir().expect("crok home");
     // SAFETY: no other threads are running yet.
     unsafe { std::env::set_var("GROK_HOME", grok_home.path()) };
 

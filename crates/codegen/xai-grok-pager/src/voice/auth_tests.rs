@@ -19,6 +19,27 @@ fn session(issuer: &str) -> GrokAuth {
     }
 }
 
+/// OpenRouter voice uses only the OpenRouter key: the environment key first, then `grok login openrouter`.
+#[tokio::test]
+#[serial_test::serial]
+async fn openrouter_voice_reads_env_then_stored_key() {
+    let _env = EnvGuard::unset("OPENROUTER_API_KEY");
+    let dir = tempfile::tempdir().unwrap();
+    let auth = super::openrouter_voice_auth(dir.path().to_path_buf());
+    assert_eq!(
+        Err(VoiceAuthError::OpenRouterNotSignedIn),
+        auth.bearer().await
+    );
+
+    xai_grok_login::provider_auth::store_openrouter_api_key(dir.path(), "sk-or-stored")
+        .await
+        .unwrap();
+    assert_eq!(Ok("sk-or-stored".to_owned()), auth.bearer().await);
+
+    let _env = EnvGuard::set("OPENROUTER_API_KEY", "sk-or-env");
+    assert_eq!(Ok("sk-or-env".to_owned()), auth.bearer().await);
+}
+
 /// The positive case is a static key, which every build of the manager serves; the xAI-session case is pinned in
 /// `xai-grok-login`.
 #[tokio::test]
@@ -29,7 +50,7 @@ async fn foreign_session_is_refused_and_xai_credential_is_served() {
     let _auth_path = EnvGuard::unset("GROK_AUTH_PATH");
     let dir = tempfile::tempdir().unwrap();
     let mgr = Arc::new(AuthManager::new(dir.path(), GrokComConfig::default()));
-    let auth = build_voice_auth(mgr.clone());
+    let auth = build_voice_auth(mgr.clone(), xai_grok_voice::VoiceProvider::Xai);
 
     mgr.hot_swap(session("https://cursor.com"));
     assert_eq!(Err(VoiceAuthError::ForeignSession), auth.bearer().await);

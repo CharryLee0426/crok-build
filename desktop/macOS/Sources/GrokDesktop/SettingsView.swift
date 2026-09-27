@@ -29,7 +29,7 @@ struct SettingsView: View {
                         }
                         VStack(spacing: 0) {
                             ForEach(AccountProvider.allCases) { provider in
-                                if provider != .xai { Divider().padding(.leading, 46) }
+                                if provider != AccountProvider.allCases.first { Divider().padding(.leading, 46) }
                                 accountRow(provider)
                             }
                         }
@@ -56,7 +56,6 @@ struct SettingsView: View {
                             }
                             .font(.system(size: 13))
                         }
-                        AccountSettingsExtras()
                     }
                     .padding(18)
                     .glassSurface(cornerRadius: 18)
@@ -71,13 +70,13 @@ struct SettingsView: View {
 
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: "lock.shield")
-                Text("Most settings are shared with the Grok CLI. Tasks stay on this Mac.")
+                Text("Most settings are shared with the Crok CLI. Tasks stay on this Mac.")
                     .lineSpacing(3)
             }
             .font(.system(size: 13)).foregroundStyle(Theme.muted)
 
             HStack {
-                Text("Grok Desktop · \(DesktopVersion.current)").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text("Crok Desktop · \(DesktopVersion.current)").font(.system(size: 12)).foregroundStyle(Theme.muted)
                 Spacer()
                 Button("Done") { dismiss() }
                     .buttonStyle(.borderedProminent)

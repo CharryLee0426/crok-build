@@ -497,7 +497,7 @@ fn upsell_non_max_unified_shows_buy_credits() {
     assert_eq!(option_at(q, 1).label, "Buy more credits");
     assert_eq!(
         option_at(q, 1).description,
-        "Purchase credits to keep using Grok Build"
+        "Purchase credits to keep using Crok Build"
     );
     assert_eq!(option_at(q, 2).label, "Try Again");
 }
@@ -566,7 +566,7 @@ fn is_credit_limit_error_matches_legacy_403_and_pool_402() {
     assert!(is_credit_limit_error(Some(402), "anything"));
     assert!(is_credit_limit_error(
         None,
-        "API error (status 402 Payment Required): Grok Build usage balance exhausted"
+        "API error (status 402 Payment Required): Crok Build usage balance exhausted"
     ));
     assert!(is_credit_limit_error(
         None,
@@ -1300,7 +1300,7 @@ fn free_usage_upsell_shows_three_options_with_exact_labels() {
         ),
         (
             "Upgrade to SuperGrok Heavy",
-            "Get the most out of Grok Build. Highest usage limits.",
+            "Get the most out of Crok Build. Highest usage limits.",
             Some(UPSELL_URL_UPGRADE),
         ),
     ];

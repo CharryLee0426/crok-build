@@ -16,7 +16,7 @@ impl std::fmt::Display for ManagedPolicyRefusal {
         match self {
             Self::Compromised => f.write_str(MANAGED_POLICY_MISSING_MSG),
             Self::Busy => f.write_str(
-                "Managed policy is being updated by another grok process or a \
+                "Managed policy is being updated by another crok process or a \
                  background policy sync in this one, and could not be verified in \
                  time. Retry in a moment.",
             ),

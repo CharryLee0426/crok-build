@@ -144,7 +144,7 @@ fn purge_skill_dirs_matching(grok_home: &std::path::Path, known: &[(&str, &str)]
             continue;
         };
         let on_disk = sha256_hex(content.as_bytes());
-        let unrewritten = sha256_hex(content.replace(&home_prefix, "~/.grok/").as_bytes());
+        let unrewritten = sha256_hex(content.replace(&home_prefix, "~/.crok/").as_bytes());
         let managed = known
             .iter()
             .any(|&(n, hash)| n == name && (hash == on_disk || hash == unrewritten));
@@ -301,8 +301,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
         // help's on-disk bytes are machine-dependent (home substituted in).
-        let raw = EXTRACTED_BODY.replace("platform", "read ~/.grok/docs/user-guide then platform");
-        let body = raw.replace("~/.grok/", &format!("{}/", home.to_string_lossy()));
+        let raw = EXTRACTED_BODY.replace("platform", "read ~/.crok/docs/user-guide then platform");
+        let body = raw.replace("~/.crok/", &format!("{}/", home.to_string_lossy()));
         let raw_hash = sha256_hex(raw.as_bytes());
         let dir = write_skill(home, "help", &body);
 

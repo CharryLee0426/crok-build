@@ -1182,7 +1182,7 @@ mod tests {
             .unwrap();
         let list_out = String::from_utf8_lossy(&stash_list.stdout).into_owned();
         assert!(
-            list_out.contains("grok: pre-restore-code sess-dirty-wt"),
+            list_out.contains("crok: pre-restore-code sess-dirty-wt"),
             "stash list missing session label: {list_out}"
         );
     }

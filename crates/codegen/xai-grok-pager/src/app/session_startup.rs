@@ -803,7 +803,7 @@ async fn most_recent_session_id(
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "No session found for current directory. \
-                 Use 'grok' to start a new session."
+                 Use 'crok' to start a new session."
             )
         })?;
     Ok((first.info.id.to_string(), first.display_title_opt()))

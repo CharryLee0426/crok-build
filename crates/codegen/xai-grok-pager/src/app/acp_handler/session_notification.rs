@@ -1432,7 +1432,7 @@ fn queue_wake_turn_complete_notification(app: &mut AppView, agent_id: AgentId) {
     app.deferred_notification = Some((
         NotificationEvent {
             kind: NotificationEventKind::TurnComplete,
-            title: session_name.unwrap_or_else(|| "Grok".into()),
+            title: session_name.unwrap_or_else(|| "Crok".into()),
             body: String::from("Turn complete."),
             session_id,
         },

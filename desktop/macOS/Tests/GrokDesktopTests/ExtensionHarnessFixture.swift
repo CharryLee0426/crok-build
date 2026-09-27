@@ -23,8 +23,8 @@ final class ExtensionHarnessFixture {
         userHome = directory.appendingPathComponent("home", isDirectory: true)
         project = directory.appendingPathComponent("project", isDirectory: true)
         for folder in [grokHome, userHome, project] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
-        savedEnvironment = ["GROK_HOME": ProcessInfo.processInfo.environment["GROK_HOME"], "HOME": ProcessInfo.processInfo.environment["HOME"]]
-        setenv("GROK_HOME", grokHome.path, 1)
+        savedEnvironment = ["CROK_HOME": ProcessInfo.processInfo.environment["CROK_HOME"], "HOME": ProcessInfo.processInfo.environment["HOME"]]
+        setenv("CROK_HOME", grokHome.path, 1)
         setenv("HOME", userHome.path, 1)
         defaults = UserDefaults(suiteName: defaultsName)!
         try Self.writeMemoryFiles(root: directory.appendingPathComponent("memory-store"))
@@ -175,7 +175,7 @@ class ExtensionHarness(MockHarness):
         ]
 
     def hooks(self):
-        home = os.environ.get("GROK_HOME", "")
+        home = os.environ.get("CROK_HOME", "")
         rows = [
             {"name": "global/safety:pre_tool_use[0].hooks[0]", "event": "pre_tool_use", "handlerType": "command", "matcher": "Bash", "command": home + "/hooks/safety/check-command.sh", "url": None, "timeoutMs": 5000, "sourceDir": home + "/hooks", "removable": False, "pinned": False},
             {"name": "global/safety:session_start[0].hooks[0]", "event": "session_start", "handlerType": "http", "matcher": None, "command": None, "url": "https://hooks.example.com/session", "timeoutMs": 2000, "sourceDir": home + "/hooks", "removable": False, "pinned": True},
@@ -304,7 +304,7 @@ class ExtensionHarness(MockHarness):
             self.result(rid, {"result": {"skills": self.skills(), "message": "Custom skills config reset"}, "error": None})
         elif method == "_x.ai/workflows/list":
             self.result(rid, {"result": {"workflows": [
-                {"name": "fix-ci", "description": "Fix failing CI on the current PR", "when_to_use": "A pull request has red checks and you want Grok to diagnose and fix them.", "source": "project", "path": os.getcwd() + "/.grok/workflows/fix-ci.md"},
+                {"name": "fix-ci", "description": "Fix failing CI on the current PR", "when_to_use": "A pull request has red checks and you want Crok to diagnose and fix them.", "source": "project", "path": os.getcwd() + "/.grok/workflows/fix-ci.md"},
                 {"name": "ship-release", "description": "Cut a release branch, bump versions, and draft notes", "source": "user", "path": "/fixture/home/.grok/workflows/ship-release.md"},
             ]}, "error": None})
         else:

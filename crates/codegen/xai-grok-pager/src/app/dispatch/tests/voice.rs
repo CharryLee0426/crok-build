@@ -372,6 +372,7 @@ fn voice_keybinding_on_restricted_tier_opens_upsell() {
         return; // The tier check runs after the AUDIO_SUPPORTED gate.
     }
     let mut app = test_app_with_agent();
+    app.voice_config.provider = xai_grok_voice::VoiceProvider::Xai; // xAI tier and kill-switch rules apply to xAI voice only
     app.voice_mode_enabled = true;
     // A personal login without a subscription tier is free tier, so voice is restricted
     app.apply_auth_meta(&xai_grok_login::AuthMeta::default());

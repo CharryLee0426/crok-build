@@ -203,6 +203,141 @@ private struct BehindWindowBlur: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
+/// Frosted glass under the window's title and toolbar, so the conversation blurs as it scrolls
+/// beneath them instead of running into the title. It fades out below the toolbar, like the
+/// system's soft scroll edge. Full screen draws its own title bar, so this steps aside there.
+struct TitleBarGlass: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @State private var chrome = WindowChrome()
+    /// How far below the toolbar the blur fades out.
+    static let fade: CGFloat = 18
+
+    var body: some View {
+        // The conversation runs under the toolbar, so the safe area can't say how tall the title
+        // bar is; the window can.
+        ZStack(alignment: .top) {
+            Color.clear
+            let inset = chrome.titleBarHeight
+            if inset > 0 && !chrome.isFullScreen {
+                let height = inset + Self.fade
+                let palette = Theme.palette
+                ZStack {
+                    if reduceTransparency {
+                        palette.canvas
+                    } else {
+                        WithinWindowBlur()
+                        // The terminal palettes tint the glass with their own colour.
+                        palette.canvas.opacity(palette.usesSystemMaterials ? 0.18 : 0.55)
+                    }
+                }
+                .mask {
+                    LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: inset / height * 0.8),
+                                           .init(color: .black.opacity(0.55), location: inset / height), .init(color: .clear, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .overlay(alignment: .top) {
+                    // A hairline where the toolbar ends, like the edge of a glass pane.
+                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).offset(y: inset)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .ignoresSafeArea(edges: .top)
+        .background(WindowChromeReader(chrome: $chrome))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// What the window's own chrome takes up.
+struct WindowChrome: Equatable {
+    var isFullScreen = false
+    /// The title bar and toolbar above the content layout area.
+    var titleBarHeight: CGFloat = 0
+}
+
+/// The window's content behind this view, blurred.
+private struct WithinWindowBlur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = PassthroughEffectView()
+        view.material = .headerView
+        view.blendingMode = .withinWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+
+    /// Decoration only: clicks and scrolls go to the content underneath.
+    private final class PassthroughEffectView: NSVisualEffectView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
+/// Reports whether the hosting window is in full screen, and how tall its title bar is.
+struct WindowChromeReader: NSViewRepresentable {
+    @Binding var chrome: WindowChrome
+
+    func makeNSView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.onChange = { value in if chrome != value { chrome = value } }
+        return view
+    }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.onChange = { value in if chrome != value { chrome = value } }
+    }
+
+    final class ReaderView: NSView {
+        var onChange: ((WindowChrome) -> Void)?
+        private var observers: [NSObjectProtocol] = []
+        private var reported: WindowChrome?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            reported = nil
+            guard let window else { return }
+            // "Will enter" hides the glass before the full-screen animation; "will exit" brings it back as the window returns.
+            let transitions: [(NSNotification.Name, Bool?)] = [
+                (NSWindow.willEnterFullScreenNotification, true), (NSWindow.didEnterFullScreenNotification, true),
+                (NSWindow.willExitFullScreenNotification, false), (NSWindow.didExitFullScreenNotification, false),
+                (NSWindow.didResizeNotification, nil),
+            ]
+            for (name, fullScreen) in transitions {
+                observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.report(fullScreen: fullScreen) }
+                })
+            }
+            DispatchQueue.main.async { [weak self] in self?.report(fullScreen: nil) }
+        }
+
+        /// The toolbar showing or hiding lays the content out again.
+        override func layout() {
+            super.layout()
+            DispatchQueue.main.async { [weak self] in self?.report(fullScreen: nil) }
+        }
+
+        private func report(fullScreen: Bool?) {
+            guard let window else { return }
+            let isFullScreen = fullScreen ?? window.styleMask.contains(.fullScreen)
+            let height = max(0, window.frame.height - window.contentLayoutRect.height)
+            let chrome = WindowChrome(isFullScreen: isFullScreen, titleBarHeight: height)
+            guard chrome != reported else { return }
+            reported = chrome
+            onChange?(chrome)
+        }
+
+        deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    }
+}
+
 extension View {
     /// Liquid Glass belongs to controls above content, rather than the transcript itself.
     func glassSurface(cornerRadius: CGFloat = 16, interactive: Bool = false) -> some View {
@@ -240,7 +375,8 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
             content.background(Theme.surface, in: shape)
                 .overlay(shape.strokeBorder(Theme.line, lineWidth: 1))
         } else {
-            #if compiler(>=6.2)
+            // SwiftUI 7 is the macOS 26 SDK; a Swift 6.2 compiler can still build against an older SDK without glass.
+            #if canImport(SwiftUI, _version: 7)
             if #available(macOS 26.0, *) {
                 // The system tints its glass; a terminal palette's glass takes the palette's surface colour.
                 let tint: Color? = Theme.palette.usesSystemMaterials ? nil : Theme.surface.opacity(0.55)
@@ -288,7 +424,7 @@ struct GrokMark: View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.29).fill(Theme.ink)
             GrokSymbol().fill(Theme.canvas).frame(width: size * 0.76, height: size * 0.76)
-        }.frame(width: size, height: size).accessibilityLabel("Grok")
+        }.frame(width: size, height: size).accessibilityLabel("Crok")
     }
 }
 

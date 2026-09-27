@@ -8,7 +8,7 @@ import XCTest
 @MainActor
 final class ExtensionSnapshotTests: XCTestCase {
     private func output() throws -> URL {
-        guard let path = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         return URL(fileURLWithPath: path)
     }
 
@@ -91,7 +91,6 @@ final class ExtensionSnapshotTests: XCTestCase {
         try await browser(.hooks, fixture: fixture, height: 900)
         try await browser(.skills, fixture: fixture, height: 900, expandSkillSources: true)
         try await browser(.workflows, fixture: fixture)
-        fixture.store.features.extensions.awaitingConnectors = true
         try await browser(.mcps, fixture: fixture, height: 900, showAddMCP: true)
     }
 

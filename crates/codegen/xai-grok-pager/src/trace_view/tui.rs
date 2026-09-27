@@ -29,7 +29,7 @@ use ratatui::{
 };
 use serde_json::Value;
 
-use super::data::{TraceData, TraceEvent, TraceTool};
+use super::data::{Encryption, TraceData, TraceEvent, TraceTool};
 use super::transcript::{EntryKind, TranscriptEntry};
 use crate::theme::Theme;
 
@@ -961,24 +961,35 @@ fn entry_color(entry: &TranscriptEntry, theme: &Theme) -> Color {
     }
 }
 
-fn entry_is_encrypted(entry: &TranscriptEntry) -> bool {
-    entry.kind == EntryKind::Reasoning && entry.encrypted
-}
-
-fn event_is_encrypted(event: &TraceEvent) -> bool {
-    let kind = event.kind.trim().to_ascii_lowercase();
-    event.encrypted
-        && (kind.contains("reasoning")
-            || kind == "agent_thought_chunk"
-            || kind == "thinking"
-            || kind.ends_with("_thinking"))
-}
-
-fn encrypted_title(title: &str, encrypted: bool) -> String {
-    if encrypted {
-        format!("🔒 {title}")
+fn entry_encryption(entry: &TranscriptEntry) -> Encryption {
+    if entry.kind == EntryKind::Reasoning {
+        entry.encryption
     } else {
-        title.to_owned()
+        Encryption::None
+    }
+}
+
+fn event_encryption(event: &TraceEvent) -> Encryption {
+    if super::data::is_reasoning_kind(&event.kind) {
+        event.encryption
+    } else {
+        Encryption::None
+    }
+}
+
+fn encryption_label(encryption: Encryption) -> &'static str {
+    match encryption {
+        Encryption::None => "no",
+        Encryption::Partial => "summary only (full reasoning is encrypted)",
+        Encryption::Full => "yes (readable reasoning is unavailable)",
+    }
+}
+
+fn encrypted_title(title: &str, encryption: Encryption) -> String {
+    match encryption {
+        Encryption::None => title.to_owned(),
+        Encryption::Partial => format!("🔒 {title} · summary"),
+        Encryption::Full => format!("🔒 {title}"),
     }
 }
 
@@ -1091,7 +1102,7 @@ fn render_header(area: Rect, buf: &mut Buffer, data: &TraceData, state: &Explore
     let summary = &data.summary;
     let first = Line::from(vec![
         Span::styled(
-            " grok ",
+            " crok ",
             Style::default()
                 .fg(theme.text_primary)
                 .add_modifier(Modifier::BOLD),
@@ -1455,7 +1466,7 @@ fn render_list(
                                 Style::default().fg(color),
                             ),
                             Span::styled(
-                                encrypted_title(&clean(&entry.title), entry_is_encrypted(entry)),
+                                encrypted_title(&clean(&entry.title), entry_encryption(entry)),
                                 Style::default().fg(color).add_modifier(Modifier::BOLD),
                             ),
                             Span::styled(
@@ -1479,7 +1490,7 @@ fn render_list(
                                 Style::default().fg(event_color(event, theme)),
                             ),
                             Span::styled(
-                                encrypted_title(&clean(&event.title), event_is_encrypted(event)),
+                                encrypted_title(&clean(&event.title), event_encryption(event)),
                                 Style::default()
                                     .fg(event_color(event, theme))
                                     .add_modifier(Modifier::BOLD),
@@ -1718,11 +1729,7 @@ fn entry_content(data: &TraceData, selected: Option<usize>, tab: usize) -> Strin
         "{}\n\nType        {}\nEncrypted   {}\nTurn        {}\nStatus      {}\nStarted     {}\nEnded       {}\nDuration    {}\nFirst token {}\nRecorded in {}\n\n{body}",
         entry.title,
         entry.kind.label(),
-        if entry_is_encrypted(entry) {
-            "yes (opaque payload)"
-        } else {
-            "no"
-        },
+        encryption_label(entry_encryption(entry)),
         optional_number(entry.turn),
         entry.status.as_deref().unwrap_or("—"),
         clock(entry.start_ms),
@@ -1765,11 +1772,7 @@ fn detail_content(data: &TraceData, selected: Option<usize>, tab: usize) -> Stri
         event.title,
         event.index,
         event.kind,
-        if event_is_encrypted(event) {
-            "yes (opaque payload)"
-        } else {
-            "no"
-        },
+        encryption_label(event_encryption(event)),
         event.status.as_deref().unwrap_or("Not recorded"),
         optional_number(event.turn),
         event.timestamp.as_deref().unwrap_or("Not recorded"),
@@ -1894,6 +1897,7 @@ fn render_help(area: Rect, buf: &mut Buffer, theme: &Theme) {
 
 #[cfg(test)]
 mod tests {
+    use super::Encryption;
     use super::*;
     use ratatui::backend::TestBackend;
     use serde_json::json;
@@ -1946,7 +1950,7 @@ mod tests {
             entry(1, "user", "Prompt", 1, 1_000, Some(1_000), &[0]),
             {"index": 2, "kind": "reasoning", "title": "Reasoning", "text": "think", "turn": 1,
                 "start_ms": 1_000, "end_ms": 3_000, "wait_ms": 1_000, "tool_call_id": null,
-                "status": null, "encrypted": true, "event_indices": []},
+                "status": null, "encryption": "partial", "event_indices": []},
             entry(3, "tool", "shell", 1, 3_000, Some(4_000), &[1, 2]),
             entry(4, "tool", "shell", 1, 3_500, Some(4_500), &[]),
             entry(5, "assistant", "Assistant", 2, 60_000, Some(62_000), &[3])
@@ -2190,9 +2194,9 @@ mod tests {
         ] {
             assert!(text.contains(label), "missing {label}");
         }
-        assert!(entry_content(&data, Some(2), 1).contains("Encrypted   yes"));
+        assert!(entry_content(&data, Some(2), 1).contains("Encrypted   summary only"));
         let mut plain = transcript_fixture();
-        plain.transcript[2].encrypted = false;
+        plain.transcript[2].encryption = Encryption::None;
         let mut plain_terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
         let mut plain_state = Explorer::new(&plain);
         draw(&mut plain_terminal, &plain, &mut plain_state);

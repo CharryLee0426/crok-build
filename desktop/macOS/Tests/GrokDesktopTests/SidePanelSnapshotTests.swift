@@ -11,7 +11,7 @@ final class SidePanelSnapshotTests: XCTestCase {
     private var output: URL!
 
     override func setUpWithError() throws {
-        guard let path = ProcessInfo.processInfo.environment["GROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set GROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         output = URL(fileURLWithPath: path)
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("grok-side-panel-snapshots-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("Sources/App"), withIntermediateDirectories: true)
@@ -40,7 +40,7 @@ final class SidePanelSnapshotTests: XCTestCase {
             SideChatMessage(role: .question, text: "Which file sets up the window?"),
             SideChatMessage(role: .answer, text: "`Sources/App/main.swift` declares the `WindowGroup`. The view itself is in `View.swift`."),
             SideChatMessage(role: .question, text: "Is the flicker only in debug builds?"),
-            SideChatMessage(role: .failure, text: "Grok did not respond to x.ai/btw in time."),
+            SideChatMessage(role: .failure, text: "Crok did not respond to x.ai/btw in time."),
         ])
         store.state = DesktopState(projects: [project], conversations: [task], selectedProjectID: project.id, selectedConversationID: task.id)
         store.workspace = GitWorkspaceSnapshot(branch: "feature/window", changes: [
@@ -69,9 +69,13 @@ final class SidePanelSnapshotTests: XCTestCase {
         files.showsDiff = false
         settle()
         store.sidePanelTab = .files
+        // A previewed file opens beside the tree, in a wider panel.
+        let previewSize = CGSize(width: SidePanelView.defaultPreviewWidth, height: 720)
+        try write(SidePanelView(containerWidth: 1400).desktopEnvironment(store).frame(width: previewSize.width, height: 720).foregroundStyle(Theme.ink),
+                  "side-panel-files", size: previewSize)
         let size = CGSize(width: 400, height: 720)
-        try write(SidePanelView(containerWidth: 1200).desktopEnvironment(store).frame(width: 400, height: 720).foregroundStyle(Theme.ink), "side-panel-files", size: size)
         files.select(nil)
+        try write(SidePanelView(containerWidth: 1200).desktopEnvironment(store).frame(width: 400, height: 720).foregroundStyle(Theme.ink), "side-panel-tree", size: size)
         files.scope = .changes
         try write(SidePanelView(containerWidth: 1200).desktopEnvironment(store).frame(width: 400, height: 720).foregroundStyle(Theme.ink), "side-panel-changes", size: size)
         store.sidePanelTab = .sideChat

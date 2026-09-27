@@ -91,7 +91,7 @@ impl WorkspaceStore {
             path = %effective.display(),
             found,
             supported = USER_VERSION,
-            "workspace store written by a newer grok; opening read-only"
+            "workspace store written by a newer crok; opening read-only"
         );
         Ok(Self {
             conn,

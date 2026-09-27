@@ -150,6 +150,7 @@ pub(super) fn handle_settings_update(notif: &acp::ExtNotification, app: &mut App
         // Paid tiers keep voice; remote settings may send voice_mode_enabled later.
         if was_api_key
             && !is_key
+            && !app.voice_overrides_remote_gate()
             && update.voice_mode_enabled.is_none()
             && app
                 .subscription_tier
@@ -186,7 +187,7 @@ pub(super) fn handle_settings_update(notif: &acp::ExtNotification, app: &mut App
         }
     }
     if let Some(remote_v) = update.voice_mode_enabled {
-        let v = crate::app::resolve_voice_mode_live(Some(remote_v), app.is_api_key_auth);
+        let v = crate::app::resolve_voice_mode_live(Some(remote_v), app.voice_overrides_remote_gate());
         if !v {
             app.voice_reset();
             app.voice_ui_active = false;

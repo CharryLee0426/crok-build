@@ -75,7 +75,7 @@ extension AppStore {
             let result = try ExtensionResponse.unwrap(try await client.request("_x.ai/rewind/points", params: ["sessionId": session]))
             guard advancedRequestID == requestID, state.selectedConversationID == id, self.project?.id == project.id else { return }
             rewindPoints = try RewindCheckpoint.parse(result)
-            advancedContent = rewindPoints.isEmpty ? "No rewind checkpoints are available for this task." : "Choose a prompt to restore the state from before that prompt ran. Later prompts are removed when restoring the conversation. File restoration can undo changes made by Grok."
+            advancedContent = rewindPoints.isEmpty ? "No rewind checkpoints are available for this task." : "Choose a prompt to restore the state from before that prompt ran. Later prompts are removed when restoring the conversation. File restoration can undo changes made by Crok."
         } catch {
             if advancedRequestID == requestID, state.selectedConversationID == selected.id { advancedError = error.localizedDescription }
         }
@@ -183,8 +183,8 @@ extension AppStore {
             let result = try ExtensionResponse.unwrap(try await client.request("_x.ai/session/state", params: ["sessionId": session, "cwd": project.path]))
             guard let summary = result["summary"] as? [String: Any] else { throw DesktopError.message("The harness did not return the saved session metadata.") }
             let home = summary["grok_home"] as? String
-                ?? ProcessInfo.processInfo.environment["GROK_HOME"]
-                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".grok").path
+                ?? ProcessInfo.processInfo.environment["CROK_HOME"]
+                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".crok").path
             let cwd = (summary["info"] as? [String: Any])?["cwd"] as? String ?? project.path
             let content = try await Task.detached(priority: .utility) {
                 try SavedPlanArtifact.read(home: home, cwd: cwd, sessionID: session)

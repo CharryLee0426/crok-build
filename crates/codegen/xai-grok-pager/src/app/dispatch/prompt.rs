@@ -698,6 +698,8 @@ pub(super) fn dispatch_send_prompt_submission(
     let auto_mode_gate_from_app = app.auto_mode_gate;
     let ask_user_question_timeout_enabled_from_app = app.ask_user_question_timeout_enabled;
     let voice_stt_language_from_app = app.voice_config.language.clone();
+    let voice_stt_provider_from_app = app.voice_config.provider.as_str();
+    let voice_stt_model_from_app = app.voice_config.model.clone();
     let subagent_model_inheritance_from_app = app.subagent_model_inheritance;
     let login_method_id_from_app = app.login_method_id.as_ref().map(|id| id.0.to_string());
     let leader_mode = app.leader_mode;
@@ -839,6 +841,8 @@ pub(super) fn dispatch_send_prompt_submission(
                     auto_mode_gate: auto_mode_gate_from_app,
                     ask_user_question_timeout_enabled: ask_user_question_timeout_enabled_from_app,
                     voice_stt_language: voice_stt_language_from_app,
+                    voice_stt_provider: voice_stt_provider_from_app,
+                    voice_stt_model: voice_stt_model_from_app.clone(),
                     subagent_model_inheritance: subagent_model_inheritance_from_app,
                 },
             };
@@ -1762,7 +1766,7 @@ pub(super) fn handle_prompt_response(
                 // For body-only protocols (Warp, iTerm2/OSC 9), emit_notification folds the title into the body automatically
                 let notif_title = session_name
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| "Grok".into());
+                    .unwrap_or_else(|| "Crok".into());
 
                 app.deferred_notification = Some((
                     NotificationEvent {

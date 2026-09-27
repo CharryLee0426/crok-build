@@ -1325,6 +1325,22 @@ pub(crate) async fn persist_setting(
                 .await
                 .map_err(|e| e.to_string())
         }
+        "voice_stt_provider" => {
+            let SettingValue::Enum(s) = value else {
+                return Err(kind_mismatch("voice_stt_provider", "Enum", &value));
+            };
+            xai_grok_shell::util::config::set_voice_stt_provider(s.to_string())
+                .await
+                .map_err(|e| e.to_string())
+        }
+        "voice_stt_model" => {
+            let SettingValue::String(s) = value else {
+                return Err(kind_mismatch("voice_stt_model", "String", &value));
+            };
+            xai_grok_shell::util::config::set_voice_stt_model(s)
+                .await
+                .map_err(|e| e.to_string())
+        }
         "max_thoughts_width" => {
             let SettingValue::Int(i) = value else {
                 return Err(kind_mismatch("max_thoughts_width", "Int", &value));

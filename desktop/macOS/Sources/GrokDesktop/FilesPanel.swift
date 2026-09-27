@@ -250,7 +250,7 @@ final class FilesPanelModel: ObservableObject {
             if let image = NSImage(contentsOf: url), image.isValid { return .image(image, bytes: size) }
             return .binary(bytes: size)
         }
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return .failed("Grok Desktop can't read this file.") }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return .failed("Crok Desktop can't read this file.") }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: previewLimit + 1)) ?? Data()
         let sample = data.prefix(8_192)
@@ -279,30 +279,55 @@ final class FilesPanelModel: ObservableObject {
 struct FilesPanelView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var files: FilesPanelModel
-    @AppStorage("filesPreviewHeight") private var previewHeight = 340.0
+    /// The directory column's width while a file is previewed beside it.
+    @AppStorage("filesTreeWidth") private var treeWidth = FilesPanelView.defaultTreeWidth
+    @AppStorage("filesTreeVisible") private var showsTree = true
+
+    static let defaultTreeWidth = 240.0
+    static let minimumTreeWidth = 180.0
+    /// Room the preview keeps beside the directory column; narrower than this, the column hides.
+    static let minimumPreviewWidth = 280.0
 
     var body: some View {
         VStack(spacing: 0) {
             if store.project == nil {
                 SidePanelEmptyState(symbol: "folder", title: "No project", detail: "Open a project to browse its files.")
+            } else if files.selection == nil {
+                browser
             } else {
-                header
+                // As in Codex, the directory stays on the left and the selected file opens beside it.
                 GeometryReader { geometry in
-                    let hasPreview = files.selection != nil
-                    let maximum = max(160, Double(geometry.size.height) - 140)
-                    VStack(spacing: 0) {
-                        list.frame(maxHeight: .infinity)
-                        if hasPreview {
-                            ResizeHandle(axis: .vertical, value: $previewHeight, range: 160...maximum, defaultValue: 340, growsTowardStart: true, label: "Preview height")
-                            FilePreviewPane()
-                                .frame(height: min(max(previewHeight, 160), maximum))
+                    let available = Double(geometry.size.width)
+                    let maximum = max(Self.minimumTreeWidth, min(480, available - Self.minimumPreviewWidth))
+                    let treeFits = available - Self.minimumTreeWidth >= Self.minimumPreviewWidth
+                    HStack(spacing: 0) {
+                        if showsTree && treeFits {
+                            browser
+                                .frame(width: min(max(treeWidth, Self.minimumTreeWidth), maximum))
+                                .overlay(alignment: .trailing) {
+                                    ResizeHandle(axis: .horizontal, value: $treeWidth, range: Self.minimumTreeWidth...maximum,
+                                                 defaultValue: Self.defaultTreeWidth, label: "File tree width")
+                                        .offset(x: 4.5)
+                                }
+                                .zIndex(1)
+                                .transition(.move(edge: .leading).combined(with: .opacity))
                         }
+                        FilePreviewPane(showsTree: $showsTree, canShowTree: treeFits)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             }
         }
         .task(id: store.project?.path) { files.load(); files.workspaceDidChange() }
         .onChange(of: store.workspace) { _, _ in files.workspaceDidChange() }
+    }
+
+    /// The directory: the scope picker, the filter, and the tree or the changed files.
+    private var browser: some View {
+        VStack(spacing: 0) {
+            header
+            list.frame(maxHeight: .infinity)
+        }
     }
 
     private var header: some View {
@@ -339,7 +364,7 @@ struct FilesPanelView: View {
     private var tree: some View {
         if let index = files.index {
             if index.files.isEmpty {
-                SidePanelEmptyState(symbol: "doc", title: "No files", detail: "This folder has no files Grok can list.")
+                SidePanelEmptyState(symbol: "doc", title: "No files", detail: "This folder has no files Crok can list.")
             } else if !files.filter.trimmingCharacters(in: .whitespaces).isEmpty {
                 if files.matches.isEmpty {
                     SidePanelEmptyState(symbol: "magnifyingglass", title: "No matches", detail: "No file path contains \u{201C}\(files.filter)\u{201D}.")
@@ -377,7 +402,7 @@ struct FilesPanelView: View {
         if let error = store.workspace.error {
             SidePanelEmptyState(symbol: "folder.badge.questionmark", title: "No Git repository", detail: error)
         } else if store.workspace.changes.isEmpty {
-            SidePanelEmptyState(symbol: "checkmark.circle", title: "No changes", detail: "Files Grok or you change appear here.")
+            SidePanelEmptyState(symbol: "checkmark.circle", title: "No changes", detail: "Files Crok or you change appear here.")
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
@@ -568,18 +593,31 @@ enum FileIconCache {
     }
 }
 
-/// The selected file: its diff or its contents, with actions.
+/// The selected file beside the directory: its diff or its contents, with actions.
 private struct FilePreviewPane: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var files: FilesPanelModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Binding var showsTree: Bool
+    /// Whether the panel is wide enough for the directory column.
+    let canShowTree: Bool
 
     var body: some View {
         if let path = files.selection {
             let change = files.change(atAbsolutePath: path)
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
+                    if canShowTree {
+                        IconButton(icon: "sidebar.left", help: showsTree ? "Hide file tree" : "Show file tree", size: 24) {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { showsTree.toggle() }
+                        }
+                    }
                     FileIcon(path: path, isDirectory: false, isExpanded: false).frame(width: 16, height: 16)
-                    Text((path as NSString).lastPathComponent).font(.system(size: 12.5, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                    Text((path as NSString).lastPathComponent).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                        .truncationMode(.middle).layoutPriority(1)
+                    if let folder = relativeFolder(path) {
+                        Text(folder).font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
+                    }
                     if let change { FileStatusBadge(status: change.status) }
                     Spacer(minLength: 4)
                     if change != nil {
@@ -592,7 +630,7 @@ private struct FilePreviewPane: View {
                     IconButton(icon: "arrow.up.forward.app", help: "Open", size: 24) { files.open(path) }
                     IconButton(icon: "xmark", help: "Close preview", size: 24) { files.select(nil) }
                 }
-                .padding(.horizontal, 10).padding(.vertical, 6)
+                .padding(.horizontal, 10).frame(height: 40)
                 Divider().overlay(Theme.line.opacity(0.4))
                 Group {
                     if change != nil && files.showsDiff {
@@ -603,7 +641,15 @@ private struct FilePreviewPane: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .background(Theme.codeBackground.opacity(0.6))
         }
+    }
+
+    /// The file's folder inside the project, shown dimmed after its name.
+    private func relativeFolder(_ path: String) -> String? {
+        guard let root = store.project?.path, path.hasPrefix(root + "/") else { return nil }
+        let folder = (String(path.dropFirst(root.count + 1)) as NSString).deletingLastPathComponent
+        return folder.isEmpty ? nil : folder
     }
 
     @ViewBuilder
