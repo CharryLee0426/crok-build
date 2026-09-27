@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      crates: ${{ steps.crates.outputs.crates }}
+      desktop: ${{ steps.desktop.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        run: rustup toolchain install --profile minimal
+      - name: Changed codegen crates
+        id: crates
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Changes to the CI itself exercise every codegen crate.
+          if git diff --name-only "$BASE...HEAD" | grep -qE '^\.github/(workflows/ci\.yml|scripts/changed-codegen-crates\.sh)$'; then
+            crates=$(cargo metadata --no-deps --format-version 1 --locked |
+              jq -r --arg root "$PWD/" '.packages[] | select(.manifest_path | ltrimstr($root) | startswith("crates/codegen/")) | .name' | sort -u)
+          else
+            crates=$(.github/scripts/changed-codegen-crates.sh "$BASE")
+          fi
+          echo "Selected crates:"; echo "${crates:-(none)}"
+          echo "crates=$(echo $crates)" >> "$GITHUB_OUTPUT"
+      - name: Desktop changes
+        id: desktop
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --name-only "$BASE...HEAD" | grep -qE '^(desktop/macOS/|third_party/SwiftTerm/|\.github/workflows/ci\.yml$)'; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  rust:
+    name: Rust (changed codegen crates)
+    needs: changes
+    if: needs.changes.outputs.crates != ''
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      PROTOC: /usr/bin/protoc
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Package flags
+        env:
+          CRATES: ${{ needs.changes.outputs.crates }}
+        run: echo "PKGS=$(printf -- '-p %s ' $CRATES)" >> "$GITHUB_ENV"
+      - name: cargo check
+        run: cargo check --locked --all-targets $PKGS
+      - name: cargo test
+        run: cargo test --locked --no-fail-fast $PKGS
+
+  swift:
+    name: Swift (desktop/macOS)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: desktop/macOS
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - name: swift test
+        run: swift test
