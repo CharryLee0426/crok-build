@@ -15,7 +15,8 @@ jobs:
     name: Detect changes
     runs-on: ubuntu-latest
     outputs:
-      crates: ${{ steps.crates.outputs.crates }}
+      test: ${{ steps.crates.outputs.test }}
+      check: ${{ steps.crates.outputs.check }}
       desktop: ${{ steps.desktop.outputs.desktop }}
     steps:
       - uses: actions/checkout@v4
@@ -28,15 +29,19 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          # Changes to the CI itself exercise every codegen crate.
-          if git diff --name-only "$BASE...HEAD" | grep -qE '^\.github/(workflows/ci\.yml|scripts/changed-codegen-crates\.sh)$'; then
-            crates=$(cargo metadata --no-deps --format-version 1 --locked |
-              jq -r --arg root "$PWD/" '.packages[] | select(.manifest_path | ltrimstr($root) | startswith("crates/codegen/")) | .name' | sort -u)
+          test=$(.github/scripts/changed-codegen-crates.sh "$BASE")
+          # Workspace-wide inputs, and the CI itself, can break any crate: check
+          # them all. Testing them all takes hours, so tests stay per crate.
+          if git diff --name-only "$BASE...HEAD" |
+            grep -qxE 'Cargo\.toml|Cargo\.lock|rust-toolchain\.toml|\.github/workflows/ci\.yml|\.github/scripts/changed-codegen-crates\.sh'; then
+            check=$(.github/scripts/changed-codegen-crates.sh --all)
           else
-            crates=$(.github/scripts/changed-codegen-crates.sh "$BASE")
+            check=$test
           fi
-          echo "Selected crates:"; echo "${crates:-(none)}"
-          echo "crates=$(echo $crates)" >> "$GITHUB_OUTPUT"
+          echo "Check:"; echo "${check:-(none)}"
+          echo "Test:"; echo "${test:-(none)}"
+          echo "check=$(echo $check)" >> "$GITHUB_OUTPUT"
+          echo "test=$(echo $test)" >> "$GITHUB_OUTPUT"
       - name: Desktop changes
         id: desktop
         env:
@@ -51,38 +56,46 @@ jobs:
   rust:
     name: Rust (changed codegen crates)
     needs: changes
-    if: needs.changes.outputs.crates != ''
+    if: needs.changes.outputs.check != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
+      # Debug info roughly doubles the test build; the runner's disk can't hold it.
+      CARGO_PROFILE_DEV_DEBUG: 0
       PROTOC: /usr/bin/protoc
     steps:
       - uses: actions/checkout@v4
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Install Rust toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - name: Package flags
-        env:
-          CRATES: ${{ needs.changes.outputs.crates }}
-        run: echo "PKGS=$(printf -- '-p %s ' $CRATES)" >> "$GITHUB_ENV"
       - name: cargo check
-        run: cargo check --locked --all-targets $PKGS
+        env:
+          CRATES: ${{ needs.changes.outputs.check }}
+        run: cargo check --locked --all-targets $(printf -- '-p %s ' $CRATES)
       - name: cargo test
-        run: cargo test --locked --no-fail-fast $PKGS
+        if: needs.changes.outputs.test != ''
+        env:
+          CRATES: ${{ needs.changes.outputs.test }}
+        run: cargo test --locked --no-fail-fast $(printf -- '-p %s ' $CRATES)
 
   swift:
     name: Swift (desktop/macOS)
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
-    runs-on: macos-15
+    # Xcode 26 (Swift 6.2), the toolchain the desktop app is developed with.
+    runs-on: macos-26
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: desktop/macOS
     steps:
       - uses: actions/checkout@v4
-      - run: swift --version
+      - run: xcodebuild -version && swift --version
       - name: swift test
         run: swift test
