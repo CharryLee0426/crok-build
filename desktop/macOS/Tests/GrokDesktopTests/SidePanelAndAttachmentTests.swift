@@ -340,7 +340,9 @@ final class SidePanelAndAttachmentTests: XCTestCase {
         terminal.send(txt: "echo grok-terminal-$((40 + 2)); pwd\r")
         func screen() -> String { String(decoding: terminal.getTerminal().getBufferAsData(), as: UTF8.self) }
         try await eventually(timeout: 20) { screen().contains("grok-terminal-42") }
-        XCTAssertTrue(screen().contains(URL(fileURLWithPath: project.path).resolvingSymlinksInPath().lastPathComponent))
+        // The resolved temporary path is wider than the 80-column terminal, so `pwd` wraps onto the next row.
+        XCTAssertTrue(screen().replacingOccurrences(of: "\n", with: "")
+            .contains(URL(fileURLWithPath: project.path).resolvingSymlinksInPath().lastPathComponent))
 
         terminal.send(txt: "exit\r")
         try await eventually(timeout: 10) { sessions.status(for: project)?.hasExited == true }

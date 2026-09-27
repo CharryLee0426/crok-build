@@ -304,7 +304,7 @@ class ExtensionHarness(MockHarness):
             self.result(rid, {"result": {"skills": self.skills(), "message": "Custom skills config reset"}, "error": None})
         elif method == "_x.ai/workflows/list":
             self.result(rid, {"result": {"workflows": [
-                {"name": "fix-ci", "description": "Fix failing CI on the current PR", "when_to_use": "A pull request has red checks and you want Grok to diagnose and fix them.", "source": "project", "path": os.getcwd() + "/.grok/workflows/fix-ci.md"},
+                {"name": "fix-ci", "description": "Fix failing CI on the current PR", "when_to_use": "A pull request has red checks and you want Crok to diagnose and fix them.", "source": "project", "path": os.getcwd() + "/.grok/workflows/fix-ci.md"},
                 {"name": "ship-release", "description": "Cut a release branch, bump versions, and draft notes", "source": "user", "path": "/fixture/home/.grok/workflows/ship-release.md"},
             ]}, "error": None})
         else:
