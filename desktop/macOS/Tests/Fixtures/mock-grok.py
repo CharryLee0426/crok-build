@@ -10,6 +10,9 @@ streams several seconds of reasoning (CROK_FIXTURE_THINK_SECONDS, default 8).
 CROK_FIXTURE_LOAD_DELAY (seconds) slows session/load, as a large real session is, and
 CROK_FIXTURE_HISTORY names a JSON file of {sessionId: [session updates]} to replay.
 `fixture:wait` waits for Stop and `fixture:error` returns a protocol error.
+`fixture:long[:N[:M]]` streams one long agentic turn for performance tests: N rounds
+(default 3000) as fast as the client reads, then M rounds at a model's streaming pace (see
+`stream_long_task`).
 The ordinary scenario streams Markdown, a plan, and a simulated tool result, and
 names any image or resource-link attachments it received. Side questions
 (`_x.ai/btw`), the command catalog, MCPs, skills, and goals are also simulated over ACP.
@@ -147,6 +150,62 @@ class MockHarness:
                 "child_session_id": "fixture-child-1", "status": status, "tool_calls": 2, "turns": 1,
                 "duration_ms": 240, "tokens_used": 480, "output": "Offline fixture inspection completed."})
 
+    @staticmethod
+    def long_round(index):
+        """One agent round of a long task: reasoning, a tool call with output, and a reply."""
+        crate = "crate_{}".format(index % 37)
+        thought = ("Round {0}: the last run of `{1}` left {2} warnings. Checking whether the change in "
+                   "`src/lib.rs` explains them before touching the tests; if not, the fixture's "
+                   "constraints point at module {3}, so I will read that next.").format(index + 1, crate, index % 5, index % 11)
+        output = "\n".join("test {0}::case_{1:03} ... ok ({2} ms)".format(crate, line, (index * 7 + line) % 90)
+                           for line in range(40))
+        output += "\n\ntest result: ok. 40 passed; 0 failed; finished in 0.{0:02}s".format(index % 100)
+        reply = ("Round {0} passed: **40 tests** in `{1}`. Next I will look at `module_{2}.rs`:\n\n"
+                 "- keep the fixture offline\n- compare the warning count\n\n"
+                 "```rust\nfn round_{0}() -> usize {{ {0} }}\n```").format(index + 1, crate, index % 11)
+        return thought, "Run `cargo test -p {}`".format(crate), output, reply
+
+    def stream_long_task(self, session_id, rounds, paced_rounds, stop):
+        """`fixture:long[:N[:M]]`: a long agentic turn. N rounds (3000 by default) stream as fast
+        as the client reads them, or each followed by CROK_FIXTURE_ROUND_SECONDS; then M more
+        rounds stream at a model's pace, one chunk every CROK_FIXTURE_CHUNK_SECONDS (0.02). Each
+        round is three messages: reasoning, a tool call, a reply. With CROK_FIXTURE_DONE_FILE
+        set, `<file>.fill` records when the N rounds were sent and `<file>` when all were."""
+        done = os.environ.get("CROK_FIXTURE_DONE_FILE")
+        def mark(path):
+            if done:
+                with open(path, "w") as handle:
+                    handle.write("{:.3f}\n".format(time.time()))
+        pause = float(os.environ.get("CROK_FIXTURE_ROUND_SECONDS", "0"))
+        chunk_pause = float(os.environ.get("CROK_FIXTURE_CHUNK_SECONDS", "0.02"))
+        for index in range(rounds + paced_rounds):
+            if index == rounds and done:
+                mark(done + ".fill")
+            paced = index >= rounds
+            def send(update):
+                if paced and stop.wait(chunk_pause):
+                    return False
+                self.update(session_id, update)
+                return not stop.is_set()
+            thought, title, output, reply = self.long_round(index)
+            tool_id = "long-tool-{}".format(index)
+            updates = [{"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": thought[offset:offset + 24]}}
+                       for offset in range(0, len(thought), 24)]
+            updates.append({"sessionUpdate": "tool_call", "toolCallId": tool_id, "title": title, "kind": "execute", "status": "in_progress", "rawInput": {"round": index}})
+            updates.append({"sessionUpdate": "tool_call_update", "toolCallId": tool_id, "status": "completed",
+                            "content": [{"type": "content", "content": {"type": "text", "text": output}}]})
+            updates += [{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply[offset:offset + 24]}}
+                        for offset in range(0, len(reply), 24)]
+            for update in updates:
+                if not send(update):
+                    return False
+            if not paced and pause and stop.wait(pause):
+                return False
+        if paced_rounds == 0 and done:
+            mark(done + ".fill")
+        mark(done)
+        return True
+
     def emit(self, message):
         with self.output_lock:
             try:
@@ -241,6 +300,13 @@ class MockHarness:
             for block in blocks:
                 self.update(session_id, {"sessionUpdate": "user_message_chunk", "content": block})
             self.update(session_id, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "Preparing the offline desktop fixture."}})
+            long_run = re.search(r"fixture:long(?::(\d+))?(?::(\d+))?", prompt)
+            if long_run:
+                if self.stream_long_task(session_id, int(long_run.group(1) or 3000), int(long_run.group(2) or 0), stop):
+                    finish("end_turn")
+                else:
+                    finish("cancelled")
+                return
             if "fixture:think" in prompt:
                 seconds = float(os.environ.get("CROK_FIXTURE_THINK_SECONDS", "8"))
                 lines = max(1, int(seconds / 0.2))

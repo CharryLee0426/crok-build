@@ -104,6 +104,8 @@ final class AppStore: ObservableObject {
     private var saveDeadline: Date?
     /// Serializes state writes so the newest snapshot always lands last.
     private let persistence = DispatchQueue(label: "ai.grok.desktop.state", qos: .utility)
+    /// Transcripts live in files of their own; see `TranscriptArchive`.
+    private let archive: TranscriptArchive
     private var pendingTranscript: [UUID: [[String: Any]]] = [:]
     private var transcriptFlush: Task<Void, Never>?
     private var transcriptRevisions: [UUID: Int] = [:]
@@ -114,7 +116,7 @@ final class AppStore: ObservableObject {
     private let git = WorkspaceService()
 
     var project: Project? { state.projects.first { $0.id == state.selectedProjectID } }
-    var conversation: Conversation? { state.conversations.first { $0.id == state.selectedConversationID } }
+    var conversation: Conversation? { state.selectedConversationID.flatMap(task) }
     var run: RunState {
         var catalog = catalogRun
         if commandCatalogProjectID != state.selectedProjectID { catalog.commands = []; catalog.commandsLoaded = false; catalog.availableTools = nil }
@@ -128,13 +130,13 @@ final class AppStore: ObservableObject {
         }
         return catalog
     }
-    /// Tasks in a project folder, most recently updated first.
+    /// Tasks in a project folder: most recently updated first, or in the order the user dragged them.
     func conversations(inProject id: UUID) -> [Conversation] {
-        Self.newestFirst(state.conversations.filter { $0.projectID == id && !$0.isArchived })
+        Self.ordered(state.conversations.filter { $0.projectID == id && !$0.isArchived }, by: state.taskOrder[id.uuidString])
     }
     /// Every active task across all projects, most recently updated first.
     var recentConversations: [Conversation] { Self.newestFirst(state.conversations.filter { !$0.isArchived }) }
-    var pinnedConversations: [Conversation] { Self.newestFirst(state.conversations.filter { $0.isPinned && !$0.isArchived }) }
+    var pinnedConversations: [Conversation] { Self.ordered(state.conversations.filter { $0.isPinned && !$0.isArchived }, by: state.pinnedOrder) }
     var archivedConversations: [Conversation] { Self.newestFirst(state.conversations.filter(\.isArchived)) }
     /// Search covers every project; the archive toggle chooses which tasks are searched.
     var searchResults: [Conversation] {
@@ -142,6 +144,62 @@ final class AppStore: ObservableObject {
     }
     nonisolated static func newestFirst(_ tasks: [Conversation]) -> [Conversation] {
         tasks.sorted { $0.updatedAt == $1.updatedAt ? $0.id.uuidString < $1.id.uuidString : $0.updatedAt > $1.updatedAt }
+    }
+    /// Tasks in the user's order. Tasks it does not place yet, such as new ones, lead, newest first.
+    nonisolated static func ordered(_ tasks: [Conversation], by order: [UUID]?) -> [Conversation] {
+        guard let order, !order.isEmpty else { return newestFirst(tasks) }
+        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let placed = tasks.filter { rank[$0.id] != nil }.sorted { rank[$0.id]! < rank[$1.id]! }
+        return newestFirst(tasks.filter { rank[$0.id] == nil }) + placed
+    }
+
+    // MARK: Sidebar order
+
+    func tasks(in list: SidebarTaskList) -> [Conversation] {
+        switch list {
+        case .project(let id): return conversations(inProject: id)
+        case .pinned: return pinnedConversations
+        }
+    }
+
+    /// Whether the list follows an order the user dragged, rather than recent activity.
+    func hasManualOrder(_ list: SidebarTaskList) -> Bool {
+        switch list {
+        case .project(let id): return !(state.taskOrder[id.uuidString] ?? []).isEmpty
+        case .pinned: return !state.pinnedOrder.isEmpty
+        }
+    }
+
+    /// Moves a project folder so it ends at `index` of the project list.
+    func moveProject(_ id: UUID, to index: Int) {
+        guard let from = state.projects.firstIndex(where: { $0.id == id }) else { return }
+        let target = min(max(index, 0), state.projects.count - 1)
+        guard target != from else { return }
+        state.projects.insert(state.projects.remove(at: from), at: target)
+        save()
+    }
+
+    /// Moves a task so it ends at `index` of the list, which from then on keeps the user's order.
+    func moveTask(_ id: UUID, to index: Int, in list: SidebarTaskList) {
+        var ids = tasks(in: list).map(\.id)
+        guard let from = ids.firstIndex(of: id) else { return }
+        let target = min(max(index, 0), ids.count - 1)
+        guard target != from else { return }
+        ids.insert(ids.remove(at: from), at: target)
+        switch list {
+        case .project(let project): state.taskOrder[project.uuidString] = ids
+        case .pinned: state.pinnedOrder = ids
+        }
+        save()
+    }
+
+    /// Returns the list to newest first.
+    func sortByRecentActivity(_ list: SidebarTaskList) {
+        switch list {
+        case .project(let id): state.taskOrder.removeValue(forKey: id.uuidString)
+        case .pinned: state.pinnedOrder = []
+        }
+        save()
     }
     func isProjectExpanded(_ id: UUID) -> Bool { !state.collapsedProjectIDs.contains(id) }
     func toggleProjectExpanded(_ id: UUID) {
@@ -152,7 +210,11 @@ final class AppStore: ObservableObject {
     init(stateFile: URL = DesktopPaths.stateFile, defaults: UserDefaults = .standard, binaryPath: String? = nil) {
         self.stateFile = stateFile
         self.defaults = defaults
-        if let data = try? Data(contentsOf: stateFile), let saved = try? JSONDecoder().decode(DesktopState.self, from: data) { state = saved }
+        archive = TranscriptArchive(stateFile: stateFile)
+        if let data = try? Data(contentsOf: stateFile), var saved = try? JSONDecoder().decode(DesktopState.self, from: data) {
+            archive.load(into: &saved.conversations)
+            state = saved
+        }
         if state.projects.isEmpty {
             var directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             while directory.path != "/" {
@@ -198,8 +260,9 @@ final class AppStore: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
             let snapshot = self.takeSnapshot()
+            let archive = self.archive
             self.persistence.async { [weak self] in
-                do { try Self.write(snapshot.state, to: snapshot.file) }
+                do { try Self.write(snapshot.state, archive: archive, to: snapshot.file) }
                 catch {
                     let message = error.localizedDescription
                     DispatchQueue.main.async { self?.banner = "Could not save task history: \(message)" }
@@ -211,7 +274,7 @@ final class AppStore: ObservableObject {
     /// Writes the current state before returning, after any write already queued.
     func flush() {
         let snapshot = takeSnapshot()
-        do { try persistence.sync { try Self.write(snapshot.state, to: snapshot.file) } }
+        do { try persistence.sync { try Self.write(snapshot.state, archive: archive, to: snapshot.file) } }
         catch { banner = "Could not save task history: \(error.localizedDescription)" }
     }
 
@@ -220,10 +283,14 @@ final class AppStore: ObservableObject {
         return (state, stateFile)
     }
 
-    nonisolated private static func write(_ state: DesktopState, to file: URL) throws {
+    nonisolated private static func write(_ state: DesktopState, archive: TranscriptArchive, to file: URL) throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // Transcripts first: the state file never lists a task whose messages were not written.
+        try archive.save(state.conversations)
+        var tasks = state
+        for index in tasks.conversations.indices { tasks.conversations[index].messages = [] }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        try encoder.encode(state).write(to: file, options: .atomic)
+        try encoder.encode(tasks).write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 
@@ -581,7 +648,8 @@ final class AppStore: ObservableObject {
 
     private func receive(_ method: String, params: [String: Any], id: UUID) {
         let method = method.hasPrefix("_") ? String(method.dropFirst()) : method
-        if let session = params["sessionId"] as? String, let expected = task(id)?.sessionID, session != expected { return }
+        let index = state.conversations.firstIndex { $0.id == id }
+        if let session = params["sessionId"] as? String, let index, let expected = state.conversations[index].sessionID, session != expected { return }
         if receiveFeatureNotification(method, params: params, id: id) { return }
         if method == "x.ai/models/update" {
             runs[id, default: RunState()].models = SessionOptions.models(params)
@@ -605,6 +673,7 @@ final class AppStore: ObservableObject {
                 PlanEntry(id: $0.offset, content: $0.element["content"] as? String ?? "", status: $0.element["status"] as? String ?? "pending")
             }
         }
+        // Recomputed: a feature notification above can add tasks.
         guard let i = state.conversations.firstIndex(where: { $0.id == id }) else { return }
         if kind == "session_info_update", let title = update["title"] as? String, !title.isEmpty { state.conversations[i].title = title }
         // Commit authoritative replay only once session/load succeeds; failed loads keep the local copy.
@@ -634,7 +703,10 @@ final class AppStore: ObservableObject {
         for id in only.map({ [$0] }) ?? Array(pendingTranscript.keys) {
             guard let updates = pendingTranscript.removeValue(forKey: id),
                   let i = state.conversations.firstIndex(where: { $0.id == id }) else { continue }
+            // Take the transcript out of the state while applying, so appending to a long one
+            // edits it in place instead of copying every message.
             var messages = state.conversations[i].messages
+            state.conversations[i].messages = []
             let now = Date()
             for update in updates { TranscriptReducer.apply(update, to: &messages, date: now) }
             state.conversations[i].messages = messages
@@ -1070,11 +1142,18 @@ final class AppStore: ObservableObject {
         loginProcess?.terminate()
         features.terminals.terminateAll()
     }
-    func task(_ id: UUID) -> Conversation? { state.conversations.first { $0.id == id } }
+    /// Looks a task up by index: `first(where:)` would copy every task it passes, and this runs
+    /// for each streamed update.
+    func task(_ id: UUID) -> Conversation? { state.conversations.firstIndex { $0.id == id }.map { state.conversations[$0] } }
     func append(_ message: Message, to id: UUID) {
         flushTranscript(id)
         guard let i = state.conversations.firstIndex(where: { $0.id == id }) else { return }
-        state.conversations[i].messages.append(message); state.conversations[i].updatedAt = Date(); save()
+        // As in `flushTranscript`: appending in place, not to a copy of every message.
+        var messages = state.conversations[i].messages
+        state.conversations[i].messages = []
+        messages.append(message)
+        state.conversations[i].messages = messages
+        state.conversations[i].updatedAt = Date(); save()
         transcriptRevisions[id, default: 0] += 1
     }
 }
