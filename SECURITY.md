@@ -1,7 +1,13 @@
 # Security Policy
 
-Please report security vulnerabilities via our HackerOne program:
+Crok is a personal fork of [xai-org/grok-build](https://github.com/xai-org/grok-build).
 
-https://hackerone.com/x
+- **Vulnerabilities in upstream Grok Build code** (anything that also exists in
+  the official `grok`): report them to SpaceXAI through its HackerOne program,
+  https://hackerone.com/x.
+- **Vulnerabilities in this fork's own changes** (the crok rebrand, the
+  OpenRouter and OpenAI Codex providers, the trace viewers, or Crok Desktop):
+  report them privately to the fork's maintainer through
+  [GitHub private vulnerability reporting](https://github.com/CharryLee0426/grok-build/security).
 
 Do not open public GitHub issues for security reports.

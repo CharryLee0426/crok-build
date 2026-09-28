@@ -451,8 +451,8 @@ crok inspect --json   # Machine-readable
 ### Debug Logging
 
 ```bash
-RUST_LOG=debug CROK_LOG_FILE=/tmp/grok.log crok
-tail -f /tmp/grok.log
+RUST_LOG=debug CROK_LOG_FILE=/tmp/crok.log crok
+tail -f /tmp/crok.log
 ```
 
 Look for log entries containing `mcp` to trace server startup, tool discovery, and tool call execution.

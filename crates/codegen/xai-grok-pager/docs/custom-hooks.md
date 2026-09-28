@@ -135,17 +135,17 @@ For events like `SessionStart` or `Notification`, stdout is ignored. Just exit 0
 
 Crok injects the following variables into every hook process:
 
-- `CROK_HOOK_EVENT`: the event name (e.g. `pre_tool_use`, `session_start`, `post_tool_use`).
-- `CROK_HOOK_NAME`: the full configured name of this hook.
-- `CROK_SESSION_ID`: the current session identifier.
-- `CROK_WORKSPACE_ROOT`: absolute path to the workspace root.
+- `GROK_HOOK_EVENT`: the event name (e.g. `pre_tool_use`, `session_start`, `post_tool_use`).
+- `GROK_HOOK_NAME`: the full configured name of this hook.
+- `GROK_SESSION_ID`: the current session identifier.
+- `GROK_WORKSPACE_ROOT`: absolute path to the workspace root.
 
 For hooks provided by plugins, the following are also set:
 
-- `CROK_PLUGIN_ROOT`: absolute path to the plugin's installation directory.
-- `CROK_PLUGIN_DATA`: absolute path to the plugin's writable data directory.
+- `GROK_PLUGIN_ROOT`: absolute path to the plugin's installation directory.
+- `GROK_PLUGIN_DATA`: absolute path to the plugin's writable data directory.
 
-These runner- and plugin-injected variables always take precedence. Attempts to override the reserved runner keys via the `env` field are stripped at load time (with a warning logged). For plugin hooks, `CROK_PLUGIN_ROOT` and `CROK_PLUGIN_DATA` similarly override any user-supplied values for those keys.
+These runner- and plugin-injected variables always take precedence. Attempts to override the reserved runner keys via the `env` field are stripped at load time (with a warning logged). For plugin hooks, `GROK_PLUGIN_ROOT` and `GROK_PLUGIN_DATA` similarly override any user-supplied values for those keys.
 
 ### Custom Environment Variables (`env` field)
 
@@ -166,7 +166,7 @@ Values must be **strings**. JSON numbers and bools currently fail to parse; wrap
 them in quotes if you need them.
 
 For plugin hooks, the plugin adapter additionally injects
-`CROK_PLUGIN_ROOT` and `CROK_PLUGIN_DATA`. These keys override any user-declared
+`GROK_PLUGIN_ROOT` and `GROK_PLUGIN_DATA`. These keys override any user-declared
 values for the same names (the plugin contract is non-negotiable).
 
 ### Variable Substitution
@@ -187,8 +187,8 @@ Lookup order for each reference:
 
 If a reference is unset in both, it's **preserved verbatim** (e.g. `${UNSET}`
 stays as the literal string). Runner-injected names (`CLAUDE_PROJECT_DIR`,
-`CROK_WORKSPACE_ROOT`, `CROK_HOOK_EVENT`, `CROK_HOOK_NAME`,
-`CROK_SESSION_ID`) are not taken from the Crok process environment at
+`GROK_WORKSPACE_ROOT`, `GROK_HOOK_EVENT`, `GROK_HOOK_NAME`,
+`GROK_SESSION_ID`) are not taken from the Crok process environment at
 load. Unix `sh -c` expands them from the child env; Windows PowerShell
 rewrites `$VAR` to `$env:VAR`. HTTP `url` substitutes them at request
 time. Remaining unresolved command refs are refused with "required env
@@ -196,7 +196,7 @@ var(s) not set".
 
 For HTTP hooks specifically, `url` is also re-expanded **at request time**
 (immediately before SSRF validation), so plugin-injected vars like
-`${CROK_PLUGIN_ROOT}/check` resolve against the plugin's actual path.
+`${GROK_PLUGIN_ROOT}/check` resolve against the plugin's actual path.
 
 #### Parameter-expansion modifiers
 

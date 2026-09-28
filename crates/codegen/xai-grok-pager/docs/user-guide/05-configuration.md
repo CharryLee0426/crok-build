@@ -504,19 +504,19 @@ With `method = "auto"`, Crok detects the terminal brand and picks the best proto
 
 #### Notification hooks
 
-Run your own commands when events fire. Hooks receive `$CROK_EVENT`, `$CROK_MESSAGE`, and `$CROK_SESSION_ID` in the environment.
+Run your own commands when events fire. Hooks receive `$GROK_EVENT`, `$GROK_MESSAGE`, and `$GROK_SESSION_ID` in the environment.
 
 ```toml
 # macOS native notification
 [[ui.notifications.hooks]]
-command = "terminal-notifier -title 'Crok' -message '$CROK_MESSAGE'"
+command = "terminal-notifier -title 'Crok' -message '$GROK_MESSAGE'"
 events = ["turn_complete", "approval_required"]
 only_unfocused = true
 timeout_secs = 10
 
 # Push to ntfy server
 [[ui.notifications.hooks]]
-command = "curl -s -d '$CROK_MESSAGE' ntfy.sh/my-grok-alerts"
+command = "curl -s -d '$GROK_MESSAGE' ntfy.sh/my-crok-alerts"
 events = ["turn_complete"]
 only_unfocused = true
 timeout_secs = 10
@@ -564,8 +564,7 @@ Keyboard shortcuts are **not** configurable — all bindings are built in. See [
 
 These are independent knobs (see [Monitoring Usage](24-monitoring-usage.md#related-settings)):
 
-- **`[features] telemetry`** / `CROK_TELEMETRY_ENABLED` — the product-analytics master switch. `/privacy` doesn't change it.
-- **Coding data, retention, and training** — the Settings row `/privacy` opens; coding-data sharing, separate from telemetry.
+- **`[features] telemetry`** / `CROK_TELEMETRY_ENABLED` — the product-analytics master switch.
 - **`[telemetry] trace_upload`** / `CROK_TELEMETRY_TRACE_UPLOAD` — session traces; follows telemetry when unset.
 - **`[telemetry] otel_*`** / `CROK_EXTERNAL_OTEL` — external OTEL to your own collector (below).
 

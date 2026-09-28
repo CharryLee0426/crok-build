@@ -58,7 +58,7 @@ Each plugin shows (when expanded):
 - **Description**
 - **Conflicts** — ⚠ warning if any
 
-Plugin hooks automatically receive `CROK_PLUGIN_ROOT` and `CROK_PLUGIN_DATA` environment variables (see the [Plugins guide](../user-guide/09-plugins.md#environment-variables-in-plugin-hooks)).
+Plugin hooks automatically receive `GROK_PLUGIN_ROOT` and `GROK_PLUGIN_DATA` environment variables (see the [Plugins guide](../user-guide/09-plugins.md#environment-variables-in-plugin-hooks)).
 
 ### Shortcuts (Plugins tab)
 

@@ -1,6 +1,6 @@
 # Getting Started
 
-Crok Build is a terminal-based AI coding assistant from SpaceXAI. It runs as a TUI (Terminal User Interface) that understands your codebase, executes shell commands, edits files, searches the web, and manages tasks.
+Crok Build is a terminal-based AI coding assistant, built from a personal fork of SpaceXAI's Grok Build. It runs as a TUI (Terminal User Interface) that understands your codebase, executes shell commands, edits files, searches the web, and manages tasks.
 
 You can use it interactively as a full-screen TUI, run it headlessly for scripting and CI/CD, or integrate it into editors via the Agent Client Protocol (ACP).
 
@@ -8,54 +8,21 @@ You can use it interactively as a full-screen TUI, run it headlessly for scripti
 
 ## Installation
 
-Install the latest stable release (macOS, Linux, or Windows via Git Bash):
+Crok has no prebuilt release; build it from the repository checkout (see the repository README for the Rust and DotSlash requirements):
 
 ```bash
-curl -fsSL https://x.ai/cli/install.sh | bash
+make deploy          # builds the release TUI and installs ~/.local/bin/crok
 ```
 
-Install a specific version:
-
-```bash
-curl -fsSL https://x.ai/cli/install.sh | bash -s 0.1.42
-```
-
-On **Windows (PowerShell)**, use the native PowerShell installer:
-
-```powershell
-irm https://x.ai/cli/install.ps1 | iex
-```
-
-Install a specific version:
-
-```powershell
-$env:CROK_VERSION="0.1.42"; irm https://x.ai/cli/install.ps1 | iex
-```
-
-The PowerShell installer automatically adds `%USERPROFILE%\.grok\bin` to your User PATH. Alternatively, install via [Git for Windows](https://gitforwindows.org/) (Git Bash) or MSYS2 using the bash script above. WSL users get the Linux binary automatically.
-
-Verify the installation:
+Put `~/.local/bin` on your `PATH`, then verify the installation:
 
 ```bash
 crok --version
 ```
 
-Update to the latest version at any time:
+Crok never updates itself, because the official updater would install grok over it. To update, pull the checkout and run `make deploy` again; `crok update` says the same. On macOS, Crok Desktop bundles its own copy of `crok` and can link it into `/usr/local/bin`.
 
-```bash
-crok update
-```
-
-If you installed Grok Build with WinGet, update it with WinGet instead. Quit
-Grok first, then run:
-
-```powershell
-winget upgrade --id xAI.GrokBuild -e
-```
-
-On a WinGet install, `grok update` prints this command and changes nothing.
-The WinGet package tracks the stable channel, and new releases can take a few
-days to reach it.
+Crok installs beside an official `grok` and keeps its state in `~/.crok`. To start with an existing grok's settings and sessions, run `make import-grok-config` once from the checkout.
 
 To fetch a repository through Grove (NFS on macOS, FUSE on Linux), enable
 `crok clone` with `[clone] enabled = true` in Grove config, `CROK_CLONE=1`,
@@ -69,8 +36,8 @@ crok clone <url> [dir]
 The default is a depth-1 checkout of the selected branch. Pass `--full-history`
 for a complete clone. Clone enablement is independent of session / `-w` Grove
 worktrees (the convenience above turns both on; the specific knobs still win).
-the grok.com sign-in below — see [crok clone](27-grok-clone.md#authentication)
-and [Configuration reference](26-config-reference.md).
+See [crok clone](27-grok-clone.md) and the
+[Configuration reference](26-config-reference.md).
 
 ---
 
@@ -82,16 +49,21 @@ Start Crok by running:
 crok
 ```
 
-On first launch, Crok opens your browser to authenticate with grok.com. After you sign in, Crok stores your credentials in `~/.crok/auth.json`, where they persist across sessions. Crok refreshes your credentials automatically and prompts you to sign in again when they can no longer be renewed.
-
-If you prefer API key authentication (e.g., for CI/CD or environments without a browser), set the `XAI_API_KEY` environment variable instead:
+On first launch without a provider credential, Crok asks which provider to sign in to: OpenAI Codex (a ChatGPT subscription) or OpenRouter. You can also sign in ahead of time:
 
 ```bash
-export XAI_API_KEY="xai-..."
+crok login openai-codex
+crok login openrouter
+```
+
+Provider credentials are stored in `~/.crok/provider-auth/` and persist across sessions; Codex tokens refresh automatically. For CI/CD or environments without a browser, set `OPENROUTER_API_KEY` instead:
+
+```bash
+export OPENROUTER_API_KEY="sk-or-..."
 crok
 ```
 
-See [Authentication](02-authentication.md) for the full set of auth options including OIDC, external auth providers, and device code flow.
+xAI accounts are not supported; use Grok models through OpenRouter (for example `openrouter/x-ai/grok-4`). See [Authentication](02-authentication.md) for details.
 
 ---
 
@@ -177,7 +149,7 @@ Tools can be extended with [MCP servers](05-configuration.md#mcp-servers) for in
 Type `/` in the prompt to access commands. These provide quick actions without writing a full prompt:
 
 ```
-/model grok-4.6                 # Switch model
+/model openrouter/x-ai/grok-4     # Switch model
 /compact                          # Compress conversation history
 /always-approve                   # Toggle always-approve mode
 /new                              # Start a new session
@@ -212,7 +184,7 @@ crok --rules "Always use TypeScript. Prefer functional components."
 crok --yolo
 
 # Use a specific model
-crok -m grok-4.6
+crok -m openrouter/x-ai/grok-4
 
 # Resume a previous session
 crok --resume <session-id>
@@ -275,7 +247,7 @@ Deeper files take precedence. Crok also reads `CLAUDE.md` files for compatibilit
 
 | Document | What You Will Learn |
 |----------|-------------------|
-| [Authentication](02-authentication.md) | Browser login, API keys, OIDC, external auth, device code flow |
+| [Authentication](02-authentication.md) | OpenRouter and OpenAI Codex sign-in, API keys |
 | [Keyboard Shortcuts](03-keyboard-shortcuts.md) | Complete reference for all key bindings |
 | [Slash Commands](04-slash-commands.md) | All available `/` commands |
 | [Configuration](05-configuration.md) | config.toml, pager.toml, environment variables |

@@ -193,7 +193,7 @@ This shows:
 
 - Session title (when set)
 - Shell version
-- Auth method (OAuth vs API key; API-key sessions also suggest `crok login` for SuperGrok)
+- Auth method
 - Session ID
 - Working directory
 - Model (with a model hash for coding models)

@@ -228,31 +228,67 @@ private struct ThoughtView: View {
     var expanded: Bool?
     var onExpand: (@MainActor (UUID, Bool) -> Void)?
     @State private var localExpanded = false
+    @State private var previewHeight: CGFloat = 0
+
+    /// While reasoning streams, the folded block shows its newest four lines.
+    static let previewLines = 4
+    /// Four lines of the 14 pt reasoning text (see `ReadOnlyTextView.Style.markdown`): each line
+    /// with its 3 pt line spacing, the paragraph gaps between them (reasoning is mostly short
+    /// paragraphs), and the text view's insets.
+    static let previewHeight: CGFloat = {
+        let font = NSFont.systemFont(ofSize: 14)
+        let line = ceil(NSLayoutManager().defaultLineHeight(for: font)) + 3
+        let paragraphGap = (font.pointSize * 0.6).rounded()
+        return CGFloat(previewLines) * line + CGFloat(previewLines - 1) * paragraphGap + 4
+    }()
+    private static let cornerRadius: CGFloat = 12
 
     var body: some View {
         let isExpanded = FoldState(id: message.id, expanded: expanded, onExpand: onExpand).binding($localExpanded)
-        FoldableSection(isExpanded: isExpanded) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkle")
-                Text(isStreaming ? "Thinking…" : "Thinking").fontWeight(.medium).layoutPriority(1)
-                if isStreaming && !isExpanded.wrappedValue {
-                    // A glimpse of the newest reasoning, without laying out the rest of it.
-                    Text(Self.latestLine(of: message.text)).lineLimit(1).truncationMode(.head).opacity(0.75)
-                }
-                Spacer(minLength: 0)
-            }.font(.system(size: 13)).foregroundStyle(Theme.muted)
-        } content: {
-            ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: 360), followsTail: isStreaming)
-                .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 12)
+        VStack(alignment: .leading, spacing: 0) {
+            FoldableSection(isExpanded: isExpanded) {
+                HStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkle")
+                        Text(isStreaming ? "Thinking…" : "Thinking").fontWeight(.medium)
+                    }
+                    // A still gradient: animating it would run SwiftUI every frame (see ThinkingEffects).
+                    .foregroundStyle(isStreaming ? AnyShapeStyle(ThinkingPalette.gradient) : AnyShapeStyle(Theme.muted))
+                    .layoutPriority(1)
+                    Spacer(minLength: 0)
+                }.font(.system(size: 13)).foregroundStyle(Theme.muted)
+            } content: {
+                ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: 360), followsTail: isStreaming)
+                    .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 12)
+            }
+            if isStreaming && !isExpanded.wrappedValue && !message.text.isEmpty {
+                preview
+            }
+            if isStreaming {
+                ThinkingProgressBar().padding(.horizontal, 14).padding(.bottom, 8).padding(.top, 2)
+                    .transition(.opacity)
+            }
         }
-        .background(Theme.sidebar.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .background(Theme.sidebar.opacity(0.4), in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .thinkingLiquid(isStreaming, cornerRadius: Self.cornerRadius)
+        .animation(.easeOut(duration: 0.2), value: isStreaming)
     }
 
-    static func latestLine(of text: String) -> String {
-        let tail = text.suffix(240)
-        guard let line = tail.split(whereSeparator: \.isNewline).last else { return "" }
-        // The glimpse reads as prose: `**Planning**` shows as "Planning".
-        return MarkdownParser.plainText(MarkdownParser.parse(String(line))).trimmingCharacters(in: .whitespacesAndNewlines)
+    /// The newest reasoning, four lines tall at most, kept scrolled to its end as it streams.
+    /// Once it fills, its top edge fades so the lines seem to scroll up out of it.
+    private var preview: some View {
+        let full = previewHeight >= Self.previewHeight - 1
+        return ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: Self.previewHeight),
+                                followsTail: true, showsScroller: false)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { previewHeight = $0 }
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.black.opacity(full ? 0.15 : 1), .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
+                    Color.black
+                }
+            }
+            .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 6).padding(.top, -4)
+            .accessibilityLabel("Latest reasoning")
     }
 }
 

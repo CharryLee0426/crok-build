@@ -479,7 +479,7 @@ Inside a subagent, the gate fires as `SubagentStop` (agent-frontmatter `Stop` ho
 - **StopFailure classes**: crok emits six (`rate_limit`, `authentication_failed`, `invalid_request`, `server_error`, `max_output_tokens`, `unknown`). Capacity errors (503/529) classify as `rate_limit`. A matcher on an error class crok does not emit never fires.
 - **Default timeout**: crok defaults observe hooks to 5 seconds, which is shorter than most. Set `timeout` explicitly on an imported hook that does real work.
 - **`UserPromptSubmit` blocks, with one gap**: exit 2 and `decision: "block"` reject the prompt like Claude, and a blocked prompt never enters the conversation history — but an allowing hook's stdout / `additionalContext` is discarded rather than added as context.
-- **`StopCancelled` is grok-specific**: a config that uses it is not portable to a runtime with no interrupt hook.
+- **`StopCancelled` is crok-specific**: a config that uses it is not portable to a runtime with no interrupt hook.
 - **`idle_prompt` fires on any turn end**: crok fires it after an interrupted or errored turn too, not only a completed one, because it reports a state rather than an outcome. Its `message` is display text and can change between releases, so match on `notificationType` instead.
 - **Subagent identity is `subagentType`, not `agent_type`**: crok puts it in the payload of the events that can fire inside a subagent, matching its own `SubagentStart`/`SubagentStop`, rather than in the common fields.
 - **permission_mode values**: crok emits `default`, `auto`, `plan`, or `bypassPermissions`. Claude's `acceptEdits`/`dontAsk` have no crok equivalent (crok's `auto` is the nearest), so a check like `permission_mode === "acceptEdits"` never matches.
@@ -506,7 +506,7 @@ For events like `SessionStart` or `Notification`, stdout is ignored. Just exit 0
 
 ### Environment Variables
 
-Crok sets several environment variables on every hook process. These are useful when writing context-aware or plugin-aware hook scripts.
+Crok sets several environment variables on every hook process. These are useful when writing context-aware or plugin-aware hook scripts. They keep grok's `GROK_` names, so hooks and plugins written for grok run unchanged; the `CROK_` names apply only to settings crok reads.
 
 #### Runner-injected variables (always available)
 
@@ -514,11 +514,11 @@ These variables are set by the hook runner for **every** hook:
 
 | Variable              | Description |
 |-----------------------|-------------|
-| `CROK_HOOK_EVENT`     | The name of the event that triggered the hook (e.g. `pre_tool_use`, `session_start`, `post_tool_use`, `session_end`, `stop`, `notification`). |
-| `CROK_HOOK_NAME`      | The configured name of this specific hook (includes the plugin prefix for plugin-provided hooks). |
-| `CROK_SESSION_ID`     | The unique identifier of the current Crok session. |
-| `CROK_WORKSPACE_ROOT` | Absolute path to the root of the current workspace. |
-| `CLAUDE_PROJECT_DIR`  | Absolute path to the workspace root. A Claude Code-compatible alias for `CROK_WORKSPACE_ROOT`, set for every hook. |
+| `GROK_HOOK_EVENT`     | The name of the event that triggered the hook (e.g. `pre_tool_use`, `session_start`, `post_tool_use`, `session_end`, `stop`, `notification`). |
+| `GROK_HOOK_NAME`      | The configured name of this specific hook (includes the plugin prefix for plugin-provided hooks). |
+| `GROK_SESSION_ID`     | The unique identifier of the current Crok session. |
+| `GROK_WORKSPACE_ROOT` | Absolute path to the root of the current workspace. |
+| `CLAUDE_PROJECT_DIR`  | Absolute path to the workspace root. A Claude Code-compatible alias for `GROK_WORKSPACE_ROOT`, set for every hook. |
 
 These variables are **reserved**. Any values you attempt to set for them via the `env` field in your hook JSON are stripped at load time (a warning is logged), and the runner always injects the real values at spawn time.
 
@@ -528,10 +528,10 @@ When a hook originates from a plugin, Crok additionally injects the following va
 
 | Variable             | Description |
 |----------------------|-------------|
-| `CROK_PLUGIN_ROOT`   | Absolute path to the plugin's installed directory. |
-| `CROK_PLUGIN_DATA`   | Absolute path to the plugin's writable data directory (for storing plugin state, caches, etc.). |
+| `GROK_PLUGIN_ROOT`   | Absolute path to the plugin's installed directory. |
+| `GROK_PLUGIN_DATA`   | Absolute path to the plugin's writable data directory (for storing plugin state, caches, etc.). |
 
-These values are provided by the plugin system. For the four plugin-related keys (`CROK_PLUGIN_ROOT`, `CROK_PLUGIN_DATA`, and their Claude aliases), the plugin adapter ensures the official plugin values always win over any user-declared values in the hook's `env` map.
+These values are provided by the plugin system. For the four plugin-related keys (`GROK_PLUGIN_ROOT`, `GROK_PLUGIN_DATA`, and their Claude aliases), the plugin adapter ensures the official plugin values always win over any user-declared values in the hook's `env` map.
 
 #### User-defined environment variables
 
@@ -688,4 +688,4 @@ echo '{"decision": "allow"}'
 - **Hook not running?** Press `Ctrl+L` on non–VS Code family (or run `/hooks` anywhere) to see if it is loaded and matched.
 - **Project hooks ignored?** The folder may be untrusted. Run `/hooks-trust` (or relaunch with `--trust`).
 - **Script not found?** Check the path is relative to the `.json` file and executable (`chmod +x`).
-- **See errors?** Capture logs by launching with `RUST_LOG=debug CROK_LOG_FILE=/tmp/grok.log crok`, then check `/tmp/grok.log`.
+- **See errors?** Capture logs by launching with `RUST_LOG=debug CROK_LOG_FILE=/tmp/crok.log crok`, then check `/tmp/crok.log`.

@@ -57,4 +57,4 @@ xAI account support has been removed from this build:
 - `crok login` requires a provider; `--oauth`, `--device-auth`, and browser login to grok.com are gone, as are enterprise OIDC/SSO and external auth provider commands.
 - Saved xAI sessions in `~/.crok/auth.json` are ignored.
 - The `/login`, `/logout`, and `/privacy` commands are gone, along with SuperGrok billing and the xAI voice provider.
-- Models served by xAI's own API are hidden from the model picker unless `XAI_API_KEY` is set in the environment (a plain API key, not an account sign-in). Crok models are also available through OpenRouter, for example `crok --model openrouter/x-ai/grok-4`.
+- Models served by xAI's own API are hidden from the model picker unless `XAI_API_KEY` is set in the environment (a plain API key, not an account sign-in). Grok models are also available through OpenRouter, for example `crok --model openrouter/x-ai/grok-4`.

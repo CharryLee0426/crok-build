@@ -305,6 +305,68 @@ time.sleep(20)
         XCTAssertEqual(saved.conversations.map(\.title), ["Flushed on demand"])
     }
 
+    func testSavedTranscriptShowsAtOnceWhileTheTaskConnectsInTheBackground() async throws {
+        let saved = [Message(kind: .user, text: "Original question"), Message(kind: .assistant, text: "Complete answer")]
+        let fixture = try Fixture(firstLoad: "time.sleep(1.5)", existingMessages: saved)
+        defer { fixture.cleanup() }
+        let store = fixture.store
+        let loading = Task { await store.loadImportedConversation() }
+        try await eventually { fixture.requests.contains { $0["method"] as? String == "session/load" } }
+        // No progress row, no Stop button, and the composer stays ready while history loads.
+        XCTAssertFalse(store.run.isRunning)
+        XCTAssertNotEqual(store.run.phase, "Loading history")
+        XCTAssertEqual(store.conversation!.messages.map(\.text), saved.map(\.text))
+        await loading.value
+        XCTAssertTrue(store.loaded.contains(fixture.conversationID))
+        XCTAssertEqual(store.run.phase, "Ready")
+        // The replay matched, so the rows on screen were kept rather than rebuilt.
+        XCTAssertEqual(store.conversation!.messages.map(\.id), saved.map(\.id))
+        XCTAssertNil(store.banner)
+    }
+
+    func testSendingWhileTheTaskConnectsInTheBackgroundTakesOver() async throws {
+        let saved = [Message(kind: .user, text: "Original question"), Message(kind: .assistant, text: "Complete answer")]
+        let fixture = try Fixture(firstLoad: "time.sleep(20)", existingMessages: saved)
+        defer { fixture.cleanup() }
+        let store = fixture.store
+        let loading = Task { await store.loadImportedConversation() }
+        try await eventually { fixture.requests.contains { $0["method"] as? String == "session/load" } }
+        store.draft = "Next prompt"
+        store.send()
+        await loading.value
+        try await eventually { !store.run.isRunning }
+        XCTAssertEqual(store.run.phase, "Ready")
+        XCTAssertEqual(store.conversation!.messages.map(\.text), ["Original question", "Complete answer", "Next prompt", "New answer"])
+        XCTAssertEqual(fixture.requests.filter { $0["method"] as? String == "session/prompt" }.count, 1)
+        XCTAssertNil(store.banner)
+    }
+
+    func testEmptyReplayKeepsSavedTranscriptUnlessItIsStale() async throws {
+        let saved = [Message(kind: .user, text: "Kept question"), Message(kind: .assistant, text: "Kept answer")]
+        let fixture = try Fixture(firstLoad: #"reply(request, {"models": models(), **config()}); continue"#, existingMessages: saved)
+        defer { fixture.cleanup() }
+        let store = fixture.store
+        await store.loadImportedConversation()
+        XCTAssertEqual(store.conversation!.messages.map(\.text), ["Kept question", "Kept answer"])
+        // After a rewind the harness's history is authoritative, and loading it shows progress.
+        store.discardConnection(fixture.conversationID)
+        store.staleTranscripts.insert(fixture.conversationID)
+        await store.loadImportedConversation()
+        XCTAssertEqual(store.conversation!.messages.map(\.text), ["Original question", "Complete answer"])
+        XCTAssertFalse(store.staleTranscripts.contains(fixture.conversationID))
+    }
+
+    func testTranscriptContentComparisonIgnoresIDsAndTimes() {
+        let a = [Message(kind: .user, text: "Q", createdAt: Date()), Message(kind: .tool, text: "Run", toolID: "t", status: "completed", detail: "out")]
+        let b = [Message(kind: .user, text: "Q"), Message(kind: .tool, text: "Run", toolID: "t", status: "completed", detail: "out")]
+        XCTAssertTrue(TranscriptReducer.sameContent(a, b))
+        var c = b; c[1].status = "failed"
+        XCTAssertFalse(TranscriptReducer.sameContent(a, c))
+        var d = b; d[0].text = "R"
+        XCTAssertFalse(TranscriptReducer.sameContent(a, d))
+        XCTAssertFalse(TranscriptReducer.sameContent(a, Array(b.prefix(1))))
+    }
+
     func testPreparingReopenedTaskPopulatesModelsWithoutSendingPrompt() async throws {
         let fixture = try Fixture(firstLoad: "pass", existingMessages: [Message(kind: .assistant, text: "Saved answer")])
         defer { fixture.cleanup() }

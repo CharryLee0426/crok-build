@@ -5,7 +5,10 @@ Launch with CROK_DESKTOP_HARNESS pointing to this executable. It never runs tool
 project files, contacts a service, or reads credentials. Every response is marked
 as fixture data. Prompts containing `fixture:permission`, `fixture:question`,
 `fixture:plan`, or `fixture:trust` display the corresponding interaction;
-`fixture:subagents` streams a simulated child agent lifecycle.
+`fixture:subagents` streams a simulated child agent lifecycle, and `fixture:think`
+streams several seconds of reasoning (CROK_FIXTURE_THINK_SECONDS, default 8).
+CROK_FIXTURE_LOAD_DELAY (seconds) slows session/load, as a large real session is, and
+CROK_FIXTURE_HISTORY names a JSON file of {sessionId: [session updates]} to replay.
 `fixture:wait` waits for Stop and `fixture:error` returns a protocol error.
 The ordinary scenario streams Markdown, a plan, and a simulated tool result, and
 names any image or resource-link attachments it received. Side questions
@@ -18,6 +21,7 @@ import queue
 import re
 import sys
 import threading
+import time
 
 
 class MockHarness:
@@ -43,6 +47,10 @@ class MockHarness:
                 {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "This is **offline fixture history**. The real app connects to `crok agent stdio`."}},
             ]
         }
+        history_file = os.environ.get("CROK_FIXTURE_HISTORY")
+        if history_file:
+            with open(history_file) as handle:
+                self.history.update(json.load(handle))
         self.model_id = "fixture-grok-build"
         self.mode_id = "build"
         self.reasoning_id = "medium"
@@ -233,6 +241,16 @@ class MockHarness:
             for block in blocks:
                 self.update(session_id, {"sessionUpdate": "user_message_chunk", "content": block})
             self.update(session_id, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "Preparing the offline desktop fixture."}})
+            if "fixture:think" in prompt:
+                seconds = float(os.environ.get("CROK_FIXTURE_THINK_SECONDS", "8"))
+                lines = max(1, int(seconds / 0.2))
+                for line in range(lines):
+                    text = "\n\n**Step {}.** Weighing option {} against the fixture's constraints; checking the next file and noting what changes.".format(line + 1, line % 7 + 1)
+                    for offset in range(0, len(text), 16):
+                        if stop.wait(0.2 * 16 / len(text)):
+                            finish("cancelled")
+                            return
+                        self.update(session_id, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": text[offset:offset + 16]}})
             self.update(session_id, {"sessionUpdate": "plan", "entries": [
                 {"content": "Inspect the fixture", "priority": "medium", "status": "in_progress"},
                 {"content": "Summarize the result", "priority": "medium", "status": "pending"},
@@ -468,6 +486,7 @@ class MockHarness:
                 return
             self.sessions.setdefault(session_id, {"sessionId": session_id, "cwd": params["cwd"], "title": "Desktop task (fixture)", "updatedAt": "2026-09-21T12:00:00Z"})
             if method == "session/load":
+                time.sleep(float(os.environ.get("CROK_FIXTURE_LOAD_DELAY", "0")))
                 for update in list(self.history.get(session_id, [])):
                     self.update(session_id, update, remember=False)
             self.update(session_id, {"sessionUpdate": "available_commands_update", "availableCommands": self.commands(), "_meta": {"tools": self.advertised_tools}}, remember=False)

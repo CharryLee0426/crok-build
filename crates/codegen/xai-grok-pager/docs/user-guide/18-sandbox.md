@@ -47,7 +47,7 @@ To block specific files (e.g. `.env` or credential paths) on top of a profile, d
 
 ### Direct global write protection
 
-Under `workspace`, `read-only`, and `strict` (and custom profiles that extend those bases), the kernel **write-denies** the Grok-owned direct disk paths used as user-global hook sources, plus its configuration and trust files (they stay readable when granted). Built-in `strict` can read `~/.crok` (they stay readable); writes are CWD + `~/.crok/sessions` + temp, not the whole tree. Write-deny still applies where the profile grants write:
+Under `workspace`, `read-only`, and `strict` (and custom profiles that extend those bases), the kernel **write-denies** the Crok-owned direct disk paths used as user-global hook sources, plus its configuration and trust files (they stay readable when granted). Built-in `strict` can read `~/.crok` (they stay readable); writes are CWD + `~/.crok/sessions` + temp, not the whole tree. Write-deny still applies where the profile grants write:
 
 - `~/.crok/hooks/` (hook directory)
 - `~/.crok/hooks-paths` (registry file; not loaded as hook JSON — only its absolute targets are)
