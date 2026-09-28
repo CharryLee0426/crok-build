@@ -23,6 +23,18 @@ struct Conversation: Identifiable, Codable, Sendable {
     var sideChat: [SideChatMessage]?
 }
 
+extension Conversation {
+    /// A copy without its transcript, for views that list tasks. A view keeps what it was given
+    /// until it renders again, and a transcript kept that way is copied whole on every streamed
+    /// update instead of grown in place.
+    var listing: Conversation {
+        var copy = self
+        copy.messages = []
+        copy.sideChat = nil
+        return copy
+    }
+}
+
 struct Message: Identifiable, Codable, Sendable {
     enum Kind: String, Codable, Sendable { case user, assistant, thought, tool, system }
     var id = UUID()
@@ -178,12 +190,18 @@ struct DesktopState: Codable, Sendable {
     var deletedSessionIDs: Set<String> = []
     /// Project folders the user folded in the sidebar. Folders are expanded by default.
     var collapsedProjectIDs: Set<UUID> = []
+    /// Task order the user dragged a project folder into, keyed by project ID. A folder without
+    /// one lists its tasks newest first.
+    var taskOrder: [String: [UUID]] = [:]
+    /// Pinned tasks in the order the user dragged them into; empty lists them newest first.
+    var pinnedOrder: [UUID] = []
 }
 
 extension DesktopState {
     private enum CodingKeys: String, CodingKey {
         case projects, conversations, selectedProjectID, selectedConversationID
         case selectedModelID, selectedReasoningID, deletedSessionIDs, collapsedProjectIDs
+        case taskOrder, pinnedOrder
     }
 
     init(from decoder: Decoder) throws {
@@ -196,6 +214,8 @@ extension DesktopState {
         selectedReasoningID = try values.decodeIfPresent(String.self, forKey: .selectedReasoningID)
         deletedSessionIDs = try values.decodeIfPresent(Set<String>.self, forKey: .deletedSessionIDs) ?? []
         collapsedProjectIDs = try values.decodeIfPresent(Set<UUID>.self, forKey: .collapsedProjectIDs) ?? []
+        taskOrder = try values.decodeIfPresent([String: [UUID]].self, forKey: .taskOrder) ?? [:]
+        pinnedOrder = try values.decodeIfPresent([UUID].self, forKey: .pinnedOrder) ?? []
     }
 }
 
@@ -272,6 +292,9 @@ enum TranscriptReducer {
         }
     }
 
+    /// How far back a `tool_call` looks for a call it repeats before adding a new one.
+    static let newCallLookback = 256
+
     static func apply(_ update: [String: Any], to messages: inout [Message], date: Date? = nil) {
         let kind = update["sessionUpdate"] as? String ?? ""
         switch kind {
@@ -297,7 +320,11 @@ enum TranscriptReducer {
                 if let content = item["content"] as? [String: Any] { return text(from: content) }
                 return nil
             }.joined(separator: "\n")
-            if let index = messages.firstIndex(where: { $0.toolID == id }) {
+            // Updates are for recent calls, so the search runs from the end. A new call is looked
+            // for only among recent messages: searching all of a long transcript for each new call
+            // made streaming, and loading, a task quadratic in its length.
+            let searched = kind == "tool_call" ? messages.indices.suffix(Self.newCallLookback) : messages.indices.suffix(from: 0)
+            if let index = searched.last(where: { messages[$0].toolID == id }) {
                 if let title = update["title"] as? String { messages[index].text = title }
                 if let status = update["status"] as? String { messages[index].status = status }
                 if !detail.isEmpty { messages[index].detail = detail }

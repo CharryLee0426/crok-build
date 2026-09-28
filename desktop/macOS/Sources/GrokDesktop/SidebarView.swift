@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Codex-style navigation: project folders that collect their tasks, newest first, and a
-/// folded Recents section that lists every project's tasks together.
+/// folded Recents section that lists every project's tasks together. Folders, the tasks in a
+/// folder, and pinned tasks can be dragged into the user's own order.
 struct SidebarView: View {
     @EnvironmentObject var store: AppStore
     /// Folders and Recents show a few tasks until the reader asks for the rest.
@@ -58,10 +59,13 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func workspace(now: Date) -> some View {
-        let pinned = store.pinnedConversations
+        let pinned = store.pinnedConversations.map(\.listing)
         if !pinned.isEmpty {
             SidebarSectionHeader(title: "Pinned")
-            ForEach(pinned) { taskRow($0, now: now, showsProject: true, indent: 8) }
+                .contextMenu { sortMenu(.pinned) }
+            ReorderableStack(items: pinned, onMove: { store.moveTask($0, to: $1, in: .pinned) }) { task, handle in
+                taskRow(task, now: now, showsProject: true, indent: 8).modifier(handle)
+            }
         }
         SidebarSectionHeader(title: "Projects") {
             if store.syncing {
@@ -78,18 +82,23 @@ struct SidebarView: View {
                 Label("Open your first project", systemImage: "plus").font(.system(size: 13)).padding(.horizontal, 8).padding(.vertical, 7)
             }.buttonStyle(.plain).foregroundStyle(Theme.muted)
         }
-        ForEach(store.state.projects) { project in
-            let tasks = store.conversations(inProject: project.id)
+        // A folder moves by its header; its tasks move within it.
+        ReorderableStack(items: store.state.projects, onMove: { store.moveProject($0, to: $1) }) { project, handle in
+            let tasks = store.conversations(inProject: project.id).map(\.listing)
             let expanded = Binding(get: { store.isProjectExpanded(project.id) },
                                    set: { if $0 != store.isProjectExpanded(project.id) { store.toggleProjectExpanded(project.id) } })
             Fold(isExpanded: expanded, spacing: 1) { toggle, isOpen in
                 ProjectFolderRow(store: store, project: project, isExpanded: isOpen,
                                  isActive: store.state.selectedProjectID == project.id && store.state.selectedConversationID == nil,
-                                 runningCount: tasks.filter { store.runs[$0.id]?.isRunning == true }.count, onToggle: toggle)
+                                 runningCount: tasks.filter { store.runs[$0.id]?.isRunning == true }.count,
+                                 hasManualOrder: store.hasManualOrder(.project(project.id)), onToggle: toggle)
                     .equatable()
+                    .modifier(handle)
             } content: {
                 VStack(alignment: .leading, spacing: 1) {
-                    limited(tasks, key: project.id.uuidString, limit: Self.folderLimit, indent: 30) { taskRow($0, now: now, showsProject: false, indent: 30) }
+                    limited(tasks, key: project.id.uuidString, limit: Self.folderLimit, indent: 30, reorder: .project(project.id)) {
+                        taskRow($0, now: now, showsProject: false, indent: 30)
+                    }
                     if tasks.isEmpty {
                         Text("No tasks yet").font(.system(size: 12)).foregroundStyle(Theme.muted)
                             .padding(.leading, 30).padding(.vertical, 5)
@@ -97,7 +106,7 @@ struct SidebarView: View {
                 }
             }
         }
-        let recents = store.recentConversations
+        let recents = store.recentConversations.map(\.listing)
         Fold(isExpanded: $store.recentsExpanded, spacing: 1) { toggle, isOpen in
             SidebarSectionHeader(title: "Recents", count: recents.count, isExpanded: isOpen, onToggle: toggle)
                 .padding(.top, 6)
@@ -111,7 +120,7 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func archived(now: Date) -> some View {
-        let tasks = store.archivedConversations
+        let tasks = store.archivedConversations.map(\.listing)
         SidebarSectionHeader(title: "Archived")
         ForEach(tasks) { taskRow($0, now: now, showsProject: true, indent: 8) }
         if tasks.isEmpty { emptyNote("Archived tasks will appear here.") }
@@ -119,17 +128,26 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func searchResults(now: Date) -> some View {
-        let tasks = store.searchResults
+        let tasks = store.searchResults.map(\.listing)
         SidebarSectionHeader(title: store.showArchived ? "Archived results" : "Results", count: tasks.count)
         ForEach(tasks) { taskRow($0, now: now, showsProject: true, indent: 8) }
         if tasks.isEmpty { emptyNote("No matching tasks.") }
     }
 
+    /// The first few tasks of a list, and a button for the rest. A list with an order can be
+    /// rearranged by dragging; the shown tasks are its first ones, so their places are its own.
     @ViewBuilder
-    private func limited<Row: View>(_ tasks: [Conversation], key: String, limit: Int, indent: CGFloat,
+    private func limited<Row: View>(_ tasks: [Conversation], key: String, limit: Int, indent: CGFloat, reorder: SidebarTaskList? = nil,
                                     @ViewBuilder row: @escaping (Conversation) -> Row) -> some View {
         let showsAll = expandedLists.contains(key)
-        ForEach(showsAll ? tasks : Array(tasks.prefix(limit))) { row($0) }
+        let shown = showsAll ? tasks : Array(tasks.prefix(limit))
+        if let reorder {
+            ReorderableStack(items: shown, onMove: { store.moveTask($0, to: $1, in: reorder) }) { task, handle in
+                row(task).modifier(handle)
+            }
+        } else {
+            ForEach(shown) { row($0) }
+        }
         if tasks.count > limit {
             Button {
                 FoldMotion.toggle { if showsAll { expandedLists.remove(key) } else { expandedLists.insert(key) } }
@@ -152,6 +170,12 @@ struct SidebarView: View {
                               needsApproval: !(run?.approvals.isEmpty ?? true) || !(run?.questions.isEmpty ?? true),
                               isUnread: store.unreadConversationIDs.contains(task.id))
             .equatable()
+    }
+
+    @ViewBuilder
+    private func sortMenu(_ list: SidebarTaskList) -> some View {
+        Button("Sort by Recent Activity", systemImage: "clock.arrow.circlepath") { FoldMotion.toggle { store.sortByRecentActivity(list) } }
+            .disabled(!store.hasManualOrder(list))
     }
 
     private func emptyNote(_ text: String) -> some View {
@@ -258,11 +282,14 @@ private struct ProjectFolderRow: View, Equatable {
     let isExpanded: Bool
     let isActive: Bool
     let runningCount: Int
+    /// Whether the folder's tasks are in an order the user dragged them into.
+    let hasManualOrder: Bool
     let onToggle: () -> Void
     @State private var hovered = false
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.project == rhs.project && lhs.isExpanded == rhs.isExpanded && lhs.isActive == rhs.isActive && lhs.runningCount == rhs.runningCount
+            && lhs.hasManualOrder == rhs.hasManualOrder
     }
 
     var body: some View {
@@ -309,6 +336,10 @@ private struct ProjectFolderRow: View, Equatable {
         Button("New Task", systemImage: "square.and.pencil") { store.selectProject(project.id) }
         Button("Import Harness Tasks", systemImage: "arrow.triangle.2.circlepath") { store.syncHistory(projects: [project]) }
             .disabled(store.syncing)
+        // Dragging a task puts the folder in the user's order; this goes back to newest first.
+        Button("Sort Tasks by Recent Activity", systemImage: "clock.arrow.circlepath") {
+            FoldMotion.toggle { store.sortByRecentActivity(.project(project.id)) }
+        }.disabled(!hasManualOrder)
         Divider()
         Button("Reveal in Finder", systemImage: "folder") { NSWorkspace.shared.open(URL(fileURLWithPath: project.path)) }
         Button("Open Terminal", systemImage: "terminal") { store.openTerminal(projectID: project.id) }
