@@ -70,9 +70,9 @@ The two are separate worlds:
 
 | World | Covers | Commands | Store |
 |-------|--------|----------|-------|
-| Crok | the model and API | `crok login`, `crok logout` | `~/.crok/auth.json` |
+| Crok | the model and API | `crok login`, `crok logout` | `~/.crok/provider-auth/` |
 
-`crok clone` never reads `~/.crok/auth.json` for Git. Signing into Crok does not
+`crok clone` never reads Crok's model credentials for Git. Signing into Crok does not
 give the daemon a credential for the remote, and neither does
 `[clone] enabled = true`: that flag is a **product gate** deciding whether
 `crok clone` runs at all, not authorization for GitHub.

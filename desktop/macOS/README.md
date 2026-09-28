@@ -8,11 +8,11 @@ and load provider credentials and configuration.
 
 ## Install
 
-Open `Grok-Desktop-<version>-arm64.dmg` and drag **Crok Desktop** to
+Open `Crok-Desktop-<version>-arm64.dmg` and drag **Crok Desktop** to
 **Applications**. The app includes Crok Build, the same runtime and `crok` TUI as
 the CLI, so nothing else needs to be installed. It requires macOS 14 or later on
 Apple silicon. On first launch, sign in to OpenRouter or OpenAI Codex from
-**Settings › Accounts**. xAI accounts are not supported; Crok models are available
+**Settings › Accounts**. xAI accounts are not supported; Grok models are available
 through OpenRouter.
 
 The disk image is ad hoc signed and not notarized, so macOS blocks the first launch
@@ -21,7 +21,7 @@ Security**, click **Open Anyway** beside the Crok Desktop message, and confirm.
 macOS remembers the choice.
 
 To use Crok Build in a terminal, turn on **Settings › Command line › `crok` command
-in Terminal**. It links `/usr/local/bin/grok` to the app's copy of the TUI, so
+in Terminal**. It links `/usr/local/bin/crok` to the app's copy of the TUI, so
 `crok` works in any terminal and updates when you install a newer Crok Desktop.
 macOS asks for an administrator password when that folder is not writable. The
 switch replaces another program's `crok` link only after you confirm, never
@@ -74,17 +74,17 @@ directory. Its app has a separate bundle identity, state file, orange **TESTING*
 icon, and disabled global `crok` command switch, so it remains separate from the
 production desktop app.
 
-The packaging script embeds the release harness as `Contents/Resources/grok`,
+The packaging script embeds the release harness as `Contents/Resources/crok`,
 signs that executable, and then signs the app. It also bundles the `crok` command's
-launcher, [`Resources/grok-command.sh`](Resources/grok-command.sh), as
-`Contents/Resources/bin/grok`: it runs the embedded harness with its self-updater
+launcher, [`Resources/crok-command.sh`](Resources/crok-command.sh), as
+`Contents/Resources/bin/crok`: it runs the embedded harness with its self-updater
 off, and answers `crok update` by pointing to a newer Crok Desktop. The app's
 version comes from [`VERSION`](VERSION). Rebuilding while the app runs is safe;
 the running copy and its tasks keep their executables. To reuse an existing
 harness and skip its Rust build:
 
 ```sh
-make build-desktop CROK_BINARY="/absolute/path/to/grok"
+make build-desktop CROK_BINARY="/absolute/path/to/crok"
 ```
 
 The lower-level `./desktop/macOS/scripts/build-app.sh` command remains available
@@ -113,7 +113,7 @@ swift test --package-path desktop/macOS
    are reused. Each provider shows its saved account identity when available, and
    signed-in accounts cannot start another sign-in. OpenRouter API keys do not
    include an account name; this is stated explicitly. xAI accounts (xAI sign-in,
-   `XAI_API_KEY`) are not supported; use Crok models through OpenRouter. To sign
+   `XAI_API_KEY`) are not supported; use Grok models through OpenRouter. To sign
    out, run `crok logout <provider>` (or `crok logout` for every provider) in the
    side panel's Terminal.
 3. Start a task and send a prompt. Responses stream into the conversation, with
@@ -314,7 +314,7 @@ packaged app continues to use its embedded runtime and standard local state.
 ## Vector app icon
 
 [`Resources/GrokMark.svg`](Resources/GrokMark.svg) is the editable vector source,
-reconstructed from the [Crok homepage](https://grok.com/) mark. No downloaded
+reconstructed from the [Grok homepage](https://grok.com/) mark. No downloaded
 raster artwork or font glyph is used. The desktop icon follows Apple's macOS
 icon grid, like the other coding agents' icons: an 824 pt continuous-corner tile
 on the 1024 pt canvas, with a top-lit black gradient, a faint bezel, and the
@@ -337,7 +337,7 @@ Swift shape directly. Each required icon size is rendered from vector paths.
 
 `make dmg-desktop` builds the app and then runs
 [`scripts/build-dmg.sh`](scripts/build-dmg.sh), which writes
-`dist/Grok-Desktop-<version>-<arch>.dmg`: the app beside an **Applications**
+`dist/Crok-Desktop-<version>-<arch>.dmg`: the app beside an **Applications**
 shortcut, laid out by Finder, with the app icon on the volume. The image is
 LZMA-compressed; set `DMG_FORMAT` to choose another `hdiutil` format, or
 `DMG_FINDER_LAYOUT=0` to skip the Finder step (for example without a login

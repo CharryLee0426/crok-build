@@ -468,6 +468,6 @@ $EDITOR ~/.crok/memory/MEMORY.md
 ### Debug Logging
 
 ```bash
-RUST_LOG=debug CROK_LOG_FILE=/tmp/grok.log crok
-grep "memory" /tmp/grok.log
+RUST_LOG=debug CROK_LOG_FILE=/tmp/crok.log crok
+grep "memory" /tmp/crok.log
 ```

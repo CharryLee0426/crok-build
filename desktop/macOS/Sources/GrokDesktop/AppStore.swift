@@ -93,6 +93,11 @@ final class AppStore: ObservableObject {
     private var cancellationFallbacks: [UUID: Task<Void, Never>] = [:]
     var cancellationRequested: Set<UUID> = []
     var importBuffers: [UUID: [Message]] = [:]
+    /// Tasks connecting in the background behind a transcript that is already on screen.
+    var warming: Set<UUID> = []
+    /// Tasks whose saved transcript is known to be out of date (after a rewind): the next load
+    /// shows its progress and takes the harness's history as it is, even when that is empty.
+    var staleTranscripts: Set<UUID> = []
     var pendingPrompts: [UUID: Message] = [:]
     private var historyClient: ACPClient?
     private var saveTask: Task<Void, Never>?
@@ -500,8 +505,15 @@ final class AppStore: ObservableObject {
             if let index = state.conversations.firstIndex(where: { $0.id == id }) {
                 // The harness owns persisted history. Keep the visible prompt that has not been sent yet.
                 pendingTranscript.removeValue(forKey: id)
-                state.conversations[index].messages = (importBuffers[id] ?? []) + (pendingPrompts[id].map { [$0] } ?? [])
-                transcriptRevisions[id, default: 0] += 1
+                let replayed = (importBuffers[id] ?? []) + (pendingPrompts[id].map { [$0] } ?? [])
+                // A replay that matches the local copy keeps it, so the transcript neither re-renders nor jumps.
+                // An empty replay of a task with a saved transcript is a harness that lost the session; keep the copy.
+                let lost = !staleTranscripts.contains(id) && (importBuffers[id] ?? []).isEmpty && !state.conversations[index].messages.isEmpty
+                staleTranscripts.remove(id)
+                if !lost, !TranscriptReducer.sameContent(state.conversations[index].messages, replayed) {
+                    state.conversations[index].messages = replayed
+                    transcriptRevisions[id, default: 0] += 1
+                }
             }
         } else {
             result = try await client.request("session/new", params: params, timeout: 120)
@@ -719,6 +731,11 @@ final class AppStore: ObservableObject {
     }
 
     func beginOperation(_ id: UUID, phase: String) -> UUID {
+        // A background connection is superseded; this operation connects on its own.
+        if warming.remove(id) != nil {
+            discardConnection(id)
+            replaying.remove(id); importing.remove(id); importBuffers.removeValue(forKey: id)
+        }
         flushTranscript(id)
         let operationID = UUID()
         operationIDs[id] = operationID
@@ -744,7 +761,7 @@ final class AppStore: ObservableObject {
         cancellationRequested.remove(id)
         runs[id]?.isRunning = false; runs[id]?.isConfiguring = false
         runs[id]?.approvals = []; runs[id]?.questions = []
-        replaying.remove(id); importing.remove(id); importBuffers.removeValue(forKey: id); pendingPrompts.removeValue(forKey: id)
+        replaying.remove(id); importing.remove(id); warming.remove(id); importBuffers.removeValue(forKey: id); pendingPrompts.removeValue(forKey: id)
         features.composer.operationDidEnd(conversationID: id)
     }
 
@@ -762,7 +779,7 @@ final class AppStore: ObservableObject {
         cancellationFallbacks.removeValue(forKey: id)?.cancel()
         cancellationRequested.remove(id)
         discardConnection(id)
-        replaying.remove(id); importing.remove(id); importBuffers.removeValue(forKey: id); pendingPrompts.removeValue(forKey: id)
+        replaying.remove(id); importing.remove(id); warming.remove(id); importBuffers.removeValue(forKey: id); pendingPrompts.removeValue(forKey: id)
         runs[id]?.isRunning = false; runs[id]?.isConfiguring = false; runs[id]?.phase = phase
         features.composer.operationDidEnd(conversationID: id)
     }
@@ -930,6 +947,8 @@ final class AppStore: ObservableObject {
 
     func loadImportedConversation() async {
         guard let task = conversation, !loaded.contains(task.id), let project, runs[task.id]?.isRunning != true else { return }
+        // A saved transcript is shown as it is; only a task with nothing to show waits for its history.
+        if !task.messages.isEmpty, !staleTranscripts.contains(task.id) { await warmConnection(task.id, project: project); return }
         banner = nil
         let operationID = beginOperation(task.id, phase: "Loading history")
         importing.insert(task.id)
@@ -944,6 +963,31 @@ final class AppStore: ObservableObject {
             runs[task.id]?.phase = error is CancellationError ? "Stopped" : "Needs attention"
             if !(error is CancellationError) { banner = error.localizedDescription }
             discardConnection(task.id)
+        }
+    }
+
+    /// Connects a task whose transcript is already on screen without holding it up: no progress
+    /// row, no Stop button, and the composer stays ready. Anything that starts an operation on the
+    /// task meanwhile, such as sending a prompt, takes over (see `beginOperation`). A failure is
+    /// silent here; the next operation connects again and reports it.
+    func warmConnection(_ id: UUID, project: Project) async {
+        // Stepping through the sidebar moves on before this wakes, and cancels it.
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        guard !Task.isCancelled, operationIDs[id] == nil, clients[id] == nil, !loaded.contains(id),
+              runs[id]?.isRunning != true, task(id)?.sessionID != nil else { return }
+        let operationID = UUID()
+        operationIDs[id] = operationID
+        warming.insert(id)
+        importing.insert(id)
+        importBuffers[id] = []
+        defer { finishOperation(id, operationID: operationID) }
+        do {
+            _ = try await connect(id: id, project: project, operationID: operationID)
+            try checkOperation(id, operationID: operationID)
+            runs[id]?.phase = "Ready"
+        } catch {
+            guard operationIDs[id] == operationID else { return }
+            discardConnection(id)
         }
     }
 

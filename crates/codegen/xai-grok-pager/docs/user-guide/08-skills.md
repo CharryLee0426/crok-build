@@ -169,7 +169,7 @@ To browse your skills, type `/` to open the slash-command menu. Crok lists every
 
 ### Qualified Names
 
-When a skill's name collides with another skill or a built-in command, Crok keeps **both** invocable. The built-in keeps the bare name (`/login`, `/compact`, …). The skill is advertised under a qualified name prefixed by its scope -- `local:`, `repo:`, `user:`, or the plugin name:
+When a skill's name collides with another skill or a built-in command, Crok keeps **both** invocable. The built-in keeps the bare name (`/compact`, `/model`, …). The skill is advertised under a qualified name prefixed by its scope -- `local:`, `repo:`, `user:`, or the plugin name:
 
 ```
 /local:commit        # The "commit" skill from ./.grok/skills/
@@ -177,7 +177,7 @@ When a skill's name collides with another skill or a built-in command, Crok keep
 /acme:login          # A plugin skill named "login" (built-in /login is unchanged)
 ```
 
-Typing `/login` in the slash menu shows both rows, with a right-aligned **built-in** or **skill · plugin-name** badge so you can tell them apart. Rename the skill (or its directory) if you want the bare `/name` for the skill instead.
+Typing `/compact` in the slash menu shows both rows, with a right-aligned **built-in** or **skill · plugin-name** badge so you can tell them apart. Rename the skill (or its directory) if you want the bare `/name` for the skill instead.
 
 `crok inspect` tags colliding skills with `[collides with /login → /acme:login]`.
 

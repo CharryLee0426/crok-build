@@ -240,6 +240,7 @@ extension AppStore {
         let projectID = task(id)?.projectID
         if conversationChanged {
             discardConnection(id)
+            staleTranscripts.insert(id)
             runs[id]?.plan = []; runs[id]?.subagents = []; runs[id]?.goal = nil
             if state.selectedConversationID == id {
                 savedPlanContent = nil; savedPlanError = nil

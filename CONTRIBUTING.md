@@ -1,11 +1,12 @@
 # Contributing
 
-This repository does **not** accept external pull requests or unsolicited
-patches.
+Crok is a personal fork of [xai-org/grok-build](https://github.com/xai-org/grok-build),
+maintained on the `charlie/dev` branch. It is not open to outside pull requests.
 
-SpaceXAI develops this software internally. The public tree is published for
-source transparency and local builds under the terms of the Apache License,
-Version 2.0 (see [`LICENSE`](LICENSE)).
+Upstream Grok Build does not accept external pull requests or unsolicited
+patches either: SpaceXAI develops it internally and publishes the tree for
+source transparency and local builds. Changes that belong upstream cannot be
+contributed through this fork.
 
 ## Security reports
 
@@ -14,6 +15,6 @@ Please report security issues through the process described in
 
 ## Licensing of this source
 
-By downloading or using this source, you agree that your use is governed by
-the Apache License, Version 2.0. No contributor license agreement is offered
-because external contributions are not accepted.
+This source, including the fork's changes, is governed by the Apache License,
+Version 2.0 (see [`LICENSE`](LICENSE)). No contributor license agreement is
+offered because external contributions are not accepted.

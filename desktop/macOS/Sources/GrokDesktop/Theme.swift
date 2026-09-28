@@ -205,7 +205,8 @@ private struct BehindWindowBlur: NSViewRepresentable {
 
 /// Frosted glass under the window's title and toolbar, so the conversation blurs as it scrolls
 /// beneath them instead of running into the title. It fades out below the toolbar, like the
-/// system's soft scroll edge. Full screen draws its own title bar, so this steps aside there.
+/// system's soft scroll edge. In full screen the system's own title bar background is cleared
+/// (see `FullScreenTitlebar`), so this same glass shows there too.
 struct TitleBarGlass: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var chrome = WindowChrome()
@@ -218,7 +219,7 @@ struct TitleBarGlass: View {
         ZStack(alignment: .top) {
             Color.clear
             let inset = chrome.titleBarHeight
-            if inset > 0 && !chrome.isFullScreen {
+            if inset > 0 {
                 let height = inset + Self.fade
                 let palette = Theme.palette
                 ZStack {
@@ -327,6 +328,13 @@ struct WindowChromeReader: NSViewRepresentable {
         private func report(fullScreen: Bool?) {
             guard let window else { return }
             let isFullScreen = fullScreen ?? window.styleMask.contains(.fullScreen)
+            if isFullScreen {
+                FullScreenTitlebar.clear()
+                // The toolbar moves into its own window during the transition; catch it once it has settled.
+                if fullScreen == true {
+                    for delay in [0.15, 0.7] { DispatchQueue.main.asyncAfter(deadline: .now() + delay) { FullScreenTitlebar.clear() } }
+                }
+            }
             let height = max(0, window.frame.height - window.contentLayoutRect.height)
             let chrome = WindowChrome(isFullScreen: isFullScreen, titleBarHeight: height)
             guard chrome != reported else { return }
@@ -335,6 +343,33 @@ struct WindowChromeReader: NSViewRepresentable {
         }
 
         deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    }
+}
+
+/// In full screen AppKit moves the title bar and toolbar into a window of their own. That window
+/// can't see the conversation beneath it, so its scroll-edge background falls back to an opaque
+/// bar in a different colour from the window. Clearing it lets the window's own glass
+/// (`GlassBackdrop` and `TitleBarGlass`) show through, as it does outside full screen.
+@MainActor
+enum FullScreenTitlebar {
+    /// The title bar's backgrounds, by class name: an opaque fill with the scroll-edge pocket, the
+    /// separator, and the sidebar's piece of glass inside. They are private classes, so a macOS
+    /// that renames them just keeps its own bar.
+    private static let backgrounds: Set<String> = ["NSTitlebarBackgroundView"]
+
+    static func clear() {
+        for window in NSApp.windows where String(describing: type(of: window)) == "NSToolbarFullScreenWindow" {
+            window.backgroundColor = .clear
+            if let frame = window.contentView?.superview { clear(frame) }
+        }
+    }
+
+    private static func clear(_ view: NSView) {
+        if backgrounds.contains(String(describing: type(of: view))) {
+            if view.alphaValue != 0 { view.alphaValue = 0 }
+            return
+        }
+        for subview in view.subviews { clear(subview) }
     }
 }
 

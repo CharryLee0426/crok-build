@@ -40,6 +40,8 @@ struct ReadOnlyTextView: NSViewRepresentable {
     var sizing: Sizing = .fitContent(maxHeight: 320)
     /// Keep the newest text in view as it streams, until the reader scrolls away from the end.
     var followsTail = false
+    /// A capped view scrolls internally; this hides its scroller, as for a glimpse of streaming text.
+    var showsScroller = true
     /// Bumped when the content resizes without new text (an image loaded), so SwiftUI measures again.
     @State private var sizeRevision = 0
 
@@ -70,7 +72,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
         let scroll = PassthroughScrollView()
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
-        scroll.hasVerticalScroller = !sizing.isUncapped
+        scroll.hasVerticalScroller = showsScroller && !sizing.isUncapped
         scroll.autohidesScrollers = true
         scroll.documentView = textView
         context.coordinator.attach(scroll: scroll, textView: textView)

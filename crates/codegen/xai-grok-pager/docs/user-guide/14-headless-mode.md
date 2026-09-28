@@ -445,7 +445,7 @@ import asyncio
 import json
 import os
 
-class GrokChat:
+class CrokChat:
     """Simple OpenAI-compatible wrapper using headless mode."""
 
     def __init__(self, cwd="."):
@@ -453,7 +453,7 @@ class GrokChat:
         self.env = {**os.environ}
 
     def _build_cmd(self, prompt, model, stream):
-        return ["grok", "-p", prompt, "-m", model, "--cwd", self.cwd,
+        return ["crok", "-p", prompt, "-m", model, "--cwd", self.cwd,
                 "--output-format", "streaming-json" if stream else "json",
                 "--yolo"]
 
@@ -493,7 +493,7 @@ class GrokChat:
 
 
 async def main():
-    client = GrokChat(cwd=".")
+    client = CrokChat(cwd=".")
     response = await client.create(
         [{"role": "user", "content": "What files are here?"}]
     )
@@ -542,16 +542,17 @@ Key environment variables that affect headless mode:
 
 | Variable                        | Description                                                   |
 | ------------------------------- | ------------------------------------------------------------- |
-| `XAI_API_KEY`        | API key for authentication (required when no browser login)   |
+| `OPENROUTER_API_KEY`            | OpenRouter API key (the simplest credential for CI)           |
+| `XAI_API_KEY`                   | Plain xAI API key for models served by xAI's own API (optional) |
 | `CROK_HOME`                    | Override config directory (default: `~/.crok`)                |
 | `CROK_LOG_FILE`                | Path to a log file (used verbatim as the path; works in headless and TUI, honors `RUST_LOG`) |
 | `RUST_LOG`                     | Log level filter (e.g. `debug`). Headless logs to stderr.     |
 
-For CI environments without browser access, set `XAI_API_KEY` with an API key from [console.x.ai](https://console.x.ai):
+For CI environments without browser access, set `OPENROUTER_API_KEY`:
 
 ```bash
-export XAI_API_KEY="xai-..."
-crok -p "Run the test suite" --yolo
+export OPENROUTER_API_KEY="sk-or-..."
+crok -p "Run the test suite" --yolo -m openrouter/x-ai/grok-4
 ```
 
 ---
@@ -571,12 +572,11 @@ crok -p "Run the test suite" --yolo
 
 For headless use, authenticate with one of:
 
-- **`XAI_API_KEY`**: simplest for CI. See [Environment Variables](#environment-variables-for-headless) above.
-- **`crok login --device-auth`** (or `--device-code`): no browser needed on the target machine.
-  See [Authentication > Device Code Flow](02-authentication.md#device-code-flow).
-- **`crok login`**: browser-based OAuth2 on machines with a GUI.
+- **`OPENROUTER_API_KEY`**: simplest for CI. See [Environment Variables](#environment-variables-for-headless) above.
+- **`crok login openrouter --with-api-key`**: saves a key read from stdin, with no browser.
+- **`crok login openai-codex`**: browser sign-in to a ChatGPT subscription. Run it on a machine with a browser and copy `~/.crok/provider-auth/` to the target if needed.
 
-If you've previously logged in, cached credentials are used automatically.
+Saved provider credentials are used automatically. See [Authentication](02-authentication.md#headless-and-ci).
 
 ---
 
@@ -608,8 +608,7 @@ Crok stores data in `~/.crok` (override with `CROK_HOME`; see [Environment Varia
 | Path                     | Contents                              |
 | ------------------------ | ------------------------------------- |
 | `config.toml`            | User configuration                    |
-| `auth.json`              | Cached OAuth2/API credentials         |
-| `version.json`           | Version cache for update checks       |
+| `provider-auth/`         | Saved OpenRouter and Codex credentials |
 | `sessions/`              | Session transcripts (SQLite)          |
 | `memory/`                | Cross-session memory store            |
 | `logs/`                  | Internal log files (for example `unified.jsonl`) |
@@ -624,12 +623,11 @@ Crok stores data in `~/.crok` (override with `CROK_HOME`; see [Environment Varia
 
 For containers or CI, mount `~/.crok` read-only:
 
-- Pre-populate `auth.json` or use `XAI_API_KEY`
+- Pre-populate `provider-auth/` or use `OPENROUTER_API_KEY`
 - Session persistence fails silently (ephemeral)
-- Update checks log a warning and skip
 
 ```bash
-export XAI_API_KEY="xai-..."
+export OPENROUTER_API_KEY="sk-or-..."
 export CROK_DISABLE_AUTOUPDATER=1
 crok -p "..." --no-auto-update
 ```
@@ -637,6 +635,8 @@ crok -p "..." --no-auto-update
 ---
 
 ## Update Check Suppression
+
+Crok built from this fork never checks for updates or updates itself, so the settings below change nothing for it. They are kept for compatibility with scripts written for grok.
 
 | Method                          | Scope     |
 | ------------------------------- | --------- |

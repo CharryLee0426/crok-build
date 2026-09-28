@@ -16,11 +16,10 @@ These knobs are independent of each other (and of this guide's external OTEL str
 | Setting | How to set it |
 |---------|---------------|
 | Telemetry master switch | `[features] telemetry` / `CROK_TELEMETRY_ENABLED` |
-| Coding data, retention, and training | Settings — `/privacy` opens the row |
 | Trace upload | `[telemetry] trace_upload` / `CROK_TELEMETRY_TRACE_UPLOAD` |
 | External OpenTelemetry | `CROK_EXTERNAL_OTEL` / `[telemetry] otel_*` (this guide) |
 
-See also [Authentication](02-authentication.md#related-settings) and
+See also [Authentication](02-authentication.md) and
 [Configuration](05-configuration.md#telemetry).
 
 ## External OTEL stream
@@ -41,7 +40,7 @@ The external stream is:
 
 ### ZDR and this stream
 
-`/privacy` and Zero Data Retention do **not** disable this stream. ZDR turns
+Zero Data Retention does **not** disable this stream. ZDR turns
 off SpaceXAI-side retention (product analytics, session-trace upload,
 coding-data sharing). It does not mute `CROK_EXTERNAL_OTEL`.
 

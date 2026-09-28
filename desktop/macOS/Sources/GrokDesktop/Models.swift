@@ -231,6 +231,17 @@ enum DesktopPaths {
 }
 
 enum TranscriptReducer {
+    /// Whether two transcripts show the same thing, ignoring message ids and times, which a replay
+    /// assigns afresh. Lengths are compared first, so a differing transcript rarely reads its text.
+    static func sameContent(_ lhs: [Message], _ rhs: [Message]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy { a, b in
+            a.kind == b.kind && a.status == b.status && a.toolID == b.toolID
+                && a.text.utf8.count == b.text.utf8.count && (a.detail?.utf8.count ?? -1) == (b.detail?.utf8.count ?? -1)
+                && a.attachments?.count == b.attachments?.count
+        } && zip(lhs, rhs).allSatisfy { a, b in a.text == b.text && a.detail == b.detail }
+    }
+
     static func text(from block: [String: Any]) -> String {
         if let text = block["text"] as? String { return text }
         if let resource = block["resource"] as? [String: Any] {
