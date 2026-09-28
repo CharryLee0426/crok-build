@@ -194,6 +194,11 @@ final class ACPClient {
             let handle = connection.output.fileHandleForReading
             defer { try? handle.close() }
             var buffer = Data()
+            // Reading outpaces the main thread when the harness sends a backlog (a long task's
+            // history, a burst of rounds). Queued without limit, the main queue then drains
+            // every batch in one pass and the window stops answering for seconds. A few batches
+            // in flight keep it answering between them, and a full pipe slows the harness.
+            let inFlight = DispatchSemaphore(value: 4)
             do {
                 while let chunk = try Self.readChunk(from: handle, limit: 64 * 1024) {
                     buffer.append(chunk)
@@ -203,7 +208,9 @@ final class ACPClient {
                     var messages: [[String: Any]] = []
                     defer {
                         if !messages.isEmpty {
+                            inFlight.wait()
                             DispatchQueue.main.async { [weak self, messages] in
+                                defer { inFlight.signal() }
                                 for message in messages { self?.receive(message, connectionID: connection.id) }
                             }
                         }

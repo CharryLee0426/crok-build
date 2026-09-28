@@ -196,6 +196,10 @@ one selectable text, so a selection can run across paragraphs, tables, and code.
 renders in a scrolling text view that follows the stream, so long reasoning stays
 responsive. `/timestamps`, `/timeline`, `/find` (⌘F), `/jump`, and `/vim-mode`
 add timestamps, a turn rail, search, a turn picker, and keyboard navigation.
+A task that has run for hours shows its newest 240 messages; **Show earlier
+messages** at the top loads more, and find, `/jump`, the timeline, and vim keys
+bring back whatever they point at. Streaming costs the same at round 3,000 as at
+round 1.
 
 ### Sidebar
 
@@ -212,6 +216,15 @@ not come back through `/resume`; archive a task to hide it instead. Active tasks
 must be stopped first. The sync button beside **Projects** imports saved harness
 sessions for every project; each folder's menu imports its own. Selecting an
 imported task loads its transcript and lets you continue it.
+
+Drag a folder by its header, a task within its folder, or a pinned task to put
+them in your own order: the row lifts and follows the pointer, the rows it passes
+slide aside, and it settles where you let go (letting go well away from the list
+puts it back). The order is saved. New tasks appear at the top of a folder you
+have ordered, and **Sort Tasks by Recent Activity** in the folder's menu (or
+**Sort by Recent Activity** on the Pinned header) returns to newest first.
+Recents, Archived, and search results always follow activity. VoiceOver offers
+Move Up and Move Down on each row instead of dragging.
 
 Available model choices load before the first message and when reopening a task;
 the model picker searches both names and provider IDs. The composer displays the
@@ -259,9 +272,14 @@ picker, jump, and vim-style transcript keys, is in the Keyboard Shortcuts sheet.
 
 ## Local data and current scope
 
-Projects, conversation transcripts, session IDs, pins, and archive state are
-saved locally in `~/Library/Application Support/Crok Desktop/state.json`, with
-owner-only file permissions. Appearance is stored in macOS preferences; the harness is selected at build time. The harness separately retains its own session history and sends
+Projects, session IDs, pins, sidebar order, and archive state are saved locally
+in `~/Library/Application Support/Crok Desktop/state.json`, and each task's
+transcript beside it in `state-transcripts/<task>.jsonl` (one message per line,
+rewritten from the first changed message, so saving a long task costs only what
+changed), all with owner-only file permissions. A `state.json` from an earlier
+version, which kept transcripts inside it, still loads and moves them out on the
+next save; an earlier version reading the new file reloads each task's history
+from the harness. Appearance is stored in macOS preferences; the harness is selected at build time. The harness separately retains its own session history and sends
 prompts to the configured model provider as usual.
 
 Quitting stops active desktop connections and saves conversations. Reopening a
@@ -305,6 +323,16 @@ packaging script. It clearly labels its output as an offline fixture. Prompts co
 `fixture:plan`, `fixture:trust`, or `fixture:wait` exercise the interactive flows; replies name any attachments they
 received, and side questions get fixture answers.
 Rebuild with the real harness afterward.
+
+Long tasks have their own checks. `swift test -c release --filter LongTask`
+prints the reducer, save, and launch costs of a 3,000-round task, and
+`desktop/macOS/scripts/perf/run-perf.sh <GrokDesktop executable> <out-dir>`
+measures a running build from outside: `fixture:long:N:M` streams N rounds as
+fast as the app reads them and M more at a model's pace, and an accessibility
+probe records how long the main thread takes to answer every 50 ms, alongside
+CPU and memory. It also times launching with, and switching to, a saved
+3,000-round task (`ROUNDS` and `PACED` change the sizes). The probe needs
+Accessibility permission for the terminal.
 
 For isolated development runs, `CROK_DESKTOP_STATE_FILE` selects an absolute path
 for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable, and

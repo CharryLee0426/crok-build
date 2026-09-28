@@ -7,8 +7,9 @@ import Foundation
 /// on each save (every few seconds while output streams) took longer as the task grew and
 /// left hundreds of megabytes of freed buffers behind. Now `state.json` holds tasks without
 /// their messages, and a save rewrites a transcript file from its first changed message on:
-/// usually only the few messages still streaming. A transcript whose array is the one last
-/// written is skipped without reading it, since arrays share storage until changed.
+/// usually only the few messages still streaming. What was written is remembered as a small
+/// signature per message rather than the messages themselves: holding the transcript would
+/// make the next streamed update copy all of it.
 ///
 /// A state file that still holds messages (written by an earlier version) is read as before;
 /// its transcripts move to files on the next save. An earlier version reading the new state
@@ -18,13 +19,44 @@ import Foundation
 final class TranscriptArchive: @unchecked Sendable {
     let directory: URL
     private let lock = NSLock()
-    /// What each file holds: the messages last written and where each one's line starts.
+    /// What each file holds: a signature of each message written and where its line starts.
     private var written: [UUID: Written] = [:]
 
     private struct Written {
-        var messages: [Message]
+        var signatures: [Signature]
         /// The byte offset of each message's line, then the end of the file.
         var offsets: [UInt64]
+    }
+
+    /// Enough of a message to tell whether it changed since it was written. Streamed text only
+    /// grows, so a length and a hash of its end settle it; a tool call's title is short and
+    /// hashed whole, since an update can retitle it without changing its length.
+    struct Signature: Equatable {
+        var id: UUID
+        var kind: Message.Kind
+        var status: String?
+        var toolID: String?
+        var createdAt: Date?
+        var text: Int
+        var textHash: Int
+        var detail: Int
+        var detailHash: Int
+        var attachments: [UUID]?
+
+        init(_ message: Message) {
+            id = message.id; kind = message.kind; status = message.status; toolID = message.toolID; createdAt = message.createdAt
+            text = message.text.utf8.count
+            textHash = Self.hash(message.text, whole: message.kind == .tool)
+            detail = message.detail?.utf8.count ?? -1
+            detailHash = message.detail.map { Self.hash($0, whole: false) } ?? 0
+            attachments = message.attachments?.map(\.id)
+        }
+
+        private static func hash(_ text: String, whole: Bool) -> Int {
+            var hasher = Hasher()
+            if whole, text.utf8.count <= 512 { hasher.combine(text) } else { for byte in text.utf8.suffix(64) { hasher.combine(byte) } }
+            return hasher.finalize()
+        }
     }
 
     /// `state.json` keeps its transcripts in `state-transcripts/`.
@@ -59,7 +91,7 @@ final class TranscriptArchive: @unchecked Sendable {
         for (slot, (index, id)) in wanted.enumerated() {
             guard let result = results[slot] else { continue }
             conversations[index].messages = result.messages
-            written[id] = Written(messages: result.messages, offsets: result.offsets)
+            written[id] = Written(signatures: result.messages.map(Signature.init), offsets: result.offsets)
         }
     }
 
@@ -119,46 +151,41 @@ final class TranscriptArchive: @unchecked Sendable {
     }
 
     private func write(_ id: UUID, _ messages: [Message]) throws {
-        let old = written[id]
-        if let old, Self.sameStorage(old.messages, messages) { return }
-        if old == nil, messages.isEmpty { return }
+        // Taken out of the dictionary so the arrays below change in place.
+        guard var entry = written.removeValue(forKey: id) ?? (messages.isEmpty ? nil : Written(signatures: [], offsets: [])) else { return }
         let url = file(for: id)
-        let encoder = JSONEncoder()
         // Everything before the first changed message is on disk already.
         var first = 0
-        if let old, old.offsets.last != UInt64.max, FileManager.default.fileExists(atPath: url.path) {
-            let limit = min(old.messages.count, messages.count)
-            while first < limit, Self.same(old.messages[first], messages[first]) { first += 1 }
-            if first == messages.count, first == old.messages.count { written[id]?.messages = messages; return }
+        if entry.offsets.last != UInt64.max, FileManager.default.fileExists(atPath: url.path) {
+            let limit = min(entry.signatures.count, messages.count)
+            while first < limit, entry.signatures[first] == Signature(messages[first]) { first += 1 }
+            if first == messages.count, first == entry.signatures.count { written[id] = entry; return }
         }
-        var offsets = first == 0 ? [] : Array(old!.offsets.prefix(first))
-        var position = first == 0 ? 0 : old!.offsets[first]
+        let start = first == 0 ? 0 : entry.offsets[first]
+        entry.signatures.removeSubrange(first...)
+        entry.offsets.removeSubrange(first...)
+        let encoder = JSONEncoder()
+        var position = start
         var tail = Data()
         for message in messages[first...] {
             let line = try encoder.encode(message)
-            offsets.append(position)
+            entry.offsets.append(position)
+            entry.signatures.append(Signature(message))
             tail.append(line); tail.append(0x0A)
             position += UInt64(line.count + 1)
         }
-        offsets.append(position)
+        entry.offsets.append(position)
         if first == 0 {
             try tail.write(to: url, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } else {
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
-            try handle.truncate(atOffset: old!.offsets[first])
+            try handle.truncate(atOffset: start)
             try handle.seekToEnd()
             try handle.write(contentsOf: tail)
         }
-        written[id] = Written(messages: messages, offsets: offsets)
-    }
-
-    /// Whether two arrays are the same storage: a transcript nothing has touched since it was written.
-    static func sameStorage(_ lhs: [Message], _ rhs: [Message]) -> Bool {
-        guard lhs.count == rhs.count else { return false }
-        if lhs.isEmpty { return true }
-        return lhs.withUnsafeBufferPointer { a in rhs.withUnsafeBufferPointer { b in a.baseAddress == b.baseAddress } }
+        written[id] = entry
     }
 
     /// Whether a message is unchanged. Strings that share storage compare without reading them.
