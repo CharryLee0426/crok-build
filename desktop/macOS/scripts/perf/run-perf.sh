@@ -6,7 +6,8 @@
 # Scenarios (all by default):
 #   stream   one `fixture:long:$ROUNDS:$PACED` turn: $ROUNDS rounds as fast as the app reads
 #            them (the burst), then $PACED rounds at a model's pace on top of that history
-#            (the steady state of a task that has been running for hours)
+#            (the steady state of a task that has been running for hours); STREAM_TIMEOUT
+#            (half-seconds, default 1200) bounds the wait for it to finish
 #   launch   launch with a saved $ROUNDS-round task selected
 #   switch   switch between the long task and a short one, then scroll the long one
 #
@@ -63,7 +64,7 @@ for scenario in $SCENARIOS; do
         sleep 4
         mark send
         "$PROBE" send "$APP_PID" "fixture:long:$ROUNDS:$PACED Run the whole suite, fix what fails, repeat." >/dev/null
-        for _ in $(seq 1 7200); do [ -f "$dir/done" ] && break; sleep 0.5; done
+        for _ in $(seq 1 "${STREAM_TIMEOUT:-1200}"); do [ -f "$dir/done" ] && break; sleep 0.5; done
         echo "fill,$(cat "$dir/done.fill")" >>"$OUT/marks-$LABEL.csv"
         mark done
         sleep 8   # the tail: batched updates, the final save
