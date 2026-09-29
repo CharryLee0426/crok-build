@@ -151,8 +151,10 @@ final class MarkdownTextTable: NSTextTable {
 }
 
 /// An image paragraph: the image at its own size, within 560 × 420 pt and the line's width.
-/// A click opens it.
+/// A click opens it in the image viewer, or the default app when there is none.
 final class MarkdownImageCell: NSTextAttachmentCell {
+    /// Shows a reply's image; the store sets it to open its viewer.
+    @MainActor static var open: ((URL, NSImage) -> Void)?
     private let url: URL?
 
     init(image: NSImage, url: URL) {
@@ -185,7 +187,10 @@ final class MarkdownImageCell: NSTextAttachmentCell {
     override func wantsToTrackMouse() -> Bool { url != nil }
 
     override func trackMouse(with theEvent: NSEvent, in cellFrame: NSRect, of controlView: NSView?, atCharacterIndex charIndex: Int, untilMouseUp flag: Bool) -> Bool {
-        if let url { NSWorkspace.shared.open(url) }
+        guard let url else { return true }
+        MainActor.assumeIsolated {
+            if let open = Self.open, let image { open(url, image) } else if url.scheme != "data" { NSWorkspace.shared.open(url) }
+        }
         return true
     }
 }
@@ -218,6 +223,8 @@ final class MarkdownImageCache {
         let image: NSImage?
         if url.isFileURL {
             image = await Task.detached(priority: .utility) { NSImage(contentsOf: url) }.value
+        } else if let data = decodeDataURL(url) {
+            image = await Task.detached(priority: .utility) { NSImage(data: data) }.value
         } else if ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   let (data, response) = try? await URLSession.shared.data(from: url),
                   (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true {
@@ -226,6 +233,16 @@ final class MarkdownImageCache {
             image = nil
         }
         return image?.isValid == true ? image : nil
+    }
+
+    /// The bytes of a base64 `data:image/…` URL, which a reply (or a tool) can inline.
+    nonisolated static func decodeDataURL(_ url: URL) -> Data? {
+        guard url.scheme?.lowercased() == "data" else { return nil }
+        let text = url.absoluteString
+        guard let comma = text.firstIndex(of: ","), text[..<comma].lowercased().hasSuffix(";base64"),
+              text[..<comma].lowercased().hasPrefix("data:image/") else { return nil }
+        let payload = String(text[text.index(after: comma)...]).removingPercentEncoding ?? String(text[text.index(after: comma)...])
+        return Data(base64Encoded: payload, options: .ignoreUnknownCharacters)
     }
 }
 

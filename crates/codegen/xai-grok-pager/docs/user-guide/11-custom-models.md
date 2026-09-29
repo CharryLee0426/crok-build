@@ -43,7 +43,7 @@ Implementation references: [OpenRouter OAuth PKCE](https://openrouter.ai/docs/gu
 
 ## Default Models
 
-By default, Crok uses models hosted by SpaceXAI, and new sessions start with `grok-4.5`. Default models require no configuration. Authenticate with `crok login` or an API key, then start a session.
+Crok's models come from the provider you sign in to: `crok login openai-codex` adds the Codex subscription models (`openai-codex/...`), and `crok login openrouter` or `OPENROUTER_API_KEY` adds the OpenRouter catalog (`openrouter/...`, including Grok models under `openrouter/x-ai/...`). Models hosted by SpaceXAI's own API, such as `grok-4.5`, are hidden unless `XAI_API_KEY` is set. Set `[models] default` to choose the model new sessions start with.
 
 List all available models:
 
@@ -149,7 +149,7 @@ Crok resolves the API key in this order:
 
 1. The `api_key` field in the model config
 2. The environment variable(s) named by `env_key` — a single string or an array of names. The first set, non-empty value wins (for example `env_key = ["ANTHROPIC_AUTH_TOKEN", "LC_ANTHROPIC_AUTH_TOKEN"]` for SSH `LC_*` forwarding)
-3. Your signed-in session token (from `crok login`), for a model with no `api_key`/`env_key` of its own
+3. The signed-in provider credential (from `crok login openrouter` or `crok login openai-codex`), for a provider model with no `api_key`/`env_key` of its own
 4. The `XAI_API_KEY` environment variable (global fallback; Crok also accepts `CROK_CODE_XAI_API_KEY` for backward compatibility)
 
 ### Context Window
@@ -506,8 +506,8 @@ curl -s https://api.example.com/v1/models \
 ### Debug Logging
 
 ```bash
-RUST_LOG=debug CROK_LOG_FILE=/tmp/grok.log crok
-tail -f /tmp/grok.log
+RUST_LOG=debug CROK_LOG_FILE=/tmp/crok.log crok
+tail -f /tmp/crok.log
 ```
 
 Look for log entries containing `model` or `sampling` to trace model selection and API calls.

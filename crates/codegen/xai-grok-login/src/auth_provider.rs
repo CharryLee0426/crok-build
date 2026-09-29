@@ -244,9 +244,13 @@ where
 
 /// Remove every first-party credential from the helper's environment.
 /// BYOK isolates these keys on the wire, so the helper (the agent puts them in its own env at startup) must not inherit them.
+/// crok also accepts each `GROK_X` as `CROK_X` and leaves that spelling in its env, so scrub it too.
 fn scrub_first_party_credentials(cmd: &mut tokio::process::Command) {
     for var in xai_grok_env::FIRST_PARTY_CREDENTIAL_ENV_VARS {
         cmd.env_remove(var);
+        if let Some(name) = var.strip_prefix("GROK_") {
+            cmd.env_remove(format!("CROK_{name}"));
+        }
     }
 }
 

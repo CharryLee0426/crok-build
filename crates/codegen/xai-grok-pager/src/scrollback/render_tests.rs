@@ -3748,3 +3748,91 @@ fn dim_from_entry_stays_visible_on_terminal_theme() {
     );
     assert!(!cell.modifier.contains(Modifier::DIM));
 }
+
+fn prompt_with_image(dir: &std::path::Path) -> ScrollbackEntry {
+    let image_path = dir.join("attached.png");
+    std::fs::write(&image_path, make_test_png(400, 300)).unwrap();
+    let mut block = crate::scrollback::blocks::UserPromptBlock::new("what is this?");
+    block
+        .images
+        .push(crate::prompt_images::ScrollbackImageRef::from_path(&image_path).unwrap());
+    ScrollbackEntry::new(RenderBlock::UserPrompt(block))
+}
+
+/// Prompt images draw under the prompt text, left-aligned past the `❯ ` prefix, into rows the block reserves itself.
+#[test]
+fn prompt_images_draw_under_the_prompt_text() {
+    use crate::terminal::image::{GraphicsProtocol, set_protocol_for_test};
+
+    let _guard = set_protocol_for_test(GraphicsProtocol::Kitty);
+    let dir = tempfile::tempdir().unwrap();
+    let entry = prompt_with_image(dir.path());
+    let viewport = Rect::new(0, 0, 100, 40);
+    let (result, buf) =
+        render_with_scratch_and_buffer(std::slice::from_ref(&entry), viewport, 0, None);
+
+    assert_eq!(result.inline_media.len(), 1);
+    let media = &result.inline_media[0];
+    assert!(!media.has_button_row, "gallery images carry no button row");
+    assert!(media.filepath_screen_rect.is_none());
+    assert!(
+        media.screen_rect.width <= 60,
+        "capped like pi: {:?}",
+        media.screen_rect
+    );
+    assert!(media.screen_rect.height >= 4, "{:?}", media.screen_rect);
+
+    // The image starts below the text row and its spacer, and the rows it covers are blank
+    let text_row = (0..viewport.height)
+        .find(|&y| {
+            (0..viewport.width)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect::<String>()
+                .contains("what is this?")
+        })
+        .expect("prompt text rendered");
+    assert_eq!(media.screen_rect.y, text_row + 2);
+    let prompt_col = (0..viewport.width)
+        .find(|&x| buf[(x, text_row)].symbol() == "w")
+        .unwrap();
+    assert_eq!(
+        media.screen_rect.x, prompt_col,
+        "aligned with the prompt text"
+    );
+    for y in media.screen_rect.y..media.screen_rect.y + media.screen_rect.height {
+        for x in media.screen_rect.x..media.screen_rect.x + media.screen_rect.width {
+            assert_eq!(
+                buf[(x, y)].symbol(),
+                " ",
+                "image rows stay blank at ({x},{y})"
+            );
+        }
+    }
+}
+
+/// Without scrollback graphics, each image is pi's one-line placeholder.
+#[test]
+fn prompt_images_fall_back_to_a_text_line() {
+    use crate::terminal::image::{GraphicsProtocol, set_protocol_for_test};
+
+    let _guard = set_protocol_for_test(GraphicsProtocol::None);
+    let dir = tempfile::tempdir().unwrap();
+    let entry = prompt_with_image(dir.path());
+    let viewport = Rect::new(0, 0, 160, 10);
+    let (result, buf) =
+        render_with_scratch_and_buffer(std::slice::from_ref(&entry), viewport, 0, None);
+
+    assert!(result.inline_media.is_empty());
+    let text: String = (0..viewport.height)
+        .map(|y| {
+            (0..viewport.width)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        text.contains("[Image: ") && text.contains("attached.png [image/png] 400\u{d7}300]"),
+        "{text}"
+    );
+}

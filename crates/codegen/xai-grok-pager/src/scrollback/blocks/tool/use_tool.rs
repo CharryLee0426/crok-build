@@ -7,6 +7,7 @@ use xai_grok_workspace::permission::{MCP_TOOL_NAME_DELIMITER, mcp_titleize_segme
 use crate::appearance::AppearanceConfig;
 use crate::render::line_utils::truncate_str;
 use crate::scrollback::block::BlockContent;
+use crate::scrollback::blocks::image_gallery;
 use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode,
 };
@@ -30,6 +31,8 @@ pub struct UseToolCallBlock {
     pub started_at: Option<std::time::Instant>,
     /// Elapsed time in ms after completion.
     pub elapsed_ms: Option<i64>,
+    /// Images the tool returned, shown under the header whether or not the call is expanded.
+    pub images: Vec<crate::prompt_images::ScrollbackImageRef>,
 }
 
 impl UseToolCallBlock {
@@ -41,6 +44,7 @@ impl UseToolCallBlock {
             error: None,
             started_at: None,
             elapsed_ms: None,
+            images: Vec::new(),
         }
     }
 
@@ -147,7 +151,7 @@ impl BlockContent for UseToolCallBlock {
         let muted_collapsed =
             ctx.mute_when_collapsed(ctx.appearance.scrollback.blocks.tool.muted_collapsed);
 
-        match ctx.mode {
+        let mut output = match ctx.mode {
             DisplayMode::Collapsed => BlockOutput {
                 lines: vec![
                     self.header_line(&theme, muted_collapsed, Some(ctx.content_width()))
@@ -227,7 +231,25 @@ impl BlockContent for UseToolCallBlock {
 
                 BlockOutput { lines }
             }
-        }
+        };
+        output.lines.extend(image_gallery::gallery_lines(
+            &self.images,
+            ctx.width,
+            self.gallery_spec(ctx),
+        ));
+        output
+    }
+
+    fn inline_gallery(&self) -> &[crate::prompt_images::ScrollbackImageRef] {
+        &self.images
+    }
+
+    fn gallery_spec(&self, ctx: &BlockContext) -> image_gallery::GallerySpec {
+        image_gallery::GallerySpec::tool(ctx.bullet_indent() as u16)
+    }
+
+    fn estimate_extra_rows(&self) -> u16 {
+        image_gallery::estimate_rows(&self.images, image_gallery::GallerySpec::tool(0))
     }
 
     fn accent(&self, ctx: &BlockContext) -> Option<AccentStyle> {

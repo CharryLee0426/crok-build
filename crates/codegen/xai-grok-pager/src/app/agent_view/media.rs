@@ -82,21 +82,119 @@ impl AgentView {
 
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => {
-                // Clear the Kitty image before closing.
-                // Old code bypassed STDERR_OUTPUT_LOCK which could interleave mid-frame
-                xai_grok_shell::util::with_locked_stderr(|stderr| {
-                    let clear = PostFlush::from(overlay::clear_kitty());
-                    let _ = clear.write_to(stderr);
-                });
+                Self::clear_viewer_image();
                 self.image_viewer = None;
                 self.image_load_rx = None;
                 // The viewer's decoded/re-encoded overlay image (tens of MB for screenshots/renders) just dropped
                 // This is the input path, so a synchronous purge lands between interactions
                 crate::memory_release::release_retained_memory("image-viewer-close");
             }
+            KeyCode::Left | KeyCode::Char('h') | KeyCode::Up | KeyCode::Char('k') => {
+                self.step_image_viewer(-1)
+            }
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Down | KeyCode::Char('j') => {
+                self.step_image_viewer(1)
+            }
+            KeyCode::Char('o') => {
+                if let Some(path) = self.image_viewer_path() {
+                    self.open_media_natively(&path);
+                }
+            }
+            KeyCode::Char('c') => {
+                if let Some(path) = self.image_viewer_path() {
+                    std::thread::spawn(move || {
+                        if let Err(e) = xai_grok_shell::util::clipboard::set_image_file(&path) {
+                            tracing::debug!("copy image failed: {e}");
+                        }
+                    });
+                    self.show_toast("Copied image");
+                }
+            }
             _ => {}
         }
         InputOutcome::Changed
+    }
+
+    /// Remove the viewer's Kitty image now, outside a frame, so a closed or replaced image never lingers.
+    /// Goes through STDERR_OUTPUT_LOCK so it can't interleave mid-frame.
+    fn clear_viewer_image() {
+        xai_grok_shell::util::with_locked_stderr(|stderr| {
+            let clear = PostFlush::from(overlay::clear_kitty());
+            let _ = clear.write_to(stderr);
+        });
+    }
+
+    /// The file the image viewer is showing, when it came from the scrollback.
+    fn image_viewer_path(&self) -> Option<std::path::PathBuf> {
+        let viewer = self.image_viewer.as_ref()?;
+        viewer.gallery.get(viewer.gallery_index).cloned()
+    }
+
+    /// Show the previous (`-1`) or next (`1`) image of the conversation, wrapping at the ends.
+    fn step_image_viewer(&mut self, delta: isize) {
+        let Some(viewer) = self.image_viewer.as_ref() else {
+            return;
+        };
+        let count = viewer.gallery.len();
+        if count < 2 {
+            return;
+        }
+        let index = (viewer.gallery_index as isize + delta).rem_euclid(count as isize) as usize;
+        let gallery = viewer.gallery.clone();
+        Self::clear_viewer_image();
+        self.show_scrollback_image(gallery, index);
+    }
+
+    /// Every image the conversation shows, in transcript order: prompt attachments, tool results, generated images, and
+    /// images replies link. A file shown twice is listed once.
+    pub(crate) fn scrollback_image_paths(&self) -> Vec<std::path::PathBuf> {
+        use crate::scrollback::block::BlockContent as _;
+        let mut seen = std::collections::HashSet::new();
+        let mut paths = Vec::new();
+        for (_, entry) in self.scrollback.iter_entries() {
+            let gallery = entry.block.inline_gallery().iter().map(|r| r.path.clone());
+            let media = entry
+                .block
+                .inline_media()
+                .filter(|m| !m.is_video)
+                .map(|m| m.path);
+            for path in gallery.chain(media) {
+                if seen.insert(path.clone()) {
+                    paths.push(path);
+                }
+            }
+        }
+        paths
+    }
+
+    /// Open a scrollback image in the full-screen viewer, where ←/→ step through the conversation's other images.
+    /// Terminals that can't draw images open it in the OS viewer instead.
+    pub(crate) fn open_scrollback_image(&mut self, path: &std::path::Path) {
+        if !crate::terminal::image::detect_graphics_protocol().supports_images() {
+            self.open_media_natively(path);
+            return;
+        }
+        let mut gallery = self.scrollback_image_paths();
+        let index = match gallery.iter().position(|p| p == path) {
+            Some(index) => index,
+            None => {
+                gallery.push(path.to_path_buf());
+                gallery.len() - 1
+            }
+        };
+        self.show_scrollback_image(gallery, index);
+    }
+
+    fn show_scrollback_image(&mut self, gallery: Vec<std::path::PathBuf>, index: usize) {
+        let Some(path) = gallery.get(index) else {
+            return;
+        };
+        let mut viewer = crate::prompt_images::ImageViewerState::open_from_path_deferred(path);
+        viewer.gallery = gallery;
+        viewer.gallery_index = index;
+        self.image_viewer = Some(viewer);
+        // A load still running for the previous image must not land in this one
+        self.image_load_rx = None;
     }
 
     // -- Inline media rendering -----------------------------------------------
@@ -367,6 +465,17 @@ impl AgentView {
         (!clear_esc.is_empty()).then_some(clear_esc)
     }
 
+    /// Forget which Kitty images the terminal holds, so the next frame re-transmits them instead of placing ids that no longer exist.
+    /// Call after a full screen clear: Ghostty drops image data on `ESC[2J`, and a place-only frame with `q=2` then fails silently and draws nothing.
+    pub(crate) fn forget_transmitted_inline_media(&mut self) {
+        self.inline_media_ids.clear();
+        self.inline_media_iterm_emitted.clear();
+        self.last_placed_ids.clear();
+        for child in self.subagent_views.values_mut() {
+            child.forget_transmitted_inline_media();
+        }
+    }
+
     /// Stop inline video playback, dropping the pre-extracted frame set (~50-300 MB), and request a post-draw purge for it.
     /// Returns whether a video was actually playing.
     /// Draw-path callers rely on the deferred request (never a synchronous mid-frame purge); image-only paths must not purge at all.
@@ -482,6 +591,18 @@ impl AgentView {
             .map(|(_, path)| path.clone());
         if let Some(path) = open_target {
             self.open_media_natively(&path);
+            return Some(InputOutcome::Changed);
+        }
+
+        // Inline gallery image: open the full-screen viewer
+        if let Some(path) = self
+            .inline_media_hits
+            .gallery_areas
+            .iter()
+            .find(|(rect, _)| rect.contains(pos))
+            .map(|(_, path)| path.clone())
+        {
+            self.open_scrollback_image(&path);
             return Some(InputOutcome::Changed);
         }
 

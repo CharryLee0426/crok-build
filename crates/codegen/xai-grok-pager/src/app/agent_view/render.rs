@@ -349,9 +349,7 @@ impl AgentView {
             .selected()
             .is_some_and(|idx| self.scrollback.entry_content_hidden_by_group(idx));
         let (selected_supports_copy, selected_meta_label, selected_supports_fullscreen) =
-            if self.active_pane == ActivePane::Catalog {
-                (false, None, self.catalog.selected_entry().is_some())
-            } else if self.active_pane == ActivePane::Tasks {
+            if self.active_pane == ActivePane::Tasks {
                 let has_selected = self.tasks.selected_task_id().is_some_and(|tid| {
                     self.session
                         .bg_tasks
@@ -414,9 +412,7 @@ impl AgentView {
                 .tracker
                 .running_execute_tool_call_id()
                 .is_some();
-        let selected_can_kill = if self.surface() == ViewSurface::ChildTakeover
-            || self.active_pane == ActivePane::Catalog
-        {
+        let selected_can_kill = if self.surface() == ViewSurface::ChildTakeover {
             false
         } else if self.active_pane == ActivePane::Dock {
             self.dock_items()
@@ -572,7 +568,6 @@ impl AgentView {
         pending_hint: Option<PendingHint>,
         overlay_focused: bool,
         banner: super::BannerSlotParams<'_>,
-        bundle_state: &crate::app::bundle::BundleState,
         in_dashboard_overlay: bool,
         link_spans_out: &mut Vec<xai_ratatui_inline::LinkSpan>,
         app_params: AppRenderParams<'_>,
@@ -669,7 +664,6 @@ impl AgentView {
                 scratch,
                 pending_hint,
                 &theme,
-                bundle_state,
                 in_dashboard_overlay.then(|| super::subagent_takeover::InheritedOverlay {
                     header: overlay_header,
                     stop_label: self.overlay_stop_label(),
@@ -998,14 +992,6 @@ impl AgentView {
         if self.active_pane == ActivePane::Tasks && !self.tasks.is_visible() {
             self.active_pane = ActivePane::Scrollback;
         }
-        self.catalog.sync_from_bundle(bundle_state);
-        if self.active_pane == ActivePane::Catalog && !self.catalog.is_visible() {
-            self.active_pane = ActivePane::Scrollback;
-        }
-        self.catalog.sync_from_bundle(bundle_state);
-        if self.active_pane == ActivePane::Catalog && !self.catalog.is_visible() {
-            self.active_pane = ActivePane::Scrollback;
-        }
         let viewer_open = self.active_subagent.is_some();
         let dock_on = crate::views::dock::enabled()
             && !viewer_open
@@ -1015,11 +1001,6 @@ impl AgentView {
             0
         } else {
             self.tasks.desired_height(area.height)
-        };
-        let catalog_height = if viewer_open {
-            0
-        } else {
-            self.catalog.desired_height(area.height)
         };
         let todo_height = if viewer_open {
             0
@@ -1117,7 +1098,6 @@ impl AgentView {
             timeline_width,
             prompt_height,
             tasks_height,
-            catalog_height,
             todo_height,
             queue_height,
             btw_height,
@@ -1822,24 +1802,6 @@ impl AgentView {
             )
             .and_then(|sel| sel.close_button_rect());
             self.hit_bg_close.set(close_rect);
-        }
-        if catalog_height > 0 {
-            let cat_focused = self.active_pane == ActivePane::Catalog && !overlay_focused;
-            self.catalog
-                .render(layout.catalog, buf, cat_focused, layout_cfg);
-            let close_rect = agent::render_todo_chrome(
-                buf,
-                layout.catalog,
-                layout_cfg,
-                cat_focused,
-                false,
-                self.hit_catalog_close.hovered,
-                &theme,
-            )
-            .and_then(|sel| sel.close_button_rect());
-            self.hit_catalog_close.set(close_rect);
-        } else {
-            self.hit_catalog_close.clear();
         }
         if todo_height > 0 {
             let todo_focused = self.active_pane == ActivePane::Todo && !overlay_focused;
@@ -3459,11 +3421,22 @@ impl AgentView {
                     .add_modifier(ratatui::style::Modifier::BOLD);
                 let dim_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
                 let border_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
+                // "3/7" when stepping through the conversation's images
+                let position = if viewer.gallery.len() > 1 {
+                    format!(
+                        " \u{b7} {}/{}",
+                        viewer.gallery_index + 1,
+                        viewer.gallery.len()
+                    )
+                } else {
+                    String::new()
+                };
                 let title_spans: Vec<ratatui::text::Span> = if viewer.loading {
                     let name = viewer.title.as_deref().unwrap_or("Loading...");
                     vec![
                         ratatui::text::Span::styled("\u{2500} ", border_style),
                         ratatui::text::Span::styled(name.to_owned(), title_style),
+                        ratatui::text::Span::styled(position, dim_style),
                         ratatui::text::Span::styled(" \u{2500}", border_style),
                     ]
                 } else {
@@ -3473,6 +3446,7 @@ impl AgentView {
                         ratatui::text::Span::styled("\u{2500} ", border_style),
                         ratatui::text::Span::styled(name.to_owned(), title_style),
                         ratatui::text::Span::styled(dims, dim_style),
+                        ratatui::text::Span::styled(position, dim_style),
                         ratatui::text::Span::styled(" \u{2500}", border_style),
                     ]
                 };
@@ -3583,7 +3557,17 @@ impl AgentView {
                 let clear = crate::terminal::overlay::clear_kitty();
                 prompt_post_flush = Some(clear.into());
             }
-            let hints = vec![HintItem::new(key!(Esc), "close")];
+            let mut hints = vec![HintItem::new(key!(Esc), "close")];
+            if let Some(viewer) = self.image_viewer.as_ref()
+                && !viewer.gallery.is_empty()
+            {
+                if viewer.gallery.len() > 1 {
+                    hints.push(HintItem::new(key!(Left), "prev"));
+                    hints.push(HintItem::new(key!(Right), "next"));
+                }
+                hints.push(HintItem::new(key!('o'), "open"));
+                hints.push(HintItem::new(key!('c'), "copy"));
+            }
             ShortcutsBar::new(&hints).render(layout.shortcuts, buf);
             self.pane_areas = layout.pane_areas();
             return (None, prompt_post_flush);
@@ -4049,6 +4033,10 @@ impl AgentView {
                     }
                     let rect = placement.screen_rect;
                     if !placement.has_button_row {
+                        // Text-`[Open]` placements returned above, so this is a gallery image
+                        self.inline_media_hits
+                            .gallery_areas
+                            .push((rect, path.clone()));
                         continue;
                     }
                     let button_y = rect.y + rect.height + 1;
@@ -4486,7 +4474,6 @@ mod voice_recording_overlay_tests {
     use super::super::test_fixtures::make_plan_approval_view_state;
     use super::AgentView;
     use crate::actions::ActionRegistry;
-    use crate::app::bundle::BundleState;
     use crate::scrollback::render::ScratchBuffer;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
@@ -4512,7 +4499,6 @@ mod voice_recording_overlay_tests {
             None,
             false,
             crate::app::agent_view::BannerSlotParams::none(),
-            &BundleState::default(),
             false,
             &mut Vec::new(),
             super::AppRenderParams {
@@ -4557,7 +4543,6 @@ mod voice_recording_overlay_tests {
 mod overlay_cycle_hint_tests {
     use super::super::test_fixtures::make_agent;
     use crate::actions::ActionRegistry;
-    use crate::app::bundle::BundleState;
     use crate::scrollback::render::ScratchBuffer;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
@@ -4597,7 +4582,6 @@ mod overlay_cycle_hint_tests {
             None,
             false,
             crate::app::agent_view::BannerSlotParams::none(),
-            &BundleState::default(),
             true,
             &mut Vec::new(),
             super::AppRenderParams {
@@ -4692,7 +4676,6 @@ mod overlay_cycle_hint_tests {
                 pending,
                 false,
                 crate::app::agent_view::BannerSlotParams::none(),
-                &BundleState::default(),
                 true,
                 &mut Vec::new(),
                 super::AppRenderParams {
@@ -4733,7 +4716,6 @@ mod overlay_cycle_hint_tests {
 mod overlay_post_flush_tests {
     use super::super::test_fixtures::make_agent;
     use crate::actions::ActionRegistry;
-    use crate::app::bundle::BundleState;
     use crate::scrollback::render::ScratchBuffer;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
@@ -4750,7 +4732,6 @@ mod overlay_post_flush_tests {
                 None,
                 false,
                 crate::app::agent_view::BannerSlotParams::none(),
-                &BundleState::default(),
                 false,
                 &mut Vec::new(),
                 super::AppRenderParams::default(),
@@ -4883,7 +4864,6 @@ mod status_line_draw_tests {
     use super::super::test_fixtures::make_agent;
     use super::AgentView;
     use crate::actions::ActionRegistry;
-    use crate::app::bundle::BundleState;
     use crate::scrollback::render::ScratchBuffer;
     use crate::views::question_view::QuestionViewState;
     use crate::views::status_line::{SanitizedText, StatusLineDisplay, StatusLineFrame};
@@ -4908,7 +4888,6 @@ mod status_line_draw_tests {
             None,
             false,
             crate::app::agent_view::BannerSlotParams::none(),
-            &BundleState::default(),
             false,
             &mut Vec::new(),
             super::AppRenderParams {

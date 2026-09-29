@@ -6,6 +6,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openWindow) private var openWindow
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var window: NSWindow?
 
     var body: some View {
         // Sheets are attached outside the rebuilt content, so a theme preview can
@@ -24,6 +25,10 @@ struct ContentView: View {
                 openWindow(id: window.rawValue)
                 store.windowRequest = nil
             }
+            // The image viewer covers the whole window, toolbar included, from a panel above it.
+            .background(HostWindowReader { window = $0 })
+            .onChange(of: store.imageViewer != nil) { _, _ in ImageViewerPresenter.shared.sync(store, window: window) }
+            .onAppear { MarkdownImageCell.open = { [weak store] url, _ in store?.openImage(url: url) } }
             .onChange(of: store.minimalMode) { _, minimal in
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { columnVisibility = minimal ? .detailOnly : .all }
             }

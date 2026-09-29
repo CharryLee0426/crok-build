@@ -23,8 +23,9 @@ worktrees of the same repository share one workspace scope.
 
 Each scope keeps its knowledge as ordinary Markdown files. `topics/` holds
 curated notes, one file per subject, and is what Crok reads at the start of a
-session. New facts captured from a completed turn land as small observations
-that a later consolidation pass (`/dream`) folds into topics. A bounded generated
+session. New facts captured after each turn, including a turn you stop before it
+finishes, land as small observations that a later consolidation pass (`/dream`)
+folds into topics. A bounded generated
 index of both scopes is injected into the model's context once per session so
 it can decide which topics to open.
 
@@ -467,6 +468,6 @@ $EDITOR ~/.crok/memory/MEMORY.md
 ### Debug Logging
 
 ```bash
-RUST_LOG=debug CROK_LOG_FILE=/tmp/grok.log crok
-grep "memory" /tmp/grok.log
+RUST_LOG=debug CROK_LOG_FILE=/tmp/crok.log crok
+grep "memory" /tmp/crok.log
 ```

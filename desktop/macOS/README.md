@@ -8,11 +8,11 @@ and load provider credentials and configuration.
 
 ## Install
 
-Open `Grok-Desktop-<version>-arm64.dmg` and drag **Crok Desktop** to
+Open `Crok-Desktop-<version>-arm64.dmg` and drag **Crok Desktop** to
 **Applications**. The app includes Crok Build, the same runtime and `crok` TUI as
 the CLI, so nothing else needs to be installed. It requires macOS 14 or later on
 Apple silicon. On first launch, sign in to OpenRouter or OpenAI Codex from
-**Settings › Accounts**. xAI accounts are not supported; Crok models are available
+**Settings › Accounts**. xAI accounts are not supported; Grok models are available
 through OpenRouter.
 
 The disk image is ad hoc signed and not notarized, so macOS blocks the first launch
@@ -21,7 +21,7 @@ Security**, click **Open Anyway** beside the Crok Desktop message, and confirm.
 macOS remembers the choice.
 
 To use Crok Build in a terminal, turn on **Settings › Command line › `crok` command
-in Terminal**. It links `/usr/local/bin/grok` to the app's copy of the TUI, so
+in Terminal**. It links `/usr/local/bin/crok` to the app's copy of the TUI, so
 `crok` works in any terminal and updates when you install a newer Crok Desktop.
 macOS asks for an administrator password when that folder is not writable. The
 switch replaces another program's `crok` link only after you confirm, never
@@ -74,17 +74,17 @@ directory. Its app has a separate bundle identity, state file, orange **TESTING*
 icon, and disabled global `crok` command switch, so it remains separate from the
 production desktop app.
 
-The packaging script embeds the release harness as `Contents/Resources/grok`,
+The packaging script embeds the release harness as `Contents/Resources/crok`,
 signs that executable, and then signs the app. It also bundles the `crok` command's
-launcher, [`Resources/grok-command.sh`](Resources/grok-command.sh), as
-`Contents/Resources/bin/grok`: it runs the embedded harness with its self-updater
+launcher, [`Resources/crok-command.sh`](Resources/crok-command.sh), as
+`Contents/Resources/bin/crok`: it runs the embedded harness with its self-updater
 off, and answers `crok update` by pointing to a newer Crok Desktop. The app's
 version comes from [`VERSION`](VERSION). Rebuilding while the app runs is safe;
 the running copy and its tasks keep their executables. To reuse an existing
 harness and skip its Rust build:
 
 ```sh
-make build-desktop CROK_BINARY="/absolute/path/to/grok"
+make build-desktop CROK_BINARY="/absolute/path/to/crok"
 ```
 
 The lower-level `./desktop/macOS/scripts/build-app.sh` command remains available
@@ -113,7 +113,7 @@ swift test --package-path desktop/macOS
    are reused. Each provider shows its saved account identity when available, and
    signed-in accounts cannot start another sign-in. OpenRouter API keys do not
    include an account name; this is stated explicitly. xAI accounts (xAI sign-in,
-   `XAI_API_KEY`) are not supported; use Crok models through OpenRouter. To sign
+   `XAI_API_KEY`) are not supported; use Grok models through OpenRouter. To sign
    out, run `crok logout <provider>` (or `crok logout` for every provider) in the
    side panel's Terminal.
 3. Start a task and send a prompt. Responses stream into the conversation, with
@@ -196,6 +196,10 @@ one selectable text, so a selection can run across paragraphs, tables, and code.
 renders in a scrolling text view that follows the stream, so long reasoning stays
 responsive. `/timestamps`, `/timeline`, `/find` (⌘F), `/jump`, and `/vim-mode`
 add timestamps, a turn rail, search, a turn picker, and keyboard navigation.
+A task that has run for hours shows its newest 240 messages; **Show earlier
+messages** at the top loads more, and find, `/jump`, the timeline, and vim keys
+bring back whatever they point at. Streaming costs the same at round 3,000 as at
+round 1.
 
 ### Sidebar
 
@@ -212,6 +216,15 @@ not come back through `/resume`; archive a task to hide it instead. Active tasks
 must be stopped first. The sync button beside **Projects** imports saved harness
 sessions for every project; each folder's menu imports its own. Selecting an
 imported task loads its transcript and lets you continue it.
+
+Drag a folder by its header, a task within its folder, or a pinned task to put
+them in your own order: the row lifts and follows the pointer, the rows it passes
+slide aside, and it settles where you let go (letting go well away from the list
+puts it back). The order is saved. New tasks appear at the top of a folder you
+have ordered, and **Sort Tasks by Recent Activity** in the folder's menu (or
+**Sort by Recent Activity** on the Pinned header) returns to newest first.
+Recents, Archived, and search results always follow activity. VoiceOver offers
+Move Up and Move Down on each row instead of dragging.
 
 Available model choices load before the first message and when reopening a task;
 the model picker searches both names and provider IDs. The composer displays the
@@ -259,9 +272,14 @@ picker, jump, and vim-style transcript keys, is in the Keyboard Shortcuts sheet.
 
 ## Local data and current scope
 
-Projects, conversation transcripts, session IDs, pins, and archive state are
-saved locally in `~/Library/Application Support/Crok Desktop/state.json`, with
-owner-only file permissions. Appearance is stored in macOS preferences; the harness is selected at build time. The harness separately retains its own session history and sends
+Projects, session IDs, pins, sidebar order, and archive state are saved locally
+in `~/Library/Application Support/Crok Desktop/state.json`, and each task's
+transcript beside it in `state-transcripts/<task>.jsonl` (one message per line,
+rewritten from the first changed message, so saving a long task costs only what
+changed), all with owner-only file permissions. A `state.json` from an earlier
+version, which kept transcripts inside it, still loads and moves them out on the
+next save; an earlier version reading the new file reloads each task's history
+from the harness. Appearance is stored in macOS preferences; the harness is selected at build time. The harness separately retains its own session history and sends
 prompts to the configured model provider as usual.
 
 Quitting stops active desktop connections and saves conversations. Reopening a
@@ -306,6 +324,16 @@ packaging script. It clearly labels its output as an offline fixture. Prompts co
 received, and side questions get fixture answers.
 Rebuild with the real harness afterward.
 
+Long tasks have their own checks. `swift test -c release --filter LongTask`
+prints the reducer, save, and launch costs of a 3,000-round task, and
+`desktop/macOS/scripts/perf/run-perf.sh <GrokDesktop executable> <out-dir>`
+measures a running build from outside: `fixture:long:N:M` streams N rounds as
+fast as the app reads them and M more at a model's pace, and an accessibility
+probe records how long the main thread takes to answer every 50 ms, alongside
+CPU and memory. It also times launching with, and switching to, a saved
+3,000-round task (`ROUNDS` and `PACED` change the sizes). The probe needs
+Accessibility permission for the terminal.
+
 For isolated development runs, `CROK_DESKTOP_STATE_FILE` selects an absolute path
 for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable, and
 `CROK_HOME` points the app's shared configuration at a scratch directory. The normal
@@ -314,7 +342,7 @@ packaged app continues to use its embedded runtime and standard local state.
 ## Vector app icon
 
 [`Resources/GrokMark.svg`](Resources/GrokMark.svg) is the editable vector source,
-reconstructed from the [Crok homepage](https://grok.com/) mark. No downloaded
+reconstructed from the [Grok homepage](https://grok.com/) mark. No downloaded
 raster artwork or font glyph is used. The desktop icon follows Apple's macOS
 icon grid, like the other coding agents' icons: an 824 pt continuous-corner tile
 on the 1024 pt canvas, with a top-lit black gradient, a faint bezel, and the
@@ -337,7 +365,7 @@ Swift shape directly. Each required icon size is rendered from vector paths.
 
 `make dmg-desktop` builds the app and then runs
 [`scripts/build-dmg.sh`](scripts/build-dmg.sh), which writes
-`dist/Grok-Desktop-<version>-<arch>.dmg`: the app beside an **Applications**
+`dist/Crok-Desktop-<version>-<arch>.dmg`: the app beside an **Applications**
 shortcut, laid out by Finder, with the app icon on the volume. The image is
 LZMA-compressed; set `DMG_FORMAT` to choose another `hdiutil` format, or
 `DMG_FINDER_LAYOUT=0` to skip the Finder step (for example without a login

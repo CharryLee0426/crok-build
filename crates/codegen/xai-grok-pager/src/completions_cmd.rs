@@ -88,9 +88,17 @@ mod tests {
             !fixed.contains("::prompt"),
             "prompt positional must not appear in the emitted zsh script"
         );
+        // Scoped to the root: `crok trace` takes a required session id before its subcommand, so its dispatch rightly stays on $line[2].
         assert!(
-            !fixed.contains("$line[2]"),
+            !fixed.contains("crok-command-$line[2]"),
             "root dispatch must be shifted to $line[1]"
+        );
+        assert!(
+            fixed
+                .split("case $line[")
+                .nth(1)
+                .is_some_and(|rest| rest.starts_with("1] in")),
+            "root case must dispatch on $line[1]"
         );
         assert!(
             fixed.contains(r#"curcontext="${curcontext%:*:*}:crok-command-$line[1]:""#),

@@ -7,6 +7,9 @@ struct TranscriptView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var tools: TranscriptToolsModel
     @State private var followOutput = true
+    /// Which messages are on screen: a long task shows its newest ones (see `TranscriptPage`).
+    @State private var window = TranscriptPage()
+    @State private var timeline = TranscriptTimelineMemo()
     @AppStorage("compactConversation") private var compactConversation = false
 
     var body: some View {
@@ -14,10 +17,11 @@ struct TranscriptView: View {
         HStack(spacing: 0) {
             transcript(messages)
             if tools.showTimeline {
-                let turns = TranscriptTurns.list(messages)
-                if turns.count >= 2 {
+                let ticks = timeline.ticks(conversation: store.state.selectedConversationID, revision: store.transcriptRevision(of: store.state.selectedConversationID),
+                                           messages: messages, expanded: tools.expandedMessageIDs, compact: compactConversation)
+                if ticks.count >= 2 {
                     TranscriptTimelineRail(
-                        ticks: TranscriptTimelineLayout.ticks(messages: messages, turns: turns, expanded: tools.expandedMessageIDs, compact: compactConversation),
+                        ticks: ticks,
                         viewport: tools.viewport,
                         onSelect: { tools.jumpToTurn($0) }
                     ).equatable()
@@ -45,10 +49,23 @@ struct TranscriptView: View {
         let focusID = tools.vimMode ? tools.vimFocusID : nil
         let expanded = tools.expandedMessageIDs
         let tools = self.tools
+        let count = messages.count
+        let start = window.start(count: count)
+        // A copy of the shown rows: views that kept the whole transcript would make each
+        // streamed update copy every message of a long task.
+        let shown = Array(messages[start...])
         return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: compactConversation ? 10 : 23) {
-                    ForEach(messages) { message in
+                    if start > 0 {
+                        let first = shown.first?.id
+                        TranscriptEarlierButton(hidden: start) {
+                            // Keep the reader where they are: the first shown message stays at the top.
+                            window.showEarlier(count: count)
+                            if let first { DispatchQueue.main.async { proxy.scrollTo(first, anchor: .top) } }
+                        }
+                    }
+                    ForEach(shown) { message in
                         let foldable = message.kind == .thought || message.kind == .tool
                         let stamped = showTimestamps && (message.kind == .user || message.kind == .assistant)
                         MessageView(message: message, isStreaming: message.id == streamingID,
@@ -67,6 +84,7 @@ struct TranscriptView: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .scrollTargetLayout()
+                .environment(\.openImage, store.openImageAction)
                 .frame(maxWidth: 800, alignment: .leading).padding(.horizontal, 36).padding(.top, 34).padding(.bottom, 15).frame(maxWidth: .infinity)
             }
             .defaultScrollAnchor(.bottom)
@@ -79,6 +97,7 @@ struct TranscriptView: View {
                 tools.transcriptDidChange()
             }
             .onChange(of: store.state.selectedConversationID) { _, _ in
+                window = TranscriptPage()
                 followOutput = true
                 proxy.scrollTo("bottom", anchor: .bottom)
                 tools.conversationDidChange()
@@ -91,12 +110,28 @@ struct TranscriptView: View {
                     proxy.scrollTo("bottom", anchor: .bottom)
                 case .message(let id):
                     followOutput = false
-                    proxy.scrollTo(id, anchor: .top)
+                    // Find, /jump, the timeline, and vim keys can reach messages above the window.
+                    let messages = store.conversation?.messages ?? []
+                    if let index = messages.firstIndex(where: { $0.id == id }), window.reveal(index, count: messages.count) {
+                        DispatchQueue.main.async { proxy.scrollTo(id, anchor: .top) }
+                    } else {
+                        proxy.scrollTo(id, anchor: .top)
+                    }
                 }
             }
-            .onChange(of: followOutput) { _, following in tools.recordFollowing(following, messageCount: messages.count) }
+            .onChange(of: followOutput) { _, following in
+                // Scrolled up, the reader's rows stay put as output arrives; back at the end, the
+                // window returns to the newest messages.
+                if !following { window.hold(count: count) }
+                else if window.heldStart != nil {
+                    window.follow()
+                    // Rows above the reader went away; stay at the end.
+                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+                tools.recordFollowing(following, messageCount: count)
+            }
             .modifier(PauseFollowingWhileScrolling(followOutput: $followOutput))
-            .modifier(TranscriptScrollObserver(messages: messages, tools: tools))
+            .modifier(TranscriptScrollObserver(start: start, ids: shown.map(\.id), tools: tools))
             .overlay(alignment: .bottomTrailing) {
                 if store.run.isRunning {
                     Button { followOutput.toggle(); if followOutput { proxy.scrollTo("bottom", anchor: .bottom) } } label: {
@@ -106,6 +141,90 @@ struct TranscriptView: View {
                 }
             }
         }
+    }
+}
+
+/// The part of a transcript that is on screen. A task that has run for hours holds thousands
+/// of messages, and SwiftUI walks every row of a list on each update, so only the newest
+/// `size` are shown until the reader asks for earlier ones. While the reader is scrolled up,
+/// the window holds its first message as new ones arrive; following the output again drops
+/// back to the newest `size`.
+struct TranscriptPage: Equatable {
+    static let size = 240
+    static let page = 240
+    /// The first message shown, once held; nil shows the newest `size`.
+    private(set) var heldStart: Int?
+
+    func start(count: Int) -> Int {
+        min(heldStart ?? max(0, count - Self.size), max(0, count - 1))
+    }
+
+    /// Stops the window from sliding as messages arrive.
+    mutating func hold(count: Int) {
+        if heldStart == nil { heldStart = start(count: count) }
+    }
+
+    /// Back to the newest messages.
+    mutating func follow() { heldStart = nil }
+
+    mutating func showEarlier(count: Int) {
+        heldStart = max(0, start(count: count) - Self.page)
+    }
+
+    /// Widens the window to include a message, with a little context above it. Returns whether
+    /// it had to, in which case the row exists only after the next update.
+    mutating func reveal(_ index: Int, count: Int) -> Bool {
+        guard index < start(count: count) else { return false }
+        heldStart = max(0, index - 20)
+        return true
+    }
+}
+
+/// The row above a windowed transcript that brings back earlier messages.
+private struct TranscriptEarlierButton: View {
+    let hidden: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.up.circle")
+                Text("Show earlier messages")
+                Text("\(hidden.formatted()) hidden").foregroundStyle(Theme.muted.opacity(0.8))
+            }
+            .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Theme.sidebar.opacity(0.6), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .help("Long tasks show their newest \(TranscriptPage.size) messages. Load \(TranscriptPage.page) more.")
+    }
+}
+
+/// The timeline's ticks, kept between renders. Placing them reads the whole transcript, so
+/// while it streams they are placed again at most once a second.
+@MainActor
+final class TranscriptTimelineMemo {
+    private struct Key: Equatable {
+        var conversation: UUID?
+        var expanded: Set<UUID>
+        var compact: Bool
+    }
+    private var key: Key?
+    private var revision = -1
+    private var placedAt = Date.distantPast
+    private var cached: [TranscriptTimelineTick] = []
+
+    func ticks(conversation: UUID?, revision: Int, messages: [Message], expanded: Set<UUID>, compact: Bool) -> [TranscriptTimelineTick] {
+        let key = Key(conversation: conversation, expanded: expanded, compact: compact)
+        let now = Date()
+        if key == self.key, revision == self.revision || now.timeIntervalSince(placedAt) < 1 { return cached }
+        let turns = TranscriptTurns.list(messages)
+        cached = TranscriptTimelineLayout.ticks(messages: messages, turns: turns, expanded: expanded, compact: compact)
+        self.key = key; self.revision = revision; placedAt = now
+        return cached
     }
 }
 
@@ -164,7 +283,8 @@ struct MessageView: View, Equatable {
                     GrokMark(size: 18); Text("Crok").font(.system(size: 13, weight: .semibold))
                     if let timestamp { Spacer(minLength: 8); TranscriptTimestampLabel(date: timestamp) }
                 }
-                MarkdownReply(text: message.text)
+                if !message.text.isEmpty || message.attachments?.isEmpty != false { MarkdownReply(text: message.text) }
+                if let images = message.attachments, !images.isEmpty { TranscriptImageGrid(attachments: images) }
             }
         case .thought:
             ThoughtView(message: message, isStreaming: isStreaming, expanded: isExpanded, onExpand: onExpand)
@@ -228,31 +348,67 @@ private struct ThoughtView: View {
     var expanded: Bool?
     var onExpand: (@MainActor (UUID, Bool) -> Void)?
     @State private var localExpanded = false
+    @State private var previewHeight: CGFloat = 0
+
+    /// While reasoning streams, the folded block shows its newest four lines.
+    static let previewLines = 4
+    /// Four lines of the 14 pt reasoning text (see `ReadOnlyTextView.Style.markdown`): each line
+    /// with its 3 pt line spacing, the paragraph gaps between them (reasoning is mostly short
+    /// paragraphs), and the text view's insets.
+    static let previewHeight: CGFloat = {
+        let font = NSFont.systemFont(ofSize: 14)
+        let line = ceil(NSLayoutManager().defaultLineHeight(for: font)) + 3
+        let paragraphGap = (font.pointSize * 0.6).rounded()
+        return CGFloat(previewLines) * line + CGFloat(previewLines - 1) * paragraphGap + 4
+    }()
+    private static let cornerRadius: CGFloat = 12
 
     var body: some View {
         let isExpanded = FoldState(id: message.id, expanded: expanded, onExpand: onExpand).binding($localExpanded)
-        FoldableSection(isExpanded: isExpanded) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkle")
-                Text(isStreaming ? "Thinking…" : "Thinking").fontWeight(.medium).layoutPriority(1)
-                if isStreaming && !isExpanded.wrappedValue {
-                    // A glimpse of the newest reasoning, without laying out the rest of it.
-                    Text(Self.latestLine(of: message.text)).lineLimit(1).truncationMode(.head).opacity(0.75)
-                }
-                Spacer(minLength: 0)
-            }.font(.system(size: 13)).foregroundStyle(Theme.muted)
-        } content: {
-            ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: 360), followsTail: isStreaming)
-                .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 12)
+        VStack(alignment: .leading, spacing: 0) {
+            FoldableSection(isExpanded: isExpanded) {
+                HStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkle")
+                        Text(isStreaming ? "Thinking…" : "Thinking").fontWeight(.medium)
+                    }
+                    // A still gradient: animating it would run SwiftUI every frame (see ThinkingEffects).
+                    .foregroundStyle(isStreaming ? AnyShapeStyle(ThinkingPalette.gradient) : AnyShapeStyle(Theme.muted))
+                    .layoutPriority(1)
+                    Spacer(minLength: 0)
+                }.font(.system(size: 13)).foregroundStyle(Theme.muted)
+            } content: {
+                ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: 360), followsTail: isStreaming)
+                    .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 12)
+            }
+            if isStreaming && !isExpanded.wrappedValue && !message.text.isEmpty {
+                preview
+            }
+            if isStreaming {
+                ThinkingProgressBar().padding(.horizontal, 14).padding(.bottom, 8).padding(.top, 2)
+                    .transition(.opacity)
+            }
         }
-        .background(Theme.sidebar.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .background(Theme.sidebar.opacity(0.4), in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .thinkingLiquid(isStreaming, cornerRadius: Self.cornerRadius)
+        .animation(.easeOut(duration: 0.2), value: isStreaming)
     }
 
-    static func latestLine(of text: String) -> String {
-        let tail = text.suffix(240)
-        guard let line = tail.split(whereSeparator: \.isNewline).last else { return "" }
-        // The glimpse reads as prose: `**Planning**` shows as "Planning".
-        return MarkdownParser.plainText(MarkdownParser.parse(String(line))).trimmingCharacters(in: .whitespacesAndNewlines)
+    /// The newest reasoning, four lines tall at most, kept scrolled to its end as it streams.
+    /// Once it fills, its top edge fades so the lines seem to scroll up out of it.
+    private var preview: some View {
+        let full = previewHeight >= Self.previewHeight - 1
+        return ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: Self.previewHeight),
+                                followsTail: true, showsScroller: false)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { previewHeight = $0 }
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.black.opacity(full ? 0.15 : 1), .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
+                    Color.black
+                }
+            }
+            .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 6).padding(.top, -4)
+            .accessibilityLabel("Latest reasoning")
     }
 }
 
@@ -263,6 +419,18 @@ private struct ToolCallView: View {
     @State private var localExpanded = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            section
+            // What the tool returned as images stays in sight while the call is folded.
+            if let images = message.attachments, !images.isEmpty {
+                TranscriptImageGrid(attachments: images)
+                    .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 12)
+            }
+        }
+        .background(Theme.sidebar.opacity(0.65), in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    private var section: some View {
         FoldableSection(isExpanded: FoldState(id: message.id, expanded: expanded, onExpand: onExpand).binding($localExpanded)) {
             HStack(spacing: 8) {
                 Image(systemName: message.status == "completed" ? "checkmark.circle" : message.status == "failed" ? "xmark.circle" : "terminal")
@@ -275,12 +443,11 @@ private struct ToolCallView: View {
             Group {
                 if let detail = message.detail, !detail.isEmpty {
                     ReadOnlyTextView(text: detail, style: .monospaced, wrapsLines: false, sizing: .fitContent(maxHeight: 260))
-                } else {
+                } else if message.attachments?.isEmpty != false {
                     Text("No additional output.").font(.system(size: 13)).foregroundStyle(Theme.muted)
                 }
-            }.padding(.horizontal, 14).padding(.bottom, 12)
+            }.padding(.horizontal, 14).padding(.bottom, message.attachments?.isEmpty == false && message.detail?.isEmpty != false ? 0 : 12)
         }
-        .background(Theme.sidebar.opacity(0.65), in: RoundedRectangle(cornerRadius: 9))
     }
 
     /// Tool titles use inline Markdown, e.g. ``Read `path` ``: code spans show as code.
@@ -324,7 +491,9 @@ private struct PauseFollowingWhileScrolling: ViewModifier {
 /// and, for /debug, where the transcript is scrolled. Needs macOS 15; earlier systems start
 /// /jump at the last turn and show no scroll metrics.
 private struct TranscriptScrollObserver: ViewModifier {
-    let messages: [Message]
+    /// Where the shown rows begin in the transcript, and their IDs.
+    let start: Int
+    let ids: [UUID]
     let tools: TranscriptToolsModel
 
     func body(content: Content) -> some View {
@@ -332,8 +501,8 @@ private struct TranscriptScrollObserver: ViewModifier {
             content
                 .onScrollTargetVisibilityChange(idType: UUID.self, threshold: 0.02) { ids in
                     let visible = Set(ids)
-                    let top = messages.firstIndex { visible.contains($0.id) }
-                    tools.visibleMessagesChanged(topIndex: top, topID: top.map { messages[$0].id })
+                    let top = self.ids.firstIndex { visible.contains($0) }
+                    tools.visibleMessagesChanged(topIndex: top.map { start + $0 }, topID: top.map { self.ids[$0] })
                 }
                 .onScrollGeometryChange(for: TranscriptScrollSample.self) { geometry in
                     TranscriptScrollSample(offsetY: geometry.contentOffset.y, contentHeight: geometry.contentSize.height, viewportHeight: geometry.containerSize.height)

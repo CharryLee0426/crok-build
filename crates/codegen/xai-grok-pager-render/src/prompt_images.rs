@@ -38,6 +38,10 @@ pub struct ImageViewerState {
     source_path: Option<PathBuf>,
     /// Shared modal chrome state (close button hit-test, hover, etc.).
     pub modal_state: crate::modal_window_state::ModalWindowState,
+    /// Every image of the conversation, in transcript order, when opened from the scrollback; ←/→ step through it.
+    pub gallery: Vec<PathBuf>,
+    /// Position of this image in [`Self::gallery`].
+    pub gallery_index: usize,
 }
 
 pub fn decode_image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
@@ -78,6 +82,8 @@ impl ImageViewerState {
             overlay_owner_id: image.preview.identity(),
             source_path: None,
             modal_state: Default::default(),
+            gallery: Vec::new(),
+            gallery_index: 0,
         })
     }
 
@@ -104,6 +110,8 @@ impl ImageViewerState {
             overlay_owner_id: crate::terminal::overlay::next_owner_id(),
             source_path: None,
             modal_state: Default::default(),
+            gallery: Vec::new(),
+            gallery_index: 0,
         })
     }
 
@@ -121,6 +129,8 @@ impl ImageViewerState {
             overlay_owner_id: crate::terminal::overlay::next_owner_id(),
             source_path: Some(path.to_path_buf()),
             modal_state: Default::default(),
+            gallery: Vec::new(),
+            gallery_index: 0,
         }
     }
 
@@ -1626,6 +1636,34 @@ pub fn is_media_only_markdown(text: &str, resolved_ref_count: usize) -> bool {
     unique_ref_count == resolved_ref_count
 }
 
+/// Only `![alt](path)` references: images the author meant to display, not paths merely mentioned.
+pub fn extract_markdown_image_refs(text: &str) -> Vec<ScrollbackImageRef> {
+    use std::sync::LazyLock;
+
+    static MD_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(MARKDOWN_IMAGE_REF_PATTERN).unwrap());
+
+    if !text.contains("![") {
+        return Vec::new();
+    }
+    let mut seen = std::collections::HashSet::new();
+    MD_RE
+        .captures_iter(text)
+        .filter_map(|cap| {
+            let path = cap.get(2)?.as_str();
+            let path = path.strip_prefix("file://").unwrap_or(path);
+            if !seen.insert(path.to_owned()) {
+                return None;
+            }
+            let alt = cap
+                .get(1)
+                .map(|a| a.as_str().to_owned())
+                .unwrap_or_default();
+            ScrollbackImageRef::from_path_with_alt(path, alt)
+        })
+        .collect()
+}
+
 /// Markdown or bare absolute paths that exist and decode as an image.
 pub fn extract_image_refs(text: &str) -> Vec<ScrollbackImageRef> {
     use std::sync::LazyLock;
@@ -1672,6 +1710,107 @@ pub fn extract_image_refs(text: &str) -> Vec<ScrollbackImageRef> {
     }
 
     refs
+}
+
+/// Where images that reach the transcript only as bytes (MCP results, prompts sent by another client) are written so the path-based inline-media pipeline can show them.
+/// A render cache: files are content-addressed, so a replay rewrites the same names and a cleared cache is rebuilt on demand.
+fn scrollback_image_cache_dir() -> PathBuf {
+    std::env::temp_dir().join("crok-scrollback-images")
+}
+
+impl ScrollbackImageRef {
+    /// Materialize encoded image bytes into the scrollback image cache.
+    /// `None` when the bytes don't decode as an image or the cache can't be written.
+    pub fn from_image_bytes(bytes: &[u8], mime_type: &str) -> Option<Self> {
+        Self::from_image_bytes_in(&scrollback_image_cache_dir(), bytes, mime_type)
+    }
+
+    fn from_image_bytes_in(dir: &std::path::Path, bytes: &[u8], mime_type: &str) -> Option<Self> {
+        let dimensions = decode_image_dimensions(bytes)?;
+        // Trust the bytes over the declared type: a mislabelled PNG still needs a `.png` name to pass `from_path`
+        let sniffed = xai_grok_shared::clipboard::mime_from_bytes(bytes);
+        let mime = if sniffed.starts_with("image/") {
+            sniffed
+        } else {
+            mime_type
+        };
+        let hex = blake3::hash(bytes).to_hex();
+        let hash = hex.get(..32).unwrap_or(hex.as_str());
+        let path = dir.join(format!("{hash}.{}", extension_for_mime(mime)));
+        if !path.is_file() {
+            std::fs::create_dir_all(dir).ok()?;
+            // Write-then-rename so a concurrent reader never sees a partial file under the final name
+            let tmp = dir.join(format!(".{hash}.{}.tmp", std::process::id()));
+            std::fs::write(&tmp, bytes).ok()?;
+            if std::fs::rename(&tmp, &path).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+                return None;
+            }
+        }
+        Some(Self {
+            path,
+            dimensions: Some(dimensions),
+            alt_text: String::new(),
+        })
+    }
+
+    /// An ACP image block: its `file://` source when that still exists, otherwise its base64 payload.
+    pub fn from_acp_image(image: &agent_client_protocol::ImageContent) -> Option<Self> {
+        if let Some(path) = image
+            .uri
+            .as_deref()
+            .and_then(|uri| url::Url::parse(uri).ok())
+            .filter(|url| url.scheme() == "file")
+            .and_then(|url| url.to_file_path().ok())
+            && let Some(found) = Self::from_path(path)
+        {
+            return Some(found);
+        }
+        use base64::Engine as _;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(image.data.trim())
+            .ok()?;
+        Self::from_image_bytes(&bytes, &image.mime_type)
+    }
+}
+
+/// `data:image/…;base64,…` URLs, the form MCP image results take in tool output text.
+const DATA_URL_IMAGE_PATTERN: &str = r"data:(image/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})";
+
+/// Pull inline `data:image/…;base64,…` images out of tool output.
+/// Returns the text with each data URL replaced by a short `[image N]` marker, and the decoded images.
+/// A data URL that doesn't decode stays in the text untouched.
+pub fn extract_data_url_images(text: &str) -> (String, Vec<ScrollbackImageRef>) {
+    use base64::Engine as _;
+    use std::sync::LazyLock;
+
+    static DATA_URL_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(DATA_URL_IMAGE_PATTERN).unwrap());
+    // MCP servers configured to expose base64 repeat each image in this wrapper after its data URL
+    static EXPOSED_BASE64_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(?s)\n?<mcp_image_base64[^>]*>.*?</mcp_image_base64>").unwrap()
+    });
+
+    if !text.contains("data:image/") {
+        return (text.to_owned(), Vec::new());
+    }
+    let text = EXPOSED_BASE64_RE.replace_all(text, "");
+    let mut images = Vec::new();
+    let stripped = DATA_URL_RE.replace_all(&text, |cap: &regex::Captures<'_>| {
+        let group = |i: usize| cap.get(i).map_or("", |m| m.as_str());
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(group(2))
+            .ok()
+            .and_then(|bytes| ScrollbackImageRef::from_image_bytes(&bytes, group(1)));
+        match decoded {
+            Some(image) => {
+                images.push(image);
+                format!("[image {}]", images.len())
+            }
+            None => group(0).to_owned(),
+        }
+    });
+    (stripped.into_owned(), images)
 }
 
 // -------------------------------------------------------------------------

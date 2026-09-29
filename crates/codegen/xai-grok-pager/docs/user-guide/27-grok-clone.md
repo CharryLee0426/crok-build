@@ -70,9 +70,9 @@ The two are separate worlds:
 
 | World | Covers | Commands | Store |
 |-------|--------|----------|-------|
-| Crok | the model and API | `crok login`, `crok logout` | `~/.crok/auth.json` |
+| Crok | the model and API | `crok login`, `crok logout` | `~/.crok/provider-auth/` |
 
-`crok clone` never reads `~/.crok/auth.json` for Git. Signing into Crok does not
+`crok clone` never reads Crok's model credentials for Git. Signing into Crok does not
 give the daemon a credential for the remote, and neither does
 `[clone] enabled = true`: that flag is a **product gate** deciding whether
 `crok clone` runs at all, not authorization for GitHub.
@@ -142,5 +142,7 @@ exist, and either this user can open it or a setuid `fusermount3` / `fusermount`
 error with install commands, not a hang. When a daemon is already running the
 check is skipped, since that daemon may hold privileges this process does not.
 
-Windows is not supported (no ProjFS backend). Use `git clone`, or run
-`crok clone` on macOS or Linux.
+On Windows, clone mounts through ProjFS (Windows Projected File System),
+whether it is enabled. Build-output directories such as `target` and
+`node_modules` are redirected out of the projected tree as NTFS junctions
+(`[redirects] windows_junction`, on by default).

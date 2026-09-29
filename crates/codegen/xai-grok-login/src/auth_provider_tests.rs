@@ -377,6 +377,8 @@ async fn provider_expiry_source_precedence() {
         jwt_with_exp(chrono::Utc::now().timestamp() + 7200)
     }
     fn jwt_with_exp(exp: i64) -> String {
+        // Tests share one process: encoding before a provider is installed pins jsonwebtoken's panicking default for every later JWT test.
+        let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
         jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
             &serde_json::json!({ "exp": exp }),
@@ -757,14 +759,24 @@ async fn provider_helper_env_scrubs_first_party_credentials() {
          credential a BYOK helper must not inherit, then update EXPECTED"
     );
 
-    let echo = EXPECTED
+    // crok's `CROK_X` spellings of the same credentials must not leak either.
+    let crok_spellings: Vec<String> = EXPECTED
+        .iter()
+        .filter_map(|v| v.strip_prefix("GROK_").map(|name| format!("CROK_{name}")))
+        .collect();
+    let all_vars: Vec<&str> = EXPECTED
+        .iter()
+        .copied()
+        .chain(crok_spellings.iter().map(String::as_str))
+        .collect();
+    let echo = all_vars
         .iter()
         .map(|v| format!("${{{v}-}}"))
         .collect::<Vec<_>>()
         .join("");
     let mut cmd = tokio::process::Command::new("sh");
     cmd.args(["-c", &format!("printf 'tok[%s]' \"{echo}\"")]);
-    for var in EXPECTED {
+    for var in &all_vars {
         cmd.env(var, "first-party-leak");
     }
     super::scrub_first_party_credentials(&mut cmd);

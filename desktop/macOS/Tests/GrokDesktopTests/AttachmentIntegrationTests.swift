@@ -92,6 +92,36 @@ LoggingHarness().run()
         XCTAssertTrue(messages.contains { $0.kind == .assistant && $0.text.contains("Received 3 attachment(s): notes.md, Sources, image/png.") })
     }
 
+    func testToolAndGeneratedImagesShowInTheTranscriptAndViewer() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store
+        store.features.attachments.add(imageData: SidePanelAndAttachmentTests.png(width: 30, height: 20))
+        try await eventually { !store.features.attachments.isPreparing }
+        store.draft = "fixture:image what changed?"
+        store.send()
+        try await eventually { fixture.promptBlocks.count == 1 && !store.run.isRunning }
+
+        let messages = try XCTUnwrap(store.conversation?.messages)
+        let read = try XCTUnwrap(messages.first { $0.toolID?.hasPrefix("fixture-read-image") == true })
+        XCTAssertEqual(read.status, "completed")
+        XCTAssertEqual(read.attachments?.map(\.name), ["screenshot.png"])
+        XCTAssertEqual(read.attachments?.first?.pixelSize, CGSize(width: 240, height: 160))
+        XCTAssertNotNil(read.attachments?.first?.fullImageURL)
+        XCTAssertNil(read.detail?.range(of: "[Image]"))
+        let generated = try XCTUnwrap(messages.first { $0.toolID?.hasPrefix("fixture-image-gen") == true }?.attachments?.first)
+        XCTAssertEqual(generated.origin, .generated)
+        XCTAssertEqual(generated.pixelSize, CGSize(width: 320, height: 320))
+
+        // The sent image, the read screenshot, then the generated image.
+        store.openImage(generated)
+        XCTAssertEqual(store.imageViewer?.items.count, 3)
+        XCTAssertEqual(store.imageViewer?.index, 2)
+        XCTAssertEqual(store.imageViewer?.items[1].name, "screenshot.png")
+        store.closeImageViewer()
+        if let folder = generated.path.map({ URL(fileURLWithPath: $0).deletingLastPathComponent() }) { try? FileManager.default.removeItem(at: folder) }
+    }
+
     func testAnAttachmentOnlyPromptIsSentAndNamesTheTask() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

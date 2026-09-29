@@ -656,7 +656,19 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
         let media_placements = if is_group_header && !verb_expanded_slot {
             Vec::new()
         } else {
-            entry.block.inline_media_placements(&ctx)
+            let mut placements = entry.block.inline_media_placements(&ctx);
+            // Gallery images occupy the last rows of the block's own output
+            let gallery = entry.block.inline_gallery();
+            if !gallery.is_empty() {
+                placements.extend(super::blocks::image_gallery::gallery_placements(
+                    gallery,
+                    ctx.width,
+                    entry.block.gallery_spec(&ctx),
+                    cached_output.lines.len(),
+                    vpad_top,
+                ));
+            }
+            placements
         };
         for placement in media_placements {
             let image_offset = placement.row_offset as usize;
@@ -682,7 +694,32 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
                 let visible_h = visible_end.saturating_sub(visible_start) as u16;
                 let screen_y = viewport.y + (visible_start - viewport_start) as u16;
 
-                if visible_h >= 1 {
+                if visible_h >= 1
+                    && let Some(cell) = placement.gallery
+                {
+                    // A gallery image sits at its fitted width under the block's text (the text column, past the accent
+                    // and padding), with no filepath line or button row
+                    let text_area = entry_row_layout.content;
+                    let x = text_area.x.saturating_add(cell.indent);
+                    let max_w = text_area
+                        .x
+                        .saturating_add(text_area.width.saturating_sub(ts_reserved))
+                        .saturating_sub(x);
+                    result.inline_media.push(InlineMediaPlacement {
+                        info: placement.info,
+                        screen_rect: ratatui::layout::Rect {
+                            x,
+                            y: screen_y,
+                            width: cell.cols.min(max_w),
+                            height: visible_h,
+                        },
+                        full_rows: full_image_h as u16,
+                        top_crop_rows: top_crop,
+                        filepath_screen_rect: None,
+                        open_button_screen_rect: None,
+                        has_button_row: false,
+                    });
+                } else if visible_h >= 1 {
                     // Tool media exposes its second output line as the click-to-copy filepath and reserves a button row
                     let filepath_virtual_y = content_y_start + 1;
                     let filepath_screen_rect = if filepath_virtual_y >= viewport_start

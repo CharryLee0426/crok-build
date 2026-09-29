@@ -57,7 +57,18 @@ struct PromptAttachment: Identifiable, Equatable {
 
     var messageAttachment: MessageAttachment {
         let sentKind: MessageAttachment.Kind = kind == .image ? .image : kind == .folder ? .folder : .file
-        return MessageAttachment(id: id, kind: sentKind, name: name, path: url?.path, thumbnail: thumbnailData)
+        var attachment = MessageAttachment(id: id, kind: sentKind, name: name, path: url?.path, thumbnail: thumbnailData)
+        // The sent bytes are kept whole: a pasted image's scratch file does not outlive the session.
+        if kind == .image, let imageData {
+            attachment.blob = ImageStore.store(imageData, mimeType: mimeType)
+            attachment.mimeType = mimeType
+            if let source = CGImageSourceCreateWithData(imageData as CFData, nil),
+               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
+                attachment.pixelWidth = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue
+                attachment.pixelHeight = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue
+            }
+        }
+        return attachment
     }
 }
 
@@ -506,17 +517,16 @@ struct AttachmentDropOverlay: View {
 struct SentAttachmentsView: View {
     let attachments: [MessageAttachment]
     @State private var previewURL: URL?
-    @State private var enlarged: MessageAttachment?
 
     var body: some View {
         let images = attachments.filter { $0.kind == .image }
         let files = attachments.filter { $0.kind != .image }
         VStack(alignment: .trailing, spacing: 8) {
             if !images.isEmpty {
-                HStack(spacing: 8) {
+                // A click opens the image viewer (see `TranscriptImageTile`).
+                FlowRowsLayout(spacing: 8, alignment: .trailing) {
                     ForEach(images) { image in
-                        Button { open(image) } label: { SentImageThumbnail(attachment: image, height: images.count == 1 ? 150 : 96) }
-                            .buttonStyle(.plain).help(image.name)
+                        TranscriptImageTile(attachment: image, size: TranscriptImageLayout.tile(image, height: images.count == 1 ? 150 : 96), cornerRadius: 14)
                     }
                 }
             }
@@ -525,40 +535,12 @@ struct SentAttachmentsView: View {
             }
         }
         .quickLookPreview($previewURL)
-        .popover(item: $enlarged) { attachment in
-            if let data = attachment.thumbnail, let image = NSImage(data: data) {
-                Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 520, maxHeight: 520).padding(8)
-            }
-        }
     }
 
     private func open(_ attachment: MessageAttachment) {
-        if let path = attachment.path, FileManager.default.fileExists(atPath: path) {
-            if attachment.kind == .folder { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
-            else { previewURL = URL(fileURLWithPath: path) }
-        } else if attachment.thumbnail != nil {
-            enlarged = attachment
-        }
-    }
-}
-
-private struct SentImageThumbnail: View {
-    let attachment: MessageAttachment
-    let height: CGFloat
-
-    var body: some View {
-        Group {
-            if let data = attachment.thumbnail, let image = NSImage(data: data) {
-                let aspect = image.size.height > 0 ? max(0.5, min(2.2, image.size.width / image.size.height)) : 1
-                Image(nsImage: image).resizable().scaledToFill().frame(width: height * aspect, height: height)
-            } else {
-                Image(systemName: "photo").font(.system(size: 20)).foregroundStyle(Theme.muted)
-                    .frame(width: height, height: height).background(Theme.sidebar)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.line.opacity(0.5), lineWidth: 0.5))
-        .accessibilityLabel("Image: \(attachment.name)")
+        guard let path = attachment.path, FileManager.default.fileExists(atPath: path) else { return }
+        if attachment.kind == .folder { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+        else { previewURL = URL(fileURLWithPath: path) }
     }
 }
 
@@ -568,7 +550,7 @@ private struct FlowingChips: View {
     var onOpen: (MessageAttachment) -> Void
 
     var body: some View {
-        TrailingFlowLayout(spacing: 6) {
+        FlowRowsLayout(spacing: 6, alignment: .trailing) {
             ForEach(attachments) { attachment in
                 Button { onOpen(attachment) } label: {
                     HStack(spacing: 6) {
@@ -586,9 +568,10 @@ private struct FlowingChips: View {
     }
 }
 
-/// Lays out views in rows aligned to the trailing edge, wrapping as needed.
-private struct TrailingFlowLayout: Layout {
+/// Lays out views in rows aligned to one edge, wrapping as needed.
+struct FlowRowsLayout: Layout {
     var spacing: CGFloat
+    var alignment: HorizontalEdge = .trailing
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
@@ -600,7 +583,7 @@ private struct TrailingFlowLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var y = bounds.minY
         for row in arrange(width: bounds.width, subviews: subviews) {
-            var x = bounds.maxX - row.width
+            var x = alignment == .trailing ? bounds.maxX - row.width : bounds.minX
             for index in row.indices {
                 let size = subviews[index].sizeThatFits(.unspecified)
                 subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))

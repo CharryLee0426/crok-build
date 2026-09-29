@@ -1,6 +1,7 @@
 use crate::scrollback::block::BlockContent;
 use crate::scrollback::types::{AccentStyle, BlockContext, BlockOutput};
 
+use super::image_gallery;
 use super::markdown_content::MarkdownContent;
 use super::mermaid_content::{self, MermaidContent};
 use crate::appearance::AppearanceConfig;
@@ -16,6 +17,8 @@ pub struct AgentMessageBlock {
     video_refs: Vec<crate::prompt_images::ScrollbackVideoRef>,
     /// Detected ` ```mermaid ` diagrams and render skeleton, populated at construction/finish (never per streaming chunk) like the media refs.
     mermaid: MermaidContent,
+    /// `![alt](path)` images, drawn under the reply once it finishes.
+    gallery: Vec<crate::prompt_images::ScrollbackImageRef>,
 }
 
 impl AgentMessageBlock {
@@ -24,6 +27,7 @@ impl AgentMessageBlock {
         let text = text.into();
         let image_refs = crate::prompt_images::extract_image_refs(&text);
         let video_refs = crate::prompt_images::extract_video_refs(&text);
+        let gallery = crate::prompt_images::extract_markdown_image_refs(&text);
         let content = MarkdownContent::new(text);
         let mermaid = content.mermaid_content();
         Self {
@@ -31,6 +35,7 @@ impl AgentMessageBlock {
             image_refs,
             video_refs,
             mermaid,
+            gallery,
         }
     }
 
@@ -41,6 +46,7 @@ impl AgentMessageBlock {
             image_refs: Vec::new(),
             video_refs: Vec::new(),
             mermaid: MermaidContent::default(),
+            gallery: Vec::new(),
         }
     }
 
@@ -70,6 +76,7 @@ impl AgentMessageBlock {
         let text = self.content.text();
         self.image_refs = crate::prompt_images::extract_image_refs(&text);
         self.video_refs = crate::prompt_images::extract_video_refs(&text);
+        self.gallery = crate::prompt_images::extract_markdown_image_refs(&text);
         // Detection runs once the render is final, after the renderer freezes, never per streaming chunk
         self.mermaid = self.content.mermaid_content();
     }
@@ -146,10 +153,25 @@ impl AgentMessageBlock {
 impl BlockContent for AgentMessageBlock {
     fn output(&self, ctx: &BlockContext) -> BlockOutput {
         // Common path: no diagrams (or raw mode) renders plain markdown, with no affordance machinery and no extra output rebuild
-        if ctx.raw || self.mermaid.is_empty() {
-            return self.content.output(ctx.width as usize);
-        }
-        self.rendered_output(ctx).0
+        let mut output = if ctx.raw || self.mermaid.is_empty() {
+            self.content.output(ctx.width as usize)
+        } else {
+            self.rendered_output(ctx).0
+        };
+        output.lines.extend(image_gallery::gallery_lines(
+            self.inline_gallery(),
+            ctx.width,
+            self.gallery_spec(ctx),
+        ));
+        output
+    }
+
+    fn inline_gallery(&self) -> &[crate::prompt_images::ScrollbackImageRef] {
+        &self.gallery
+    }
+
+    fn gallery_spec(&self, _ctx: &BlockContext) -> image_gallery::GallerySpec {
+        image_gallery::GallerySpec::tool(0)
     }
 
     fn diagram_affordances(&self, ctx: &BlockContext) -> Vec<mermaid_content::DiagramAffordance> {
@@ -168,13 +190,15 @@ impl BlockContent for AgentMessageBlock {
         // Each diagram inserts one treatment row (affordance row or fallback caption) into output() that the source-text estimate can't see
         // Count one per diagram (a safe over-estimate if a range is empty) so the off-screen estimate never under-reserves
         // Raw mode and the `off` setting add no such row
+        let images =
+            image_gallery::estimate_rows(&self.gallery, image_gallery::GallerySpec::tool(0));
         if self.mermaid.is_empty()
             || self.content.is_raw()
             || self.mermaid_display_mode() == mermaid_content::MermaidDisplay::SourceOnly
         {
-            return 0;
+            return images;
         }
-        self.mermaid.len() as u16
+        (self.mermaid.len() as u16).saturating_add(images)
     }
 
     fn accent(&self, _ctx: &BlockContext) -> Option<AccentStyle> {
