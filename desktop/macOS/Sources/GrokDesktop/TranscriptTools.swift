@@ -762,6 +762,14 @@ final class TranscriptToolsModel: ObservableObject {
         scrollLog?.record(["evt": "phase", "phase": phase, "following": isFollowingOutput])
     }
 
+    /// How often a transcript that showed none of its rows was laid out afresh (see `TranscriptPage`).
+    private(set) var blankRecoveries = 0
+
+    func recordBlankRecovery(messageCount: Int) {
+        blankRecoveries += 1
+        scrollLog?.record(["evt": "blank_recovery", "messages": messageCount, "following": isFollowingOutput])
+    }
+
     func recordFollowing(_ following: Bool, messageCount: Int) {
         isFollowingOutput = following
         if debugScroll { debugHUD.following = following; debugHUD.messageCount = messageCount }

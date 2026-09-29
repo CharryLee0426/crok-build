@@ -221,17 +221,53 @@ final class LongTaskPerformanceTests: XCTestCase {
         var page = TranscriptPage()
         XCTAssertEqual(page.start(count: 0), 0)
         XCTAssertEqual(page.start(count: 100), 0)
-        XCTAssertEqual(page.start(count: 9_001), 9_001 - TranscriptPage.size)
-        // Following output, the window slides.
-        XCTAssertEqual(page.start(count: 9_100), 9_100 - TranscriptPage.size)
+        XCTAssertEqual(page.start(count: TranscriptPage.size + TranscriptPage.step - 1), 0)
+        // Following output, at least `size` of the newest show, and the window moves on a step at a time.
+        for count in [9_001, 9_050, 9_100, 9_119, 9_120, 9_121, 9_400] {
+            let start = page.start(count: count)
+            XCTAssertGreaterThanOrEqual(count - start, TranscriptPage.size, "count \(count)")
+            XCTAssertLessThan(count - start, TranscriptPage.size + TranscriptPage.step, "count \(count)")
+            XCTAssertEqual(start % TranscriptPage.step, 0, "count \(count)")
+        }
+        XCTAssertEqual(page.start(count: 9_001), page.start(count: 9_100), "one more message does not move the first row")
         // Scrolled up, it holds its first message.
         page.hold(count: 9_100)
-        XCTAssertEqual(page.start(count: 9_400), 9_100 - TranscriptPage.size)
+        let held = page.start(count: 9_100)
+        XCTAssertEqual(page.start(count: 9_400), held)
         page.showEarlier(count: 9_400)
-        XCTAssertEqual(page.start(count: 9_400), 9_100 - TranscriptPage.size - TranscriptPage.page)
+        XCTAssertEqual(page.start(count: 9_400), held - TranscriptPage.page)
         // Back at the end, the newest again.
-        page.follow()
-        XCTAssertEqual(page.start(count: 9_400), 9_400 - TranscriptPage.size)
+        page.follow(count: 9_400)
+        XCTAssertEqual(page.start(count: 9_400), TranscriptPage.followingStart(count: 9_400))
+    }
+
+    /// Rows leaving the top of the window make SwiftUI estimate the rest again, and a transcript
+    /// that did it with every message went blank (1.2.0); its rows are laid out afresh instead,
+    /// and only then.
+    func testTheRowsAreLaidOutAfreshOnlyWhenTheWindowMovesOn() {
+        var page = TranscriptPage()
+        XCTAssertEqual(page.identity(count: 1_080), page.identity(count: 1_081), "one more message keeps the rows")
+        let moved = (1_000...1_400).filter { page.identity(count: $0) != page.identity(count: $0 - 1) }
+        XCTAssertFalse(moved.isEmpty)
+        XCTAssertEqual(moved, moved.filter { page.start(count: $0) != page.start(count: $0 - 1) }, "identity changes exactly when the first row does")
+        XCTAssertLessThanOrEqual(moved.count, 400 / TranscriptPage.step + 1)
+        // Scrolled up, the rows on screen are kept however far the output runs.
+        page.hold(count: 1_400)
+        let reading = page.identity(count: 1_400)
+        XCTAssertEqual(page.identity(count: 3_000), reading)
+        page.showEarlier(count: 3_000)
+        XCTAssertEqual(page.identity(count: 3_000), reading, "earlier rows are added above the reader, who stays put")
+        // Back at the newest, the rows above went away: afresh.
+        page.follow(count: 3_000)
+        XCTAssertNotEqual(page.identity(count: 3_000), reading)
+        // A blank transcript lays out afresh while following, never under a reader who scrolled up.
+        let following = page.identity(count: 3_000)
+        page.refresh()
+        XCTAssertNotEqual(page.identity(count: 3_000), following)
+        page.hold(count: 3_000)
+        let held = page.identity(count: 3_000)
+        page.refresh()
+        XCTAssertEqual(page.identity(count: 3_000), held)
     }
 
     func testFindAndJumpWidenTheWindowToTheirTarget() {
@@ -239,7 +275,7 @@ final class LongTaskPerformanceTests: XCTestCase {
         XCTAssertFalse(page.reveal(9_000, count: 9_001), "a message on screen needs no change")
         XCTAssertTrue(page.reveal(12, count: 9_001))
         XCTAssertEqual(page.start(count: 9_001), 0)
-        page.follow()
+        page.follow(count: 9_001)
         XCTAssertTrue(page.reveal(5_000, count: 9_001))
         XCTAssertEqual(page.start(count: 9_001), 4_980)
     }

@@ -10,6 +10,13 @@
 //   ax-probe send <pid> <text>                     types into the composer and presses Send
 //   ax-probe press <pid> <title>                   presses the button with this title (a sidebar task)
 //   ax-probe scroll <pid> <0…1>                    moves the transcript's scroller (0 is the top)
+//   ax-probe transcript <pid>                      JSON: the transcript's scroller, and how many of its
+//                                                  elements are on screen (none: it shows blank)
+//   ax-probe shot <pid> <out.png>                  captures the app's window
+//   ax-probe move <pid> <x> <y>                    moves the main window (off every display: not drawn)
+//   ax-probe hide <pid> <1|0>                      hides or shows the app
+//   ax-probe wheel <pid> <px> [steps]              a trackpad scroll over the transcript, posted to
+//                                                  the app only (positive scrolls toward the top)
 //   ax-probe action <pid> <title> <action>          performs a named action (e.g. "Move up") on a row
 //   ax-probe drag <pid> <from> <to> [shot.png]      drags one sidebar row onto another with the real
 //                                                   mouse, capturing the window halfway; moves the pointer
@@ -116,6 +123,99 @@ case "scroll":
     let t0 = now()
     let status = AXUIElementSetAttributeValue(bar as! AXUIElement, kAXValueAttribute as CFString, NSNumber(value: Double(args[3]) ?? 0))
     print(String(format: "%d %.0f", status.rawValue, (now() - t0) * 1000))
+case "wheel":
+    // A trackpad scroll over the transcript (positive: toward earlier messages), posted to the app
+    // alone, so the pointer stays where it is: began, `steps` changes, ended.
+    var best: (AXUIElement, CGRect)?
+    walk(app) { element, role in
+        if role == kAXScrollAreaRole as String, let position = attribute(element, kAXPositionAttribute), let size = attribute(element, kAXSizeAttribute) {
+            var origin = CGPoint.zero, extent = CGSize.zero
+            AXValueGetValue(position as! AXValue, .cgPoint, &origin)
+            AXValueGetValue(size as! AXValue, .cgSize, &extent)
+            if extent.width * extent.height > (best.map { $0.1.width * $0.1.height } ?? 0) { best = (element, CGRect(origin: origin, size: extent)) }
+        }
+        return role != kAXScrollAreaRole as String
+    }
+    guard let area = best?.1 else { print("no scroll area"); exit(1) }
+    let total = Double(args[3]) ?? 400
+    let steps = max(1, args.count > 4 ? Int(args[4]) ?? 12 : 12)
+    let point = CGPoint(x: area.midX, y: area.midY)
+    // AppKit routes a scroll to the window the event names, not to whatever is under the pointer.
+    let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
+    let window = windows.first { info in
+        guard info[kCGWindowOwnerPID as String] as? pid_t == pid, (info[kCGWindowLayer as String] as? Int) == 0,
+              let bounds = info[kCGWindowBounds as String] as? [String: CGFloat] else { return false }
+        return CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0, width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0).contains(point)
+    }?[kCGWindowNumber as String] as? Int64 ?? 0
+    func post(_ delta: Int32, phase: Int64) {
+        guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0) else { return }
+        event.location = point
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: window)
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: window)
+        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(delta))
+        event.postToPid(pid)
+    }
+    post(0, phase: 1)
+    for _ in 0..<steps { usleep(16_000); post(Int32(total / Double(steps)), phase: 2) }
+    usleep(16_000)
+    post(0, phase: 4)
+    print("scrolled \(Int(total)) px in \(steps) steps")
+case "move":
+    // Moves the main window to x,y (screen points); far off every display, it stops being drawn,
+    // as a window behind a full-screen app or on another Space does, without taking the focus.
+    guard args.count > 4, let x = Double(args[3]), let y = Double(args[4]),
+          let window = (attribute(app, kAXWindowsAttribute) as? [AXUIElement])?.first else { print("no window"); exit(1) }
+    var point = CGPoint(x: x, y: y)
+    let value = AXValueCreate(.cgPoint, &point)!
+    print(AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, value) == .success ? "moved" : "failed")
+case "hide":
+    let hidden = args.count > 3 && args[3] != "0"
+    print(AXUIElementSetAttributeValue(app, kAXHiddenAttribute as CFString, hidden as CFBoolean) == .success ? (hidden ? "hidden" : "shown") : "failed")
+case "shot":
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+    guard let id = windows.first(where: { $0[kCGWindowOwnerPID as String] as? pid_t == pid && ($0[kCGWindowLayer as String] as? Int) == 0 })?[kCGWindowNumber as String] as? Int else {
+        print("no window"); exit(1)
+    }
+    let shot = Process(); shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    shot.arguments = ["-x", "-o", "-l", String(id), args[3]]
+    try? shot.run(); shot.waitUntilExit()
+    print(shot.terminationStatus == 0 ? "saved" : "failed")
+case "transcript":
+    // What the transcript shows: its scroller, and the elements inside it that intersect what is
+    // on screen. A blank transcript has rows in its content but none on screen.
+    func frame(_ element: AXUIElement) -> CGRect? {
+        guard let position = attribute(element, kAXPositionAttribute), let size = attribute(element, kAXSizeAttribute) else { return nil }
+        var origin = CGPoint.zero, extent = CGSize.zero
+        AXValueGetValue(position as! AXValue, .cgPoint, &origin)
+        AXValueGetValue(size as! AXValue, .cgSize, &extent)
+        return CGRect(origin: origin, size: extent)
+    }
+    var best: (AXUIElement, CGFloat)?
+    walk(app) { element, role in
+        if role == kAXScrollAreaRole as String, let rect = frame(element), rect.height * rect.width > (best?.1 ?? 0) { best = (element, rect.height * rect.width) }
+        return role != kAXScrollAreaRole as String
+    }
+    guard let area = best?.0, let viewport = frame(area) else { print("{\"error\":\"no scroll area\"}"); exit(1) }
+    let scroller = attribute(area, kAXVerticalScrollBarAttribute).map { attribute($0 as! AXUIElement, kAXValueAttribute) as? Double ?? -1 } ?? -1
+    var total = 0, onScreen = 0, texts: [String] = []
+    var content = CGRect.null
+    walk(area) { element, role in
+        guard let rect = frame(element), element != area, rect.width > 0 else { return true }
+        total += 1
+        content = content.union(rect)
+        if rect.intersects(viewport), role != kAXScrollBarRole as String, role != kAXValueIndicatorRole as String {
+            onScreen += 1
+            if texts.count < 3, let text = (attribute(element, kAXValueAttribute) as? String) ?? (attribute(element, kAXDescriptionAttribute) as? String), !text.isEmpty {
+                texts.append(String(text.prefix(40)))
+            }
+        }
+        return true
+    }
+    let summary: [String: Any] = ["viewport": [viewport.minY, viewport.height], "scroller": scroller, "elements": total,
+                                  "onScreen": onScreen, "content": content.isNull ? [] : [content.minY, content.height], "texts": texts]
+    print(String(data: try! JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys]), encoding: .utf8)!)
 case "action", "drag":
     func find(_ title: String) -> AXUIElement? {
         var found: AXUIElement?

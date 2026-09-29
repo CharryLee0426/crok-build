@@ -54,6 +54,9 @@ struct TranscriptView: View {
         // A copy of the shown rows: views that kept the whole transcript would make each
         // streamed update copy every message of a long task.
         let shown = Array(messages[start...])
+        // A new task, a transcript replaced from its first message, or a window that moved on:
+        // the rows are laid out afresh rather than estimated around the ones that went away.
+        let layout = TranscriptLayoutID(conversation: store.state.selectedConversationID, first: messages.first?.id, page: window.identity(count: count))
         return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: compactConversation ? 10 : 23) {
@@ -87,6 +90,7 @@ struct TranscriptView: View {
                 .environment(\.openImage, store.openImageAction)
                 .frame(maxWidth: 800, alignment: .leading).padding(.horizontal, 36).padding(.top, 34).padding(.bottom, 15).frame(maxWidth: .infinity)
             }
+            .id(layout)
             .defaultScrollAnchor(.bottom)
             .safeAreaInset(edge: .top, spacing: 0) {
                 if tools.findPresented { TranscriptFindBar() }
@@ -124,7 +128,7 @@ struct TranscriptView: View {
                 // window returns to the newest messages.
                 if !following { window.hold(count: count) }
                 else if window.heldStart != nil {
-                    window.follow()
+                    window.follow(count: count)
                     // Rows above the reader went away; stay at the end.
                     DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
@@ -132,6 +136,11 @@ struct TranscriptView: View {
             }
             .modifier(PauseFollowingWhileScrolling(followOutput: $followOutput))
             .modifier(TranscriptScrollObserver(start: start, ids: shown.map(\.id), tools: tools))
+            .modifier(RecoverBlankTranscript(watching: followOutput && !shown.isEmpty) {
+                tools.recordBlankRecovery(messageCount: count)
+                window.refresh()
+                DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+            })
             .overlay(alignment: .bottomTrailing) {
                 if store.run.isRunning {
                     Button { followOutput.toggle(); if followOutput { proxy.scrollTo("bottom", anchor: .bottom) } } label: {
@@ -145,39 +154,90 @@ struct TranscriptView: View {
 }
 
 /// The part of a transcript that is on screen. A task that has run for hours holds thousands
-/// of messages, and SwiftUI walks every row of a list on each update, so only the newest
-/// `size` are shown until the reader asks for earlier ones. While the reader is scrolled up,
-/// the window holds its first message as new ones arrive; following the output again drops
-/// back to the newest `size`.
+/// of messages, and SwiftUI walks every row of a list on each update, so only the newest are
+/// shown until the reader asks for earlier ones: at least `size`, and fewer than `size + step`.
+///
+/// While output is followed, the first row moves on `step` messages at a time, never one by one.
+/// Each row that leaves the top of a lazy stack makes SwiftUI estimate again the height of every
+/// row it has not laid out. A task that moved the window on with every message swung its
+/// content by tens of thousands of points, until the scroll view came to rest where no row was
+/// laid out and the conversation went blank under the Following button. When the window does
+/// move on, `identity` changes, and the rows are laid out afresh from the newest.
+///
+/// While the reader is scrolled up, the window holds its first message as new ones arrive;
+/// following the output again returns to the newest.
 struct TranscriptPage: Equatable {
     static let size = 240
+    static let step = 120
     static let page = 240
-    /// The first message shown, once held; nil shows the newest `size`.
+    /// The first message shown, once held; nil shows the newest.
     private(set) var heldStart: Int?
+    /// The rows' identity while held, so the rows the reader is looking at are kept.
+    private var heldIdentity: Identity?
+    /// Counts the times the rows were laid out afresh without the window moving on.
+    private var generation = 0
+
+    /// Which layout the rows belong to: a new identity lays them out afresh.
+    struct Identity: Hashable {
+        var start: Int
+        var generation: Int
+    }
+
+    /// Where the window starts while following: at least `size` of the newest, in steps of `step`.
+    static func followingStart(count: Int) -> Int {
+        max(0, count - size) / step * step
+    }
 
     func start(count: Int) -> Int {
-        min(heldStart ?? max(0, count - Self.size), max(0, count - 1))
+        min(heldStart ?? Self.followingStart(count: count), max(0, count - 1))
     }
 
-    /// Stops the window from sliding as messages arrive.
+    func identity(count: Int) -> Identity {
+        heldIdentity ?? Identity(start: Self.followingStart(count: count), generation: generation)
+    }
+
+    /// Stops the window from moving on as messages arrive.
     mutating func hold(count: Int) {
-        if heldStart == nil { heldStart = start(count: count) }
+        guard heldStart == nil else { return }
+        heldIdentity = identity(count: count)
+        heldStart = start(count: count)
     }
 
-    /// Back to the newest messages.
-    mutating func follow() { heldStart = nil }
+    /// Back to the newest messages. Rows above the reader go away, so the rest are laid out afresh.
+    mutating func follow(count: Int) {
+        guard let held = heldStart else { return }
+        if held != Self.followingStart(count: count) { generation += 1 }
+        heldStart = nil
+        heldIdentity = nil
+    }
+
+    /// Lays the rows out afresh while following, without moving the window.
+    mutating func refresh() {
+        if heldStart == nil { generation += 1 }
+    }
 
     mutating func showEarlier(count: Int) {
+        let kept = identity(count: count)
         heldStart = max(0, start(count: count) - Self.page)
+        heldIdentity = kept
     }
 
     /// Widens the window to include a message, with a little context above it. Returns whether
     /// it had to, in which case the row exists only after the next update.
     mutating func reveal(_ index: Int, count: Int) -> Bool {
         guard index < start(count: count) else { return false }
+        let kept = identity(count: count)
         heldStart = max(0, index - 20)
+        heldIdentity = kept
         return true
     }
+}
+
+/// Which rows the transcript's scroll view lays out; see `TranscriptPage`.
+private struct TranscriptLayoutID: Hashable {
+    var conversation: UUID?
+    var first: UUID?
+    var page: TranscriptPage.Identity
 }
 
 /// The row above a windowed transcript that brings back earlier messages.
@@ -479,6 +539,35 @@ private struct PauseFollowingWhileScrolling: ViewModifier {
                     let geometry = context.geometry
                     followOutput = geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 40
                 default: break
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// A safety net under `TranscriptPage`: while output is followed, a transcript that has rows
+/// but shows none of them for a moment is laid out afresh, at most every two seconds. Any
+/// sliver of a row counts as shown, so a reply taller than the window is not mistaken for blank.
+/// Needs macOS 15.
+private struct RecoverBlankTranscript: ViewModifier {
+    let watching: Bool
+    let recover: () -> Void
+    @State private var pending: Task<Void, Never>?
+    @State private var recoveredAt = Date.distantPast
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.onScrollTargetVisibilityChange(idType: UUID.self, threshold: 0.001) { ids in
+                pending?.cancel()
+                pending = nil
+                guard ids.isEmpty, watching else { return }
+                pending = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    guard !Task.isCancelled, Date().timeIntervalSince(recoveredAt) > 2 else { return }
+                    recoveredAt = Date()
+                    recover()
                 }
             }
         } else {

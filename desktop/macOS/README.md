@@ -332,7 +332,18 @@ fast as the app reads them and M more at a model's pace, and an accessibility
 probe records how long the main thread takes to answer every 50 ms, alongside
 CPU and memory. It also times launching with, and switching to, a saved
 3,000-round task (`ROUNDS` and `PACED` change the sizes). The probe needs
-Accessibility permission for the terminal.
+Accessibility permission for the terminal, and the app's window must stay on the
+current Space: a window behind a full-screen app is neither laid out nor drawn.
+
+A recorded session can be replayed the same way. `fixture:replay` streams the
+session named by `CROK_FIXTURE_REPLAY`, a `/trace` export or a session's
+`updates.jsonl`, at its recorded pace, and `REPLAY=<file> run-perf.sh <app> <out> replay`
+measures a build while it does, sampling whether the conversation still shows
+its rows. `fixture:mixed:N:M` is `fixture:long` with rows of a real task's varied
+heights. With it, `CROK_DESKTOP_UI_TESTS=1 swift test --filter TranscriptVisibility`
+streams a long task through an offscreen conversation for about a minute and fails
+if the transcript goes blank. Crok Desktop 1.2.0 did after a few hundred messages
+(`CROK_TRANSCRIPT_REPLAY=<file>` runs it on a recording instead).
 
 For isolated development runs, `CROK_DESKTOP_STATE_FILE` selects an absolute path
 for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable, and
