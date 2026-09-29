@@ -13,6 +13,8 @@ struct GitGraphEntry: Identifiable, Equatable {
     var id: String { commit.id }
     let commit: GitCommit
     let row: GitGraphRow
+    /// Its position in the list, for alternating row shading.
+    let index: Int
 }
 
 /// The Git Graph window's state: the selected project's history, laid out in lanes, and the
@@ -140,7 +142,7 @@ final class GitGraphModel: ObservableObject {
     private func apply(_ newGraph: GitGraph) {
         let previous = selectedEntry?.commit
         graph = newGraph
-        entries = zip(newGraph.commits, newGraph.rows).map { GitGraphEntry(commit: $0, row: $1) }
+        entries = zip(newGraph.commits, newGraph.rows).enumerated().map { GitGraphEntry(commit: $1.0, row: $1.1, index: $0) }
         updateMatches()
         if let selectedID, entries.contains(where: { $0.id == selectedID }) {
             // The same commit can come back changed: the uncommitted row lists other files now.

@@ -36,11 +36,22 @@ struct GitBranchList: Equatable, Sendable {
 
 // MARK: - History
 
-/// Which commits the graph shows.
+/// Which commits the graph shows. Tags and remote branches still label the commits shown.
 enum GitGraphScope: String, CaseIterable, Identifiable, Sendable {
-    case all, current
+    /// Every local branch, remote branch, and tag.
+    case all
+    /// Local branches only: in a repository with hundreds of remote branches, the readable view.
+    case local
+    /// The checked-out branch's history.
+    case current
     var id: String { rawValue }
-    var title: String { self == .all ? "All branches" : "Current branch" }
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .local: return "Local"
+        case .current: return "Current"
+        }
+    }
 }
 
 /// A branch or tag pointing at a commit.
@@ -82,6 +93,8 @@ struct GitCommitFile: Identifiable, Hashable, Sendable {
 /// A loaded page of history, laid out as a graph.
 struct GitGraph: Equatable, Sendable {
     var root: String
+    /// What was read: a load for another scope may still be arriving.
+    var scope: GitGraphScope = .all
     var currentBranch: String?
     var headID: String?
     var commits: [GitCommit]
@@ -305,6 +318,7 @@ extension WorkspaceService {
         var revisions: [String]
         switch scope {
         case .all: revisions = ["--branches", "--remotes", "--tags"] + (headID == nil ? [] : ["HEAD"])
+        case .local: revisions = ["--branches"] + (headID == nil ? [] : ["HEAD"])
         case .current: revisions = headID == nil ? [] : ["HEAD"]
         }
         var commits: [GitCommit] = []
@@ -326,7 +340,7 @@ extension WorkspaceService {
         }
         let rows = GitGraphLayout.rows(for: commits)
         let kinds = refs.values.joined().map(\.kind)
-        return .loaded(GitGraph(root: root, currentBranch: currentBranch, headID: headID, commits: commits, rows: rows,
+        return .loaded(GitGraph(root: root, scope: scope, currentBranch: currentBranch, headID: headID, commits: commits, rows: rows,
                                 laneCount: rows.map(\.laneCount).max() ?? 0, hasMore: hasMore,
                                 branchCount: kinds.filter { $0 == .head || $0 == .local }.count,
                                 remoteCount: kinds.filter { $0 == .remote }.count,

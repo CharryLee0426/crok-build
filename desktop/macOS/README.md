@@ -145,9 +145,13 @@ swift test --package-path desktop/macOS
    type a new name to create a branch from the current commit. Uncommitted changes
    come along, and Git refuses a switch that would overwrite them; switching waits
    while a task is working in the project. **Git Graph** beside it (⌥⌘G, or
-   `/git-graph`) opens the project's history in coloured lanes: every branch or
-   only the current one, with branch, remote, and tag badges, search, and each
-   commit's files and diffs. Double-click a branch badge to switch to it.
+   `/git-graph`) opens the project's history in coloured lanes: **All** branches,
+   remote branches, and tags; **Local** branches only, the readable view of a
+   repository with hundreds of remote branches; or the **Current** branch. Lanes
+   narrow to fit the list, and columns give way on a narrow window. It shows
+   branch, remote, and tag badges, search, and each commit's files and diffs;
+   drag the divider to resize the details. Double-click a branch badge to switch
+   to it.
 
 The command catalog is loaded from the harness for the selected project and
 updated during the session. User-invocable skills retain their exact qualified

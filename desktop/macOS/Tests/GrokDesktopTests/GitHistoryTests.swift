@@ -165,6 +165,66 @@ final class GitHistoryParsingTests: XCTestCase {
         XCTAssertEqual(badges[0].remotes, ["origin", "upstream"])
     }
 
+    func testTheSameBranchOnSeveralRemotesIsOneBadge() {
+        let badges = GitRefBadge.badges(for: [
+            GitRef(name: "fork/push-gateway", kind: .remote), GitRef(name: "origin/push-gateway", kind: .remote),
+            GitRef(name: "fork/solo", kind: .remote),
+        ])
+        XCTAssertEqual(badges.map(\.ref.name), ["push-gateway", "fork/solo"])
+        XCTAssertEqual(badges[0].remotes, ["fork", "origin"])
+        XCTAssertEqual(badges[0].target, GitRef(name: "origin/push-gateway", kind: .remote), "a checkout tracks origin when it has the branch")
+        XCTAssertEqual(badges[0].label, "push-gateway (fork, origin)")
+        XCTAssertEqual(badges[1].target, GitRef(name: "fork/solo", kind: .remote))
+    }
+
+    func testColumnLayoutKeepsFewLanesAtFullWidth() {
+        let layout = GitGraphColumnLayout.make(width: 1000, lanes: 3)
+        XCTAssertEqual(layout.laneWidth, 16)
+        XCTAssertEqual(layout.visibleLanes, 3)
+        XCTAssertFalse(layout.isClipped)
+        XCTAssertEqual(layout.graph, GitGraphColumnLayout.minGraph, "two or three lanes still leave room for the column title")
+        XCTAssertGreaterThan(layout.author, 0)
+        XCTAssertGreaterThan(layout.date, 0)
+        XCTAssertGreaterThan(layout.hash, 0)
+    }
+
+    func testColumnLayoutNarrowsManyLanesBeforeClippingAny() {
+        // The default window's list, with a history 33 lanes wide.
+        let layout = GitGraphColumnLayout.make(width: 879, lanes: 33)
+        XCTAssertEqual(layout.laneWidth, 7.5)
+        XCTAssertEqual(layout.visibleLanes, 33)
+        XCTAssertFalse(layout.isClipped)
+        XCTAssertGreaterThanOrEqual(layout.description, GitGraphColumnLayout.minDescription)
+
+        let crowded = GitGraphColumnLayout.make(width: 879, lanes: 80)
+        XCTAssertEqual(crowded.laneWidth, GitGraphColumnLayout.minLaneWidth)
+        XCTAssertTrue(crowded.isClipped)
+        XCTAssertLessThan(crowded.visibleLanes, 80)
+        XCTAssertGreaterThanOrEqual(crowded.description, GitGraphColumnLayout.minDescription)
+    }
+
+    func testColumnLayoutDropsAuthorThenHashThenDate() {
+        let narrow = GitGraphColumnLayout.make(width: 500, lanes: 33)
+        XCTAssertEqual(narrow.author, 0)
+        XCTAssertEqual(narrow.hash, 0)
+        XCTAssertGreaterThan(narrow.date, 0)
+        let narrower = GitGraphColumnLayout.make(width: 380, lanes: 33)
+        XCTAssertEqual(narrower.date, 0)
+    }
+
+    func testColumnLayoutNeverOverflowsTheList() {
+        for width in stride(from: 320.0, through: 2_400, by: 37) {
+            for lanes in [1, 2, 5, 12, 24, 33, 60, 150] {
+                let layout = GitGraphColumnLayout.make(width: width, lanes: lanes)
+                let used = GitGraphColumnLayout.leading + layout.graph + layout.description + layout.author + layout.date + layout.hash
+                    + GitGraphColumnLayout.trailing
+                XCTAssertLessThanOrEqual(used, width + 0.5, "width \(width), lanes \(lanes)")
+                XCTAssertLessThanOrEqual(layout.visibleLanes, lanes)
+                XCTAssertGreaterThanOrEqual(layout.laneWidth, GitGraphColumnLayout.minLaneWidth)
+            }
+        }
+    }
+
     func testRelativeDates() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         XCTAssertEqual(GitDateFormat.relative(now.addingTimeInterval(-20), now: now), "just now")

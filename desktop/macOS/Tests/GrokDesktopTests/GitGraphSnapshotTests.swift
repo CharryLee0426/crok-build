@@ -5,21 +5,28 @@ import XCTest
 
 /// Renders the Git Graph window, the composer's branch footer, and the branch picker for a
 /// fixture repository with several branches, merges, tags, and authors, when
-/// CROK_DESKTOP_SNAPSHOT_DIR is set.
+/// CROK_DESKTOP_SNAPSHOT_DIR is set. With CROK_GIT_GRAPH_REPO naming a repository, it renders
+/// that repository's graph instead, only reading from it.
 @MainActor
 final class GitGraphSnapshotTests: XCTestCase {
     private var directory: URL!
     private var repository: URL!
     private var store: AppStore!
     private var defaultsName = ""
+    private let existingRepository = ProcessInfo.processInfo.environment["CROK_GIT_GRAPH_REPO"]
 
     override func setUp() async throws {
         guard ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] != nil else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("crok-git-graph-snapshots-\(UUID().uuidString)", isDirectory: true)
             .resolvingSymlinksInPath()
-        repository = directory.appendingPathComponent("aurora", isDirectory: true)
-        try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
-        try makeHistory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let existingRepository {
+            repository = URL(fileURLWithPath: existingRepository, isDirectory: true)
+        } else {
+            repository = directory.appendingPathComponent("aurora", isDirectory: true)
+            try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
+            try makeHistory()
+        }
         defaultsName = "GrokDesktopGitGraph.\(UUID().uuidString)"
         store = AppStore(stateFile: directory.appendingPathComponent("state.json"), defaults: UserDefaults(suiteName: defaultsName)!, binaryPath: "/usr/bin/false")
         let project = Project(path: repository.path)
@@ -34,7 +41,50 @@ final class GitGraphSnapshotTests: XCTestCase {
         if let directory { try? FileManager.default.removeItem(at: directory) }
     }
 
+    /// A real repository at the sizes people use the window, further down its history where the
+    /// most lanes are open, and with only local branches.
+    func testRenderAnExistingRepository() async throws {
+        guard existingRepository != nil else { throw XCTSkip("Set CROK_GIT_GRAPH_REPO to render a repository's graph") }
+        let model = store.features.gitGraph
+        model.scope = .all
+        for width in [1280.0, 1000.0, 900.0] {
+            try await render("repository-\(Int(width))", GitGraphWindow(), size: CGSize(width: width, height: 820)) { model.phase == .loaded }
+        }
+        print("GIT-GRAPH all: commits \(model.graph?.rows.count ?? 0) lanes \(model.graph?.laneCount ?? 0)")
+        // The lanes further down, where the most are open, as the default window lays them out.
+        if let graph = model.graph, graph.rows.count > 40 {
+            let layout = GitGraphColumnLayout.make(width: 879, lanes: graph.laneCount)
+            let start = graph.rows.count * 2 / 5
+            let slice = VStack(spacing: 0) {
+                ForEach(start..<min(graph.rows.count, start + 26), id: \.self) { index in
+                    HStack(spacing: 8) {
+                        GitGraphLanes(row: graph.rows[index], node: graph.commits[index].isMerge ? .merge : .commit, layout: layout)
+                            .frame(width: layout.graph, height: GitGraphColumnLayout.rowHeight)
+                        Text(graph.commits[index].subject).font(.system(size: 12)).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }.padding(8)
+            try await render("repository-lanes", slice, size: CGSize(width: 720, height: 26 * GitGraphColumnLayout.rowHeight + 16))
+            print("GIT-GRAPH layout lane width \(layout.laneWidth) visible \(layout.visibleLanes)/\(layout.lanes) graph \(layout.graph) description \(layout.description)")
+        }
+        if model.entries.count > 1 {
+            let deep = model.entries[min(model.entries.count - 1, model.entries.count * 2 / 5)].id
+            try await render("repository-1280-deep", GitGraphWindow(), size: CGSize(width: 1280, height: 820)) {
+                if model.selectedID != deep { model.select(deep, scroll: true) }
+                return model.phase == .loaded
+            }
+        }
+        model.scope = .local
+        try await render("repository-local", GitGraphWindow(), size: CGSize(width: 1280, height: 820)) {
+            model.phase == .loaded && model.graph?.scope == .local
+        }
+        print("GIT-GRAPH local: commits \(model.graph?.rows.count ?? 0) lanes \(model.graph?.laneCount ?? 0)")
+        model.scope = .all
+    }
+
     func testRenderGitGraphWindowFooterAndBranchPicker() async throws {
+        guard existingRepository == nil else { throw XCTSkip("Renders the fixture repository") }
         let model = store.features.gitGraph
         try await render("git-graph", GitGraphWindow(), size: CGSize(width: 1280, height: 820)) {
             guard model.phase == .loaded else { return false }

@@ -69,18 +69,18 @@ struct GitGraphWindow: View {
             }.padding(40)
         case .loaded:
             if let graph = model.graph, !model.entries.isEmpty {
-                HSplitView {
-                    GitGraphList(graph: graph).frame(minWidth: 520, idealWidth: 760)
-                    Group {
-                        if let entry = model.selectedEntry {
-                            GitCommitDetailView(entry: entry, headID: graph.headID, branch: graph.currentBranch)
-                        } else {
-                            SessionEmptyState(symbol: "point.topleft.down.to.point.bottomright.curvepath", title: "Select a commit")
-                        }
-                    }.frame(minWidth: 320, idealWidth: 420, maxHeight: .infinity)
+                GitGraphSplit {
+                    GitGraphList(graph: graph)
+                } detail: {
+                    if let entry = model.selectedEntry {
+                        GitCommitDetailView(entry: entry, headID: graph.headID, branch: graph.currentBranch)
+                    } else {
+                        SessionEmptyState(symbol: "point.topleft.down.to.point.bottomright.curvepath", title: "Select a commit")
+                    }
                 }
             } else {
-                SessionEmptyState(symbol: "arrow.triangle.branch", title: "No commits yet", detail: "Commits you make in this repository will show up here.")
+                SessionEmptyState(symbol: "arrow.triangle.branch", title: "No commits yet",
+                                  detail: model.scope == .all ? "Commits you make in this repository will show up here." : "Try All to include every branch.")
             }
         }
     }
@@ -96,13 +96,16 @@ private struct GitGraphHeader: View {
                 Text("Git Graph").font(.system(size: 15, weight: .semibold))
                 Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
             }
+            .layoutPriority(-1)
             Spacer(minLength: 12)
             Picker("Show", selection: $model.scope) {
                 ForEach(GitGraphScope.allCases) { Text($0.title).tag($0) }
-            }.pickerStyle(.segmented).labelsHidden().fixedSize().help("Show every branch, or only the history of the current one")
+            }
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            .help("All: every branch, remote branch, and tag · Local: your own branches · Current: the checked-out branch's history")
             NativeSearchField(text: $model.query, placeholder: "Search history", onEscape: { model.query = "" },
                               onSubmit: { model.nextMatch() }, onMove: { model.nextMatch($0) }, focusesOnAppear: false)
-                .frame(width: 250, height: 32)
+                .frame(width: 230, height: 32)
             if !model.query.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text(model.matches.isEmpty ? "No matches" : model.matchPosition.map { "\($0) of \(model.matches.count)" } ?? "\(model.matches.count) found")
                     .font(.system(size: 12)).monospacedDigit().foregroundStyle(Theme.muted).fixedSize()
@@ -124,23 +127,106 @@ private struct GitGraphHeader: View {
         let commits = graph.commits.filter { !$0.isUncommitted }.count
         parts.append("\(commits)\(graph.hasMore ? "+" : "") commits")
         parts.append(graph.branchCount == 1 ? "1 branch" : "\(graph.branchCount) branches")
+        if graph.remoteCount > 0 { parts.append("\(graph.remoteCount) remote") }
         if graph.tagCount > 0 { parts.append(graph.tagCount == 1 ? "1 tag" : "\(graph.tagCount) tags") }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 
+private let defaultGitGraphDetailWidth: Double = 400
+
+/// The commit list beside the details, with a divider that drags to resize the details.
+private struct GitGraphSplit<List: View, Detail: View>: View {
+    @AppStorage("gitGraphDetailWidth") private var detailWidth = defaultGitGraphDetailWidth
+    @State private var dragStart: CGFloat?
+    @State private var showsResizeCursor = false
+    @ViewBuilder var list: () -> List
+    @ViewBuilder var detail: () -> Detail
+
+    var body: some View {
+        GeometryReader { geometry in
+            let total = geometry.size.width
+            let width = Self.clamp(CGFloat(detailWidth), total: total)
+            HStack(spacing: 0) {
+                list().frame(width: max(0, total - width - 1))
+                Rectangle().fill(Theme.line.opacity(0.5)).frame(width: 1)
+                    .overlay {
+                        Color.clear.frame(width: 9).contentShape(Rectangle())
+                            .onHover { inside in
+                                guard inside != showsResizeCursor else { return }
+                                showsResizeCursor = inside
+                                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                            }
+                            .gesture(DragGesture(minimumDistance: 1)
+                                .onChanged { value in
+                                    let start = dragStart ?? width
+                                    dragStart = start
+                                    detailWidth = Double(Self.clamp(start - value.translation.width, total: total))
+                                }
+                                .onEnded { _ in dragStart = nil })
+                            .onTapGesture(count: 2) { detailWidth = defaultGitGraphDetailWidth }
+                            .help("Drag to resize · double-click to reset")
+                    }
+                detail().frame(width: width).frame(maxHeight: .infinity)
+            }
+        }
+        .onDisappear { if showsResizeCursor { NSCursor.pop(); showsResizeCursor = false } }
+    }
+
+    /// The details keep at least 300 points and leave the list at least 460.
+    static func clamp(_ width: CGFloat, total: CGFloat) -> CGFloat {
+        min(max(width, 300), max(300, total - 461))
+    }
+}
+
 // MARK: - Commit list
 
-private enum GitGraphColumns {
-    static let rowHeight: CGFloat = 28
-    static let author: CGFloat = 150
-    static let date: CGFloat = 92
-    static let hash: CGFloat = 70
-    /// Lanes past this are clipped; histories this wide are rare and unreadable anyway.
-    static let maxLanes = 24
+/// How a list row's width is shared. The graph gets about a third, its lanes narrowing (down to
+/// 7 points) before any are clipped, and the description always keeps room: author, then hash,
+/// then date make way on a narrow pane. Nothing in a row is ever wider than the list.
+struct GitGraphColumnLayout: Equatable {
+    static let inset: CGFloat = 4
+    static let maxLaneWidth: CGFloat = 16
+    static let minLaneWidth: CGFloat = 7
+    static let leading: CGFloat = 6
+    static let trailing: CGFloat = 12
+    static let minDescription: CGFloat = 240
+    static let minGraph: CGFloat = 56
+    static let rowHeight: CGFloat = 30
 
-    static func graphWidth(lanes: Int) -> CGFloat {
-        GitGraphLanes.inset * 2 + GitGraphLanes.laneWidth * CGFloat(max(1, min(lanes, maxLanes)))
+    var graph: CGFloat
+    var laneWidth: CGFloat
+    /// Lanes drawn; lanes past this are clipped behind a fade.
+    var visibleLanes: Int
+    var lanes: Int
+    var description: CGFloat
+    /// Zero when the column is hidden.
+    var author: CGFloat
+    var date: CGFloat
+    var hash: CGFloat
+
+    var isClipped: Bool { visibleLanes < lanes }
+
+    static func make(width: CGFloat, lanes: Int) -> Self {
+        let available = max(0, width - leading - trailing)
+        let lanes = max(1, lanes)
+        let budget = max(inset * 2 + maxLaneWidth, (available * 0.3).rounded(.down))
+        var laneWidth = maxLaneWidth
+        var visible = lanes
+        if inset * 2 + maxLaneWidth * CGFloat(lanes) > budget {
+            // Half-point steps keep lines on the pixel grid of a Retina display.
+            laneWidth = max(minLaneWidth, (((budget - inset * 2) / CGFloat(lanes)) * 2).rounded(.down) / 2)
+            visible = max(1, min(lanes, Int((budget - inset * 2) / laneWidth)))
+        }
+        // At least wide enough for the column's title.
+        let graph = max(minGraph, inset * 2 + laneWidth * CGFloat(visible))
+        var author: CGFloat = 130, hash: CGFloat = 64, date: CGFloat = 80
+        func description() -> CGFloat { available - graph - author - hash - date }
+        if description() < minDescription { author = 0 }
+        if description() < minDescription { hash = 0 }
+        if description() < minDescription { date = 0 }
+        return Self(graph: graph, laneWidth: laneWidth, visibleLanes: visible, lanes: lanes,
+                    description: max(0, description()), author: author, date: date, hash: hash)
     }
 }
 
@@ -150,45 +236,42 @@ private struct GitGraphList: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        let lanes = min(graph.laneCount, GitGraphColumns.maxLanes)
-        let graphWidth = GitGraphColumns.graphWidth(lanes: lanes)
-        let searching = !model.query.trimmingCharacters(in: .whitespaces).isEmpty
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Text("Graph").frame(width: graphWidth, alignment: .leading).padding(.leading, 4)
-                Text("Description").frame(maxWidth: .infinity, alignment: .leading)
-                Text("Author").frame(width: GitGraphColumns.author, alignment: .leading)
-                Text("Date").frame(width: GitGraphColumns.date, alignment: .leading)
-                Text("Commit").frame(width: GitGraphColumns.hash, alignment: .leading)
-            }
-            .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
-            .padding(.leading, 6).padding(.trailing, 12).frame(height: 28)
-            Divider().overlay(Theme.line.opacity(0.4))
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(model.entries) { entry in
-                            GitGraphRowView(entry: entry, lanes: lanes, graphWidth: graphWidth,
-                                            isHead: entry.id == graph.headID, isSelected: entry.id == model.selectedID,
-                                            isDimmed: searching && !model.isMatch(entry.id))
-                                .id(entry.id)
+        GeometryReader { geometry in
+            let layout = GitGraphColumnLayout.make(width: geometry.size.width, lanes: graph.laneCount)
+            let searching = !model.query.trimmingCharacters(in: .whitespaces).isEmpty
+            // Rows from the uncommitted changes down to HEAD carry that lane dashed.
+            let uncommittedColor = model.entries.first.flatMap { $0.commit.isUncommitted ? $0.row.color : nil }
+            let headIndex = model.entries.first { $0.id == graph.headID }?.index ?? model.entries.count
+            VStack(spacing: 0) {
+                header(layout)
+                Divider().overlay(Theme.line.opacity(0.4))
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(model.entries) { entry in
+                                GitGraphRowView(entry: entry, layout: layout,
+                                                isHead: entry.id == graph.headID, isSelected: entry.id == model.selectedID,
+                                                isDimmed: searching && !model.isMatch(entry.id),
+                                                dashedColor: entry.index <= headIndex ? uncommittedColor : nil)
+                                    .id(entry.id)
+                            }
+                            if graph.hasMore {
+                                Button { model.loadMore() } label: {
+                                    Label("Load \(GitGraphModel.pageSize) more commits", systemImage: "arrow.down.circle")
+                                        .font(.system(size: 13, weight: .medium))
+                                }.buttonStyle(SubtleButtonStyle()).padding(.vertical, 16).disabled(model.isLoading)
+                            }
                         }
-                        if graph.hasMore {
-                            Button { model.loadMore() } label: {
-                                Label("Load \(GitGraphModel.pageSize) more commits", systemImage: "arrow.down.circle")
-                                    .font(.system(size: 13, weight: .medium))
-                            }.buttonStyle(SubtleButtonStyle()).padding(.vertical, 16).disabled(model.isLoading)
-                        }
+                        .padding(.bottom, 8)
                     }
-                    .padding(.leading, 6)
+                    .onChange(of: model.scrollRequest) { _, request in
+                        guard let request else { return }
+                        withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(request.id, anchor: .center) }
+                    }
                 }
-                .onChange(of: model.scrollRequest) { _, request in
-                    guard let request else { return }
-                    withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(request.id, anchor: .center) }
-                }
+                // Clicking a commit takes the keyboard back from the search field, for the arrow keys.
+                .simultaneousGesture(TapGesture().onEnded { focused = true })
             }
-            // Clicking a commit takes the keyboard back from the search field, for the arrow keys.
-            .simultaneousGesture(TapGesture().onEnded { focused = true })
         }
         .focusable()
         .focusEffectDisabled()
@@ -201,34 +284,56 @@ private struct GitGraphList: View {
         .onKeyPress(.end) { model.moveSelection(model.entries.count); return .handled }
         .onAppear { focused = true }
     }
+
+    private func header(_ layout: GitGraphColumnLayout) -> some View {
+        HStack(spacing: 0) {
+            Text("Graph").padding(.leading, GitGraphColumnLayout.inset)
+                .frame(width: layout.graph, alignment: .leading)
+                .help(layout.isClipped ? "\(layout.lanes) lanes; widen the list or choose Local to see them all" : "\(layout.lanes) lanes")
+            Text("Description").frame(width: layout.description, alignment: .leading)
+            if layout.author > 0 { Text("Author").frame(width: layout.author, alignment: .leading) }
+            if layout.date > 0 { Text("Date").frame(width: layout.date, alignment: .leading) }
+            if layout.hash > 0 { Text("Commit").frame(width: layout.hash, alignment: .leading) }
+        }
+        .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted).lineLimit(1)
+        .padding(.leading, GitGraphColumnLayout.leading).padding(.trailing, GitGraphColumnLayout.trailing)
+        .frame(height: 28)
+    }
 }
 
 private struct GitGraphRowView: View {
     @EnvironmentObject var model: GitGraphModel
     let entry: GitGraphEntry
-    let lanes: Int
-    let graphWidth: CGFloat
+    let layout: GitGraphColumnLayout
     let isHead: Bool
     let isSelected: Bool
     let isDimmed: Bool
+    var dashedColor: Int?
     @State private var hovered = false
 
     var body: some View {
         let commit = entry.commit
-        let color = GitGraphPalette.color(entry.row.color)
         HStack(spacing: 0) {
-            GitGraphLanes(row: entry.row, node: node, lanes: lanes)
-                .frame(width: graphWidth, height: GitGraphColumns.rowHeight)
+            GitGraphLanes(row: entry.row, node: node, layout: layout, dashedColor: dashedColor)
+                .frame(width: layout.graph, height: GitGraphColumnLayout.rowHeight)
             // A search dims the text of other commits but never the graph, so the lanes stay whole.
-            columns(commit, color: color).opacity(isDimmed ? 0.35 : 1)
+            columns(commit).opacity(isDimmed ? 0.35 : 1)
         }
-        .font(.system(size: 12)).foregroundStyle(Theme.muted)
-        .padding(.trailing, 12)
-        .frame(height: GitGraphColumns.rowHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+        .padding(.leading, GitGraphColumnLayout.leading).padding(.trailing, GitGraphColumnLayout.trailing)
+        .frame(height: GitGraphColumnLayout.rowHeight)
         .background {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Theme.accent.opacity(0.18) : hovered ? Theme.hover.opacity(0.7) : .clear)
-                .padding(.vertical, 1)
+            ZStack {
+                if entry.index % 2 == 1 { Theme.tableStripe }
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 7).fill(Theme.accent.opacity(0.17))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
+                        .padding(.horizontal, 3).padding(.vertical, 1)
+                } else if hovered {
+                    RoundedRectangle(cornerRadius: 7).fill(Theme.hover.opacity(0.8)).padding(.horizontal, 3).padding(.vertical, 1)
+                }
+            }
         }
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
@@ -239,32 +344,58 @@ private struct GitGraphRowView: View {
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
 
-    /// Everything right of the graph: badges and subject, author, date, and hash.
-    private func columns(_ commit: GitCommit, color: Color) -> some View {
+    /// Everything right of the graph, each in the width the layout gives it.
+    private func columns(_ commit: GitCommit) -> some View {
         HStack(spacing: 0) {
-            HStack(spacing: 5) {
-                ForEach(GitRefBadge.badges(for: commit.refs)) { badge in
-                    GitRefBadge(badge: badge, color: color)
-                }
-                Text(commit.subject.isEmpty ? "(no message)" : commit.subject)
-                    .font(.system(size: 13, weight: isHead ? .semibold : .regular))
-                    .italic(commit.isUncommitted)
-                    .foregroundStyle(commit.isUncommitted ? Theme.muted : Theme.ink)
-                    .lineLimit(1).truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 10).clipped()
-            Group {
-                if !commit.isUncommitted {
-                    HStack(spacing: 6) {
-                        GitAuthorAvatar(name: commit.author, key: commit.email, size: 16)
-                        Text(commit.author).lineLimit(1).truncationMode(.tail)
+            description(commit)
+                .padding(.trailing, 10)
+                .frame(width: layout.description, alignment: .leading).clipped()
+            if layout.author > 0 {
+                // The stack stays even when empty (the uncommitted row), so the column keeps its width.
+                HStack(spacing: 6) {
+                    if !commit.isUncommitted {
+                        GitAuthorAvatar(name: commit.author, key: commit.email, size: 17)
+                        Text(commit.author).truncationMode(.tail)
                     }
                 }
-            }.frame(width: GitGraphColumns.author, alignment: .leading)
-            Text(commit.isUncommitted ? "" : GitDateFormat.relative(commit.date))
-                .frame(width: GitGraphColumns.date, alignment: .leading).help(GitDateFormat.full(commit.date))
-            Text(commit.shortID).font(.system(size: 11.5, design: .monospaced))
-                .frame(width: GitGraphColumns.hash, alignment: .leading)
+                .padding(.trailing, 8)
+                .frame(width: layout.author, alignment: .leading).clipped()
+            }
+            if layout.date > 0 {
+                Text(commit.isUncommitted ? "" : GitDateFormat.relative(commit.date)).monospacedDigit()
+                    .frame(width: layout.date, alignment: .leading).help(GitDateFormat.full(commit.date))
+            }
+            if layout.hash > 0 {
+                Text(commit.isUncommitted ? "" : commit.shortID).font(.system(size: 11.5, design: .monospaced))
+                    .frame(width: layout.hash, alignment: .leading)
+            }
+        }
+    }
+
+    /// Up to two branch or tag badges, a "+N" for the rest, then the subject in what is left.
+    private func description(_ commit: GitCommit) -> some View {
+        let badges = GitRefBadge.badges(for: commit.refs)
+        let shown = layout.description >= 400 ? 2 : 1
+        let hidden = badges.dropFirst(shown)
+        let color = GitGraphPalette.color(entry.row.color)
+        let badgeWidth = min(220, max(96, (layout.description - 10) * (min(shown, badges.count) > 1 ? 0.38 : 0.5)))
+        return HStack(spacing: 5) {
+            ForEach(badges.prefix(shown)) { badge in
+                GitRefBadge(badge: badge, color: color, maxWidth: badgeWidth, compact: true)
+            }
+            if !hidden.isEmpty {
+                Text("+\(hidden.count)").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(color)
+                    .padding(.horizontal, 5).frame(height: 18)
+                    .background(color.opacity(0.12), in: Capsule())
+                    .fixedSize()
+                    .help(hidden.map(\.label).joined(separator: "\n"))
+            }
+            Text(commit.subject.isEmpty ? "(no message)" : commit.subject)
+                .font(.system(size: 13, weight: isHead ? .semibold : .regular))
+                .italic(commit.isUncommitted)
+                .foregroundStyle(commit.isUncommitted ? Theme.muted : Theme.ink)
+                .truncationMode(.tail)
+                .help(commit.subject)
         }
     }
 
@@ -284,128 +415,187 @@ private struct GitGraphRowView: View {
     }
 }
 
-/// A row's slice of the graph: the lanes crossing it, curves into and out of its lanes, and the commit's node.
+/// A row's slice of the graph: the lanes crossing it, curves into and out of its lanes, and the
+/// commit's node, scaled to the layout's lane width. Lanes past the visible ones run out under a
+/// fade at the right edge.
 struct GitGraphLanes: View {
     enum Node: Equatable { case commit, merge, head, uncommitted }
 
-    static let laneWidth: CGFloat = 16
-    static let inset: CGFloat = 4
-
     let row: GitGraphRow
     let node: Node
-    /// Lanes past this count are not drawn.
-    let lanes: Int
+    let layout: GitGraphColumnLayout
+    /// The lane from the uncommitted changes down to HEAD, drawn dashed like its node.
+    var dashedColor: Int?
 
     var body: some View {
-        Canvas { context, size in
-            let height = size.height
-            let mid = height / 2
-            let radius = min(mid - 2, 7)
-            func x(_ lane: Int) -> CGFloat { Self.inset + Self.laneWidth * (CGFloat(lane) + 0.5) }
-            func stroke(_ path: Path, _ color: Int, dashed: Bool = false) {
-                context.stroke(path, with: .color(GitGraphPalette.color(color)),
-                               style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: dashed ? [2, 3.5] : []))
+        let offscreen = row.column >= layout.visibleLanes
+        Canvas { context, size in draw(in: &context, size: size) }
+            .mask {
+                if layout.isClipped {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 18)
+                    }
+                } else {
+                    Rectangle()
+                }
             }
-            func line(_ lane: Int, from top: CGFloat, to bottom: CGFloat, color: Int, dashed: Bool = false) {
-                var path = Path()
-                path.move(to: CGPoint(x: x(lane), y: top))
-                path.addLine(to: CGPoint(x: x(lane), y: bottom))
-                stroke(path, color, dashed: dashed)
+            .overlay(alignment: .trailing) {
+                // A commit on a clipped lane still shows which branch it is on.
+                if offscreen {
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(GitGraphPalette.color(row.color)).padding(.trailing, 1)
+                }
             }
+            .accessibilityHidden(true)
+    }
 
-            for lane in row.above.indices where lane < lanes && row.passesThrough(lane) {
-                if let color = row.above[lane] { line(lane, from: 0, to: height, color: color) }
-            }
-            let column = row.column
-            let center = x(column)
-            if row.up, column < row.above.count, let color = row.above[column] { line(column, from: 0, to: mid, color: color) }
-            if row.down, column < row.below.count, let color = row.below[column] {
-                line(column, from: mid, to: height, color: color, dashed: node == .uncommitted)
-            }
-            // A child on another lane joins the node: down its lane, then a rounded turn across.
-            for edge in row.mergesIn where edge.lane < lanes {
-                let edgeX = x(edge.lane)
+    private func draw(in context: inout GraphicsContext, size: CGSize) {
+        let lane = layout.laneWidth
+        let height = size.height
+        let mid = height / 2
+        let visible = layout.visibleLanes
+        let radius = min(mid - 2, 7, lane)
+        let lineWidth: CGFloat = lane >= 12 ? 2 : 1.6
+        // Lanes past the visible ones are drawn to just beyond the edge, under the fade.
+        func x(_ index: Int) -> CGFloat {
+            GitGraphColumnLayout.inset + lane * (CGFloat(min(index, visible)) + 0.5)
+        }
+        /// `dashed` nil: dashed only on the uncommitted lane.
+        func stroke(_ path: Path, _ color: Int, dashed: Bool? = nil) {
+            let dashes = dashed ?? (color == dashedColor)
+            context.stroke(path, with: .color(GitGraphPalette.color(color)),
+                           style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round, dash: dashes ? [2, 3.5] : []))
+        }
+        func line(_ index: Int, from top: CGFloat, to bottom: CGFloat, color: Int, dashed: Bool? = nil) {
+            var path = Path()
+            path.move(to: CGPoint(x: x(index), y: top))
+            path.addLine(to: CGPoint(x: x(index), y: bottom))
+            stroke(path, color, dashed: dashed)
+        }
+
+        for index in row.above.indices where index < visible && row.passesThrough(index) {
+            if let color = row.above[index] { line(index, from: 0, to: height, color: color) }
+        }
+        let column = row.column
+        let center = x(column)
+        if row.up, column < row.above.count, let color = row.above[column] { line(column, from: 0, to: mid, color: color) }
+        if row.down, column < row.below.count, let color = row.below[column] {
+            // HEAD's own history below it is solid, though its lane arrives dashed.
+            line(column, from: mid, to: height, color: color, dashed: node == .uncommitted)
+        }
+        // A child on another lane joins the node: down its lane, then a rounded turn across.
+        for edge in row.mergesIn {
+            let edgeX = x(edge.lane)
+            var path = Path()
+            if edge.lane < visible && edgeX != center {
                 let toward: CGFloat = center > edgeX ? 1 : -1
-                var path = Path()
                 path.move(to: CGPoint(x: edgeX, y: 0))
                 path.addLine(to: CGPoint(x: edgeX, y: mid - radius))
                 path.addQuadCurve(to: CGPoint(x: edgeX + toward * radius, y: mid), control: CGPoint(x: edgeX, y: mid))
-                path.addLine(to: CGPoint(x: center, y: mid))
-                stroke(path, edge.color)
+            } else {
+                path.move(to: CGPoint(x: edgeX, y: mid))
             }
-            // Another parent: across from the node, then a rounded turn down its lane.
-            for edge in row.branchesOut where edge.lane < lanes {
-                let edgeX = x(edge.lane)
+            path.addLine(to: CGPoint(x: center, y: mid))
+            stroke(path, edge.color)
+        }
+        // Another parent: across from the node, then a rounded turn down its lane.
+        for edge in row.branchesOut {
+            let edgeX = x(edge.lane)
+            var path = Path()
+            path.move(to: CGPoint(x: center, y: mid))
+            if edge.lane < visible && edgeX != center {
                 let toward: CGFloat = center > edgeX ? 1 : -1
-                var path = Path()
-                path.move(to: CGPoint(x: center, y: mid))
                 path.addLine(to: CGPoint(x: edgeX + toward * radius, y: mid))
                 path.addQuadCurve(to: CGPoint(x: edgeX, y: mid + radius), control: CGPoint(x: edgeX, y: mid))
                 path.addLine(to: CGPoint(x: edgeX, y: height))
-                stroke(path, edge.color)
+            } else {
+                path.addLine(to: CGPoint(x: edgeX, y: mid))
             }
-
-            guard column < lanes else { return }
-            let color = GitGraphPalette.color(row.color)
-            func circle(_ radius: CGFloat) -> Path {
-                Path(ellipseIn: CGRect(x: center - radius, y: mid - radius, width: radius * 2, height: radius * 2))
-            }
-            // Hollow nodes clear the lines under them, so the row's background shows through.
-            func clear(_ radius: CGFloat) {
-                var eraser = context
-                eraser.blendMode = .clear
-                eraser.fill(circle(radius), with: .color(.black))
-            }
-            switch node {
-            case .commit:
-                context.fill(circle(4.5), with: .color(color))
-            case .merge:
-                clear(5.5)
-                context.stroke(circle(4.25), with: .color(color), lineWidth: 2.2)
-            case .head:
-                context.fill(circle(8), with: .color(color.opacity(0.28)))
-                context.fill(circle(5.5), with: .color(color))
-                context.fill(circle(2.2), with: .color(.white))
-            case .uncommitted:
-                clear(6)
-                context.stroke(circle(4.75), with: .color(color), style: StrokeStyle(lineWidth: 1.8, dash: [2.2, 2.2]))
-            }
+            stroke(path, edge.color)
         }
-        .accessibilityHidden(true)
+
+        guard column < visible else { return }
+        let color = GitGraphPalette.color(row.color)
+        let dot = min(4.5, lane * 0.3 + 0.8)
+        func circle(_ radius: CGFloat) -> Path {
+            Path(ellipseIn: CGRect(x: center - radius, y: mid - radius, width: radius * 2, height: radius * 2))
+        }
+        // Hollow nodes clear the lines under them, so the row's background shows through.
+        func clear(_ radius: CGFloat) {
+            var eraser = context
+            eraser.blendMode = .clear
+            eraser.fill(circle(radius), with: .color(.black))
+        }
+        switch node {
+        case .commit:
+            context.fill(circle(dot), with: .color(color))
+        case .merge:
+            clear(dot + 1)
+            context.stroke(circle(dot - 0.25), with: .color(color), lineWidth: lineWidth + 0.2)
+        case .head:
+            context.fill(circle(dot + 3.5), with: .color(color.opacity(0.28)))
+            context.fill(circle(dot + 1), with: .color(color))
+            context.fill(circle(max(1.5, dot * 0.45)), with: .color(.white))
+        case .uncommitted:
+            clear(dot + 1.5)
+            context.stroke(circle(dot + 0.25), with: .color(color), style: StrokeStyle(lineWidth: 1.8, dash: [2.2, 2.2]))
+        }
     }
 }
 
 // MARK: - Badges
 
 struct GitRefBadge: View {
-    /// A branch together with the remote branches of the same name on the same commit.
+    /// A branch together with the remote branches of the same name on the same commit, or a tag.
     struct Model: Identifiable, Equatable {
         let ref: GitRef
+        /// Remotes whose branch of this name points here too, shown as small cloud labels.
         var remotes: [String] = []
+        /// What double-clicking switches to: the branch, or for a remote-only badge, `origin/<name>` when present.
+        var target: GitRef
         var id: String { "\(ref.kind.rawValue):\(ref.name)" }
+        var label: String { remotes.isEmpty ? ref.name : "\(ref.name) (\(remotes.joined(separator: ", ")))" }
     }
 
     @EnvironmentObject var model: GitGraphModel
     let badge: Model
     /// The commit's lane colour.
     let color: Color
+    var maxWidth: CGFloat = .infinity
+    /// In list rows: remote names give way to a cloud glyph, and a remote branch shows its name
+    /// without the remote, so the part that tells branches apart survives truncation.
+    var compact = false
 
-    /// Local branches absorb `origin/<name>` on the same commit, as `main ⇅ origin`.
+    /// Branches absorb the remote branches of the same name (`main ☁ origin`), and the same
+    /// remote branch on several remotes is one badge (`fix ☁ origin fork`). Current branch first,
+    /// then other branches, remote-only branches, and tags.
     static func badges(for refs: [GitRef]) -> [Model] {
-        var absorbed = Set<String>()
+        var remotesByBranch: [String: [String]] = [:]
+        var remoteOrder: [String] = []
+        for ref in refs where ref.kind == .remote {
+            let branch = remoteBranchName(ref.name)
+            if remotesByBranch[branch] == nil { remoteOrder.append(branch) }
+            remotesByBranch[branch, default: []].append(remoteName(ref.name))
+        }
         var badges: [Model] = []
-        for ref in refs {
-            switch ref.kind {
-            case .head, .local:
-                let remotes = refs.filter { $0.kind == .remote && remoteBranchName($0.name) == ref.name }
-                absorbed.formUnion(remotes.map(\.name))
-                badges.append(Model(ref: ref, remotes: remotes.map { remoteName($0.name) }))
-            case .remote:
-                if !absorbed.contains(ref.name) { badges.append(Model(ref: ref)) }
-            case .tag:
-                badges.append(Model(ref: ref))
+        var absorbed = Set<String>()
+        for ref in refs where ref.kind == .head || ref.kind == .local {
+            let remotes = remotesByBranch[ref.name] ?? []
+            if !remotes.isEmpty { absorbed.insert(ref.name) }
+            badges.append(Model(ref: ref, remotes: remotes, target: ref))
+        }
+        for branch in remoteOrder where !absorbed.contains(branch) {
+            let remotes = remotesByBranch[branch] ?? []
+            let preferred = remotes.contains("origin") ? "origin" : remotes.first ?? ""
+            let target = GitRef(name: "\(preferred)/\(branch)", kind: .remote)
+            if remotes.count == 1 {
+                badges.append(Model(ref: target, target: target))
+            } else {
+                badges.append(Model(ref: GitRef(name: branch, kind: .remote), remotes: remotes, target: target))
             }
         }
+        for ref in refs where ref.kind == .tag { badges.append(Model(ref: ref, target: ref)) }
         return badges
     }
 
@@ -420,12 +610,23 @@ struct GitRefBadge: View {
         let tint = ref.kind == .tag ? GitGraphPalette.tag : color
         HStack(spacing: 4) {
             Image(systemName: symbol).font(.system(size: 8.5, weight: .bold))
-            Text(ref.name).font(.system(size: 11, weight: .semibold)).lineLimit(1).truncationMode(.middle)
-            ForEach(badge.remotes, id: \.self) { remote in
-                HStack(spacing: 2) {
-                    Image(systemName: "cloud.fill").font(.system(size: 7.5))
-                    Text(remote).font(.system(size: 10, weight: .medium))
-                }.opacity(0.8)
+            Text(shortensRemote ? Self.remoteBranchName(badge.target.name) : ref.name)
+                .font(.system(size: 11, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                .layoutPriority(1)
+            if compact {
+                if ref.kind != .remote && !badge.remotes.isEmpty {
+                    Image(systemName: "cloud.fill").font(.system(size: 7.5)).opacity(0.8)
+                }
+                if badge.remotes.count > 1 {
+                    Text("\(badge.remotes.count)").font(.system(size: 9.5, weight: .bold)).opacity(0.8)
+                }
+            } else {
+                ForEach(badge.remotes, id: \.self) { remote in
+                    HStack(spacing: 2) {
+                        Image(systemName: "cloud.fill").font(.system(size: 7.5))
+                        Text(remote).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                    }.opacity(0.8)
+                }
             }
         }
         .padding(.horizontal, 6).frame(height: 18)
@@ -435,9 +636,17 @@ struct GitRefBadge: View {
             Capsule().strokeBorder(tint.opacity(ref.kind == .remote ? 0.75 : 0.35),
                                    style: StrokeStyle(lineWidth: 1, dash: ref.kind == .remote ? [3, 2] : []))
         }
+        // As wide as its name needs, up to `maxWidth`; longer names are shortened in the middle.
+        .frame(maxWidth: maxWidth)
         .fixedSize()
         .help(help)
-        .onTapGesture(count: 2) { if canSwitch { model.switchTo(ref) } }
+        .onTapGesture(count: 2) { if canSwitch { model.switchTo(badge.target) } }
+    }
+
+    /// A remote branch drops its remote in a row, unless a local branch has the same name
+    /// (`origin/main` beside `main`), where the remote is what tells them apart.
+    private var shortensRemote: Bool {
+        compact && badge.ref.kind == .remote && !model.hasLocalBranch(Self.remoteBranchName(badge.target.name))
     }
 
     private var symbol: String {
@@ -450,14 +659,15 @@ struct GitRefBadge: View {
     }
 
     private var canSwitch: Bool {
-        badge.ref.kind == .local || (badge.ref.kind == .remote && !model.hasLocalBranch(Self.remoteBranchName(badge.ref.name)))
+        badge.ref.kind == .local || (badge.ref.kind == .remote && !model.hasLocalBranch(Self.remoteBranchName(badge.target.name)))
     }
 
     private var help: String {
         switch badge.ref.kind {
-        case .head: return "\(badge.ref.name) · the current branch"
-        case .local: return "\(badge.ref.name) · double-click to switch to it"
-        case .remote: return canSwitch ? "\(badge.ref.name) · double-click to check it out as \(Self.remoteBranchName(badge.ref.name))" : badge.ref.name
+        case .head: return "\(badge.label) · the current branch"
+        case .local: return "\(badge.label) · double-click to switch to it"
+        case .remote:
+            return canSwitch ? "\(badge.label) · double-click to check out \(badge.target.name) as \(Self.remoteBranchName(badge.target.name))" : badge.label
         case .tag: return "Tag \(badge.ref.name)"
         }
     }
@@ -685,7 +895,7 @@ private struct FlowBadges: View {
 
     var body: some View {
         FlowLayout(spacing: 5) {
-            ForEach(badges) { GitRefBadge(badge: $0, color: color) }
+            ForEach(badges) { GitRefBadge(badge: $0, color: color, maxWidth: 320) }
         }
     }
 }
