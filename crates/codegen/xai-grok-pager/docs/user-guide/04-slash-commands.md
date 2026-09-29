@@ -73,6 +73,10 @@ Export the conversation to a file or the clipboard.
 
 Open the trace explorer for the current session without leaving the TUI. It shows the recorded transcript on a timeline with one lane each for system, user, reasoning, assistant, and tool entries; each bar spans the entry's recorded execution time. Select an entry to read its content, tool input and output, and raw records. Press `v` for every raw record (including phase changes and streamed chunks), `r` to take a new snapshot of a running session, and `Esc` or `q` to return to the conversation. Fullscreen only. See [Agent Trace Explorer](27-agent-traces.md).
 
+### `/git-graph`
+
+Browse the commit graph of the repository you're working in without leaving the TUI. Every branch runs in its own coloured lane, with merges and forks joined by rounded lines; `●` is a commit, `○` a merge, `◉` the commit HEAD points to, and `◌` your uncommitted changes. Each row shows its branch and tag labels, subject, author, age, and short hash; the selected commit's full message, parents, and changed files (with added and removed line counts) appear beside the list, or in its place on narrow terminals (`Tab`). Press `/` to search subjects, authors, hashes, and branch names (`n`/`N` for the next and previous match), `a` to switch between all branches and the current branch, `m` to read more history, `r` to reload, and `Esc` or `q` to return to the conversation. Aliases: `/graph`, `/gitgraph`. Fullscreen only.
+
 ### `/quit`
 
 Quit the application. Alias: `/exit`.

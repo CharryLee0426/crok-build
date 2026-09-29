@@ -2180,3 +2180,81 @@ fn fetch_failures_surface_in_open_modal() {
     assert_eq!(state.session_error.as_deref(), Some("info boom"));
     assert_eq!(state.context_error.as_deref(), Some("ctx boom"));
 }
+
+#[test]
+fn show_git_graph_on_welcome_screen_is_noop() {
+    let mut app = test_app();
+    assert!(dispatch(Action::ShowGitGraph, &mut app).is_empty());
+}
+
+#[test]
+fn show_git_graph_opens_the_overlay_and_reads_the_session_cwd() {
+    let mut app = test_app_with_agent();
+    let cwd = app.agents[&AgentId(0)].session.cwd.clone();
+    let effects = dispatch(Action::ShowGitGraph, &mut app);
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::GitGraph {
+                agent_id,
+                request: crate::git_graph::Request::Load { cwd: requested, generation: 1, .. },
+            }] if *agent_id == AgentId(0) && *requested == cwd
+        ),
+        "got: {effects:?}"
+    );
+    assert!(matches!(
+        app.agents[&AgentId(0)].active_modal,
+        Some(crate::views::modal::ActiveModal::GitGraph { .. })
+    ));
+
+    // A failed load stays in the overlay; nothing follows it.
+    let effects = dispatch(
+        Action::TaskComplete(TaskResult::GitGraph {
+            agent_id: AgentId(0),
+            response: crate::git_graph::Response::Loaded {
+                generation: 1,
+                result: Err("Not a git repository".into()),
+            },
+        }),
+        &mut app,
+    );
+    assert!(effects.is_empty());
+    let Some(crate::views::modal::ActiveModal::GitGraph { state }) =
+        &app.agents[&AgentId(0)].active_modal
+    else {
+        panic!("the overlay stays open");
+    };
+    assert!(!state.is_loading());
+}
+
+#[test]
+fn git_graph_requests_after_the_overlay_closes_are_dropped() {
+    let mut app = test_app_with_agent();
+    dispatch(Action::ShowGitGraph, &mut app);
+    let request = crate::git_graph::Request::Files {
+        root: "/repo".into(),
+        hash: "abc".into(),
+        parents: vec![],
+    };
+    assert_eq!(
+        dispatch(Action::GitGraphRequest(request.clone()), &mut app).len(),
+        1
+    );
+    if let Some(agent) = app.agents.get_mut(&AgentId(0)) {
+        agent.active_modal = None;
+    }
+    assert!(dispatch(Action::GitGraphRequest(request), &mut app).is_empty());
+    // A late response for a closed overlay is ignored.
+    let effects = dispatch(
+        Action::TaskComplete(TaskResult::GitGraph {
+            agent_id: AgentId(0),
+            response: crate::git_graph::Response::Loaded {
+                generation: 1,
+                result: Err("late".into()),
+            },
+        }),
+        &mut app,
+    );
+    assert!(effects.is_empty());
+    assert!(app.agents[&AgentId(0)].active_modal.is_none());
+}

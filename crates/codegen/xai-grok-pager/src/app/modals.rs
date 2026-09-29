@@ -449,6 +449,21 @@ impl AgentView {
             };
         }
 
+        // Commit graph: owns every key; Esc clears its search before closing.
+        if let ActiveModal::GitGraph { state } = modal {
+            use crate::git_graph::tui::OverlayOutcome;
+            return match state.key(*key) {
+                OverlayOutcome::Changed => InputOutcome::Changed,
+                OverlayOutcome::Close => {
+                    self.active_modal = None;
+                    InputOutcome::Changed
+                }
+                OverlayOutcome::Request(request) => {
+                    InputOutcome::Action(Action::GitGraphRequest(request))
+                }
+            };
+        }
+
         // ResetSettingsConfirm: y/n routing
         // Handled before the generic char-match so Esc/F2/Ctrl+, route to Cancel (not modal close)
         if let Some(ActiveModal::ResetSettingsConfirm { modal, .. }) = self.active_modal.as_ref() {
@@ -501,6 +516,7 @@ impl AgentView {
             | ActiveModal::Settings { .. }
             | ActiveModal::UsageInfo { .. }
             | ActiveModal::Trace { .. }
+            | ActiveModal::GitGraph { .. }
             | ActiveModal::ResetSettingsConfirm { .. }
             | ActiveModal::RememberNoteReview { .. } => unreachable!(),
         }
@@ -1586,6 +1602,19 @@ impl AgentView {
             return InputOutcome::Changed;
         }
 
+        // Commit graph: the wheel moves through its focused pane.
+        if let Some(ActiveModal::GitGraph { state }) = &mut self.active_modal {
+            let lines = match mouse.kind {
+                MouseEventKind::ScrollDown => 3,
+                MouseEventKind::ScrollUp => -3,
+                _ => return InputOutcome::Unchanged,
+            };
+            return match state.scroll(lines) {
+                Some(request) => InputOutcome::Action(Action::GitGraphRequest(request)),
+                None => InputOutcome::Changed,
+            };
+        }
+
         // UsageInfo: chrome first (tabs / close / footer stay clickable), then drag / wheel.
         if let Some(ActiveModal::UsageInfo { state }) = &mut self.active_modal {
             let outcome = crate::views::usage_modal::route_usage_modal_mouse(
@@ -2376,6 +2405,8 @@ impl AgentView {
                     );
                 }
             } else if let modal::ActiveModal::Trace { state } = active_modal {
+                state.render(area, buf, &theme);
+            } else if let modal::ActiveModal::GitGraph { state } = active_modal {
                 state.render(area, buf, &theme);
             } else if let modal::ActiveModal::UsageInfo { state } = active_modal {
                 crate::views::usage_modal::render_usage_modal(

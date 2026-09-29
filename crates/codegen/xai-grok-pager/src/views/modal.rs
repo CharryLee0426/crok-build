@@ -306,6 +306,11 @@ pub enum ActiveModal {
     Trace {
         state: Box<crate::trace_view::tui::TraceOverlay>,
     },
+    /// Commit graph (`/git-graph`): a full-screen view of the repository's history.
+    /// Boxed because a loaded graph holds every commit read.
+    GitGraph {
+        state: Box<crate::git_graph::tui::GitGraphOverlay>,
+    },
     /// Reset-settings confirmation, stacked above Settings. The underlying `SettingsModalState` is
     /// moved in/out so cancel preserves the user's filter/scroll position. The setting key lives only
     /// here (single source of truth for dispatch).
@@ -673,6 +678,7 @@ impl ActiveModal {
             | ActiveModal::Settings { .. }
             | ActiveModal::UsageInfo { .. }
             | ActiveModal::Trace { .. }
+            | ActiveModal::GitGraph { .. }
             | ActiveModal::RememberNoteReview { .. } => vec![],
         }
     }
@@ -706,6 +712,7 @@ impl ActiveModal {
             ActiveModal::RememberNoteReview { .. } => "Memory Note",
             ActiveModal::UsageInfo { .. } => "Usage",
             ActiveModal::Trace { .. } => "Trace",
+            ActiveModal::GitGraph { .. } => "Git graph",
         }
     }
 }

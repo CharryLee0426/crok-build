@@ -828,6 +828,21 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             }
             vec![]
         }
+        TaskResult::GitGraph { agent_id, response } => {
+            let follow_up =
+                app.agents
+                    .get_mut(&agent_id)
+                    .and_then(|agent| match agent.active_modal.as_mut() {
+                        Some(crate::views::modal::ActiveModal::GitGraph { state }) => {
+                            state.apply(response)
+                        }
+                        _ => None,
+                    });
+            follow_up
+                .map(|request| Effect::GitGraph { agent_id, request })
+                .into_iter()
+                .collect()
+        }
         TaskResult::CardDetailLoaded {
             host,
             generation,

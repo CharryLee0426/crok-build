@@ -98,9 +98,10 @@ use super::settings::ui::{
     dispatch_toggle_vim_mode,
 };
 use super::status::{
-    dispatch_copy_session_id, dispatch_manage_billing, dispatch_open_gboom, dispatch_open_tutorial,
-    dispatch_privacy_banner_opt_in, dispatch_privacy_banner_opt_out, dispatch_share_session,
-    dispatch_show_context_info, dispatch_show_queue, dispatch_show_release_notes,
+    dispatch_copy_session_id, dispatch_git_graph_request, dispatch_manage_billing,
+    dispatch_open_gboom, dispatch_open_tutorial, dispatch_privacy_banner_opt_in,
+    dispatch_privacy_banner_opt_out, dispatch_share_session, dispatch_show_context_info,
+    dispatch_show_git_graph, dispatch_show_queue, dispatch_show_release_notes,
     dispatch_show_session_info, dispatch_show_tasks, dispatch_show_trace, dispatch_show_usage,
     set_coding_data_sharing,
 };
@@ -1067,6 +1068,8 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::ShowContextInfo => dispatch_show_context_info(app),
         Action::ShowUsage => dispatch_show_usage(app),
         Action::ShowTrace => dispatch_show_trace(app),
+        Action::ShowGitGraph => dispatch_show_git_graph(app),
+        Action::GitGraphRequest(request) => dispatch_git_graph_request(app, request),
         Action::ManageBilling => dispatch_manage_billing(app),
         Action::ShowQueue => dispatch_show_queue(app),
         Action::ShowTasks => dispatch_show_tasks(app),
