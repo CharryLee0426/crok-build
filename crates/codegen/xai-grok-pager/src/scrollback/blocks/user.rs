@@ -6,6 +6,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::render::wrapping::{RtOptions, word_wrap_line_with_joiners};
 use crate::scrollback::block::BlockContent;
+use crate::scrollback::blocks::image_gallery;
 use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode, Selectable,
 };
@@ -96,6 +97,8 @@ pub struct UserPromptBlock {
     /// Empty means plain prompt styling.
     /// This is the sole skill signal; a leading skill invocation is `[0..token_end]`.
     pub skill_token_ranges: Vec<Range<usize>>,
+    /// Images sent with the prompt, shown under its text.
+    pub images: Vec<crate::prompt_images::ScrollbackImageRef>,
 }
 
 impl UserPromptBlock {
@@ -107,6 +110,7 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -122,6 +126,7 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -145,6 +150,7 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges,
+            images: Vec::new(),
         }
     }
 
@@ -160,6 +166,7 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges,
+            images: Vec::new(),
         }
     }
 
@@ -171,6 +178,7 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -182,6 +190,7 @@ impl UserPromptBlock {
             is_interjection: true,
             prompt_index: None,
             skill_token_ranges: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -455,14 +464,43 @@ impl BlockContent for UserPromptBlock {
 
         let prompt_cfg = &ctx.appearance.scrollback.blocks.prompt;
         let compact = ctx.appearance.prompt.compact;
-        let lines = self.wrap_prompt_lines(
+        let mut lines = self.wrap_prompt_lines(
             ctx.width,
             max_lines,
             prompt_cfg.show_prefix && !compact,
             ctx.is_selected,
         );
+        lines.extend(image_gallery::gallery_lines(
+            &self.images,
+            ctx.width,
+            self.gallery_spec(ctx),
+        ));
 
         BlockOutput { lines }
+    }
+
+    fn inline_gallery(&self) -> &[crate::prompt_images::ScrollbackImageRef] {
+        &self.images
+    }
+
+    fn gallery_spec(&self, ctx: &BlockContext) -> image_gallery::GallerySpec {
+        let prompt_cfg = &ctx.appearance.scrollback.blocks.prompt;
+        // Line the images up with the prompt text, past the `❯ ` prefix
+        let indent = if prompt_cfg.show_prefix && !ctx.appearance.prompt.compact {
+            crate::glyphs::prompt_arrow().width() as u16
+        } else {
+            0
+        };
+        let band = Self::prompt_band_color_for(
+            &Theme::current(),
+            ctx.is_selected,
+            crate::theme::cache::terminal_native_locked(),
+        );
+        image_gallery::GallerySpec::prompt(indent, band)
+    }
+
+    fn estimate_extra_rows(&self) -> u16 {
+        image_gallery::estimate_rows(&self.images, image_gallery::GallerySpec::prompt(0, None))
     }
 
     fn accent(&self, _ctx: &BlockContext) -> Option<AccentStyle> {

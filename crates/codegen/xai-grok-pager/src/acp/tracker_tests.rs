@@ -5301,3 +5301,110 @@ fn hook_gate_survives_a_text_chunk_stamped_before_the_batch() {
         Some(TurnActivity::Waiting(WaitingReason::Hooks { .. }))
     ));
 }
+fn tiny_png_base64() -> String {
+    use base64::Engine as _;
+    let img = image::RgbaImage::from_pixel(16, 12, image::Rgba([200, 40, 40, 255]));
+    let mut bytes = Vec::new();
+    img.write_to(
+        &mut std::io::Cursor::new(&mut bytes),
+        image::ImageFormat::Png,
+    )
+    .unwrap();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+fn user_image() -> acp::SessionUpdate {
+    acp::SessionUpdate::UserMessageChunk(acp::ContentChunk::new(acp::ContentBlock::Image(
+        acp::ImageContent::new(tiny_png_base64(), "image/png"),
+    )))
+}
+fn prompt_images(
+    sb: &ScrollbackState,
+    idx: usize,
+) -> Vec<crate::prompt_images::ScrollbackImageRef> {
+    match &sb.get(idx).unwrap().block {
+        RenderBlock::UserPrompt(block) => block.images.clone(),
+        other => panic!("expected a prompt, got {other:?}"),
+    }
+}
+#[test]
+fn prompt_image_chunks_join_the_prompt_they_follow() {
+    let mut sb = ScrollbackState::new();
+    let mut tracker = AcpUpdateTracker::new();
+    tracker.handle_update(user_message("what is this? [Image #1]"), &meta(), &mut sb);
+    assert!(tracker.handle_update(user_image(), &meta(), &mut sb));
+    // The same image again (a repeated echo) is not added twice
+    assert!(!tracker.handle_update(user_image(), &meta(), &mut sb));
+    assert_eq!(sb.len(), 1);
+    let images = prompt_images(&sb, 0);
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].dimensions, Some((16, 12)));
+    assert!(
+        images[0].path.is_file(),
+        "materialized into the image cache"
+    );
+}
+#[test]
+fn an_image_after_agent_output_starts_its_own_prompt() {
+    let mut sb = ScrollbackState::new();
+    let mut tracker = AcpUpdateTracker::new();
+    tracker.handle_update(user_message("first"), &meta(), &mut sb);
+    tracker.handle_update(agent_chunk("answer"), &meta(), &mut sb);
+    assert!(tracker.handle_update(user_image(), &meta(), &mut sb));
+    assert_eq!(sb.len(), 3);
+    assert_eq!(prompt_images(&sb, 2).len(), 1);
+}
+fn completed_other_tool(content: Vec<acp::ToolCallContent>) -> acp::SessionUpdate {
+    acp::SessionUpdate::ToolCall(
+        acp::ToolCall::new(acp::ToolCallId::new(Arc::from("shot")), "take_screenshot")
+            .kind(acp::ToolKind::Other)
+            .status(acp::ToolCallStatus::Completed)
+            .content(content),
+    )
+}
+fn last_other_block(sb: &ScrollbackState) -> OtherToolCallBlock {
+    match &sb.get(sb.len() - 1).unwrap().block {
+        RenderBlock::ToolCall(ToolCallBlock::Other(block)) => block.clone(),
+        other => panic!("expected an Other tool block, got {other:?}"),
+    }
+}
+#[test]
+fn tool_image_blocks_show_under_the_tool() {
+    let mut sb = ScrollbackState::new();
+    let mut tracker = AcpUpdateTracker::new();
+    tracker.handle_update(
+        completed_other_tool(vec![
+            acp::ToolCallContent::from(acp::ContentBlock::Text(acp::TextContent::new(
+                "Captured the window".to_string(),
+            ))),
+            acp::ToolCallContent::from(acp::ContentBlock::Image(acp::ImageContent::new(
+                tiny_png_base64(),
+                "image/png",
+            ))),
+        ]),
+        &meta(),
+        &mut sb,
+    );
+    let block = last_other_block(&sb);
+    assert_eq!(block.images.len(), 1);
+    assert_eq!(block.output.as_deref(), Some("Captured the window"));
+    // A dense run's "N more" must never fold the image away
+    assert!(!crate::scrollback::block::BlockContent::is_groupable(
+        &sb.get(sb.len() - 1).unwrap().block
+    ));
+}
+#[test]
+fn data_url_images_move_out_of_tool_text() {
+    let mut sb = ScrollbackState::new();
+    let mut tracker = AcpUpdateTracker::new();
+    let text = format!("Result:\ndata:image/png;base64,{}", tiny_png_base64());
+    tracker.handle_update(
+        completed_other_tool(vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
+            acp::TextContent::new(text),
+        ))]),
+        &meta(),
+        &mut sb,
+    );
+    let block = last_other_block(&sb);
+    assert_eq!(block.images.len(), 1);
+    assert_eq!(block.output.as_deref(), Some("Result:\n[image 1]"));
+}

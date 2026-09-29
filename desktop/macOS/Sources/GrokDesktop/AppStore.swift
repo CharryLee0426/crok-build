@@ -24,6 +24,10 @@ final class AppStore: ObservableObject {
     @Published var sheet: DesktopSheet?
     /// A secondary window a command asked to open; the main window opens it.
     @Published var windowRequest: DesktopWindow?
+    /// The images the viewer is showing over the window, if it is open.
+    @Published var imageViewer: ImageViewerRequest?
+    /// How transcript images open the viewer; one value, so rows need not redraw for a new one.
+    lazy var openImageAction = OpenImageAction { [weak self] in self?.openImage($0) }
     /// `/minimal`: the conversation alone, without the sidebar, inspector, or toolbar.
     @Published var minimalMode = false
     /// What the harness reported about itself and the signed-in account.
@@ -211,9 +215,11 @@ final class AppStore: ObservableObject {
         self.stateFile = stateFile
         self.defaults = defaults
         archive = TranscriptArchive(stateFile: stateFile)
+        ImageStore.directory = stateFile.deletingLastPathComponent().appendingPathComponent("images", isDirectory: true)
         if let data = try? Data(contentsOf: stateFile), var saved = try? JSONDecoder().decode(DesktopState.self, from: data) {
             archive.load(into: &saved.conversations)
             state = saved
+            ImageStore.sweep(keeping: ImageStore.referenced(by: saved.conversations))
         }
         if state.projects.isEmpty {
             var directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)

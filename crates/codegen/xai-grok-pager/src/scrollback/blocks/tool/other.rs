@@ -3,6 +3,7 @@ use ratatui::text::{Line, Span};
 use crate::appearance::AppearanceConfig;
 use crate::render::wrapping::word_wrap_lines;
 use crate::scrollback::block::BlockContent;
+use crate::scrollback::blocks::image_gallery;
 use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode,
 };
@@ -23,6 +24,8 @@ pub struct OtherToolCallBlock {
     image_refs: Vec<crate::prompt_images::ScrollbackImageRef>,
     /// Video references detected in the tool output.
     video_refs: Vec<crate::prompt_images::ScrollbackVideoRef>,
+    /// Images the tool returned (screenshots, MCP image results), shown under the header.
+    pub images: Vec<crate::prompt_images::ScrollbackImageRef>,
 }
 
 impl OtherToolCallBlock {
@@ -38,6 +41,7 @@ impl OtherToolCallBlock {
             elapsed_ms: None,
             image_refs: Vec::new(),
             video_refs: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -233,7 +237,7 @@ impl BlockContent for OtherToolCallBlock {
             return BlockOutput { lines };
         }
 
-        match ctx.mode {
+        let mut output = match ctx.mode {
             DisplayMode::Collapsed => BlockOutput {
                 lines: vec![
                     self.collapsed_line(&theme, muted_collapsed, Some(ctx.content_width()))
@@ -309,7 +313,13 @@ impl BlockContent for OtherToolCallBlock {
 
                 BlockOutput { lines }
             }
-        }
+        };
+        output.lines.extend(image_gallery::gallery_lines(
+            &self.images,
+            ctx.width,
+            self.gallery_spec(ctx),
+        ));
+        output
     }
 
     fn accent(&self, ctx: &BlockContext) -> Option<AccentStyle> {
@@ -383,6 +393,18 @@ impl BlockContent for OtherToolCallBlock {
 
     fn image_references(&self) -> &[crate::prompt_images::ScrollbackImageRef] {
         &self.image_refs
+    }
+
+    fn inline_gallery(&self) -> &[crate::prompt_images::ScrollbackImageRef] {
+        &self.images
+    }
+
+    fn gallery_spec(&self, ctx: &BlockContext) -> image_gallery::GallerySpec {
+        image_gallery::GallerySpec::tool(ctx.bullet_indent() as u16)
+    }
+
+    fn estimate_extra_rows(&self) -> u16 {
+        image_gallery::estimate_rows(&self.images, image_gallery::GallerySpec::tool(0))
     }
 
     fn video_references(&self) -> &[crate::prompt_images::ScrollbackVideoRef] {

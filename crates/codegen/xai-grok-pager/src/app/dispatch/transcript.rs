@@ -296,10 +296,15 @@ pub(super) fn dispatch_open_block_viewer(app: &mut AppView) {
                 agent.start_inline_video_playback(&path);
                 return;
             }
-            // Image: Enter opens the file in the OS-native viewer.
-            if let Some(first_ref) = entry.block.image_references().first() {
+            // Image: Enter opens the image viewer, stepping through the conversation's images.
+            if let Some(first_ref) = entry
+                .block
+                .inline_gallery()
+                .first()
+                .or_else(|| entry.block.image_references().first())
+            {
                 let path = first_ref.path.clone();
-                agent.open_media_natively(&path);
+                agent.open_scrollback_image(&path);
             }
             return;
         }
@@ -369,10 +374,10 @@ pub(super) fn dispatch_open_block_viewer(app: &mut AppView) {
             agent.start_inline_video_playback(&path);
             return;
         }
-        // Image: Enter opens the file in the OS-native viewer.
+        // Image: Enter opens the image viewer.
         if let Some(first_ref) = entry.block.image_references().first() {
             let path = first_ref.path.clone();
-            agent.open_media_natively(&path);
+            agent.open_scrollback_image(&path);
         }
     });
 }

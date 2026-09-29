@@ -32,6 +32,9 @@ pub struct AnchoredMedia {
     pub row_offset: u16,
     /// Height of the image area in rows (the crop region).
     pub rows: u16,
+    /// Set for an image of the block's inline gallery: drawn left-aligned at its fitted width, without the tool-media
+    /// filepath line and button row.
+    pub gallery: Option<super::blocks::image_gallery::GalleryCell>,
 }
 
 /// Each block type implements this trait. The RenderBlock enum delegates to the inner type via the `delegate_block!` macro below.
@@ -172,7 +175,19 @@ pub trait BlockContent {
             info,
             row_offset: content_lines + 1,
             rows,
+            gallery: None,
         }]
+    }
+
+    /// Images shown inline under the block's text (see [`super::blocks::image_gallery`]). The block's `output()` ends with
+    /// the rows they occupy. Default: none.
+    fn inline_gallery(&self) -> &[ScrollbackImageRef] {
+        &[]
+    }
+
+    /// How the block sizes and indents its inline gallery.
+    fn gallery_spec(&self, _ctx: &BlockContext) -> super::blocks::image_gallery::GallerySpec {
+        super::blocks::image_gallery::GallerySpec::tool(0)
     }
 
     /// Clickable affordance rows for the diagrams in this block's `output()` (the `auto`/`on` Mermaid display).
@@ -484,6 +499,14 @@ impl BlockContent for RenderBlock {
 
     fn inline_media_placements(&self, ctx: &BlockContext) -> Vec<AnchoredMedia> {
         delegate_block!(self, inline_media_placements(ctx))
+    }
+
+    fn inline_gallery(&self) -> &[ScrollbackImageRef] {
+        delegate_block!(self, inline_gallery())
+    }
+
+    fn gallery_spec(&self, ctx: &BlockContext) -> super::blocks::image_gallery::GallerySpec {
+        delegate_block!(self, gallery_spec(ctx))
     }
 
     fn diagram_affordances(&self, ctx: &BlockContext) -> Vec<DiagramAffordance> {
@@ -922,6 +945,7 @@ impl RenderBlock {
     pub fn supports_fullscreen(&self) -> bool {
         self.has_normal_fullscreen_viewer()
             || !self.image_references().is_empty()
+            || !self.inline_gallery().is_empty()
             || !self.video_references().is_empty()
     }
 

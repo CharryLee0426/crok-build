@@ -18,13 +18,36 @@ names any image or resource-link attachments it received. Side questions
 (`_x.ai/btw`), the command catalog, MCPs, skills, and goals are also simulated over ACP.
 """
 
+import base64
 import json
 import os
 import queue
 import re
+import struct
 import sys
+import tempfile
 import threading
 import time
+import zlib
+
+
+def fixture_png(width, height, hue):
+    """A small gradient PNG, so image fixtures show something recognizable without Pillow."""
+    rows = []
+    for y in range(height):
+        row = bytearray([0])
+        for x in range(width):
+            t = x / max(1, width - 1)
+            u = y / max(1, height - 1)
+            row += bytes([int(40 + 180 * t) ^ hue & 0xFF, int(60 + 150 * u), int(200 - 120 * t * u) ^ (hue >> 1) & 0xFF])
+        rows.append(bytes(row))
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(b"".join(rows))) + chunk(b"IEND", b"")
 
 
 class MockHarness:
@@ -273,6 +296,27 @@ class MockHarness:
             with self.state_lock:
                 self.pending.pop(request_id, None)
 
+    def stream_image_fixture(self, session_id, request_id):
+        """A read of an image file (image content), then a generated image (a saved file)."""
+        folder = tempfile.mkdtemp(prefix="crok-fixture-images-")
+        screenshot = os.path.join(folder, "screenshot.png")
+        with open(screenshot, "wb") as handle:
+            handle.write(fixture_png(240, 160, 0))
+        generated = os.path.join(folder, "1.png")
+        with open(generated, "wb") as handle:
+            handle.write(fixture_png(320, 320, 0x5A))
+        read_id = "fixture-read-image-{}".format(request_id)
+        self.update(session_id, {"sessionUpdate": "tool_call", "toolCallId": read_id, "title": "Read `screenshot.png`", "kind": "read", "status": "in_progress",
+                                 "rawInput": {"target_file": screenshot}})
+        image = {"type": "image", "data": base64.b64encode(fixture_png(240, 160, 0)).decode("ascii"), "mimeType": "image/png", "uri": "file://" + screenshot}
+        self.update(session_id, {"sessionUpdate": "tool_call_update", "toolCallId": read_id, "status": "completed", "content": [{"type": "content", "content": image}]})
+        gen_id = "fixture-image-gen-{}".format(request_id)
+        self.update(session_id, {"sessionUpdate": "tool_call", "toolCallId": gen_id, "title": "Generate image", "kind": "other", "status": "in_progress",
+                                 "rawInput": {"prompt": "A calm gradient"}})
+        self.update(session_id, {"sessionUpdate": "tool_call_update", "toolCallId": gen_id, "status": "completed",
+                                 "content": [{"type": "content", "content": {"type": "text", "text": "Image generated and saved to {}.".format(generated)}}],
+                                 "rawOutput": {"type": "ImageGen", "path": generated, "filename": "1.png", "session_folder": "images"}})
+
     def prompt(self, request_id, params, stop):
         session_id = params["sessionId"]
         blocks = params.get("prompt", [])
@@ -317,6 +361,8 @@ class MockHarness:
                             finish("cancelled")
                             return
                         self.update(session_id, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": text[offset:offset + 16]}})
+            if "fixture:image" in prompt:
+                self.stream_image_fixture(session_id, request_id)
             self.update(session_id, {"sessionUpdate": "plan", "entries": [
                 {"content": "Inspect the fixture", "priority": "medium", "status": "in_progress"},
                 {"content": "Summarize the result", "priority": "medium", "status": "pending"},

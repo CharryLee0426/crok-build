@@ -7,6 +7,7 @@ use super::{LineRange, TOOL_HEADER_RANGE};
 use crate::prompt_images::ScrollbackImageRef;
 use crate::render::wrapping::word_wrap_lines_with_joiners;
 use crate::scrollback::block::BlockContent;
+use crate::scrollback::blocks::image_gallery;
 use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode, Selectable,
 };
@@ -46,6 +47,8 @@ pub struct ReadToolCallBlock {
     pub total_lines: Option<usize>,
     /// Inline image reference (for image file reads).
     pub image_ref: Option<ScrollbackImageRef>,
+    /// Images shown under the header: the image itself, or a PDF's first rendered pages.
+    pub images: Vec<ScrollbackImageRef>,
     /// Non-text media kind (image, PDF).
     pub media_kind: Option<ReadMediaKind>,
     /// Whether this ordinary read targets a memory v2 scope.
@@ -65,6 +68,7 @@ impl ReadToolCallBlock {
             content: None,
             total_lines: None,
             image_ref: None,
+            images: Vec::new(),
             media_kind: None,
             is_memory_activity: false,
         }
@@ -348,7 +352,7 @@ impl BlockContent for ReadToolCallBlock {
         let muted_collapsed = ctx.mute_when_collapsed(tool_cfg.muted_collapsed);
 
         let cwd = ctx.cwd.as_deref();
-        match ctx.mode {
+        let mut output = match ctx.mode {
             DisplayMode::Collapsed => BlockOutput {
                 lines: vec![self.header_block_line(
                     self.collapsed_line(
@@ -392,7 +396,13 @@ impl BlockContent for ReadToolCallBlock {
                 }
                 BlockOutput { lines }
             }
-        }
+        };
+        output.lines.extend(image_gallery::gallery_lines(
+            &self.images,
+            ctx.width,
+            self.gallery_spec(ctx),
+        ));
+        output
     }
 
     fn accent(&self, _ctx: &BlockContext) -> Option<AccentStyle> {
@@ -437,6 +447,18 @@ impl BlockContent for ReadToolCallBlock {
             DisplayMode::Collapsed => DisplayMode::Truncated,
             DisplayMode::Truncated | DisplayMode::Expanded => DisplayMode::Collapsed,
         }
+    }
+
+    fn inline_gallery(&self) -> &[ScrollbackImageRef] {
+        &self.images
+    }
+
+    fn gallery_spec(&self, ctx: &BlockContext) -> image_gallery::GallerySpec {
+        image_gallery::GallerySpec::tool(ctx.bullet_indent() as u16)
+    }
+
+    fn estimate_extra_rows(&self) -> u16 {
+        image_gallery::estimate_rows(&self.images, image_gallery::GallerySpec::tool(0))
     }
 
     fn image_references(&self) -> &[ScrollbackImageRef] {

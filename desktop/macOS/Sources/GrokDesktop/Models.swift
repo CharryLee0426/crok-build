@@ -45,19 +45,28 @@ struct Message: Identifiable, Codable, Sendable {
     var detail: String?
     /// When the message began streaming or was sent; unknown for replayed history.
     var createdAt: Date?
-    /// Images, files, and folders sent with a prompt.
+    /// Images, files, and folders sent with a prompt; images a tool returned or a reply carried.
     var attachments: [MessageAttachment]?
 }
 
-/// What a sent prompt carried, as the transcript shows it: images keep a small preview.
+/// What a sent prompt carried, or an image a tool or reply showed, as the transcript shows it:
+/// images keep a small preview, and the whole image in the `ImageStore`.
 struct MessageAttachment: Identifiable, Codable, Sendable, Equatable {
     enum Kind: String, Codable, Sendable { case image, file, folder }
+    /// Where a transcript image came from, when it was not sent with a prompt.
+    enum Origin: String, Codable, Sendable { case tool, generated, reply }
     var id = UUID()
     var kind: Kind
     var name: String
     var path: String?
     /// A downscaled JPEG or PNG of an image.
     var thumbnail: Data?
+    /// The whole image's file name in the `ImageStore`.
+    var blob: String?
+    var mimeType: String?
+    var pixelWidth: Int?
+    var pixelHeight: Int?
+    var origin: Origin?
 }
 
 /// One entry of a task's side chat.
@@ -259,6 +268,7 @@ enum TranscriptReducer {
             a.kind == b.kind && a.status == b.status && a.toolID == b.toolID
                 && a.text.utf8.count == b.text.utf8.count && (a.detail?.utf8.count ?? -1) == (b.detail?.utf8.count ?? -1)
                 && a.attachments?.count == b.attachments?.count
+                && a.attachments?.map(\.blob) == b.attachments?.map(\.blob)
         } && zip(lhs, rhs).allSatisfy { a, b in a.text == b.text && a.detail == b.detail }
     }
 
@@ -271,16 +281,43 @@ enum TranscriptReducer {
         return ""
     }
 
+    /// An ACP image block as a transcript image; one whose data does not decode is dropped.
+    static func image(from block: [String: Any], name fallback: String = "Image", origin: MessageAttachment.Origin? = nil) -> MessageAttachment? {
+        guard block["type"] as? String == "image" else { return nil }
+        let url = (block["uri"] as? String).flatMap(URL.init(string:))
+        let path = url?.isFileURL == true ? url?.path : nil
+        let name = url.map(\.lastPathComponent).flatMap { $0.isEmpty || $0 == "/" ? nil : $0 } ?? fallback
+        if let data = (block["data"] as? String).flatMap({ Data(base64Encoded: $0, options: .ignoreUnknownCharacters) }), !data.isEmpty {
+            return MessageAttachment.image(data: data, mimeType: block["mimeType"] as? String, name: name, path: path, origin: origin)
+        }
+        // No bytes: a file the viewer can still open.
+        guard let path else { return nil }
+        return MessageAttachment(kind: .image, name: name, path: path, mimeType: block["mimeType"] as? String, origin: origin)
+    }
+
+    /// An image a media tool saved (`rawOutput` `{"type": "ImageGen", "path": …}`), read from disk.
+    static func generatedImage(from rawOutput: Any?) -> MessageAttachment? {
+        guard let output = rawOutput as? [String: Any], ["ImageGen", "ImageEdit"].contains(output["type"] as? String ?? ""),
+              let path = output["path"] as? String, path.hasPrefix("/") else { return nil }
+        let url = URL(fileURLWithPath: path)
+        let name = (output["filename"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? url.lastPathComponent
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) > 0 else {
+            return MessageAttachment(kind: .image, name: name, path: path, origin: .generated)
+        }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        let thumbnail = PromptAttachmentsModel.downscaled(source, maxSide: PromptAttachmentsModel.thumbnailSide)
+            .flatMap { PromptAttachmentsModel.encode($0, as: .jpeg, quality: 0.72) }
+        return MessageAttachment(kind: .image, name: name, path: path, thumbnail: thumbnail,
+                                 mimeType: (CGImageSourceGetType(source) as String?).flatMap { UTType($0)?.preferredMIMEType },
+                                 pixelWidth: (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+                                 pixelHeight: (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue, origin: .generated)
+    }
+
     /// An image or resource link in a prompt, as the transcript shows it.
     static func attachment(from block: [String: Any]) -> MessageAttachment? {
         switch block["type"] as? String {
         case "image":
-            let thumbnail = (block["data"] as? String).flatMap { Data(base64Encoded: $0, options: .ignoreUnknownCharacters) }.flatMap { data -> Data? in
-                guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                      let image = PromptAttachmentsModel.downscaled(source, maxSide: PromptAttachmentsModel.thumbnailSide) else { return nil }
-                return PromptAttachmentsModel.encode(image, as: .jpeg, quality: 0.72)
-            }
-            return MessageAttachment(kind: .image, name: "Image", thumbnail: thumbnail)
+            return image(from: block)
         case "resource_link":
             guard let uri = block["uri"] as? String else { return nil }
             let url = URL(string: uri)
@@ -301,9 +338,10 @@ enum TranscriptReducer {
         case "agent_message_chunk", "agent_thought_chunk", "user_message_chunk":
             let role: Message.Kind = kind == "agent_message_chunk" ? .assistant : kind == "agent_thought_chunk" ? .thought : .user
             let block = update["content"] as? [String: Any] ?? [:]
-            if role == .user, let attachment = attachment(from: block) {
-                if messages.last?.kind == .user { messages[messages.count - 1].attachments = (messages[messages.count - 1].attachments ?? []) + [attachment] }
-                else { messages.append(Message(kind: .user, text: "", createdAt: date, attachments: [attachment])) }
+            let attachment = role == .user ? attachment(from: block) : role == .assistant ? image(from: block, origin: .reply) : nil
+            if let attachment {
+                if messages.last?.kind == role { messages[messages.count - 1].attachments = (messages[messages.count - 1].attachments ?? []) + [attachment] }
+                else { messages.append(Message(kind: role, text: "", createdAt: date, attachments: [attachment])) }
                 return
             }
             let content = text(from: block)
@@ -317,22 +355,40 @@ enum TranscriptReducer {
                 if item["type"] as? String == "diff" {
                     return "\(item["path"] as? String ?? "File")\n\(item["newText"] as? String ?? "")"
                 }
-                if let content = item["content"] as? [String: Any] { return text(from: content) }
+                // Images show as images, under the call.
+                if let content = item["content"] as? [String: Any], content["type"] as? String != "image" { return text(from: content) }
                 return nil
             }.joined(separator: "\n")
             // Updates are for recent calls, so the search runs from the end. A new call is looked
             // for only among recent messages: searching all of a long transcript for each new call
             // made streaming, and loading, a task quadratic in its length.
             let searched = kind == "tool_call" ? messages.indices.suffix(Self.newCallLookback) : messages.indices.suffix(from: 0)
+            let images = toolImages(contents, rawOutput: update["rawOutput"])
             if let index = searched.last(where: { messages[$0].toolID == id }) {
                 if let title = update["title"] as? String { messages[index].text = title }
                 if let status = update["status"] as? String { messages[index].status = status }
                 if !detail.isEmpty { messages[index].detail = detail }
+                // An update that resends the same images keeps the ones shown, so the row does not redraw.
+                if let images, images.map(\.blob) != messages[index].attachments?.map(\.blob)
+                    || images.map(\.path) != messages[index].attachments?.map(\.path) {
+                    messages[index].attachments = images
+                }
             } else {
                 messages.append(Message(kind: .tool, text: update["title"] as? String ?? "Tool call", toolID: id,
-                                        status: update["status"] as? String ?? "pending", detail: detail, createdAt: date))
+                                        status: update["status"] as? String ?? "pending", detail: detail, createdAt: date, attachments: images))
             }
         default: break
         }
+    }
+
+    /// The images a tool call's update shows: image content (a read image, PDF pages, an MCP
+    /// screenshot) and the file a media tool saved. Nil when the update carries none.
+    static func toolImages(_ contents: [[String: Any]], rawOutput: Any?) -> [MessageAttachment]? {
+        let blocks = contents.compactMap { $0["content"] as? [String: Any] }.filter { $0["type"] as? String == "image" }
+        var images = blocks.enumerated().compactMap { index, block in
+            image(from: block, name: blocks.count == 1 ? "Image" : "Image \(index + 1)", origin: .tool)
+        }
+        if let generated = generatedImage(from: rawOutput), !images.contains(where: { $0.path == generated.path }) { images.append(generated) }
+        return images.isEmpty ? nil : images
     }
 }

@@ -398,7 +398,7 @@ fn open_block_viewer_pins_tail_when_follow_ids_remap() {
 }
 
 #[test]
-fn open_block_viewer_opens_image_only_blocks_natively() {
+fn open_block_viewer_opens_image_only_blocks_in_the_image_viewer() {
     use crate::terminal::image::{GraphicsProtocol, set_protocol_for_test};
 
     let mut app = test_app_with_agent();
@@ -421,15 +421,16 @@ fn open_block_viewer_opens_image_only_blocks_natively() {
     assert!(!entry.block.has_normal_fullscreen_viewer());
 
     // Pretend the host terminal speaks Kitty graphics so `guard_image_support` doesn't return early
-    // The dispatch then reaches the image branch, which opens the file natively rather than in an in-app viewer
+    // The dispatch then reaches the image branch, which opens the image viewer over the conversation's images
     let _guard = set_protocol_for_test(GraphicsProtocol::Kitty);
     let effects = dispatch(Action::OpenBlockViewer, &mut app);
 
-    // Generated media now opens in the OS-native viewer without being tracked, so neither the in-app block viewer nor the image viewer is shown
     assert!(effects.is_empty());
     let agent = app.agents.get(&id).unwrap();
     assert!(agent.block_viewer.is_none());
-    assert!(agent.image_viewer.is_none());
+    let viewer = agent.image_viewer.as_ref().expect("image viewer opens");
+    assert_eq!(viewer.gallery, vec![image_path.clone()]);
+    assert_eq!(viewer.gallery_index, 0);
 }
 
 fn plugins_list_response() -> xai_hooks_plugins_types::PluginsListResponse {

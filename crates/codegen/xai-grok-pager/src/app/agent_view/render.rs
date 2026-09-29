@@ -3421,11 +3421,22 @@ impl AgentView {
                     .add_modifier(ratatui::style::Modifier::BOLD);
                 let dim_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
                 let border_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
+                // "3/7" when stepping through the conversation's images
+                let position = if viewer.gallery.len() > 1 {
+                    format!(
+                        " \u{b7} {}/{}",
+                        viewer.gallery_index + 1,
+                        viewer.gallery.len()
+                    )
+                } else {
+                    String::new()
+                };
                 let title_spans: Vec<ratatui::text::Span> = if viewer.loading {
                     let name = viewer.title.as_deref().unwrap_or("Loading...");
                     vec![
                         ratatui::text::Span::styled("\u{2500} ", border_style),
                         ratatui::text::Span::styled(name.to_owned(), title_style),
+                        ratatui::text::Span::styled(position, dim_style),
                         ratatui::text::Span::styled(" \u{2500}", border_style),
                     ]
                 } else {
@@ -3435,6 +3446,7 @@ impl AgentView {
                         ratatui::text::Span::styled("\u{2500} ", border_style),
                         ratatui::text::Span::styled(name.to_owned(), title_style),
                         ratatui::text::Span::styled(dims, dim_style),
+                        ratatui::text::Span::styled(position, dim_style),
                         ratatui::text::Span::styled(" \u{2500}", border_style),
                     ]
                 };
@@ -3545,7 +3557,17 @@ impl AgentView {
                 let clear = crate::terminal::overlay::clear_kitty();
                 prompt_post_flush = Some(clear.into());
             }
-            let hints = vec![HintItem::new(key!(Esc), "close")];
+            let mut hints = vec![HintItem::new(key!(Esc), "close")];
+            if let Some(viewer) = self.image_viewer.as_ref()
+                && !viewer.gallery.is_empty()
+            {
+                if viewer.gallery.len() > 1 {
+                    hints.push(HintItem::new(key!(Left), "prev"));
+                    hints.push(HintItem::new(key!(Right), "next"));
+                }
+                hints.push(HintItem::new(key!('o'), "open"));
+                hints.push(HintItem::new(key!('c'), "copy"));
+            }
             ShortcutsBar::new(&hints).render(layout.shortcuts, buf);
             self.pane_areas = layout.pane_areas();
             return (None, prompt_post_flush);
@@ -4011,6 +4033,10 @@ impl AgentView {
                     }
                     let rect = placement.screen_rect;
                     if !placement.has_button_row {
+                        // Text-`[Open]` placements returned above, so this is a gallery image
+                        self.inline_media_hits
+                            .gallery_areas
+                            .push((rect, path.clone()));
                         continue;
                     }
                     let button_y = rect.y + rect.height + 1;

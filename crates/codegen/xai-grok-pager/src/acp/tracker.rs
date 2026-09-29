@@ -1478,6 +1478,9 @@ impl AcpUpdateTracker {
         meta: &NotificationMeta,
         scrollback: &mut ScrollbackState,
     ) -> bool {
+        if let acp::ContentBlock::Image(image) = &chunk.content {
+            return attach_prompt_image(image, scrollback);
+        }
         let text = extract_text_from_content(&chunk.content);
         if self.skip_next_skill_body {
             self.skip_next_skill_body = false;
@@ -1638,6 +1641,31 @@ impl AcpUpdateTracker {
     }
 }
 /// Per-prompt display strings from combine ([`user_prompt_meta::COMBINED_DISPLAY_TEXTS`]).
+/// A prompt's images arrive as their own `user_message_chunk`s right after its text (live echo and replay alike), so each
+/// joins the prompt it follows. An image-only prompt (sent by another client) gets a prompt entry of its own.
+fn attach_prompt_image(image: &acp::ImageContent, scrollback: &mut ScrollbackState) -> bool {
+    let Some(image) = crate::prompt_images::ScrollbackImageRef::from_acp_image(image) else {
+        return false;
+    };
+    // Only the trailing prompt qualifies: anything the agent produced since means this image starts a new prompt
+    if let Some(idx) = scrollback.len().checked_sub(1)
+        && let Some(entry) = scrollback.get_mut(idx)
+        && let RenderBlock::UserPrompt(ref mut block) = entry.block
+    {
+        if block.images.iter().any(|known| known.path == image.path) {
+            return false;
+        }
+        block.images.push(image);
+        entry.invalidate_cache();
+        let id = entry.id;
+        scrollback.mark_height_dirty(id);
+        return true;
+    }
+    let mut block = crate::scrollback::blocks::UserPromptBlock::new("");
+    block.images.push(image);
+    scrollback.push_block(RenderBlock::UserPrompt(block));
+    true
+}
 fn combined_display_texts_from_chunk(chunk: &acp::ContentChunk) -> Option<Vec<String>> {
     let acp::ContentBlock::Text(t) = &chunk.content else {
         return None;
@@ -1801,6 +1829,94 @@ fn execute_command_from_tool_call(tc: &acp::ToolCall) -> String {
 /// `session_cwd` sets execute `header_display` when a leading `cd <cwd>` is redundant.
 /// `labels` names the target of a `send_subagent_message` row.
 fn tool_call_to_block(
+    tc: &acp::ToolCall,
+    session_cwd: Option<&Path>,
+    labels: &SubagentLabelRegistry,
+) -> RenderBlock {
+    let mut block = tool_call_block_without_images(tc, session_cwd, labels);
+    attach_tool_images(&mut block, tc);
+    block
+}
+/// Most PDF pages a read shows inline; the rest are a page count in its header.
+const MAX_INLINE_PDF_PAGES: usize = 4;
+/// Give a tool block the images its result carries, so they show inline under it: an image read's file (or the image
+/// block it returned), a PDF's first pages, and images from MCP and other tools. MCP results carry images as base64
+/// `data:` URLs in their text; those move out of the text into the block's images.
+fn attach_tool_images(block: &mut RenderBlock, tc: &acp::ToolCall) {
+    let RenderBlock::ToolCall(tool) = block else {
+        return;
+    };
+    match tool {
+        ToolCallBlock::Read(read) => {
+            read.images = match (&read.image_ref, &read.media_kind) {
+                (Some(image), _) => vec![image.clone()],
+                (None, Some(ReadMediaKind::Image)) => {
+                    content_images(tc).into_iter().take(1).collect()
+                }
+                (None, Some(ReadMediaKind::Pdf { .. })) => content_images(tc)
+                    .into_iter()
+                    .take(MAX_INLINE_PDF_PAGES)
+                    .collect(),
+                (None, None) => Vec::new(),
+            };
+        }
+        ToolCallBlock::UseTool(use_tool) => {
+            let mut images = content_images(tc);
+            for text in [&mut use_tool.output, &mut use_tool.error]
+                .into_iter()
+                .flatten()
+            {
+                let (stripped, found) = crate::prompt_images::extract_data_url_images(text);
+                *text = stripped;
+                images.extend(found);
+            }
+            use_tool.images = dedup_images(images);
+        }
+        ToolCallBlock::Other(other) | ToolCallBlock::Skill(other) => {
+            // Generated media already shows through the typed media path
+            if other.media_ref_path().is_some() {
+                return;
+            }
+            let mut images = content_images(tc);
+            if let Some(output) = other.output.take() {
+                let (stripped, found) = crate::prompt_images::extract_data_url_images(&output);
+                other.set_output_text(stripped);
+                images.extend(found);
+            }
+            if let Some(error) = other.error.as_mut() {
+                let (stripped, found) = crate::prompt_images::extract_data_url_images(error);
+                *error = stripped;
+                images.extend(found);
+            }
+            other.images = dedup_images(images);
+        }
+        _ => {}
+    }
+}
+/// Image blocks in a tool call's result, written to the scrollback image cache when they have no file of their own.
+fn content_images(tc: &acp::ToolCall) -> Vec<crate::prompt_images::ScrollbackImageRef> {
+    tc.content
+        .iter()
+        .filter_map(|c| match c {
+            acp::ToolCallContent::Content(acp::Content {
+                content: acp::ContentBlock::Image(image),
+                ..
+            }) => crate::prompt_images::ScrollbackImageRef::from_acp_image(image),
+            _ => None,
+        })
+        .collect()
+}
+/// The same image reaches a block twice when a result carries it both as a block and in its text; cache names are content hashes.
+fn dedup_images(
+    images: Vec<crate::prompt_images::ScrollbackImageRef>,
+) -> Vec<crate::prompt_images::ScrollbackImageRef> {
+    let mut seen = std::collections::HashSet::new();
+    images
+        .into_iter()
+        .filter(|image| seen.insert(image.path.clone()))
+        .collect()
+}
+fn tool_call_block_without_images(
     tc: &acp::ToolCall,
     session_cwd: Option<&Path>,
     labels: &SubagentLabelRegistry,

@@ -68,6 +68,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub(crate) struct InlineMediaHitAreas {
     /// Inline image areas (image overlay): clicking opens the file natively.
     pub media_areas: Vec<(ratatui::layout::Rect, std::path::PathBuf)>,
+    /// Inline gallery images (prompt attachments, tool and reply images): clicking opens the image viewer.
+    pub gallery_areas: Vec<(ratatui::layout::Rect, std::path::PathBuf)>,
     /// Video poster areas: clicking starts/restarts inline playback.
     pub video_play_areas: Vec<(ratatui::layout::Rect, std::path::PathBuf)>,
     /// `[Play]` button rects: clicking starts/replays inline video.

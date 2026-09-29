@@ -253,11 +253,27 @@ impl BlockContent for ToolCallBlock {
     }
 
     fn is_groupable(&self) -> bool {
-        true
+        // A result with inline images stays on its own so a dense run's "N more" never hides them
+        self.inline_gallery().is_empty()
     }
 
     fn image_references(&self) -> &[crate::prompt_images::ScrollbackImageRef] {
         delegate_tool!(self, image_references())
+    }
+
+    fn inline_gallery(&self) -> &[crate::prompt_images::ScrollbackImageRef] {
+        delegate_tool!(self, inline_gallery())
+    }
+
+    fn gallery_spec(
+        &self,
+        ctx: &BlockContext,
+    ) -> crate::scrollback::blocks::image_gallery::GallerySpec {
+        delegate_tool!(self, gallery_spec(ctx))
+    }
+
+    fn estimate_extra_rows(&self) -> u16 {
+        delegate_tool!(self, estimate_extra_rows())
     }
 
     fn video_references(&self) -> &[crate::prompt_images::ScrollbackVideoRef] {
@@ -557,6 +573,8 @@ impl ToolCallBlock {
     pub fn verb_group_kind(&self) -> Option<VerbGroupKind> {
         match self {
             ToolCallBlock::Read(b) if b.is_memory_activity => Some(VerbGroupKind::MemorySearch),
+            // An image read shows its image, which a folded "Read N files" header would hide
+            ToolCallBlock::Read(b) if !b.inline_gallery().is_empty() => None,
             ToolCallBlock::Read(b) => Some(if b.is_skill_read() {
                 VerbGroupKind::Skill
             } else {

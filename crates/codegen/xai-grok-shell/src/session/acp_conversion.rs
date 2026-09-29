@@ -322,21 +322,26 @@ pub(crate) fn acp_tool_update(
                     .raw_output(raw_output_json(output, rewriter)),
             ))
         }
-        ToolOutput::MCP(mcp_output) => Some(
-            acp::ToolCallUpdate::new(
-                acp::ToolCallId::new(Arc::from(tool_call_id)),
-                acp::ToolCallUpdateFields::new()
-                    .status(Some(
-                        if matches!(mcp_output.output(), MCPOutputDetails::Error(_)) {
-                            acp::ToolCallStatus::Failed
-                        } else {
-                            acp::ToolCallStatus::Completed
-                        },
-                    ))
-                    .raw_output(raw_output_json(output, rewriter)),
+        ToolOutput::MCP(mcp_output) => {
+            let mut fields = acp::ToolCallUpdateFields::new()
+                .status(Some(
+                    if matches!(mcp_output.output(), MCPOutputDetails::Error(_)) {
+                        acp::ToolCallStatus::Failed
+                    } else {
+                        acp::ToolCallStatus::Completed
+                    },
+                ))
+                .raw_output(raw_output_json(output, rewriter));
+            // Text stays in `raw_output` only; images also go out as image blocks so clients can show them
+            let images = mcp_image_blocks(mcp_output.output());
+            if !images.is_empty() {
+                fields = fields.content(Some(images));
+            }
+            Some(
+                acp::ToolCallUpdate::new(acp::ToolCallId::new(Arc::from(tool_call_id)), fields)
+                    .meta(tool_meta.and_then(|v| serde_json::from_value(v).ok())),
             )
-            .meta(tool_meta.and_then(|v| serde_json::from_value(v).ok())),
-        ),
+        }
         ToolOutput::BackgroundTaskStarted(bg) => {
             let short_id = match bg.task_id.get(..8) {
                 Some(id) => id,
@@ -743,11 +748,66 @@ fn build_apply_patch_edit_details(
     SearchReplaceEditContextInformation { details }
 }
 
+/// MCP image results reach the model as `data:<mime>;base64,…` text (see `xai_grok_mcp::call_result`); pull them back
+/// out as ACP image blocks.
+fn mcp_image_blocks(output: &MCPOutputDetails) -> Vec<acp::ToolCallContent> {
+    use std::sync::LazyLock;
+    static DATA_URL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"data:(image/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})").unwrap()
+    });
+    let MCPOutputDetails::OkayOutput(text) = output else {
+        return Vec::new();
+    };
+    if !text.contains("data:image/") {
+        return Vec::new();
+    }
+    DATA_URL_RE
+        .captures_iter(text)
+        .filter_map(|cap| {
+            let (mime, data) = (cap.get(1)?, cap.get(2)?);
+            Some(acp::ToolCallContent::from(acp::ContentBlock::Image(
+                acp::ImageContent::new(data.as_str().to_owned(), mime.as_str().to_owned()),
+            )))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
     use xai_grok_tools::types::output::*;
+
+    #[test]
+    fn mcp_image_results_also_go_out_as_image_blocks() {
+        let text =
+            "Here it is\ndata:image/png;base64,iVBORw0KGgo=\nand data:image/jpeg;base64,/9j/4AAQ";
+        let blocks = mcp_image_blocks(&MCPOutputDetails::OkayOutput(text.into()));
+        let images: Vec<(String, String)> = blocks
+            .into_iter()
+            .filter_map(|block| match block {
+                acp::ToolCallContent::Content(acp::Content {
+                    content: acp::ContentBlock::Image(image),
+                    ..
+                }) => Some((image.mime_type, image.data)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            images,
+            vec![
+                ("image/png".to_owned(), "iVBORw0KGgo=".to_owned()),
+                ("image/jpeg".to_owned(), "/9j/4AAQ".to_owned()),
+            ]
+        );
+        assert!(mcp_image_blocks(&MCPOutputDetails::OkayOutput("no images".into())).is_empty());
+        assert!(
+            mcp_image_blocks(&MCPOutputDetails::Error(
+                "data:image/png;base64,AAAA".into()
+            ))
+            .is_empty()
+        );
+    }
 
     #[test]
     fn test_acp_tool_update_send_subagent_message_outcomes_are_terminal() {

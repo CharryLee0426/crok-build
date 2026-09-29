@@ -84,6 +84,7 @@ struct TranscriptView: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .scrollTargetLayout()
+                .environment(\.openImage, store.openImageAction)
                 .frame(maxWidth: 800, alignment: .leading).padding(.horizontal, 36).padding(.top, 34).padding(.bottom, 15).frame(maxWidth: .infinity)
             }
             .defaultScrollAnchor(.bottom)
@@ -282,7 +283,8 @@ struct MessageView: View, Equatable {
                     GrokMark(size: 18); Text("Crok").font(.system(size: 13, weight: .semibold))
                     if let timestamp { Spacer(minLength: 8); TranscriptTimestampLabel(date: timestamp) }
                 }
-                MarkdownReply(text: message.text)
+                if !message.text.isEmpty || message.attachments?.isEmpty != false { MarkdownReply(text: message.text) }
+                if let images = message.attachments, !images.isEmpty { TranscriptImageGrid(attachments: images) }
             }
         case .thought:
             ThoughtView(message: message, isStreaming: isStreaming, expanded: isExpanded, onExpand: onExpand)
@@ -417,6 +419,18 @@ private struct ToolCallView: View {
     @State private var localExpanded = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            section
+            // What the tool returned as images stays in sight while the call is folded.
+            if let images = message.attachments, !images.isEmpty {
+                TranscriptImageGrid(attachments: images)
+                    .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 12)
+            }
+        }
+        .background(Theme.sidebar.opacity(0.65), in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    private var section: some View {
         FoldableSection(isExpanded: FoldState(id: message.id, expanded: expanded, onExpand: onExpand).binding($localExpanded)) {
             HStack(spacing: 8) {
                 Image(systemName: message.status == "completed" ? "checkmark.circle" : message.status == "failed" ? "xmark.circle" : "terminal")
@@ -429,12 +443,11 @@ private struct ToolCallView: View {
             Group {
                 if let detail = message.detail, !detail.isEmpty {
                     ReadOnlyTextView(text: detail, style: .monospaced, wrapsLines: false, sizing: .fitContent(maxHeight: 260))
-                } else {
+                } else if message.attachments?.isEmpty != false {
                     Text("No additional output.").font(.system(size: 13)).foregroundStyle(Theme.muted)
                 }
-            }.padding(.horizontal, 14).padding(.bottom, 12)
+            }.padding(.horizontal, 14).padding(.bottom, message.attachments?.isEmpty == false && message.detail?.isEmpty != false ? 0 : 12)
         }
-        .background(Theme.sidebar.opacity(0.65), in: RoundedRectangle(cornerRadius: 9))
     }
 
     /// Tool titles use inline Markdown, e.g. ``Read `path` ``: code spans show as code.

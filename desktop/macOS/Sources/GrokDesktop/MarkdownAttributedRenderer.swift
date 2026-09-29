@@ -302,7 +302,7 @@ struct MarkdownAttributedRenderer {
         let attachment = NSTextAttachment()
         attachment.attachmentCell = MarkdownImageCell(image: image, url: url)
         let text = NSMutableAttributedString(attachment: attachment)
-        text.addAttributes([.paragraphStyle: paragraphStyle(context), .toolTip: alt.isEmpty ? source : alt,
+        text.addAttributes([.paragraphStyle: paragraphStyle(context), .toolTip: alt.isEmpty ? (url.scheme == "data" ? "Image" : source) : alt,
                             Self.copiedTextAttribute: "![\(alt)](\(source))"], range: NSRange(location: 0, length: text.length))
         output.append(text)
     }
