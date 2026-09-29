@@ -24,8 +24,9 @@ struct GitWorkspaceSnapshot: Equatable, Sendable {
     }
 }
 
-/// Read-only Git operations run away from the main actor. Arguments are always passed
-/// directly to git; workspace paths and file names are never evaluated by a shell.
+/// Git operations run away from the main actor. Arguments are always passed directly to git;
+/// workspace paths and file names are never evaluated by a shell. Everything here only reads,
+/// except the branch commands in `GitHistory.swift`.
 struct WorkspaceService: Sendable {
     func inspect(path: String) async -> GitWorkspaceSnapshot {
         await Task.detached(priority: .utility) {
@@ -91,7 +92,7 @@ struct WorkspaceService: Sendable {
         return (files, false)
     }
 
-    private struct GitResult {
+    struct GitResult {
         let code: Int32
         let data: Data
         let truncated: Bool
@@ -104,7 +105,9 @@ struct WorkspaceService: Sendable {
         var isBinary = false
     }
 
-    private static func git(_ arguments: [String], at path: String, limit: Int = 16 * 1_024 * 1_024) -> GitResult {
+    /// Runs git with `arguments` in `path`. Its error output is included unless `includeErrors`
+    /// is false, which output that is parsed rather than shown should ask for.
+    static func git(_ arguments: [String], at path: String, limit: Int = 16 * 1_024 * 1_024, includeErrors: Bool = true) -> GitResult {
         let process = Process()
         let output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -119,7 +122,7 @@ struct WorkspaceService: Sendable {
         environment["GIT_PAGER"] = "cat"
         process.environment = environment
         process.standardOutput = output
-        process.standardError = output
+        process.standardError = includeErrors ? output : FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
         do {
             try process.run()
@@ -140,7 +143,7 @@ struct WorkspaceService: Sendable {
         return GitResult(code: process.terminationStatus, data: data, truncated: truncated)
     }
 
-    private static func repositoryRoot(at path: String) -> GitResult {
+    static func repositoryRoot(at path: String) -> GitResult {
         git(["rev-parse", "--show-toplevel"], at: path)
     }
 

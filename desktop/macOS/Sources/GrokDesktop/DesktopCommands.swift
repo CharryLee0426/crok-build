@@ -74,6 +74,7 @@ enum DesktopCommands {
         command("imagine", "Generate an image", hint: "<description>"),
         command("imagine-video", "Generate a video", hint: "<description>"),
         command("changes", "Inspect changes in this project", aliases: ["diff"]),
+        command("git-graph", "Browse the commit graph: branches, merges, and history", aliases: ["graph", "gitgraph"]),
         command("terminal", "Open a terminal in this project"),
         // Docs, account, and one-off maintenance.
         command("docs", "Read the Crok Build guides", hint: "[web|title]", aliases: ["howto", "guides"]),
@@ -170,6 +171,7 @@ extension SlashCommand {
         case "feedback": return "exclamationmark.bubble"
         case "usage", "context", "session-info": return "gauge.with.dots.needle.33percent"
         case "trace": return "waveform.path.ecg"
+        case "git-graph": return "arrow.triangle.merge"
         case "doctor": return "stethoscope"
         case "memory", "remember", "flush", "dream": return "brain.head.profile"
         case "queue": return "text.line.first.and.arrowtriangle.forward"
@@ -264,6 +266,8 @@ extension AppStore {
         case "changes":
             features.files.scope = .changes
             showSidePanel(.files)
+        case "git-graph":
+            if project == nil { banner = "Open a project to see its Git history." } else { features.gitGraph.open() }
         case "terminal": openTerminal()
         case "docs": features.extras.openDocs(arguments)
         case "release-notes": features.account.openReleaseNotes()

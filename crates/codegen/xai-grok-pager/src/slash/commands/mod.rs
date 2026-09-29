@@ -24,6 +24,7 @@ pub mod feedback;
 pub mod find;
 pub mod fork;
 pub mod gboom;
+pub mod git_graph;
 pub mod help;
 pub mod history;
 pub mod home;
@@ -111,6 +112,7 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(history::HistoryCommand),
         Arc::new(transcript::TranscriptCommand),
         Arc::new(trace::TraceCommand),
+        Arc::new(git_graph::GitGraphCommand),
         Arc::new(export::ExportCommand),
         Arc::new(copy::CopyCommand),
         Arc::new(find::FindCommand),

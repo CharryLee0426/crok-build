@@ -128,6 +128,13 @@ fn mode_specific_builtin_refusals_are_pinned() {
                 "You're already in fullscreen mode.".to_string()
             ),
             (
+                "git-graph",
+                "/git-graph isn't available in minimal mode \
+                 (the git graph needs the full screen). \
+                 Run /fullscreen to switch this session."
+                    .to_string()
+            ),
+            (
                 "jump",
                 "/jump isn't available in minimal mode \
                  (minimal scrolls with your terminal's native scrollback). \
