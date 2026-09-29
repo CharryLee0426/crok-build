@@ -56,16 +56,21 @@ final class TranscriptVisibilityTests: XCTestCase {
 
     /// Frames drawn while following a transcript that showed none of its rows, and the longest run of them.
     private var blankFrames = 0, blankRun = 0, longestBlankRun = 0, frames = 0
+    /// How long each frame's layout and draw took, in milliseconds.
+    private var frameTimes: [Double] = []
 
     /// Display cycles for `seconds`: a layout and a draw every frame.
     private func shown(_ seconds: Double) async throws {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
+            let frameStart = DispatchTime.now().uptimeNanoseconds
             host.layoutSubtreeIfNeeded()
             host.displayIfNeeded()
+            frameTimes.append(Double(DispatchTime.now().uptimeNanoseconds - frameStart) / 1_000_000)
             frames += 1
+            // No row reported on screen, and nothing drawn: a row far taller than the window can show without being reported.
             if store.features.transcript.isFollowingOutput, !(store.conversation?.messages ?? []).isEmpty,
-               store.features.transcript.viewport.topMessageIndex == nil {
+               store.features.transcript.viewport.topMessageIndex == nil, (try? inkedFraction()).map({ $0 < 0.02 }) ?? true {
                 blankFrames += 1
                 blankRun += 1
                 longestBlankRun = max(longestBlankRun, blankRun)
@@ -99,6 +104,14 @@ final class TranscriptVisibilityTests: XCTestCase {
         let start = TranscriptPage.followingStart(count: messages.count)
         let dropped = TranscriptPage.followingStart(count: lastRows.count) ..< start
         for index in dropped where index < messages.count { print("TRANSCRIPT-DIAGNOSE   left the window: \(describe(messages[index]))") }
+    }
+
+    /// User and system CPU time of this process.
+    private static func cpuSeconds() -> Double {
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        func seconds(_ time: timeval) -> Double { Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000 }
+        return seconds(usage.ru_utime) + seconds(usage.ru_stime)
     }
 
     /// No display cycles: the run loop still delivers the harness's updates.
@@ -178,6 +191,15 @@ final class TranscriptVisibilityTests: XCTestCase {
             try await start(prompt: "fixture:mixed:125:2000")
         }
         try await shown(2)
+        frameTimes.removeAll()
+        let cpuStart = Self.cpuSeconds(), messagesStart = store.conversation?.messages.count ?? 0
+        defer {
+            let ordered = frameTimes.sorted()
+            func percentile(_ p: Double) -> Double { ordered.isEmpty ? 0 : ordered[min(ordered.count - 1, Int((p / 100 * Double(ordered.count - 1)).rounded()))] }
+            print(String(format: "PERF transcript streaming: %d messages, %d frames, frame p50 %.1f p95 %.1f p99 %.1f max %.1f ms, over 16 ms %d, CPU %.1f s, blank frames %d, longest blank %d, recoveries %d",
+                         (store.conversation?.messages.count ?? 0) - messagesStart, ordered.count, percentile(50), percentile(95), percentile(99), ordered.last ?? 0,
+                         ordered.filter { $0 > 16 }.count, Self.cpuSeconds() - cpuStart, blankFrames, longestBlankRun, store.features.transcript.blankRecoveries))
+        }
         let before = try look("before")
         XCTAssertNotNil(before.topVisible, "rows are on screen while streaming: \(before)")
         XCTAssertGreaterThan(before.inked, 0.02, "the transcript draws its rows: \(before)")
