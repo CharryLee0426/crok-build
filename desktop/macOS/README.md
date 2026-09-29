@@ -140,6 +140,14 @@ swift test --package-path desktop/macOS
    select it, and **Escape** to dismiss. Commands with arguments fill the composer
    so you can add details before sending. The **+** menu and **Extensions** menu
    provide direct access to the same features.
+7. Under the composer, click the branch name to switch branches: search local and
+   remote branches (a remote one is checked out as a local tracking branch), or
+   type a new name to create a branch from the current commit. Uncommitted changes
+   come along, and Git refuses a switch that would overwrite them; switching waits
+   while a task is working in the project. **Git Graph** beside it (⌥⌘G, or
+   `/git-graph`) opens the project's history in coloured lanes: every branch or
+   only the current one, with branch, remote, and tag badges, search, and each
+   commit's files and diffs. Double-click a branch badge to switch to it.
 
 The command catalog is loaded from the harness for the selected project and
 updated during the session. User-invocable skills retain their exact qualified
@@ -169,7 +177,7 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   tools are advertised.
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
-records all 72 pager commands, shell built-ins, CLI families, exact ACP
+records all 73 pager commands, shell built-ins, CLI families, exact ACP
 contracts, and what each command does in the desktop app. Commands that open a
 picker or panel in the terminal open a native sheet or window here: usage and
 context, session info, feedback, release notes, guides, the tutorial,
@@ -257,6 +265,7 @@ both launch methods. See the [authentication guide](../../crates/codegen/xai-gro
 | Toggle sidebar | ⌘B |
 | Toggle side panel (files, side chat, terminal) | ⌘J |
 | Terminal | ⌃\` |
+| Git Graph | ⌥⌘G |
 | Attach photos and files | ⌘U |
 | Settings | ⌘, |
 | Find in conversation | ⌘F, then ⌘G / ⇧⌘G |

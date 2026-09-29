@@ -105,6 +105,7 @@ struct CommandPaletteAction: Identifiable, Equatable {
         .init("Workflows", "/workflows", "arrow.triangle.branch", .tools, .command("workflows")),
         .init("MCP Servers", "/mcps", "point.3.connected.trianglepath.dotted", .tools, .command("mcps")),
         .init("Manage Agents", "/config-agents", "person.crop.rectangle.stack", .tools, .command("config-agents")),
+        .init("Git Graph", "/git-graph", "arrow.triangle.merge", .tools, .command("git-graph")),
         .init("Switch Theme", "/theme", "paintpalette", .other, .themePicker),
         .init("Settings", "⌘,", "gearshape", .other, .command("settings")),
         .init("Keyboard Shortcuts", "⌘/", "keyboard", .other, .keyboardShortcuts),

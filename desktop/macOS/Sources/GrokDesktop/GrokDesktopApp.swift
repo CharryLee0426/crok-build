@@ -31,6 +31,7 @@ struct GrokDesktopApp: App {
         auxiliary(.transcript)
         auxiliary(.gboom)
         auxiliary(.tutorial)
+        auxiliary(.gitGraph)
     }
 
     private var displayName: String {
@@ -76,6 +77,7 @@ private struct AppCommands: Commands {
             Button("Side Chat") { store.showSidePanel(.sideChat); store.features.sideChat.requestFocus() }
             Button("Terminal") { store.openTerminal() }.keyboardShortcut("`", modifiers: .control).disabled(!menu.hasProject)
             Button("Reveal Project in Finder") { store.revealProject() }.disabled(!menu.hasProject)
+            Button("Git Graph") { store.features.gitGraph.open() }.keyboardShortcut("g", modifiers: [.command, .option]).disabled(!menu.hasProject)
         }
         CommandGroup(replacing: .help) {
             Button("Crok Build Guides") { store.executeCommand(name: "docs") }
