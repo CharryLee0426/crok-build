@@ -62,6 +62,7 @@ struct SettingsView: View {
                     DisplaySettingsSection()
                     BehaviorSettingsSection()
                     CommandLineSettingsSection()
+                    if PerformanceMonitorSettings.isAvailable { DeveloperSettingsSection() }
                 }
                 .padding(3)
             }

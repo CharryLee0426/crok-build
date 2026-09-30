@@ -74,6 +74,14 @@ directory. Its app has a separate bundle identity, state file, orange **TESTING*
 icon, and disabled global `crok` command switch, so it remains separate from the
 production desktop app.
 
+The test app also shows a performance monitor: a see-through black panel over the
+window with live numbers and one-minute charts for frame rate, main-thread lag
+(250 ms or more is a hang), CPU, memory, the processes the app started (one
+`crok agent` per open task, plus terminals), and ACP messages per second. Drag it
+anywhere, or fold it to one line with its chevron. It is on by default and
+**Settings › Developer** turns it off. Release builds never show it or the
+Developer section. It samples twice a second, and only while it is visible.
+
 The packaging script embeds the release harness as `Contents/Resources/crok`,
 signs that executable, and then signs the app. It also bundles the `crok` command's
 launcher, [`Resources/crok-command.sh`](Resources/crok-command.sh), as

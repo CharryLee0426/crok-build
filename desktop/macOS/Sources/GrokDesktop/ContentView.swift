@@ -14,6 +14,8 @@ struct ContentView: View {
         splitView
             .id(extras.themeRevision)
             .frame(minWidth: store.minimalMode ? 560 : 920, minHeight: 650)
+            // Test builds only; outside the rebuilt content so a theme change keeps its samples.
+            .overlay { PerformanceMonitorOverlay() }
             .sheet(isPresented: $store.showSettings) { SettingsView().desktopEnvironment(store) }
             .sheet(isPresented: $store.showCommandPalette) { CommandPalette().desktopEnvironment(store) }
             .sheet(item: $store.featurePanel) { panel in FeatureBrowser(panel: panel).desktopEnvironment(store) }
