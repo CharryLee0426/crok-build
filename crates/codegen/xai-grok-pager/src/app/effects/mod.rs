@@ -1230,6 +1230,18 @@ pub(crate) fn execute(
                     }
                 });
         }
+        Effect::GitGraph { agent_id, request } => {
+            tasks
+                .spawn(async move {
+                    let failed = request.clone();
+                    let response = tokio::task::spawn_blocking(move || crate::git_graph::run(request))
+                        .await
+                        .unwrap_or_else(|error| {
+                            failed.fail(format!("Reading the repository stopped: {error}"))
+                        });
+                    TaskResult::GitGraph { agent_id, response }
+                });
+        }
         Effect::LoadCardDetail { host, generation, source, session_id, cwd, seq } => {
             tasks
                 .spawn(async move {

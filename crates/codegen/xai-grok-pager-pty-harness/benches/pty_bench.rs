@@ -9,6 +9,13 @@
 //!   --bench pty_bench -- --scenario scroll-stress
 //! ```
 //!
+//! Resume a long recorded session, scroll it, and stream on top of it (not part of `--all`):
+//! ```bash
+//! PTY_BENCH_LONG_SESSION_TRACE=~/Downloads/<session-id>.html \
+//!   cargo bench -p xai-grok-pager-pty-harness \
+//!   --bench pty_bench -- --scenario long-session --binary <pager>
+//! ```
+//!
 //! Run every scenario and write a new baseline:
 //! ```bash
 //! cargo bench -p xai-grok-pager-pty-harness \
@@ -100,7 +107,9 @@ async fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
 
     let binary = match cli.binary {
-        Some(b) => b,
+        // portable_pty resolves a relative program via PATH, not the cwd.
+        Some(b) => std::path::absolute(&b)
+            .with_context(|| format!("absolutize --binary {}", b.display()))?,
         None => pager_binary().context("resolve pager binary")?,
     };
     let scenarios: Vec<Scenario> = if cli.all {
@@ -125,25 +134,37 @@ async fn run() -> Result<ExitCode> {
         let content = ContentController::start()
             .await
             .context("start ContentController")?;
-        let mut harness =
-            PtyHarness::spawn_with_content(&binary, cli.rows, cli.cols, &content, &[])
-                .context("spawn pager PTY harness")?;
+        let launch = scenario
+            .launch(&content)
+            .context("prepare scenario fixtures")?;
+        let args: Vec<&str> = launch.args.iter().map(String::as_str).collect();
+        let mut harness = PtyHarness::spawn_with_content_in_dir(
+            &binary,
+            cli.rows,
+            cli.cols,
+            &content,
+            &args,
+            launch.cwd.as_deref(),
+        )
+        .context("spawn pager PTY harness")?;
 
-        let res = scenario.run(&mut harness, &content).await;
+        let res = scenario.run_phases(&mut harness, &content).await;
 
         // Best-effort cleanup regardless of scenario outcome.
         let _ = harness.quit();
 
         match res {
-            Ok(r) => {
-                tracing::info!(
-                    scenario = %r.scenario,
-                    frames = r.total_frames,
-                    p50_ms = r.p50_ms,
-                    p99_ms = r.p99_ms,
-                    "scenario complete"
-                );
-                results.push(r);
+            Ok(phases) => {
+                for r in phases {
+                    tracing::info!(
+                        scenario = %r.scenario,
+                        frames = r.total_frames,
+                        p50_ms = r.p50_ms,
+                        p99_ms = r.p99_ms,
+                        "scenario complete"
+                    );
+                    results.push(r);
+                }
             }
             Err(e) => {
                 tracing::warn!(scenario = scenario.as_str(), error = %e, "scenario failed");

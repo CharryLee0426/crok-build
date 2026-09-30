@@ -668,6 +668,10 @@ pub enum Action {
     ShowUsage,
     /// `/trace`: open the trace explorer on a snapshot of the active session.
     ShowTrace,
+    /// `/git-graph`: open the commit graph for the active session's working directory.
+    ShowGitGraph,
+    /// Work the open `/git-graph` overlay asked for: a (re)load or one commit's files.
+    GitGraphRequest(crate::git_graph::Request),
     /// `/usage manage`: open consumer billing (a no-op when billing is hidden).
     ManageBilling,
     /// Commit a read-only list of the queued prompts as a system block (`/queue`).
@@ -1529,6 +1533,11 @@ pub enum Effect {
     LoadTrace {
         agent_id: AgentId,
         dir: std::path::PathBuf,
+    },
+    /// Run `git` for the `/git-graph` overlay off the UI thread.
+    GitGraph {
+        agent_id: AgentId,
+        request: crate::git_graph::Request,
     },
     /// Load card detail for a specific session (lazy, reads chat history from disk).
     LoadCardDetail {
@@ -2572,6 +2581,11 @@ pub enum TaskResult {
     WorkspaceRefreshTaskFailed {
         db_path: std::path::PathBuf,
         error: String,
+    },
+    /// A `/git-graph` request finished; the overlay drops results it no longer wants.
+    GitGraph {
+        agent_id: AgentId,
+        response: crate::git_graph::Response,
     },
     /// A `/trace` snapshot finished loading; dropped unless that explorer is still waiting for it.
     TraceLoaded {

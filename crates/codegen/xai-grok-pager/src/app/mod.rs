@@ -1646,10 +1646,37 @@ fn init_terminal(
         signal_handler::mark_restored();
         xai_crash_handler::disable_terminal_escape_restore();
     })?;
+    #[cfg(unix)]
+    let terminal = {
+        let mut terminal = terminal;
+        if let Some(query) = tty_size_query() {
+            terminal.set_size_query(query);
+        }
+        terminal
+    };
     Ok(TerminalInit {
         terminal,
         screen_mode,
         startup_typeahead,
+    })
+}
+
+/// The terminal's size from `TIOCGWINSZ` on `/dev/tty`, opened once. Every frame reads the size,
+/// and crossterm opens and closes the tty for each read: about a quarter of the main thread while
+/// a reply streamed. None without a controlling terminal, which leaves the backend's read.
+#[cfg(unix)]
+fn tty_size_query() -> Option<impl Fn() -> io::Result<ratatui::layout::Size> + Send + Sync + 'static>
+{
+    use std::os::fd::AsRawFd as _;
+    let tty = std::fs::File::open("/dev/tty").ok()?;
+    Some(move || {
+        // TIOCGWINSZ fills in the one `winsize` it is given; the descriptor stays open with `tty`.
+        let mut size: libc::winsize = unsafe { std::mem::zeroed() };
+        if unsafe { libc::ioctl(tty.as_raw_fd(), libc::TIOCGWINSZ, &mut size) } == 0 {
+            Ok(ratatui::layout::Size::new(size.ws_col, size.ws_row))
+        } else {
+            Err(io::Error::last_os_error())
+        }
     })
 }
 pub(crate) fn set_terminal_title(title: &str) {

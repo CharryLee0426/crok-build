@@ -96,6 +96,28 @@ def main(out):
         if os.path.exists(state):
             summary["stream"]["state_mb"] = round(os.path.getsize(state) / 1e6, 1)
 
+    m = dict(marks("replay"))
+    if "send" in m and "done" in m:
+        send, done = m["send"], m["done"]
+        # Rows on screen, sampled every 2 s while the replay streams; two or fewer is a blank transcript.
+        rows = []
+        path = os.path.join(out, "transcript-replay.jsonl")
+        if os.path.exists(path):
+            for line in open(path):
+                try:
+                    ax = json.loads(line).get("ax") or {}
+                except ValueError:
+                    continue
+                if "onScreen" in ax:
+                    rows.append(ax["onScreen"])
+        summary["replay"] = {
+            "seconds": round(done - send, 1),
+            "streaming": stats(window(probe("replay"), send, done)),
+            "process": process(ps("replay"), send, done),
+            "transcript_samples": len(rows),
+            "blank_samples": sum(1 for count in rows if count <= 2),
+        }
+
     m = marks("launch")
     if m:
         samples = probe("launch")
@@ -125,6 +147,11 @@ def main(out):
                 print("stream {}: p50 {} p95 {} p99 {} max {} ms, >1s {}, >2s {}, blocked {} s; {}".format(
                     phase, d["p50_ms"], d["p95_ms"], d["p99_ms"], d["max_ms"], d["stalls_over_1s"], d["stalls_over_2s"],
                     d["blocked_s"], value[phase + "_process"]))
+        elif name == "replay":
+            d = value["streaming"]
+            print("replay: {} s, p50 {} p95 {} p99 {} max {} ms, >1s {}, blocked {} s; blank {} of {} samples; {}".format(
+                value["seconds"], d["p50_ms"], d["p95_ms"], d["p99_ms"], d["max_ms"], d["stalls_over_1s"], d["blocked_s"],
+                value["blank_samples"], value["transcript_samples"], value["process"]))
         else:
             d = value["after_window"]
             print("launch: window {} ms, max {} ms, blocked {} s; {}".format(value.get("window_ms"), d["max_ms"], d["blocked_s"], value["process"]))

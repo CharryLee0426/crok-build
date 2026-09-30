@@ -19,6 +19,7 @@ final class DesktopFeatures {
     let files: FilesPanelModel
     let sideChat: SideChatModel
     let terminals: TerminalSessions
+    let gitGraph: GitGraphModel
 
     init(store: AppStore) {
         account = AccountFeatureModel(store: store)
@@ -31,6 +32,7 @@ final class DesktopFeatures {
         files = FilesPanelModel(store: store)
         sideChat = SideChatModel(store: store)
         terminals = TerminalSessions()
+        gitGraph = GitGraphModel(store: store)
     }
 
     /// Notifications from connections that do not belong to a task, such as the one that
@@ -105,7 +107,7 @@ enum UsageTab: String, CaseIterable, Identifiable {
 
 /// Secondary windows. Their content reads what to show from the owning feature model.
 enum DesktopWindow: String, CaseIterable {
-    case trace, docs, releaseNotes = "release-notes", transcript, gboom, tutorial
+    case trace, docs, releaseNotes = "release-notes", transcript, gboom, tutorial, gitGraph = "git-graph"
 }
 
 extension DesktopSheet {
@@ -141,6 +143,7 @@ extension DesktopWindow {
         case .transcript: TranscriptWindow()
         case .gboom: GboomWindow()
         case .tutorial: TutorialWindow()
+        case .gitGraph: GitGraphWindow()
         }
     }
 
@@ -152,12 +155,14 @@ extension DesktopWindow {
         case .transcript: return "Transcript"
         case .gboom: return "GBOOM"
         case .tutorial: return "Welcome to Crok Build"
+        case .gitGraph: return "Git Graph"
         }
     }
 
     var defaultSize: CGSize {
         switch self {
         case .trace: return CGSize(width: 1180, height: 800)
+        case .gitGraph: return CGSize(width: 1280, height: 820)
         case .gboom: return CGSize(width: 960, height: 700)
         case .tutorial: return CGSize(width: 760, height: 620)
         default: return CGSize(width: 860, height: 760)
@@ -180,6 +185,7 @@ extension View {
             .environmentObject(store.features.files)
             .environmentObject(store.features.sideChat)
             .environmentObject(store.features.terminals)
+            .environmentObject(store.features.gitGraph)
     }
 }
 

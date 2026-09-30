@@ -331,6 +331,42 @@ pub(super) fn dispatch_show_trace(app: &mut AppView) -> Vec<Effect> {
     vec![Effect::LoadTrace { agent_id: id, dir }]
 }
 
+/// `/git-graph`: open the commit graph, then read the repository off the UI thread.
+pub(super) fn dispatch_show_git_graph(app: &mut AppView) -> Vec<Effect> {
+    let ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    let Some(agent) = app.agents.get_mut(&id) else {
+        return vec![];
+    };
+    let (overlay, request) =
+        crate::git_graph::tui::GitGraphOverlay::open(agent.session.cwd.clone());
+    agent.active_modal = Some(crate::views::modal::ActiveModal::GitGraph {
+        state: Box::new(overlay),
+    });
+    vec![Effect::GitGraph {
+        agent_id: id,
+        request,
+    }]
+}
+
+/// Work the open `/git-graph` overlay asked for; nothing once it has closed.
+pub(super) fn dispatch_git_graph_request(
+    app: &mut AppView,
+    request: crate::git_graph::Request,
+) -> Vec<Effect> {
+    let ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    match app.agents.get(&id).map(|agent| &agent.active_modal) {
+        Some(Some(crate::views::modal::ActiveModal::GitGraph { .. })) => vec![Effect::GitGraph {
+            agent_id: id,
+            request,
+        }],
+        _ => vec![],
+    }
+}
+
 /// `/context` and the context-bar click: open the usage modal on its "Context usage" tab, or fetch-and-show in scrollback in minimal mode.
 pub(super) fn dispatch_show_context_info(app: &mut AppView) -> Vec<Effect> {
     if !app.screen_mode.is_minimal() {

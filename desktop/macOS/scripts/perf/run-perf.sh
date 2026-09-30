@@ -10,6 +10,14 @@
 #            (half-seconds, default 1200) bounds the wait for it to finish
 #   launch   launch with a saved $ROUNDS-round task selected
 #   switch   switch between the long task and a short one, then scroll the long one
+#   replay   a recorded session ($REPLAY: a /trace export or a session's updates.jsonl) streamed
+#            through a new task: its first $FAST_TURNS turns (10) at once, the rest at
+#            $REPLAY_SPEED times their recorded pace (4) with gaps cut to $REPLAY_GAP seconds (10).
+#            Every 2 s, transcript-replay.jsonl records how many rows the conversation shows;
+#            none, while it streams, is the blank transcript of Crok Desktop 1.2.0
+#
+# The window must be on screen, on the current Space: AppKit does not lay out, and SwiftUI does
+# not draw, a window behind a full-screen app or on another Space.
 #
 # Every scenario runs `ax-probe probe` beside the app: each line of probe-*.csv is one
 # accessibility request, which the app serves on its main thread, so its latency is how long
@@ -32,7 +40,9 @@ launch() { # <state-dir> <label>: starts the app, the probe, and the sampler
     mkdir -p "$dir/home"
     CROK_DESKTOP_STATE_FILE="$dir/state.json" CROK_DESKTOP_HARNESS="$MOCK" CROK_HOME="$dir/home" \
         CROK_FIXTURE_HISTORY="$dir/history.json" CROK_FIXTURE_DONE_FILE="$dir/done" \
-        "$APP" >"$OUT/$label.app.log" 2>&1 &
+        CROK_FIXTURE_REPLAY="${REPLAY:-}" CROK_FIXTURE_REPLAY_FAST_TURNS="${FAST_TURNS:-10}" \
+        CROK_FIXTURE_REPLAY_SPEED="${REPLAY_SPEED:-4}" CROK_FIXTURE_REPLAY_MAX_GAP="${REPLAY_GAP:-10}" \
+        "$APP" -ApplePersistenceIgnoreState YES >"$OUT/$label.app.log" 2>&1 &
     APP_PID=$!
     T_LAUNCH=$(python3 -c 'import time; print(time.time())')
     WINDOW_MS=$("$PROBE" wait-window "$APP_PID" 180)
@@ -72,6 +82,29 @@ for scenario in $SCENARIOS; do
         echo "stream: window ${WINDOW_MS}ms, sent → done $(python3 -c "import sys;l=dict(x.strip().split(',') for x in open('$OUT/marks-stream.csv'));print(round(float(l['done'])-float(l['send']),1))")s"
         stop_app
         ls -l "$dir/state.json" | awk '{print "stream: state file " $5 " bytes"}'
+        ;;
+    replay)
+        [ -f "${REPLAY:-}" ] || { echo "replay: set REPLAY to a trace export or updates.jsonl"; continue; }
+        dir="$OUT/state-replay"; rm -rf "$dir"; mkdir -p "$dir/project"; git init -q "$dir/project"
+        pid=$(uuidgen)
+        printf '{"projects":[{"id":"%s","path":"%s"}],"conversations":[],"selectedProjectID":"%s","deletedSessionIDs":[],"collapsedProjectIDs":[]}' \
+            "$pid" "$dir/project" "$pid" >"$dir/state.json"
+        echo '{}' >"$dir/history.json"
+        launch "$dir" replay
+        sleep 4
+        mark send
+        "$PROBE" send "$APP_PID" "fixture:replay Continue the recorded task." >/dev/null
+        : >"$OUT/transcript-replay.jsonl"
+        for _ in $(seq 1 "${REPLAY_TIMEOUT:-900}"); do
+            [ -f "$dir/done" ] && break
+            echo "{\"t\":$(python3 -c 'import time; print(time.time())'),\"ax\":$("$PROBE" transcript "$APP_PID" 2>/dev/null || echo null)}" >>"$OUT/transcript-replay.jsonl"
+            sleep 2
+        done
+        mark done
+        sleep 8
+        mark end
+        echo "replay: sent → done $(python3 -c "import sys;l=dict(x.strip().split(',') for x in open('$OUT/marks-replay.csv'));print(round(float(l['done'])-float(l['send']),1))")s"
+        stop_app
         ;;
     launch)
         dir="$OUT/state-launch"; rm -rf "$dir"

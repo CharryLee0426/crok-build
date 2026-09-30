@@ -3,6 +3,7 @@
 //! Each scenario is a function `async fn run(&mut PtyHarness, &ContentController)` returning a [`BenchResults`].
 //! Scenarios are dispatched by name via the [`Scenario`] enum for the `pty-bench` CLI and for ad-hoc test usage.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -14,6 +15,7 @@ use super::{BenchResults, ContentController, PtyHarness};
 pub mod empty_enter_send_now;
 pub mod idle_cost;
 pub mod large_codeblock;
+pub mod long_session;
 pub mod mixed_interaction;
 pub mod plan_approval_resume;
 pub mod resize_storm;
@@ -49,6 +51,16 @@ pub enum Scenario {
     IdleCost,
     /// Scroll while streaming, the real-world worst case.
     MixedInteraction,
+    /// Resume a long recorded session (`PTY_BENCH_LONG_SESSION_TRACE`), scroll its history, then stream on top of it.
+    /// Not in [`Scenario::ALL`]: it needs an external trace export.
+    LongSession,
+}
+
+/// How the bench runner must spawn the pager for a scenario.
+#[derive(Debug, Default)]
+pub struct ScenarioLaunch {
+    pub args: Vec<String>,
+    pub cwd: Option<PathBuf>,
 }
 
 impl Scenario {
@@ -61,6 +73,31 @@ impl Scenario {
         Scenario::IdleCost,
         Scenario::MixedInteraction,
     ];
+
+    pub fn as_str(self) -> &'static str {
+        self.into()
+    }
+
+    /// Seed any on-disk fixtures into the sandbox and return the pager spawn arguments.
+    /// Call before spawning the harness; scenarios without fixtures spawn with no extra args in the sandbox home.
+    pub fn launch(self, content: &ContentController) -> Result<ScenarioLaunch> {
+        match self {
+            Scenario::LongSession => long_session::launch(content),
+            _ => Ok(ScenarioLaunch::default()),
+        }
+    }
+
+    /// Like [`Self::run`], but multi-phase scenarios report one [`BenchResults`] per phase.
+    pub async fn run_phases(
+        self,
+        harness: &mut PtyHarness,
+        content: &ContentController,
+    ) -> Result<Vec<BenchResults>> {
+        match self {
+            Scenario::LongSession => long_session::run_phases(harness, content).await,
+            other => Ok(vec![other.run(harness, content).await?]),
+        }
+    }
 
     /// Dispatch to the scenario implementation.
     pub async fn run(
@@ -75,6 +112,11 @@ impl Scenario {
             Scenario::LargeCodeblock => large_codeblock::run(harness, content).await,
             Scenario::IdleCost => idle_cost::run(harness, content).await,
             Scenario::MixedInteraction => mixed_interaction::run(harness, content).await,
+            // The streaming-on-long-history phase is the headline number.
+            Scenario::LongSession => long_session::run_phases(harness, content)
+                .await?
+                .pop()
+                .ok_or_else(|| anyhow::anyhow!("long_session produced no phases")),
         }
     }
 }

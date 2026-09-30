@@ -18,6 +18,7 @@
 //! - **`scroll_matrix`**  — `GROK_SCROLL_LOG` JSONL ingestion for the scroll validation matrix.
 //! - **`env`**            — Binary resolution and workspace path helpers.
 //! - **`flows`**          — Cross-suite drive/seed helpers shared by the pager's e2e targets.
+//! - **`trace_session`**  — Seed a recorded session (from a trace export) into a sandbox for `--resume` benchmarks.
 
 pub mod content;
 pub mod env;
@@ -32,6 +33,7 @@ pub mod screen;
 pub mod scripted;
 pub mod scroll_matrix;
 pub mod timing;
+pub mod trace_session;
 
 pub use content::{
     AgentTurnExpectation, ContentController, InferenceEndpoint, InferenceExpectation,
@@ -673,6 +675,11 @@ impl PtyHarness {
                 PtyPump::Timeout => {}
             }
         }
+    }
+
+    /// Time since the child was spawned (the origin for cast timestamps).
+    pub fn elapsed_since_spawn(&self) -> Duration {
+        self.spawned_at.elapsed()
     }
 
     /// Child PID (see [`PtyController::child_pid`]).

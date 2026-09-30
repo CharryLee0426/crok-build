@@ -1,6 +1,6 @@
 //! Aggregated benchmark results, percentile computation, baseline compare.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Duration;
 
@@ -16,11 +16,17 @@ pub struct BenchResults {
     pub total_frames: u64,
     pub avg_fps: f64,
     pub p50_ms: f64,
+    /// Absent from baselines written before it existed.
+    #[serde(default)]
+    pub p95_ms: f64,
     pub p99_ms: f64,
     pub max_ms: f64,
     pub jank_count: u64,
     pub jank_rate: f64,
     pub chars_per_frame_avg: f64,
+    /// Scenario-specific metrics beyond frame timing (e.g. resume latency, input latency, CPU).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, f64>,
 }
 
 impl BenchResults {
@@ -34,11 +40,13 @@ impl BenchResults {
                 total_frames: 0,
                 avg_fps: 0.0,
                 p50_ms: 0.0,
+                p95_ms: 0.0,
                 p99_ms: 0.0,
                 max_ms: 0.0,
                 jank_count: 0,
                 jank_rate: 0.0,
                 chars_per_frame_avg: 0.0,
+                extra: BTreeMap::new(),
             };
         }
 
@@ -55,6 +63,7 @@ impl BenchResults {
             0.0
         };
         let p50_ms = percentile(&durations_ms, 50.0);
+        let p95_ms = percentile(&durations_ms, 95.0);
         let p99_ms = percentile(&durations_ms, 99.0);
         let max_ms = durations_ms.last().copied().unwrap_or(0.0);
 
@@ -71,12 +80,20 @@ impl BenchResults {
             total_frames,
             avg_fps,
             p50_ms,
+            p95_ms,
             p99_ms,
             max_ms,
             jank_count,
             jank_rate,
             chars_per_frame_avg,
+            extra: BTreeMap::new(),
         }
+    }
+
+    /// Attach a scenario-specific metric (serialized under `extra`).
+    pub fn with_extra(mut self, key: impl Into<String>, value: f64) -> Self {
+        self.extra.insert(key.into(), value);
+        self
     }
 }
 

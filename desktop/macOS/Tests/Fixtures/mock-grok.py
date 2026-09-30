@@ -12,7 +12,10 @@ CROK_FIXTURE_HISTORY names a JSON file of {sessionId: [session updates]} to repl
 `fixture:wait` waits for Stop and `fixture:error` returns a protocol error.
 `fixture:long[:N[:M]]` streams one long agentic turn for performance tests: N rounds
 (default 3000) as fast as the client reads, then M rounds at a model's streaming pace (see
-`stream_long_task`).
+`stream_long_task`); `fixture:mixed[:N[:M]]` is the same with rows of a real task's varied heights
+(see `mixed_round`). `fixture:replay` plays back a recorded session (a trace export or a
+session's updates.jsonl, named by CROK_FIXTURE_REPLAY) at its recorded pace (see
+`replay_session`).
 The ordinary scenario streams Markdown, a plan, and a simulated tool result, and
 names any image or resource-link attachments it received. Side questions
 (`_x.ai/btw`), the command catalog, MCPs, skills, and goals are also simulated over ACP.
@@ -174,6 +177,27 @@ class MockHarness:
                 "duration_ms": 240, "tokens_used": 480, "output": "Offline fixture inspection completed."})
 
     @staticmethod
+    def mixed_round(index):
+        """A round of `fixture:mixed`: like `long_round`, but its rows vary in height as a real
+        task's do. Most are a line or two; every few rounds a long plan of reasoning, a reply with a
+        table and code, or a tool with a large output comes through."""
+        thought, title, output, reply = MockHarness.long_round(index)
+        if index % 4 == 0:
+            thought = "\n\n".join("**Step {0}.** {1}".format(step + 1, thought) for step in range(12))
+        else:
+            thought = thought.split(";")[0] + "."
+        if index % 7 == 3:
+            rows = "\n".join("| module_{0} | {1} | {2} ms | ok |".format(row, (index + row) % 13, (index * row) % 400) for row in range(30))
+            code = "\n".join("    let value_{0} = compute({0}, {1});".format(line, index) for line in range(40))
+            reply = ("## Round {0} report\n\n{1}\n\n| Module | Warnings | Time | Result |\n|---|---|---|---|\n{2}\n\n"
+                     "```rust\nfn round_{0}() {{\n{3}\n}}\n```\n\n{1}").format(index + 1, reply.split("\n")[0], rows, code)
+        elif index % 3 == 1:
+            reply = reply.split("\n")[0]
+        if index % 5 == 2:
+            output = "\n".join(output for _ in range(30))
+        return thought, title, output, reply
+
+    @staticmethod
     def long_round(index):
         """One agent round of a long task: reasoning, a tool call with output, and a reply."""
         crate = "crate_{}".format(index % 37)
@@ -188,7 +212,7 @@ class MockHarness:
                  "```rust\nfn round_{0}() -> usize {{ {0} }}\n```").format(index + 1, crate, index % 11)
         return thought, "Run `cargo test -p {}`".format(crate), output, reply
 
-    def stream_long_task(self, session_id, rounds, paced_rounds, stop):
+    def stream_long_task(self, session_id, rounds, paced_rounds, stop, mixed=False):
         """`fixture:long[:N[:M]]`: a long agentic turn. N rounds (3000 by default) stream as fast
         as the client reads them, or each followed by CROK_FIXTURE_ROUND_SECONDS; then M more
         rounds stream at a model's pace, one chunk every CROK_FIXTURE_CHUNK_SECONDS (0.02). Each
@@ -210,7 +234,7 @@ class MockHarness:
                     return False
                 self.update(session_id, update)
                 return not stop.is_set()
-            thought, title, output, reply = self.long_round(index)
+            thought, title, output, reply = self.mixed_round(index) if mixed else self.long_round(index)
             tool_id = "long-tool-{}".format(index)
             updates = [{"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": thought[offset:offset + 24]}}
                        for offset in range(0, len(thought), 24)]
@@ -227,6 +251,79 @@ class MockHarness:
         if paced_rounds == 0 and done:
             mark(done + ".fill")
         mark(done)
+        return True
+
+    @staticmethod
+    def recorded_updates(path):
+        """The session updates a recording holds, in order: a session folder's `updates.jsonl`, a
+        JSON list of its records, or a trace export (`/trace` HTML), whose updates.jsonl events
+        carry the records as `raw`."""
+        with open(path) as handle:
+            text = handle.read()
+        if path.endswith(".html"):
+            found = re.search(r'<script type="application/json" id="trace-data">(.*?)</script>', text, re.S)
+            events = json.loads(found.group(1))["events"] if found else []
+            records = [event["raw"] for event in sorted(events, key=lambda event: event["index"]) if event.get("source") == "updates.jsonl"]
+        elif text.lstrip().startswith("["):
+            records = json.loads(text)
+        else:
+            records = [json.loads(line) for line in text.splitlines() if line.strip()]
+        return [record for record in records if isinstance(record.get("params", {}).get("update"), dict)]
+
+    def replay_session(self, session_id, stop):
+        """`fixture:replay`: plays a recorded session back as one turn. CROK_FIXTURE_REPLAY names
+        the recording (see `recorded_updates`). Updates keep their recorded spacing divided by
+        CROK_FIXTURE_REPLAY_SPEED (1 by default; 0 sends them as fast as the client reads), with
+        gaps cut to CROK_FIXTURE_REPLAY_MAX_GAP seconds (30). A recording keeps each reply and
+        reasoning block as one chunk, so they stream in 24-character pieces, one every
+        CROK_FIXTURE_CHUNK_SECONDS (0.02), as a model's output does. The first
+        CROK_FIXTURE_REPLAY_FAST_TURNS turns (0) are sent at once, so the recorded pace starts on
+        a transcript that is already long. Prompts after the first are left out: the client shows
+        the prompts it sends. With CROK_FIXTURE_DONE_FILE set, `<file>` records when the replay ended."""
+        records = self.recorded_updates(os.environ["CROK_FIXTURE_REPLAY"])
+        speed = float(os.environ.get("CROK_FIXTURE_REPLAY_SPEED", "1"))
+        max_gap = float(os.environ.get("CROK_FIXTURE_REPLAY_MAX_GAP", "30"))
+        fast_turns = int(os.environ.get("CROK_FIXTURE_REPLAY_FAST_TURNS", "0"))
+        def recorded_at(record):
+            meta = record["params"].get("_meta") or {}
+            return (meta.get("agentTimestampMs") or record.get("timestamp", 0) * 1000) / 1000
+        started = time.time()
+        schedule = 0.0
+        previous = recorded_at(records[0]) if records else 0
+        turns = 0
+        for record in records:
+            update = dict(record["params"]["update"])
+            kind = update.get("sessionUpdate")
+            if kind == "turn_completed":
+                turns += 1
+            if kind == "user_message_chunk":
+                continue
+            at = recorded_at(record)
+            fast = turns < fast_turns
+            if fast or not at:
+                previous = at or previous
+                started = time.time() - schedule / speed if speed > 0 else started
+            else:
+                schedule += min(max(0.0, at - previous), max_gap)
+                previous = at
+            if speed > 0 and not fast and stop.wait(max(0.0, started + schedule / speed - time.time())):
+                return False
+            chunk_pause = float(os.environ.get("CROK_FIXTURE_CHUNK_SECONDS", "0.02")) if speed > 0 and not fast else 0
+            method = "_x.ai/session/update" if record.get("method", "").startswith("_") else "session/update"
+            text = (update.get("content") or {}).get("text") if kind in ("agent_message_chunk", "agent_thought_chunk") else None
+            pieces = [text[offset:offset + 24] for offset in range(0, len(text), 24)] if text and not fast else [None]
+            for piece in pieces:
+                if piece is not None:
+                    update = dict(update, content={"type": "text", "text": piece})
+                with self.state_lock:
+                    self.history.setdefault(session_id, []).append(update)
+                self.emit({"method": method, "params": {"sessionId": session_id, "update": update}})
+                if stop.wait(chunk_pause) if chunk_pause else stop.is_set():
+                    return False
+        done = os.environ.get("CROK_FIXTURE_DONE_FILE")
+        if done:
+            with open(done, "w") as handle:
+                handle.write("{:.3f}\n".format(time.time()))
         return True
 
     def emit(self, message):
@@ -344,12 +441,16 @@ class MockHarness:
             for block in blocks:
                 self.update(session_id, {"sessionUpdate": "user_message_chunk", "content": block})
             self.update(session_id, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "Preparing the offline desktop fixture."}})
-            long_run = re.search(r"fixture:long(?::(\d+))?(?::(\d+))?", prompt)
+            long_run = re.search(r"fixture:(long|mixed)(?::(\d+))?(?::(\d+))?", prompt)
             if long_run:
-                if self.stream_long_task(session_id, int(long_run.group(1) or 3000), int(long_run.group(2) or 0), stop):
+                if self.stream_long_task(session_id, int(long_run.group(2) or 3000), int(long_run.group(3) or 0), stop,
+                                         mixed=long_run.group(1) == "mixed"):
                     finish("end_turn")
                 else:
                     finish("cancelled")
+                return
+            if "fixture:replay" in prompt:
+                finish("end_turn" if self.replay_session(session_id, stop) else "cancelled")
                 return
             if "fixture:think" in prompt:
                 seconds = float(os.environ.get("CROK_FIXTURE_THINK_SECONDS", "8"))

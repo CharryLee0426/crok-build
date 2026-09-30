@@ -54,13 +54,7 @@ struct ComposerView: View {
     @ViewBuilder
     private var footer: some View {
         if store.project != nil && !store.workspace.branch.isEmpty {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.branch")
-                Text(store.workspace.branch).fontWeight(.medium).truncationMode(.middle)
-                Spacer(minLength: 0)
-            }
-            .font(.system(size: 12)).lineLimit(1).foregroundStyle(Theme.muted)
-            .frame(height: 16).padding(.horizontal, 5)
+            ComposerGitFooter()
         }
     }
 

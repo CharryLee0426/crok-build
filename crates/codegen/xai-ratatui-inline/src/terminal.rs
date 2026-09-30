@@ -178,6 +178,36 @@ where
     /// Per-frame hyperlink table; a `link_ids` value of `n` refers to entry
     /// `n - 1` of the matching table.
     link_tables: [Vec<LinkRef>; 2],
+    /// Reads the size in place of the backend; see [`Terminal::set_size_query`].
+    size_query: SizeQuery,
+}
+
+/// A size read that stands in for [`Backend::size`], which the crossterm backend answers by
+/// opening the tty again on every frame. Any failure falls back to the backend.
+#[derive(Clone, Default)]
+pub(crate) struct SizeQuery(Option<Arc<dyn Fn() -> io::Result<Size> + Send + Sync>>);
+
+impl std::fmt::Debug for SizeQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "SizeQuery(set)"
+        } else {
+            "SizeQuery(backend)"
+        })
+    }
+}
+
+// A way of reading the size is not part of a terminal's value.
+impl PartialEq for SizeQuery {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for SizeQuery {}
+
+impl std::hash::Hash for SizeQuery {
+    fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
 }
 
 impl<B> Drop for Terminal<B>
@@ -299,6 +329,7 @@ where
             frame_count: 0,
             link_ids: [vec![0; link_len], vec![0; link_len]],
             link_tables: [Vec::new(), Vec::new()],
+            size_query: SizeQuery::default(),
         })
     }
 
@@ -633,9 +664,22 @@ where
         self.current = 1 - self.current;
     }
 
-    /// Queries the real size of the backend.
+    /// Queries the real size of the terminal: from the size query when one is set and it succeeds,
+    /// otherwise from the backend.
     pub fn size(&self) -> io::Result<Size> {
+        if let Some(query) = &self.size_query.0
+            && let Ok(size) = query()
+        {
+            return Ok(size);
+        }
         self.backend.size()
+    }
+
+    /// Reads the size with `query` from now on, rather than asking the backend. Every draw reads
+    /// the size, so this is for a cheaper read of the same value, such as an `ioctl` on a
+    /// descriptor that stays open.
+    pub fn set_size_query(&mut self, query: impl Fn() -> io::Result<Size> + Send + Sync + 'static) {
+        self.size_query = SizeQuery(Some(Arc::new(query)));
     }
 
     /// Insert some content before the current inline viewport. This has no effect when the viewport is not inline. The
@@ -1338,6 +1382,31 @@ mod inline_resize_tests {
             },
         )
         .unwrap()
+    }
+
+    /// A size query answers in place of the backend, so a resize it reports resizes the viewport; one that
+    /// fails leaves the backend's size.
+    #[test]
+    fn size_query_stands_in_for_the_backend() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU16, Ordering};
+
+        let mut terminal = full_height_inline(80, 24);
+        let rows = Arc::new(AtomicU16::new(24));
+        let reported = Arc::clone(&rows);
+        terminal.set_size_query(move || match reported.load(Ordering::Relaxed) {
+            0 => Err(std::io::Error::other("no tty")),
+            rows => Ok(ratatui::layout::Size::new(80, rows)),
+        });
+        rows.store(30, Ordering::Relaxed);
+        terminal.backend_mut().resize(80, 30);
+        terminal.autoresize().unwrap();
+        assert_eq!(terminal.viewport_area(), Rect::new(0, 0, 80, 30));
+
+        // A failed read falls back to the backend.
+        rows.store(0, Ordering::Relaxed);
+        terminal.backend_mut().resize(80, 36);
+        assert_eq!(terminal.size().unwrap(), ratatui::layout::Size::new(80, 36));
     }
 
     /// A full-height inline viewport (the alt-screen-unavailable case used under Zellij / tmux control mode /
