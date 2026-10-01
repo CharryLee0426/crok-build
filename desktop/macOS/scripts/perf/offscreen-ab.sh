@@ -18,7 +18,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$OUT"
 
 run() { # <tree> <package-dir> <suite> <round> <limit-seconds>
-    local name=$1 dir=$2 suite=$3 round=$4 limit=$5 log="$OUT/$1-$3-$4.log"
+    # A filter may name one test ("Suite/testName"); its log's name cannot hold the slash.
+    local name=$1 dir=$2 suite=$3 round=$4 limit=$5 log="$OUT/$1-${3//\//.}-$4.log"
     echo "LOAD $(sysctl -n vm.loadavg) at $(date +%H:%M:%S)" >"$log"
     ( cd "$dir" && CROK_DESKTOP_UI_TESTS=1 swift test -c release --skip-build --filter "$suite" ) >>"$log" 2>&1 &
     local pid=$! n=0

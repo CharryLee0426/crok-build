@@ -8,6 +8,8 @@ import XCTest
 @MainActor
 final class BrowserTests: XCTestCase {
     private var directory: URL!
+    /// Shut down after each test, so no web view or WebKit process outlives it.
+    private var stores: [AppStore] = []
 
     override func setUpWithError() throws {
         // Resolved, as the web view reports the files it loads.
@@ -16,6 +18,8 @@ final class BrowserTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        stores.forEach { $0.shutdown() }
+        stores = []
         if let directory { try? FileManager.default.removeItem(at: directory) }
     }
 
@@ -24,6 +28,7 @@ final class BrowserTests: XCTestCase {
         let project = Project(path: directory.path)
         store.state = DesktopState(projects: [project], selectedProjectID: project.id)
         store.features.browser.makeDataStore = { .nonPersistent() }
+        stores.append(store)
         return store
     }
 
