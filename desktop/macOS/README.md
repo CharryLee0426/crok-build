@@ -141,8 +141,17 @@ swift test --package-path desktop/macOS
    their diffs. **Side chat** asks Crok about the task without interrupting it
    (the same as `/btw`); each task keeps its thread. **Terminal** (⌃\`) runs your
    login shell in the project folder and keeps running while you switch tabs or
-   tasks. Drag the panel's left edge to resize it; double-click the edge to reset
-   it. Drag a file from the panel onto the prompt to attach it.
+   tasks. **Browser** (⌥⌘B, or `/browser [address or search]`) is a web browser
+   beside the task: tabs, back and forward, bookmarks, address-bar suggestions
+   from its history, downloads to your Downloads folder, and Web Inspector from a
+   page's context menu. `localhost:3000` and other addresses on this Mac load
+   over plain HTTP, a path opens a local file, and anything that is not an
+   address is searched for. Its **⋯** menu adds the page's link to the prompt,
+   and **Import from Chrome…** brings a Chrome profile's sign-ins, history, and
+   bookmarks across once macOS has confirmed it's you (see
+   [Local data](#local-data-and-current-scope)). Drag the panel's left edge to
+   resize it; double-click the edge to reset it. Drag a file from the panel onto
+   the prompt to attach it.
 6. Type **/** in the composer, or press **⇧⌘P**, to browse commands and skills.
    Use the arrow keys to navigate, **Tab** to complete a command, **Return** to
    select it, and **Escape** to dismiss. Commands with arguments fill the composer
@@ -184,8 +193,8 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   browsers. Spawning and delegation remain managed by Crok's tools.
 - **Other task actions:** `/btw` (in the side panel's Side chat), `/fork`, `/recap`,
   `/rewind`, `/tasks`, `/usage`, history, transcript search, copy/export, and
-  model/thinking selection have native interfaces. `/changes` and `/terminal` open
-  the side panel's Changes and Terminal. Image/video commands appear when their
+  model/thinking selection have native interfaces. `/changes`, `/terminal`, and
+  `/browser` open the side panel's Changes, Terminal, and Browser. Image/video commands appear when their
   tools are advertised.
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
@@ -275,8 +284,11 @@ both launch methods. See the [authentication guide](../../crates/codegen/xai-gro
 | Command palette | ⇧⌘P |
 | Enter plan mode | ⌥⌘P |
 | Toggle sidebar | ⌘B |
-| Toggle side panel (files, side chat, terminal) | ⌘J |
+| Toggle side panel (files, side chat, terminal, browser) | ⌘J |
 | Terminal | ⌃\` |
+| Browser | ⌥⌘B |
+| In a web page: address bar, reload, back, forward | ⌘L, ⌘R, ⌘[, ⌘] |
+| In a web page: new tab, close tab, zoom | ⌘T, ⌘W, ⌘+ / ⌘− / ⌘0 |
 | Git Graph | ⌥⌘G |
 | Attach photos and files | ⌘U |
 | Settings | ⌘, |
@@ -310,6 +322,22 @@ not continue in the desktop app after it quits.
 The Files tab is read-only; it does not stage, commit, or revert files. File
 previews and diffs are capped at 1 MiB (diffs per section), and the tree lists up
 to 50,000 files. Side chats are saved with their task in the desktop state file.
+The browser keeps its history, bookmarks, and open tabs in `browser/` beside the
+state file, and its cookies and site data in a WebKit store of its own; nothing
+is made until the Browser tab is first opened, and a tab starts WebKit only when
+it loads a page. Tabs reopen at the next launch and load when shown. Pages do
+not get the camera or the microphone. **Import from Chrome…** (the browser's ⋯
+menu, a new tab, or **Settings › Browser**) reads a Chrome profile's cookies,
+history (the 20,000 pages visited last), and bookmarks. Nothing is read until
+macOS confirms you with Touch ID or your login password; the cookies are
+encrypted with a key in your keychain, so macOS then asks for your login
+keychain password to release "Chrome Safe Storage" (deny it and history and
+bookmarks still import). Chrome's files are copied to a private temporary
+folder, read, and removed; Chrome and its data are not changed. Cookies that
+are expired or partitioned to an embedding site are left out, and passwords,
+autofill, and extensions are not imported. A few sites tie a sign-in to the
+browser it was made in and ask you to sign in again. **Settings › Browser**
+also chooses the search engine and clears the browser's data.
 The terminal runs your login shell with your privileges, exactly as Terminal
 does; it ends when you quit the app or restart it from the panel. Pasted and
 dragged image data waits in a temporary folder until it is sent. `/fork --worktree` (or the ask sheet)
@@ -355,6 +383,19 @@ CPU and memory. It also times launching with, and switching to, a saved
 3,000-round task (`ROUNDS` and `PACED` change the sizes). The probe needs
 Accessibility permission for the terminal, and the app's window must stay on the
 current Space: a window behind a full-screen app is neither laid out nor drawn.
+
+The side panel and its browser have theirs. `swift test -c release --filter BrowserPerformance`
+prints what importing a 20,000-page, 3,000-cookie Chrome profile costs (and the
+longest main-thread stall while it runs), suggestion latency over 20,000 and
+100,000 pages, and that a browser nobody opened made no tab, web view, or file.
+With `CROK_DESKTOP_UI_TESTS=1` it also times opening the tab and loading pages,
+and `--filter SidePanelPerformance` streams a `fixture:mixed` task while the
+panel is closed and on each tab in turn, times tab switches, and lays the main
+window out from a saved state. Those run in a window that is never shown, so
+they need no screen; `SidePanelPerformanceTests` uses only what 1.2.1 had, so
+copying it into an older tree measures that tree the same way.
+`CROK_LAUNCH_TABLES=1` makes its saved replies end in tables, which reproduces a
+transcript layout that takes minutes.
 
 A recorded session can be replayed the same way. `fixture:replay` streams the
 session named by `CROK_FIXTURE_REPLAY`, a `/trace` export or a session's

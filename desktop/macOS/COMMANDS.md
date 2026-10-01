@@ -97,8 +97,8 @@ few commands that need an idle task (`/plan`, `/imagine`, `/imagine-video`,
 `/flush`, `/dream`, `/rewind`, `/fork`, `/delete`, and `/model` or `/effort`
 with an argument) keep your draft and ask you to wait or stop the turn.
 
-The registry contains 73 pager commands. `/login` is desktop-only: the terminal
-signs in with `crok login <provider>` instead. xAI accounts are not supported, so
+The registry contains 73 pager commands. `/login` and `/browser` are desktop-only:
+the terminal signs in with `crok login <provider>` instead, and has no browser. xAI accounts are not supported, so
 there is no `/logout` or `/privacy`, and `/usage` has no billing.
 
 | Command (source) | Aliases | Syntax | Desktop behavior |
@@ -135,6 +135,7 @@ there is no `/logout` or `/privacy`, and `/usage` has no billing.
 | [`/imagine-video`](../../crates/codegen/xai-grok-pager/src/slash/commands/imagine_video.rs) | — | `/imagine-video <description>` | Adapted: the pager's video workflow prompt when `image_to_video` is advertised |
 | [`/import-claude`](../../crates/codegen/xai-grok-pager/src/slash/commands/import_claude.rs) | — | `/import-claude` | Native: scans Claude settings, MCP servers, hooks, and skill/rule folders; the sheet merges selected items into Crok's configuration as the pager does, keeping comments |
 | [`/jump`](../../crates/codegen/xai-grok-pager/src/slash/commands/jump.rs) | — | `/jump` | Native turn picker with live scrolling; Escape restores the previous position |
+| `/browser` (desktop only) | `/web`, `/browse` | `/browser [address or search]` | Native: the side panel's Browser tab (also ⌥⌘B). An address loads (`localhost:3000` over HTTP, a path as a local file), anything else is searched for; bare `/browser` puts the keyboard in the address bar. Tabs, bookmarks, history suggestions, downloads, and Import from Chrome (sign-ins, history, bookmarks, after Touch ID or the login password) |
 | `/login` (desktop only) | — | `/login` | Native Accounts settings: sign in to OpenRouter or OpenAI Codex (browser sign-in through `crok login openrouter` or `crok login openai-codex`) |
 | [`/loop`](../../crates/codegen/xai-grok-pager/src/slash/commands/loop_cmd.rs) | — | `/loop [interval] <prompt>` | Harness: forwarded; scheduled runs appear in `/tasks` with Delete |
 | [`/mcps`](../../crates/codegen/xai-grok-pager/src/slash/commands/mcps.rs) | — | `/mcps` | Native servers panel: status, tools, add (one URL-or-command field), toggle, restart, authorize, remove |

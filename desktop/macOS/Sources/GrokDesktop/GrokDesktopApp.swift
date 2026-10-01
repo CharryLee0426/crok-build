@@ -76,6 +76,7 @@ private struct AppCommands: Commands {
             Button("Files") { store.showSidePanel(.files) }.disabled(!menu.hasProject)
             Button("Side Chat") { store.showSidePanel(.sideChat); store.features.sideChat.requestFocus() }
             Button("Terminal") { store.openTerminal() }.keyboardShortcut("`", modifiers: .control).disabled(!menu.hasProject)
+            Button("Browser") { store.openBrowser() }.keyboardShortcut("b", modifiers: [.command, .option])
             Button("Reveal Project in Finder") { store.revealProject() }.disabled(!menu.hasProject)
             Button("Git Graph") { store.features.gitGraph.open() }.keyboardShortcut("g", modifiers: [.command, .option]).disabled(!menu.hasProject)
         }

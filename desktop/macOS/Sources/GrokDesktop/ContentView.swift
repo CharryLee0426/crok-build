@@ -107,7 +107,7 @@ struct ContentView: View {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { store.showInspector.toggle() }
                 } label: {
                     Label("Side panel", systemImage: "sidebar.right")
-                }.help(store.showInspector ? "Hide side panel · ⌘J" : "Show files, side chat, and terminal · ⌘J")
+                }.help(store.showInspector ? "Hide side panel · ⌘J" : "Show files, side chat, terminal, and browser · ⌘J")
             }
         }
     }

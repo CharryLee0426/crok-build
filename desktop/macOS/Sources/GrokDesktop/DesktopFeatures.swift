@@ -19,6 +19,7 @@ final class DesktopFeatures {
     let files: FilesPanelModel
     let sideChat: SideChatModel
     let terminals: TerminalSessions
+    let browser: BrowserModel
     let gitGraph: GitGraphModel
 
     init(store: AppStore) {
@@ -32,6 +33,7 @@ final class DesktopFeatures {
         files = FilesPanelModel(store: store)
         sideChat = SideChatModel(store: store)
         terminals = TerminalSessions()
+        browser = BrowserModel(store: store, directory: store.browserDirectory)
         gitGraph = GitGraphModel(store: store)
     }
 
@@ -67,6 +69,7 @@ enum DesktopSheet: Identifiable, Equatable {
     case doctor(arguments: String)
     case remember(text: String)
     case importClaude
+    case importChrome
     case theme
     case keyboardShortcuts
     case history
@@ -85,6 +88,7 @@ enum DesktopSheet: Identifiable, Equatable {
         case .doctor: return "doctor"
         case .remember: return "remember"
         case .importClaude: return "import-claude"
+        case .importChrome: return "import-chrome"
         case .theme: return "theme"
         case .keyboardShortcuts: return "keyboard-shortcuts"
         case .history: return "history"
@@ -125,6 +129,7 @@ extension DesktopSheet {
         case .doctor(let arguments): DoctorSheet(arguments: arguments)
         case .remember(let text): RememberSheet(initialText: text)
         case .importClaude: ImportClaudeSheet()
+        case .importChrome: ImportChromeSheet()
         case .theme: ThemeSheet()
         case .keyboardShortcuts: KeyboardShortcutsSheet()
         case .history: HistorySheet()
@@ -185,6 +190,7 @@ extension View {
             .environmentObject(store.features.files)
             .environmentObject(store.features.sideChat)
             .environmentObject(store.features.terminals)
+            .environmentObject(store.features.browser)
             .environmentObject(store.features.gitGraph)
     }
 }

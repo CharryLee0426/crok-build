@@ -107,6 +107,63 @@ final class SidePanelSnapshotTests: XCTestCase {
         try write(transcript, "transcript-attachments", size: CGSize(width: 820, height: 480))
     }
 
+    func testBrowserTab() async throws {
+        let (store, _) = makeStore()
+        let browser = store.features.browser
+        browser.makeDataStore = { .nonPersistent() }
+        store.sidePanelTab = .browser
+        let size = CGSize(width: SidePanelView.defaultBrowserWidth, height: 720)
+        // The panel is as wide as its container leaves it.
+        func panel(width: CGFloat = size.width) -> some View {
+            SidePanelView(containerWidth: width + SidePanelView.previewConversationRoom).desktopEnvironment(store).frame(width: width, height: 720)
+                .foregroundStyle(Theme.ink)
+        }
+        // An async test's own work holds the main queue; waiting lets the browser's tasks run.
+        func settle(_ seconds: Double = 0.6) async throws { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+        // A new tab before anything was visited or imported.
+        try write(panel(), "side-panel-browser-empty", size: size)
+        // After an import: bookmarks and the pages visited last.
+        browser.addBookmarks((1...11).map { BrowserBookmark(title: ["Swift Documentation", "WebKit", "Crok Build Guides", "SQLite Query Planner"][$0 % 4] + " \($0)",
+                                                            url: "https://docs\($0).example.com/guide/\($0)") })
+        _ = try await browser.history.merge((1...9).map {
+            BrowserHistoryItem(url: "https://news\($0).example.com/articles/\($0 * 37)", title: "Article \($0): what changed in the release",
+                               visitCount: $0, lastVisit: Date().addingTimeInterval(-Double($0) * 600))
+        })
+        browser.refreshRecent()
+        try await settle()
+        try write(panel(), "side-panel-browser-start", size: size)
+        // Typing in the address bar: suggestions from the history, over the page.
+        browser.address.begin(showing: nil)
+        browser.address.typed("article")
+        try await settle()
+        browser.address.move(1)
+        try write(panel(), "side-panel-browser-suggestions", size: size)
+        browser.address.end(showing: nil)
+        // Several tabs, and a page that did not open, in a panel too narrow for every tab's name.
+        browser.openTab(URL(string: "http://127.0.0.1:9/")!)
+        browser.newTab()
+        browser.select(browser.pages[1].id)
+        try await settle(1.5)
+        try write(panel(width: 400), "side-panel-browser-tabs", size: CGSize(width: 400, height: 720))
+        store.shutdown()
+    }
+
+    func testImportChromeSheet() throws {
+        let (store, _) = makeStore()
+        let profiles = [ChromeProfile(directory: URL(fileURLWithPath: "/tmp/Chrome/Default"), name: "Work", account: "me@example.com"),
+                        ChromeProfile(directory: URL(fileURLWithPath: "/tmp/Chrome/Profile 1"), name: "Personal", account: nil)]
+        func sheet(_ phase: ChromeImportModel.Phase) -> some View {
+            ImportChromeSheet(model: ChromeImportModel(profiles: profiles, phase: phase)).desktopEnvironment(store).foregroundStyle(Theme.ink)
+        }
+        try write(sheet(.ready), "import-chrome", size: CGSize(width: 580, height: 470))
+        try write(sheet(.applying(1_250, 3_400)), "import-chrome-working", size: CGSize(width: 580, height: 520))
+        try write(sheet(.finished(ChromeImportResult(cookies: 3_388, history: 20_000, bookmarks: 214,
+                                                     problems: ["12 cookies could not be decrypted and were left out."]))),
+                  "import-chrome-done", size: CGSize(width: 580, height: 420))
+        try write(sheet(.failed("macOS could not confirm it's you, so nothing was read from Chrome: Authentication was cancelled.")),
+                  "import-chrome-failed", size: CGSize(width: 580, height: 520))
+    }
+
     func testMainWindowWithSidePanel() throws {
         let (store, _) = makeStore()
         store.showInspector = true

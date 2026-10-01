@@ -80,6 +80,8 @@ final class AppStore: ObservableObject {
     private var catalogLoadingProjectID: UUID?
     private var catalogClient: ACPClient?
     private let stateFile: URL
+    /// The browser's history, bookmarks, and open tabs, beside the state file.
+    var browserDirectory: URL { stateFile.deletingLastPathComponent().appendingPathComponent("browser", isDirectory: true) }
     private let defaults: UserDefaults
     enum DraftLocation: Hashable {
         case conversation(UUID)
@@ -1098,6 +1100,13 @@ final class AppStore: ObservableObject {
         withAnimation(.easeInOut(duration: 0.18)) { showInspector.toggle() }
     }
 
+    /// The side panel's browser: on the page or search given, or ready for an address.
+    func openBrowser(_ address: String = "") {
+        showSidePanel(.browser)
+        let address = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        if address.isEmpty { features.browser.focusAddress() } else { features.browser.open(address) }
+    }
+
     /// The side panel's terminal, in the selected project or the given one.
     func openTerminal(projectID: UUID? = nil) {
         if let projectID, projectID != state.selectedProjectID { selectProject(projectID) }
@@ -1147,6 +1156,7 @@ final class AppStore: ObservableObject {
         catalogClient?.stop(); catalogClient = nil
         loginProcess?.terminate()
         features.terminals.terminateAll()
+        features.browser.shutdown()
     }
     /// Looks a task up by index: `first(where:)` would copy every task it passes, and this runs
     /// for each streamed update.
