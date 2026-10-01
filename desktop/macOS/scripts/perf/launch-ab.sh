@@ -7,6 +7,8 @@
 #   idle_cpu_pct     CPU over five more seconds, as a share of one core
 #   rss_mb, footprint_mb, threads, children
 #   images           libraries dyld loaded, and how many of them are WebKit's
+#   webkit_procs     WebKit processes that started during the launch, and their memory together
+#                    (none unless BROWSER_PAGE names a page for CROK_DESKTOP_BROWSER to open)
 # The screen may be locked. What this cannot see is drawing; run-perf.sh measures that, on a
 # visible window. Launch arguments turn the test build's performance monitor off for the run.
 #
@@ -18,7 +20,7 @@ MOCK=$(cd "$HERE/../../Tests/Fixtures" && pwd)/mock-grok.py
 mkdir -p "$OUT/apps"
 WINWAIT=$OUT/winwait
 [ -x "$WINWAIT" ] || swiftc -O "$HERE/winwait.swift" -o "$WINWAIT"
-echo "label,round,window_ms,cpu_s_2,cpu_s_5,cpu_s_10,cpu_s_15,idle_cpu_pct,rss_mb,footprint_mb,threads,children,images,webkit_images" >"$OUT/launch.csv"
+echo "label,round,window_ms,cpu_s_2,cpu_s_5,cpu_s_10,cpu_s_15,idle_cpu_pct,rss_mb,footprint_mb,threads,children,images,webkit_images,webkit_procs,webkit_rss_mb" >"$OUT/launch.csv"
 
 cpu() { ps -o cputime= -p "$1" | awk '{n=split($1,a,":"); s=0; for(i=1;i<=n;i++) s=s*60+a[i]; printf "%.2f", s}'; }
 
@@ -43,6 +45,7 @@ for round in $(seq 1 "$ROUNDS"); do
         printf '{"projects":[{"id":"%s","path":"%s"}],"conversations":[],"selectedProjectID":"%s","deletedSessionIDs":[],"collapsedProjectIDs":[]}' \
             "$project" "$dir/project" "$project" >"$dir/state.json"
         echo '{}' >"$dir/history.json"
+        webkit_before=$(pgrep -f 'com.apple.WebKit' | sort)
         spawned=$(python3 -c 'import time; print(time.time())')
         DYLD_PRINT_LIBRARIES=1 CROK_DESKTOP_STATE_FILE="$dir/state.json" CROK_DESKTOP_HARNESS="$MOCK" CROK_HOME="$dir/home" \
             CROK_FIXTURE_HISTORY="$dir/history.json" CROK_DESKTOP_BROWSER="${BROWSER_PAGE:-}" \
@@ -62,7 +65,12 @@ for round in $(seq 1 "$ROUNDS"); do
         children=$(pgrep -P "$pid" | wc -l | tr -d ' ')
         images=$(grep -c '^dyld\[' "$OUT/$label-$round.log")
         webkit=$(grep -c 'WebKit.framework\|WebCore.framework\|JavaScriptCore.framework' "$OUT/$label-$round.log")
-        echo "$label,$round,$window,${marks[0]},${marks[1]},${marks[2]},${marks[3]},$idle,$rss,${footprint:-},$threads,$children,$images,$webkit" | tee -a "$OUT/launch.csv"
+        webkit_pids=$(comm -13 <(echo "$webkit_before") <(pgrep -f 'com.apple.WebKit' | sort) | tr '\n' ',' | sed 's/,$//')
+        webkit_procs=0; webkit_rss=0
+        if [ -n "$webkit_pids" ]; then
+            read -r webkit_procs webkit_rss < <(ps -o rss= -p "$webkit_pids" 2>/dev/null | awk '{n++; r+=$1} END {printf "%d %.1f\n", n, r / 1024}')
+        fi
+        echo "$label,$round,$window,${marks[0]},${marks[1]},${marks[2]},${marks[3]},$idle,$rss,${footprint:-},$threads,$children,$images,$webkit,$webkit_procs,$webkit_rss" | tee -a "$OUT/launch.csv"
         kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
         sleep 2
     done
