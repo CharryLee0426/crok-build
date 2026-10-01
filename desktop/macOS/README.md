@@ -397,6 +397,14 @@ copying it into an older tree measures that tree the same way.
 `CROK_LAUNCH_TABLES=1` makes its saved replies end in tables, which reproduces a
 transcript layout that takes minutes.
 
+Two scripts compare builds without a screen. `scripts/perf/offscreen-ab.sh <base
+desktop/macOS> <head desktop/macOS> <out-dir>` runs those offscreen suites
+against two trees in turn, and `ab-summary.py <out-dir>` prints each PERF line as
+the median across rounds, one tree beside the other. `scripts/perf/launch-ab.sh
+<out-dir> <rounds> <label>=<app> …` launches packaged apps from private copies
+with scratch state and records how long each takes to own its window, the CPU it
+used by then and after, its memory once idle, and the libraries it loaded.
+
 A recorded session can be replayed the same way. `fixture:replay` streams the
 session named by `CROK_FIXTURE_REPLAY`, a `/trace` export or a session's
 `updates.jsonl`, at its recorded pace, and `REPLAY=<file> run-perf.sh <app> <out> replay`
