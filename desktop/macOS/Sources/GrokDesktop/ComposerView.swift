@@ -53,9 +53,7 @@ struct ComposerView: View {
 
     @ViewBuilder
     private var footer: some View {
-        if store.project != nil && !store.workspace.branch.isEmpty {
-            ComposerGitFooter()
-        }
+        if store.project != nil { ComposerGitFooter() }
     }
 
     private var optionsDisabled: Bool { store.run.isRunning || store.run.isConfiguring }

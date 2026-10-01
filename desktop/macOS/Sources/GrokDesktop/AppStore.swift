@@ -557,6 +557,7 @@ final class AppStore: ObservableObject {
             self.runs[id]?.approvals = []; self.runs[id]?.questions = []
         }
         clients[id] = client
+        features.tokens.harnessDidStart(conversationID: id)
         try client.start(executable: binaryPath, cwd: project.path)
         let initial = try await initialize(client)
         try checkOperation(id, operationID: operationID)

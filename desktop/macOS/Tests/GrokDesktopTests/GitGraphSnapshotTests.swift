@@ -109,6 +109,18 @@ final class GitGraphSnapshotTests: XCTestCase {
 
         try await render("composer-footer", ComposerGitFooter().padding(.horizontal, 20).frame(width: 620, alignment: .leading), size: CGSize(width: 620, height: 44))
         try await render("branch-picker", BranchPickerPopover(isPresented: .constant(true)), size: CGSize(width: 420, height: 470))
+
+        // The footer with a task's token figures, at the composer's usual width and at two too narrow for all of them.
+        let task = Conversation(projectID: try XCTUnwrap(store.project).id, sessionID: "tokens")
+        store.state.conversations.append(task)
+        store.state.selectedConversationID = task.id
+        _ = store.receiveFeatureNotification("x.ai/session_notification", params: ["sessionId": "tokens", "update": [
+            "sessionUpdate": "response_completed", "tokens_per_sec": 61.2,
+            "session_usage": ["input_tokens": 210_567, "output_tokens": 45_300, "cache_read_input_tokens": 1_024_000]]], id: task.id)
+        for width in [620.0, 440.0, 360.0] {
+            try await render("composer-footer-tokens-\(Int(width))", ComposerGitFooter().padding(.horizontal, 20).frame(width: width, alignment: .leading),
+                             size: CGSize(width: width, height: 44))
+        }
     }
 
     /// Hosts the view, waits until `settle` holds, then draws it in light and dark.

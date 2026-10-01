@@ -1,48 +1,60 @@
 import SwiftUI
 
-/// Under the composer: the project's branch, which opens the branch picker, and the Git Graph.
+/// Under the composer: the project's branch, which opens the branch picker, the Git Graph, and the task's token figures.
+/// A project outside Git has only the figures, and no row at all until there are some.
 struct ComposerGitFooter: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var gitGraph: GitGraphModel
+    @EnvironmentObject var tokens: TokenMeterModel
     @State private var showBranches = false
 
     var body: some View {
-        HStack(spacing: 2) {
-            if store.workspace.rootPath != nil {
-                Button { showBranches.toggle() } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.triangle.branch")
-                        Text(store.workspace.branch).fontWeight(.medium).truncationMode(.middle)
-                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).opacity(0.7)
-                    }
-                }
-                .buttonStyle(FooterChipStyle(active: showBranches))
-                .help("Switch branch")
-                .accessibilityLabel("Branch \(store.workspace.branch). Switch branch")
-                .popover(isPresented: $showBranches, arrowEdge: .top) { BranchPickerPopover(isPresented: $showBranches) }
-                Button { gitGraph.open() } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.triangle.merge")
-                        Text("Git Graph").fontWeight(.medium)
-                    }
-                }
-                .buttonStyle(FooterChipStyle())
-                .help("Browse commits, branches, and merges · /git-graph")
-            } else {
-                HStack(spacing: 6) {
+        let hasBranch = !store.workspace.branch.isEmpty
+        let readout = store.state.selectedConversationID.flatMap { tokens.meters[$0] }?.readout(turnRunning: store.run.isRunning)
+        if hasBranch || readout != nil {
+            HStack(spacing: 2) {
+                if hasBranch { git }
+                if let readout { ComposerTokenStats(readout: readout) }
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 12)).lineLimit(1).foregroundStyle(Theme.muted)
+            .frame(height: 22)
+        }
+    }
+
+    @ViewBuilder
+    private var git: some View {
+        if store.workspace.rootPath != nil {
+            Button { showBranches.toggle() } label: {
+                HStack(spacing: 5) {
                     Image(systemName: "arrow.triangle.branch")
                     Text(store.workspace.branch).fontWeight(.medium).truncationMode(.middle)
-                }.padding(.horizontal, 5)
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).opacity(0.7)
+                }
             }
-            Spacer(minLength: 0)
+            .buttonStyle(FooterChipStyle(active: showBranches))
+            .help("Switch branch")
+            .accessibilityLabel("Branch \(store.workspace.branch). Switch branch")
+            .popover(isPresented: $showBranches, arrowEdge: .top) { BranchPickerPopover(isPresented: $showBranches) }
+            Button { gitGraph.open() } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.triangle.merge")
+                    Text("Git Graph").fontWeight(.medium)
+                }
+            }
+            .buttonStyle(FooterChipStyle())
+            .help("Browse commits, branches, and merges · /git-graph")
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.branch")
+                Text(store.workspace.branch).fontWeight(.medium).truncationMode(.middle)
+            }.padding(.horizontal, 5)
         }
-        .font(.system(size: 12)).lineLimit(1).foregroundStyle(Theme.muted)
-        .frame(height: 22)
     }
 }
 
 /// A quiet footer control that shows it can be clicked only on hover.
-private struct FooterChipStyle: ButtonStyle {
+struct FooterChipStyle: ButtonStyle {
     var active = false
     @State private var hovered = false
 

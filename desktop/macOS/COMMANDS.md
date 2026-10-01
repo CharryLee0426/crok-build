@@ -170,7 +170,7 @@ there is no `/logout` or `/privacy`, and `/usage` has no billing.
 | [`/transcript`](../../crates/codegen/xai-grok-pager/src/slash/commands/transcript.rs) | `/log` | `/transcript` | Native Transcript window with the export Markdown, find, copy, and Save As… |
 | [`/trace`](../../crates/codegen/xai-grok-pager/src/slash/commands/trace.rs) | — | `/trace` | Native Trace window: `crok trace view <session> --format html` shown in a web view, with reload and Save As… |
 | [`/tutorial`](../../crates/codegen/xai-grok-pager/src/slash/commands/tutorial.rs) | `/tour`, `/onboarding` | `/tutorial` | Native tutorial window with the nine topics, progress, and links into the guides |
-| [`/usage`](../../crates/codegen/xai-grok-pager/src/slash/commands/usage.rs) | `/cost` | `/usage` | Native Usage sheet (Session usage tab): the session's tokens and cost from `_x.ai/session/usage`; takes no arguments (no xAI billing, so no `show` or `manage`) |
+| [`/usage`](../../crates/codegen/xai-grok-pager/src/slash/commands/usage.rs) | `/cost` | `/usage` | Native Usage sheet (Session usage tab): the session's tokens and cost from `_x.ai/session/usage`; takes no arguments (no xAI billing, so no `show` or `manage`). The composer footer's live token figures open it too |
 | [`/view-plan`](../../crates/codegen/xai-grok-pager/src/slash/commands/view_plan.rs) | `/show-plan`, `/plan-view` | `/view-plan` | Native saved Markdown plan preview plus ACP steps and pending plan approval |
 | [`/vim-mode`](../../crates/codegen/xai-grok-pager/src/slash/commands/vim_mode.rs) | — | `/vim-mode` | Native transcript keys (j/k, g/G, y, i); saved to `[ui].vim_mode` |
 | [`/voice`](../../crates/codegen/xai-grok-pager/src/slash/commands/voice.rs) | — | `/voice` | Native dictation (mic button, ⇧⌘D): each utterance transcribed by an OpenRouter model with the OpenRouter key, or on-device recognition without one |
@@ -330,6 +330,13 @@ Sources: [mode dispatch](../../crates/codegen/xai-grok-pager/src/app/dispatch/mo
   `costIsPartial`/`usageIsIncomplete` flag must not be presented as zero cost.
   These in-memory totals reset with a new runtime process. CLI `crok usage` reads
   persisted totals.
+- Each model response ends with a `response_completed` update (snake_case
+  fields). `usage` is that response; `session_usage` is the same in-memory
+  session total in the same buckets, where `input_tokens` is the uncached part
+  of the prompt and `cache_read_input_tokens` and `cache_creation_input_tokens`
+  are the rest; `tokens_per_sec` is the response's output speed after its first
+  token. The composer footer's token figures read these, and estimate from
+  streamed text between them. An absent field is unknown, not zero.
 
 ## Process-level CLI inventory
 

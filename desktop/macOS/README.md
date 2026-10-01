@@ -168,7 +168,13 @@ swift test --package-path desktop/macOS
    narrow to fit the list, and columns give way on a narrow window. It shows
    branch, remote, and tag badges, search, and each commit's files and diffs;
    drag the divider to resize the details. Double-click a branch badge to switch
-   to it.
+   to it. Right of **Git Graph**, the task's token figures update as it works:
+   input (↑) and output (↓) tokens this session, the share of the prompt read
+   from the provider's cache, and the output speed in tokens per second. While
+   a reply streams, the output count and a speed marked `~` are estimated from
+   the text received; the provider's figures replace them when the response
+   ends. Hover for the full numbers, or click for **Session usage** (`/usage`).
+   A narrow footer drops the speed first, then the cache rate.
 
 The command catalog is loaded from the harness for the selected project and
 updated during the session. User-invocable skills retain their exact qualified
