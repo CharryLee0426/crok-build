@@ -257,6 +257,22 @@ pub struct ResponseUsage {
     pub reasoning_tokens: u64,
 }
 
+/// The ledger's cumulative totals in the per-call shape, so a client reads a call and the session the same way.
+impl From<&xai_chat_state::UsageTotals> for ResponseUsage {
+    fn from(t: &xai_chat_state::UsageTotals) -> Self {
+        Self {
+            input_tokens: t
+                .input_tokens
+                .saturating_sub(t.cached_read_tokens)
+                .saturating_sub(t.cache_creation_tokens),
+            output_tokens: t.output_tokens,
+            cache_read_input_tokens: t.cached_read_tokens,
+            cache_creation_input_tokens: t.cache_creation_tokens,
+            reasoning_tokens: t.reasoning_tokens,
+        }
+    }
+}
+
 impl From<&xai_chat_state::UsageTotals> for PromptUsageModel {
     fn from(t: &xai_chat_state::UsageTotals) -> Self {
         // Exhaustive destructure: a new ledger field cannot silently miss the wire
@@ -1159,6 +1175,15 @@ pub enum SessionUpdate {
         /// Headless `streaming-messages-json` stamps it onto the assistant frame.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stop_sequence: Option<String>,
+        /// This response's decode rate: output tokens over the time after the first token.
+        /// Absent when the response reported no output tokens.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tokens_per_sec: Option<f64>,
+        /// The session's totals once this response is counted, in the same disjoint buckets as `usage`.
+        /// Folded subagent spend is included, so it can exceed the sum of the `usage` a client has seen.
+        /// Absent when the ledger could not be read, which is not a zero.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_usage: Option<ResponseUsage>,
     },
     /// Catch-all for unrecognized session update types.
     /// Allows forward/backward compatibility when variants are added or removed.
@@ -1528,6 +1553,69 @@ mod tests {
     fn http_401_needle_is_contained_in_unauthorized_needle() {
         // Pins the sub-needle doc claim.
         assert!(UNAUTHORIZED_NEEDLE.contains(HTTP_401_NEEDLE));
+    }
+
+    #[test]
+    fn response_usage_from_ledger_totals_keeps_the_prompt_buckets_disjoint() {
+        let mut ledger = xai_chat_state::UsageLedger::default();
+        let call = xai_grok_sampling_types::TokenUsage {
+            prompt_tokens: 1_000,
+            completion_tokens: 50,
+            total_tokens: 0,
+            reasoning_tokens: 20,
+            cached_prompt_tokens: 700,
+            cache_creation_prompt_tokens: 100,
+        };
+        ledger.record_main_loop_call("grok-build", &call, Some(40), None);
+        ledger.record_main_loop_call("grok-build", &call, Some(40), None);
+        assert_eq!(
+            ResponseUsage::from(&ledger.totals),
+            ResponseUsage {
+                input_tokens: 400,
+                output_tokens: 100,
+                cache_read_input_tokens: 1_400,
+                cache_creation_input_tokens: 200,
+                reasoning_tokens: 40,
+            }
+        );
+    }
+
+    #[test]
+    fn response_completed_carries_rate_and_session_totals() {
+        let update = SessionUpdate::ResponseCompleted {
+            message_id: None,
+            stop_reason: Some("end_turn".into()),
+            usage: None,
+            signature: None,
+            stop_sequence: None,
+            tokens_per_sec: Some(61.5),
+            session_usage: Some(ResponseUsage {
+                input_tokens: 400,
+                output_tokens: 100,
+                cache_read_input_tokens: 1_400,
+                ..Default::default()
+            }),
+        };
+        let v = serde_json::to_value(&update).unwrap();
+        assert_eq!(v["sessionUpdate"], "response_completed");
+        assert_eq!(v["tokens_per_sec"], serde_json::json!(61.5));
+        assert_eq!(v["session_usage"]["cache_read_input_tokens"], 1_400);
+
+        // A response from a shell that predates the fields still reads, as absent rather than zero.
+        let old: SessionUpdate = serde_json::from_value(serde_json::json!({
+            "sessionUpdate": "response_completed",
+            "stop_reason": "end_turn",
+        }))
+        .unwrap();
+        let SessionUpdate::ResponseCompleted {
+            tokens_per_sec,
+            session_usage,
+            ..
+        } = old
+        else {
+            panic!("expected ResponseCompleted, got {old:?}");
+        };
+        assert_eq!((tokens_per_sec, session_usage), (None, None));
     }
 
     #[test]

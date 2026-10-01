@@ -992,10 +992,19 @@ impl SessionActor {
     }
     /// Build the per-response boundary update, projecting the response's usage
     /// into the Messages API `message.usage` shape (uncached `input_tokens`).
-    pub(super) fn response_completed_update(
+    /// Call it after the response's usage is recorded, so the session totals it reads include this response.
+    pub(super) async fn response_completed_update(
         &self,
         response: &xai_grok_sampling_types::ConversationResponse,
+        tokens_per_sec: Option<f64>,
     ) -> XaiSessionUpdate {
+        let session_usage = self
+            .chat_state_handle
+            .try_get_session_usage()
+            .await
+            .ok()
+            .filter(|ledger| ledger.totals.model_calls > 0)
+            .map(|ledger| crate::extensions::notification::ResponseUsage::from(&ledger.totals));
         let usage =
             response
                 .usage
@@ -1020,6 +1029,8 @@ impl SessionActor {
             usage,
             signature,
             stop_sequence: response.stop_sequence.clone(),
+            tokens_per_sec,
+            session_usage,
         }
     }
     /// [`Self::send_xai_notification`] with caller-supplied `_meta` keys merged into the standard eventId/timestamp meta.
