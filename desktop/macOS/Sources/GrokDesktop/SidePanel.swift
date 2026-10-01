@@ -64,10 +64,10 @@ struct SidePanelView: View {
         let maximum = max(Self.minimumWidth, min(layout == .standard ? 1_000 : 1_400, Double(containerWidth) - room))
         let binding = layout == .preview ? $previewWidth : layout == .browser ? $browserWidth : $width
         let defaultWidth = layout == .preview ? Self.defaultPreviewWidth : layout == .browser ? Self.defaultBrowserWidth : Self.defaultWidth
+        let panelWidth = min(max(binding.wrappedValue, Self.minimumWidth), maximum)
         VStack(spacing: 0) {
-            SidePanelTabBar(selection: $store.sidePanelTab) {
-                withAnimation(.easeInOut(duration: 0.18)) { store.showInspector = false }
-            }
+            // Equatable: the store publishes every streamed chunk, and none of them changes the tab bar.
+            SidePanelTabBar(selection: store.sidePanelTab, density: .fitting(barWidth: panelWidth), store: store).equatable()
             Divider().overlay(Theme.line.opacity(0.4))
             Group {
                 switch store.sidePanelTab {
@@ -79,7 +79,7 @@ struct SidePanelView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: min(max(binding.wrappedValue, Self.minimumWidth), maximum))
+        .frame(width: panelWidth)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: layout)
         .background { GlassBackdrop(role: .panel).ignoresSafeArea() }
         .overlay(alignment: .leading) {
@@ -91,30 +91,72 @@ struct SidePanelView: View {
     }
 }
 
-private struct SidePanelTabBar: View {
-    @Binding var selection: SidePanelTab
-    var onClose: () -> Void
+/// How the tab bar spends its width: every tab named, the names drawn closer, or only the selected tab named.
+enum SidePanelTabDensity: Equatable {
+    case regular, compact, icons
+
+    var tabSpacing: Double { self == .compact ? 2 : 4 }
+    var tabPadding: Double { self == .compact ? 6 : 10 }
+    var labelSpacing: Double { self == .compact ? 5 : 6 }
+
+    /// The roomiest density whose tabs fit a bar this wide. The widths come from the tabs' names and
+    /// symbols, measured once, so the bar lays out one row instead of trying each and keeping the first that fits.
+    static func fitting(barWidth: Double) -> SidePanelTabDensity {
+        if barWidth >= minimumBarWidth(.regular) { return .regular }
+        return barWidth >= minimumBarWidth(.compact) ? .compact : .icons
+    }
+
+    static func minimumBarWidth(_ density: SidePanelTabDensity) -> Double {
+        switch density {
+        case .regular: return namedWidths.regular
+        case .compact: return namedWidths.compact
+        case .icons: return 0
+        }
+    }
+
+    /// The bar around the tabs: its padding, the gap before the close button, and the button.
+    static let chrome = 20.0 + 4 + 4 + 4 + 26
+
+    private static let namedWidths: (regular: Double, compact: Double) = {
+        // The selected tab's name is semibold, the widest it gets; every name is measured that way.
+        let font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+        let symbols = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        let content = SidePanelTab.allCases.reduce(0.0) { width, tab in
+            let symbol = NSImage(systemSymbolName: tab.symbol, accessibilityDescription: nil)?.withSymbolConfiguration(symbols)?.size.width ?? 18
+            return width + ceil((tab.title as NSString).size(withAttributes: [.font: font]).width) + ceil(symbol)
+        }
+        func bar(_ density: SidePanelTabDensity) -> Double {
+            let count = Double(SidePanelTab.allCases.count)
+            // Four points to spare: text is laid out a little differently than it is measured.
+            return content + count * (density.labelSpacing + 2 * density.tabPadding) + (count - 1) * density.tabSpacing + chrome + 4
+        }
+        return (bar(.regular), bar(.compact))
+    }()
+}
+
+struct SidePanelTabBar: View, Equatable {
+    let selection: SidePanelTab
+    let density: SidePanelTabDensity
+    /// Not observed: the bar only tells the store what was chosen.
+    let store: AppStore
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.selection == rhs.selection && lhs.density == rhs.density }
 
     var body: some View {
         HStack(spacing: 4) {
-            // As the panel narrows the tabs draw closer, then only the selected one keeps its name.
-            ViewThatFits(in: .horizontal) {
-                tabs(titled: true, compact: false)
-                tabs(titled: true, compact: true)
-                tabs(titled: false, compact: false)
+            HStack(spacing: density.tabSpacing) {
+                ForEach(SidePanelTab.allCases) { tab in
+                    SidePanelTabButton(tab: tab, isSelected: selection == tab, showsTitle: density != .icons || selection == tab, density: density) {
+                        store.sidePanelTab = tab
+                    }
+                }
             }
             Spacer(minLength: 4)
-            IconButton(icon: "xmark", help: "Hide side panel · ⌘J", size: 26, action: onClose)
-        }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-    }
-
-    private func tabs(titled: Bool, compact: Bool) -> some View {
-        HStack(spacing: compact ? 2 : 4) {
-            ForEach(SidePanelTab.allCases) { tab in
-                SidePanelTabButton(tab: tab, isSelected: selection == tab, showsTitle: titled || selection == tab, isCompact: compact) { selection = tab }
+            IconButton(icon: "xmark", help: "Hide side panel · ⌘J", size: 26) {
+                withAnimation(.easeInOut(duration: 0.18)) { store.showInspector = false }
             }
         }
+        .padding(.horizontal, 10).padding(.vertical, 8)
     }
 }
 
@@ -122,18 +164,18 @@ private struct SidePanelTabButton: View {
     let tab: SidePanelTab
     let isSelected: Bool
     var showsTitle = true
-    var isCompact = false
+    var density = SidePanelTabDensity.regular
     let action: () -> Void
     @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: isCompact ? 5 : 6) {
+            HStack(spacing: density.labelSpacing) {
                 Image(systemName: tab.symbol).font(.system(size: 12, weight: .medium))
                 if showsTitle { Text(tab.title).font(.system(size: 12.5, weight: isSelected ? .semibold : .medium)).lineLimit(1).fixedSize() }
             }
             .foregroundStyle(isSelected ? Theme.ink : Theme.muted)
-            .padding(.horizontal, isCompact ? 7 : 10).frame(height: 28)
+            .padding(.horizontal, density.tabPadding).frame(height: 28)
             .background(!isSelected && hovered ? Theme.hover.opacity(0.5) : .clear, in: Capsule())
             .modifier(SelectedTabGlass(isSelected: isSelected))
             .contentShape(Capsule())

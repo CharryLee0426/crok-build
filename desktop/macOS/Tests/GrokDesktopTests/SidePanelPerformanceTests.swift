@@ -222,11 +222,13 @@ final class SidePanelPerformanceTests: XCTestCase {
         // 40 tasks of 200 messages each, as a state file a few weeks old holds. With CROK_LAUNCH_TABLES=1 every
         // reply ends in a small table instead of a list: laying out a transcript window full of tables takes
         // minutes (in 1.2.1 as well), so that variant is a reproduction to run by hand, under a watchdog.
+        // CROK_LAUNCH_MESSAGES sets how long each task is (200), to see how that layout grows.
         let tables = ProcessInfo.processInfo.environment["CROK_LAUNCH_TABLES"] == "1"
+        let length = Int(ProcessInfo.processInfo.environment["CROK_LAUNCH_MESSAGES"] ?? "") ?? 200
         let project = Project(path: directory.appendingPathComponent("project").path)
         let now = Date()
         let tasks = (0..<40).map { task in
-            Conversation(projectID: project.id, title: "Task \(task): tidy `Module\(task % 12)`", messages: (0..<200).map { index in
+            Conversation(projectID: project.id, title: "Task \(task): tidy `Module\(task % 12)`", messages: (0..<length).map { index in
                 Message(kind: index % 2 == 0 ? .user : .assistant, text: index % 2 == 0 ? "Step \(index) of task \(task)."
                     : "Done with step \(index).\n\n```swift\nlet step = \(index)\n```\n\n" + (tables ? "| a | b |\n| - | - |\n| \(task) | \(index) |" : "- \(task)\n- \(index)"), createdAt: now)
             })
@@ -258,7 +260,7 @@ final class SidePanelPerformanceTests: XCTestCase {
             launched.shutdown()
         }
         // The first pass also warms fonts and SwiftUI itself; a launch pays that once, in every version.
-        print(String(format: "PERF main window from a saved state (40 tasks, 8,000 messages): load state %.0f ms first, %.0f ms median; first layout and draw %.0f ms first, %.0f ms median",
-                     loads[0], Self.percentile(Array(loads.dropFirst()), 50), layouts[0], Self.percentile(Array(layouts.dropFirst()), 50)))
+        print(String(format: "PERF main window from a saved state (40 tasks of %d messages%@): load state %.0f ms first, %.0f ms median; first layout and draw %.0f ms first, %.0f ms median",
+                     length, tables ? ", replies ending in tables" : "", loads[0], Self.percentile(Array(loads.dropFirst()), 50), layouts[0], Self.percentile(Array(layouts.dropFirst()), 50)))
     }
 }

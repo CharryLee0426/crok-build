@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import ImageIO
 import UniformTypeIdentifiers
 import XCTest
@@ -39,6 +40,25 @@ final class SidePanelAndAttachmentTests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while !predicate() && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertTrue(predicate(), "Condition was not reached before timeout", file: file, line: line)
+    }
+
+    // MARK: Tab bar
+
+    func testTheTabBarFitsItsTabsAtEveryWidth() {
+        let (store, _) = makeStore()
+        XCTAssertEqual(SidePanelTabDensity.fitting(barWidth: SidePanelView.defaultWidth), .compact, "every tab is named in a panel of the default width")
+        XCTAssertEqual(SidePanelTabDensity.fitting(barWidth: SidePanelView.defaultBrowserWidth), .regular)
+        XCTAssertEqual(SidePanelTabDensity.fitting(barWidth: SidePanelView.minimumWidth), .icons, "the narrowest panel names only the selected tab")
+        // The density is computed, not tried: at the narrowest width that picks it, the row must really fit.
+        for density in [SidePanelTabDensity.regular, .compact, .icons] {
+            let available = density == .icons ? SidePanelView.minimumWidth : SidePanelTabDensity.minimumBarWidth(density)
+            for tab in SidePanelTab.allCases {
+                let needed = Double(NSHostingView(rootView: SidePanelTabBar(selection: tab, density: density, store: store)).fittingSize.width)
+                XCTAssertLessThanOrEqual(needed, available, "\(density) with \(tab.rawValue) selected needs \(needed) of \(available) points")
+                XCTAssertGreaterThan(needed, 150)
+            }
+        }
+        store.shutdown()
     }
 
     // MARK: Attachments
