@@ -394,8 +394,8 @@ panel is closed and on each tab in turn, times tab switches, and lays the main
 window out from a saved state. Those run in a window that is never shown, so
 they need no screen; `SidePanelPerformanceTests` uses only what 1.2.1 had, so
 copying it into an older tree measures that tree the same way.
-`CROK_LAUNCH_TABLES=1` makes its saved replies end in tables, which reproduces a
-transcript layout that takes minutes.
+`CROK_LAUNCH_TABLES=1` makes its saved replies end in tables, which Crok Desktop
+1.2.1 never finished laying out (run that against an older tree under a watchdog).
 
 Two scripts compare builds without a screen. `scripts/perf/offscreen-ab.sh <base
 desktop/macOS> <head desktop/macOS> <out-dir>` runs those offscreen suites

@@ -225,8 +225,8 @@ final class SidePanelPerformanceTests: XCTestCase {
 
     func testLayingOutTheMainWindowFromASavedState() async throws {
         // 40 tasks of 200 messages each, as a state file a few weeks old holds. With CROK_LAUNCH_TABLES=1 every
-        // reply ends in a small table instead of a list: laying out a transcript window full of tables takes
-        // minutes (in 1.2.1 as well), so that variant is a reproduction to run by hand, under a watchdog.
+        // reply ends in a small table instead of a list. Crok Desktop 1.2.1 never finishes laying that out
+        // (see TableLayoutTests), so run that variant against an older tree under a watchdog.
         // CROK_LAUNCH_MESSAGES sets how long each task is (200), to see how that layout grows.
         let tables = ProcessInfo.processInfo.environment["CROK_LAUNCH_TABLES"] == "1"
         let length = Int(ProcessInfo.processInfo.environment["CROK_LAUNCH_MESSAGES"] ?? "") ?? 200

@@ -127,17 +127,36 @@ final class MarkdownTextTable: NSTextTable {
 
     override func copy(with zone: NSZone? = nil) -> Any { self }
 
+    /// The least a column's content is given, however narrow the view.
+    static let narrowestColumn: CGFloat = 4
+
+    /// The narrowest the table can be laid out: every column's padding and borders, and something
+    /// of each column. TextKit does not return from laying a table out in a container it cannot
+    /// fit, so nothing may ask for less (see `ReadOnlyTextView.Coordinator.height`).
+    var minimumWidth: CGFloat { CGFloat(widest.count) * (inset * 2 + Self.narrowestColumn) + 2 }
+
     /// Content widths for the columns in `available` points, shared out as CSS's automatic table layout does.
+    /// Every column gets at least `narrowestColumn`, and together they fit whatever is at least `minimumWidth`.
     func contentWidths(in available: CGFloat) -> [CGFloat] {
-        let space = max(0, available - inset * 2 * CGFloat(widest.count))
+        let floor = Self.narrowestColumn * CGFloat(widest.count)
+        let space = max(floor, available - inset * 2 * CGFloat(widest.count))
         let most = widest.reduce(0, +), least = words.reduce(0, +)
-        if most <= space { return widest }
-        // Whole points keep the borders between columns sharp.
-        guard least < space, most > least else {
-            return least > 0 ? words.map { ($0 * space / least).rounded(.down) } : widest.map { _ in (space / CGFloat(max(1, widest.count))).rounded(.down) }
+        let wanted: [CGFloat]
+        if most <= space {
+            wanted = widest
+        } else if least < space, most > least {
+            let share = (space - least) / (most - least)
+            // Whole points keep the borders between columns sharp.
+            wanted = zip(words, widest).map { ($0 + ($1 - $0) * share).rounded(.down) }
+        } else {
+            wanted = least > 0 ? words.map { ($0 * space / least).rounded(.down) } : widest.map { _ in (space / CGFloat(max(1, widest.count))).rounded(.down) }
         }
-        let share = (space - least) / (most - least)
-        return zip(words, widest).map { ($0 + ($1 - $0) * share).rounded(.down) }
+        guard wanted.contains(where: { $0 < Self.narrowestColumn }) else { return wanted }
+        // A column squeezed to nothing takes its minimum from the others' share, so the row still fits.
+        let over = wanted.map { max(0, $0 - Self.narrowestColumn) }
+        let total = over.reduce(0, +)
+        let scale = total > 0 ? min(1, (space - floor) / total) : 0
+        return over.map { Self.narrowestColumn + ($0 * scale).rounded(.down) }
     }
 
     override func rect(for block: NSTextTableBlock, layoutAt startingPoint: NSPoint, in rect: NSRect, textContainer: NSTextContainer, characterRange charRange: NSRange) -> NSRect {
