@@ -343,6 +343,24 @@ pub fn hovered_permission_item(v: &AgentView) -> Option<usize> {
     v.hovered_permission_item
 }
 
+/// The token readout as the full view's status bar words it, one string per item: `↑1.2M ↓45K`, `83% cached`, `61 tok/s`.
+/// Most wanted first, so a row short of room keeps the leading ones.
+/// Empty until the session has counted something, and for a chat-kind session, whose usage is not this client's to report.
+pub fn token_readout_segments(v: &AgentView) -> Vec<String> {
+    if v.chat_kind {
+        return Vec::new();
+    }
+    v.token_meter
+        .readout(v.session.state.is_busy())
+        .map(|readout| {
+            crate::views::token_meter::token_meter_items(&readout)
+                .iter()
+                .map(crate::views::token_meter::TokenMeterItem::text)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// `AgentView::plan_mode_active`.
 pub fn plan_mode_active(v: &AgentView) -> bool {
     v.plan_mode_active
@@ -817,6 +835,17 @@ pub fn set_feedback_modal(v: &mut AgentView, val: Option<FeedbackModalState>) {
 #[cfg(any(test, feature = "test-support"))]
 pub fn set_question_view(v: &mut AgentView, val: Option<QuestionViewState>) {
     v.question_view = val;
+}
+
+/// Test-only: count one finished model response into `AgentView::token_meter`, as the shell's `response_completed` update does.
+#[cfg(any(test, feature = "test-support"))]
+pub fn complete_response_for_test(
+    v: &mut AgentView,
+    session_usage: xai_grok_shell::extensions::notification::ResponseUsage,
+    tokens_per_sec: Option<f64>,
+) {
+    v.token_meter
+        .complete_response(None, Some(&session_usage), tokens_per_sec);
 }
 
 /// Test-only setter for `AgentView::plan_mode_active`.

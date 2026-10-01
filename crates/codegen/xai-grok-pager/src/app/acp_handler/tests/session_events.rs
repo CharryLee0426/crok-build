@@ -1169,6 +1169,62 @@
         assert_eq!(writing.label(), "Writing subagent prompt…");
     }
 
+    /// The token readout estimates from the deltas of a response in flight, and its boundary replaces the estimate with the shell's figures.
+    #[test]
+    fn response_completed_sets_the_token_readout() {
+        use crate::app::token_meter::{TokenRate, TokenReadout};
+
+        let mut app = make_app_with_agent("sess-1");
+        app.agents.get_mut(&AgentId(0)).unwrap().session.state = AgentState::TurnRunning;
+
+        let _ = handle(
+            make_ext_session_notification(
+                "sess-1",
+                XaiSessionUpdate::ToolCallDeltaChunk {
+                    tool_call_id: Some("call_1".into()),
+                    tool_index: 0,
+                    name: Some("write".into()),
+                    arguments_delta: Some("x".repeat(400)),
+                },
+            ),
+            &mut app,
+        );
+        let readout = app.agents.get(&AgentId(0)).unwrap().token_meter.readout(true);
+        assert_eq!(readout.map(|r| r.output_tokens), Some(100), "a stream in flight is counted");
+
+        let changed = handle(
+            make_ext_session_notification(
+                "sess-1",
+                XaiSessionUpdate::ResponseCompleted {
+                    message_id: None,
+                    stop_reason: Some("tool_use".into()),
+                    usage: None,
+                    signature: None,
+                    stop_sequence: None,
+                    tokens_per_sec: Some(61.5),
+                    session_usage: Some(xai_grok_shell::extensions::notification::ResponseUsage {
+                        input_tokens: 400,
+                        output_tokens: 90,
+                        cache_read_input_tokens: 1_400,
+                        cache_creation_input_tokens: 200,
+                        reasoning_tokens: 0,
+                    }),
+                },
+            ),
+            &mut app,
+        );
+        assert!(changed, "new figures must request a redraw");
+        assert_eq!(
+            app.agents.get(&AgentId(0)).unwrap().token_meter.readout(true),
+            Some(TokenReadout {
+                input_tokens: 2_000,
+                output_tokens: 90,
+                cache_hit_pct: Some(70.0),
+                rate: Some(TokenRate::Measured(61.5)),
+            })
+        );
+    }
+
     /// A delta-first turn still counts as first activity: the rewind stash drops and the TTFA timestamp is stamped.
     #[test]
     fn tool_call_delta_chunk_clears_in_flight_prompt() {

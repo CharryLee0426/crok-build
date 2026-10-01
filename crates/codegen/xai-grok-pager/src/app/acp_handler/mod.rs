@@ -330,6 +330,13 @@ fn handle_inner(msg: AcpClientMessage, app: &mut AppView) -> bool {
                             && user_message_text(&update).is_some_and(|text| {
                                 agent.take_send_now_user_echo(text, meta.prompt_id.as_deref())
                             });
+                        if !meta.is_replay && !agent.session.loading_replay {
+                            agent.token_meter.note_stream_bytes(
+                                streamed_output_bytes(&update),
+                                meta.prompt_id.as_deref(),
+                                std::time::Instant::now(),
+                            );
+                        }
                         let changed = if swallow_send_now_echo {
                             false
                         } else {
@@ -461,6 +468,11 @@ fn handle_inner(msg: AcpClientMessage, app: &mut AppView) -> bool {
                                         }
                                     }
                                     backdate_child_turn_clock(child_view);
+                                    child_view.token_meter.note_stream_bytes(
+                                        streamed_output_bytes(&notif.request.update),
+                                        meta.prompt_id.as_deref(),
+                                        std::time::Instant::now(),
+                                    );
                                 }
                                 child_view.session.handle_update(
                                     notif.request.update,
@@ -683,6 +695,18 @@ fn user_message_text(update: &acp::SessionUpdate) -> Option<&str> {
     match &chunk.content {
         acp::ContentBlock::Text(text) => Some(text.text.as_str()),
         _ => None,
+    }
+}
+/// Bytes of model output a streamed chunk carries: message text or reasoning. Feeds the token meter's live estimate.
+fn streamed_output_bytes(update: &acp::SessionUpdate) -> usize {
+    let (acp::SessionUpdate::AgentMessageChunk(chunk)
+    | acp::SessionUpdate::AgentThoughtChunk(chunk)) = update
+    else {
+        return 0;
+    };
+    match &chunk.content {
+        acp::ContentBlock::Text(text) => text.text.len(),
+        _ => 0,
     }
 }
 fn handle_interjection(notif: &acp::ExtNotification, app: &mut AppView) -> bool {

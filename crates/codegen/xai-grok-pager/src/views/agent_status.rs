@@ -66,6 +66,17 @@ impl<'a> AgentStatusBar<'a> {
         self.items.insert(0, StatusEntry { id, line, width });
     }
 
+    /// Place an item directly ahead of the first of `anchors` the bar holds, or last when it holds none.
+    /// Size it with [`Self::room_for_front`] like a prepended one: wherever it lands, it adds its width and one separator.
+    pub fn insert_before(&mut self, anchors: &[&str], id: &'static str, line: Line<'static>) {
+        let width = line.width() as u16;
+        let at = anchors
+            .iter()
+            .find_map(|anchor| self.items.iter().position(|entry| entry.id == *anchor))
+            .unwrap_or(self.items.len());
+        self.items.insert(at, StatusEntry { id, line, width });
+    }
+
     /// Columns a prepended item may take in a row `area_width` wide: what the current group and its joining separator leave.
     pub fn room_for_front(&self, area_width: u16) -> u16 {
         let joining_sep = if self.items.is_empty() {
@@ -909,5 +920,41 @@ mod tests {
             .collect();
         assert_eq!(row.trim(), "XX");
         assert!(!row.contains(SEPARATOR));
+    }
+
+    fn rendered_row(bar: AgentStatusBar<'_>, width: u16) -> String {
+        let area = Rect::new(0, 0, width, 1);
+        let mut buf = Buffer::empty(area);
+        bar.render(&mut buf, area);
+        (0..area.width)
+            .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol()))
+            .collect::<String>()
+            .trim()
+            .to_string()
+    }
+
+    #[test]
+    fn insert_before_lands_ahead_of_the_first_anchor_present() {
+        let theme = Theme::current();
+        let mut bar = AgentStatusBar::new(&theme);
+        bar.push("a", Line::from("AA"));
+        bar.push("b", Line::from("BB"));
+        bar.push("c", Line::from("CC"));
+        // "missing" is skipped; successive inserts keep their order ahead of the anchor.
+        bar.insert_before(&["missing", "c", "b"], "x", Line::from("XX"));
+        bar.insert_before(&["missing", "c", "b"], "y", Line::from("YY"));
+        assert_eq!(
+            rendered_row(bar, 40),
+            format!("AA {SEPARATOR} BB {SEPARATOR} XX {SEPARATOR} YY {SEPARATOR} CC")
+        );
+    }
+
+    #[test]
+    fn insert_before_appends_when_no_anchor_is_present() {
+        let theme = Theme::current();
+        let mut bar = AgentStatusBar::new(&theme);
+        bar.push("a", Line::from("AA"));
+        bar.insert_before(&["missing"], "x", Line::from("XX"));
+        assert_eq!(rendered_row(bar, 20), format!("AA {SEPARATOR} XX"));
     }
 }

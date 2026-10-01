@@ -657,6 +657,8 @@ fn render_prompt_info(
     let base = theme.primary().bg(Color::Reset);
     let sep = theme.dim().bg(Color::Reset);
     let mut segs: Vec<(String, Style)> = Vec::new();
+    // Where the token readout goes: after the context usage it belongs with, ahead of the queue and the transcript hint
+    let mut token_readout_at = None;
     if let Some(label) = agent.prompt_input_mode.prompt_info_override() {
         segs.push((label.to_string(), base));
     } else {
@@ -696,12 +698,30 @@ fn render_prompt_info(
                 base,
             ));
         }
+        token_readout_at = Some(segs.len());
     }
     if queued > 0 {
         segs.push((format!("{queued} queued"), base));
         segs.push(("/queue".to_string(), base));
     }
     segs.push((transcript_hint.to_string(), base));
+    if let Some(mut at) = token_readout_at {
+        // Only as far as the row has room: the hint that ends it is the way back to the transcript, and the row truncates
+        const SEPARATOR_COLS: usize = 3;
+        let mut cols: usize = segs
+            .iter()
+            .map(|(text, _)| Line::from(text.as_str()).width() + SEPARATOR_COLS)
+            .sum::<usize>()
+            .saturating_sub(SEPARATOR_COLS);
+        for text in minimal_api::token_readout_segments(agent) {
+            cols += Line::from(text.as_str()).width() + SEPARATOR_COLS;
+            if cols > area.width as usize {
+                break;
+            }
+            segs.insert(at, (text, base));
+            at += 1;
+        }
+    }
     if segs.is_empty() {
         return;
     }
@@ -1054,6 +1074,50 @@ mod tests {
         assert!(
             text.trim_end().ends_with("ctrl+o transcript"),
             "trailing transcript hint: {text:?}"
+        );
+    }
+    /// The token readout follows the context usage, and gives way before the transcript hint does.
+    #[test]
+    fn prompt_info_shows_the_token_readout_where_the_row_has_room() {
+        let mut a = agent();
+        a.context_state = Some(xai_grok_shell::session::ContextInfo {
+            used: 276_000,
+            total: 2_000_000,
+            ..Default::default()
+        });
+        minimal_api::complete_response_for_test(
+            &mut a,
+            xai_grok_shell::extensions::notification::ResponseUsage {
+                input_tokens: 500,
+                output_tokens: 120,
+                cache_read_input_tokens: 1_500,
+                ..Default::default()
+            },
+            Some(61.2),
+        );
+        let theme = Theme::current();
+        let row = |width: u16| {
+            let area = Rect::new(0, 0, width, 1);
+            let mut buf = Buffer::empty(area);
+            render_prompt_info(&mut buf, area, &a, 0, "ctrl+o transcript", &theme);
+            (0..area.width)
+                .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol().to_string()))
+                .collect::<String>()
+        };
+
+        let wide = row(120);
+        assert!(
+            wide.contains("(14%) · ↑2.0K ↓120 · 75% cached · 61 tok/s · ctrl+o transcript"),
+            "{wide:?}"
+        );
+
+        // Room for the counts and the cache rate, not the speed.
+        let narrow = row(70);
+        assert!(narrow.contains("↑2.0K ↓120 · 75% cached"), "{narrow:?}");
+        assert!(!narrow.contains("tok/s"), "{narrow:?}");
+        assert!(
+            narrow.trim_end().ends_with("ctrl+o transcript"),
+            "the hint must survive: {narrow:?}"
         );
     }
     #[test]

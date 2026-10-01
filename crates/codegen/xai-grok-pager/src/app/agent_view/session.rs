@@ -193,6 +193,7 @@ impl AgentView {
             modal_buttons: Vec::new(),
             modal_hovered_key: None,
             context_state: None,
+            token_meter: crate::app::token_meter::TokenMeter::default(),
             status_context: None,
             last_status_line_size: None,
             chat_kind: false,

@@ -427,6 +427,8 @@ View session usage. Alias: `/cost`.
 
 Inside a session this opens the usage modal with that session's context and token totals.
 
+The status bar shows the same totals as they change, beside the context meter: `↑1.2M ↓45K │ 83% cached │ 61 tok/s`. `↑` is every prompt token sent this session and `↓` every token generated; `cached` is the share of the prompt served from the provider's cache; `tok/s` is the output speed of the last response. While a response streams, the output count and a speed marked `~` are estimated from the text received, and the provider's figures replace them when the response ends. A narrow terminal drops the speed first, then the cache rate. Minimal mode shows the same figures in the line under the prompt, after the context usage.
+
 For persisted per-turn token and cost totals of any local session, use `crok usage <session-id> [turn]` from the shell. See [Session Management](17-sessions.md#the-crok-usage-subcommand).
 
 xAI account commands (`/login`, `/logout`, `/privacy`, and `/usage manage` billing) are not available; sign in to a provider with `crok login openai-codex` or `crok login openrouter` from the shell. See [Authentication](02-authentication.md).
