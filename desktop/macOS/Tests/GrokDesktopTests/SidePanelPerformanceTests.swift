@@ -11,7 +11,8 @@ import SwiftUI
 /// it optimized for numbers worth quoting (`swift build -c release --build-tests -Xswiftc -enable-testing`).
 /// It uses only what Crok Desktop 1.2.1 already had, so the same file measures an older tree too;
 /// tabs added since are picked up from `SidePanelTab.allCases`. CROK_SIDE_PANEL_SECONDS (6) is how
-/// long each tab is measured per pass, CROK_SIDE_PANEL_PASSES (2) how many passes.
+/// long each tab is measured per pass, CROK_SIDE_PANEL_PASSES (2) how many passes, and
+/// CROK_SIDE_PANEL_TABS ("closed,files,…") which of them, to profile one.
 @MainActor
 final class SidePanelPerformanceTests: XCTestCase {
     private var directory: URL!
@@ -138,11 +139,14 @@ final class SidePanelPerformanceTests: XCTestCase {
         XCTAssertTrue(store.run.isRunning, "the task is streaming (phase \(store.run.phase), banner \(store.banner ?? "none"))")
         try await shown(2)
 
-        // Closed, then each tab, and round again: what arrives later in the turn is spread over all of them.
+        // Closed, then each tab, and back again in the other order: what arrives later in the turn is spread
+        // over all of them, and none is always measured just after the terminal, whose shell is still starting.
         var samples: [String: Sample] = [:]
-        let configurations: [(name: String, tab: SidePanelTab?)] = [("closed", nil)] + SidePanelTab.allCases.map { ($0.rawValue, $0) }
-        for _ in 0..<passes {
-            for configuration in configurations {
+        let chosen = ProcessInfo.processInfo.environment["CROK_SIDE_PANEL_TABS"]?.split(separator: ",").map(String.init)
+        let configurations: [(name: String, tab: SidePanelTab?)] = ([("closed", nil)] + SidePanelTab.allCases.map { ($0.rawValue, $0) })
+            .filter { chosen?.contains($0.0) ?? true }
+        for pass in 0..<passes {
+            for configuration in pass % 2 == 0 ? configurations : configurations.reversed() {
                 if let tab = configuration.tab {
                     store.sidePanelTab = tab
                     store.showInspector = true
@@ -163,12 +167,13 @@ final class SidePanelPerformanceTests: XCTestCase {
             }
         }
         for configuration in configurations { Self.report(configuration.name, samples[configuration.name] ?? Sample()) }
-        // An open panel narrows the conversation and is laid out with it, whatever it shows. No tab may
-        // cost much more than the cheapest of them.
-        let open = configurations.filter { $0.tab != nil }.map { ($0.name, Self.percentile(samples[$0.name]?.frames ?? [], 95)) }
-        let cheapest = open.map(\.1).min() ?? 0
-        for (name, p95) in open {
-            XCTAssertLessThan(p95, max(cheapest * 2, cheapest + 6), "frames beside \(name) (p95 \(p95) ms) against the cheapest tab (p95 \(cheapest) ms)")
+        // An open panel narrows the conversation and is laid out with it; that may cost the frames that
+        // carry a new message a little, whatever the panel shows, and no more. The 99th percentile is
+        // those frames: most frames have nothing new to lay out, which makes the 95th jump about.
+        guard let closed = samples["closed"].map({ Self.percentile($0.frames, 99) }) else { return }
+        for configuration in configurations where configuration.tab != nil {
+            let open = Self.percentile(samples[configuration.name]?.frames ?? [], 99)
+            XCTAssertLessThan(open, closed * 1.5 + 3, "frames beside \(configuration.name) (p99 \(open) ms) against the panel closed (p99 \(closed) ms)")
         }
     }
 

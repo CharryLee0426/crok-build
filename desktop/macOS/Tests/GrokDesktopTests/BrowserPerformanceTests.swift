@@ -437,7 +437,8 @@ final class BrowserPerformanceTests: XCTestCase {
         XCTAssertGreaterThan(open.messages, 20, "messages kept arriving while the page was open")
         // The page's own title changes four times a second and reaches the tab strip, not the web view's host.
         XCTAssertLessThanOrEqual(open.hostUpdates, 4, "streaming does not rebuild the page's host: \(open.hostUpdates) updates for \(open.messages) messages")
-        let sideChatP95 = Self.percentile(sideChat.frames, 95), openP95 = Self.percentile(open.frames, 95)
-        XCTAssertLessThan(openP95, max(sideChatP95 * 2, sideChatP95 + 6), "frames with a page open (p95 \(openP95) ms) against the side chat (p95 \(sideChatP95) ms)")
+        // The 99th percentile: the frames that carry a new message. Most frames have nothing new to lay out.
+        let sideChatP99 = Self.percentile(sideChat.frames, 99), openP99 = Self.percentile(open.frames, 99)
+        XCTAssertLessThan(openP99, sideChatP99 * 1.5 + 3, "frames with a page open (p99 \(openP99) ms) against the side chat (p99 \(sideChatP99) ms)")
     }
 }
