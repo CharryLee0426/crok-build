@@ -42,7 +42,7 @@ struct SidePanelView: View {
 
     static let defaultWidth = 400.0
     static let defaultPreviewWidth = 820.0
-    static let defaultBrowserWidth = 560.0
+    static let defaultBrowserWidth = 520.0
     static let minimumWidth = 300.0
     /// Room the conversation keeps beside the panel.
     static let conversationRoom = 440.0

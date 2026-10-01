@@ -31,6 +31,8 @@ struct ContentView: View {
             .background(HostWindowReader { window = $0 })
             .onChange(of: store.imageViewer != nil) { _, _ in ImageViewerPresenter.shared.sync(store, window: window) }
             .onAppear { MarkdownImageCell.open = { [weak store] url, _ in store?.openImage(url: url) } }
+            // For measured runs: CROK_DESKTOP_BROWSER opens the side panel's browser on an address at launch.
+            .onAppear { if let address = ProcessInfo.processInfo.environment["CROK_DESKTOP_BROWSER"], !address.isEmpty { store.openBrowser(address) } }
             .onChange(of: store.minimalMode) { _, minimal in
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { columnVisibility = minimal ? .detailOnly : .all }
             }

@@ -408,8 +408,12 @@ if the transcript goes blank. Crok Desktop 1.2.0 did after a few hundred message
 (`CROK_TRANSCRIPT_REPLAY=<file>` runs it on a recording instead).
 
 For isolated development runs, `CROK_DESKTOP_STATE_FILE` selects an absolute path
-for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable, and
-`CROK_HOME` points the app's shared configuration at a scratch directory. The normal
+for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable,
+`CROK_HOME` points the app's shared configuration at a scratch directory, and
+`CROK_DESKTOP_BROWSER` opens the side panel's browser on an address at launch
+(`run-perf.sh <app> <out> browser` streams a long task beside a page that keeps
+changing; with a state file named this way the browser keeps no cookies or site
+data on disk). The normal
 packaged app continues to use its embedded runtime and standard local state.
 
 ## Vector app icon
