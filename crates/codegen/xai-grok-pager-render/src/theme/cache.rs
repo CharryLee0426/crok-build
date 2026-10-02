@@ -179,7 +179,7 @@ pub fn resolve_initial_theme() -> ThemeKind {
     resolve_initial_theme_from(env_theme_name().as_deref(), load_from_disk(), true)
 }
 
-/// Variant of [`resolve_initial_theme`] without the OSC 11 startup fallback, for resolution after the terminal is initialized.
+/// Variant of [`resolve_initial_theme`] for resolution after the terminal is initialized. Upstream skips its OSC 11 startup probe here; crok's `auto` never probes, so both resolve alike.
 #[must_use]
 pub fn resolve_initial_theme_no_osc11() -> ThemeKind {
     resolve_initial_theme_from(env_theme_name().as_deref(), load_from_disk(), false)
@@ -241,7 +241,7 @@ fn resolve_from_appearance(appearance: Option<system_appearance::SystemAppearanc
         .unwrap_or(ThemeKind::GrokNight)
 }
 
-/// Desktop APIs and env hints only (no OSC 11), so it is safe while `EventStream` is active. Detection failure is `GrokNight`.
+/// What `auto` shows in the terminal: `[ui].auto_dark_theme`, or `GrokNight`. It does not follow the system (see [`system_appearance`]).
 #[must_use]
 pub fn resolve_auto() -> ThemeKind {
     resolve_from_appearance(system_appearance::detect())
@@ -619,6 +619,39 @@ mod tests {
             system_appearance::set_mock(None);
             let result = resolve_auto();
             assert_eq!(result, ThemeKind::GrokNight);
+        });
+    }
+
+    /// Without a mock this is what ships: `auto` is the dark theme whatever the OS appearance is.
+    #[test]
+    fn auto_is_dark_whatever_the_system_appearance() {
+        with_test_env(|| {
+            assert_eq!(resolve_auto(), ThemeKind::GrokNight);
+            assert_eq!(
+                resolve_from_config(Some(ThemeKind::Auto), true),
+                ThemeKind::GrokNight
+            );
+            assert_eq!(
+                resolve_from_config(Some(ThemeKind::Auto), false),
+                ThemeKind::GrokNight
+            );
+            assert!(is_auto_mode(), "auto is still the selected theme");
+        });
+    }
+
+    /// `auto` uses `auto_dark_theme`; `auto_light_theme` is never picked.
+    #[test]
+    fn auto_uses_the_dark_override_and_ignores_the_light_one() {
+        with_test_env(|| {
+            set_test_auto_config(AutoThemeConfig {
+                dark_theme: Some(ThemeKind::TokyoNight),
+                light_theme: Some(ThemeKind::GrokDay),
+            });
+            assert_eq!(resolve_auto(), ThemeKind::TokyoNight);
+            assert_eq!(
+                resolve_from_config(Some(ThemeKind::Auto), true),
+                ThemeKind::TokyoNight
+            );
         });
     }
 

@@ -109,6 +109,8 @@ fixture.run()
         store.send()
         XCTAssertEqual(store.draft, "", "Return while running queues the prompt and clears the composer")
         XCTAssertEqual(fixture.composer.queue.items(id).map(\.text), ["second prompt"])
+        // The harness logs a prompt when it reads it, which can be a moment after the turn shows as working.
+        try await eventually { !fixture.prompts.isEmpty }
         XCTAssertEqual(fixture.prompts, ["fixture:slow first"])
 
         try await eventually { fixture.prompts.count == 2 && !store.run.isRunning }

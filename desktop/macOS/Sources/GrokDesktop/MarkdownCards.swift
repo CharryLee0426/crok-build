@@ -106,8 +106,9 @@ final class MarkdownCalloutCard: NSTextBlock {
 }
 
 /// A table sized like a web page's: columns take their content's width when it fits, and in a
-/// narrower view the long columns wrap first while short ones keep whole words. TextKit asks for
-/// each cell's rectangle as it lays out, so the columns follow the view as it resizes.
+/// narrower view the long columns wrap first while short ones keep whole words. A table narrower
+/// than the view sits in its middle, as display math does. TextKit asks for each cell's rectangle
+/// as it lays out, so the columns follow the view as it resizes.
 final class MarkdownTextTable: NSTextTable {
     /// Per column, the width of its longest cell on one line, and of its longest word.
     private let widest: [CGFloat]
@@ -127,30 +128,57 @@ final class MarkdownTextTable: NSTextTable {
 
     override func copy(with zone: NSZone? = nil) -> Any { self }
 
+    /// The least a column's content is given, however narrow the view.
+    static let narrowestColumn: CGFloat = 4
+
+    /// The narrowest the table can be laid out: every column's padding and borders, and something
+    /// of each column. TextKit does not return from laying a table out in a container it cannot
+    /// fit, so nothing may ask for less (see `ReadOnlyTextView.Coordinator.height`).
+    var minimumWidth: CGFloat { CGFloat(widest.count) * (inset * 2 + Self.narrowestColumn) + 2 }
+
     /// Content widths for the columns in `available` points, shared out as CSS's automatic table layout does.
+    /// Every column gets at least `narrowestColumn`, and together they fit whatever is at least `minimumWidth`.
     func contentWidths(in available: CGFloat) -> [CGFloat] {
-        let space = max(0, available - inset * 2 * CGFloat(widest.count))
+        let floor = Self.narrowestColumn * CGFloat(widest.count)
+        let space = max(floor, available - inset * 2 * CGFloat(widest.count))
         let most = widest.reduce(0, +), least = words.reduce(0, +)
-        if most <= space { return widest }
-        // Whole points keep the borders between columns sharp.
-        guard least < space, most > least else {
-            return least > 0 ? words.map { ($0 * space / least).rounded(.down) } : widest.map { _ in (space / CGFloat(max(1, widest.count))).rounded(.down) }
+        let wanted: [CGFloat]
+        if most <= space {
+            wanted = widest
+        } else if least < space, most > least {
+            let share = (space - least) / (most - least)
+            // Whole points keep the borders between columns sharp.
+            wanted = zip(words, widest).map { ($0 + ($1 - $0) * share).rounded(.down) }
+        } else {
+            wanted = least > 0 ? words.map { ($0 * space / least).rounded(.down) } : widest.map { _ in (space / CGFloat(max(1, widest.count))).rounded(.down) }
         }
-        let share = (space - least) / (most - least)
-        return zip(words, widest).map { ($0 + ($1 - $0) * share).rounded(.down) }
+        guard wanted.contains(where: { $0 < Self.narrowestColumn }) else { return wanted }
+        // A column squeezed to nothing takes its minimum from the others' share, so the row still fits.
+        let over = wanted.map { max(0, $0 - Self.narrowestColumn) }
+        let total = over.reduce(0, +)
+        let scale = total > 0 ? min(1, (space - floor) / total) : 0
+        return over.map { Self.narrowestColumn + ($0 * scale).rounded(.down) }
+    }
+
+    /// The space before columns of these content widths that centres them in `available` points.
+    func leadingSpace(before widths: [CGFloat], in available: CGFloat) -> CGFloat {
+        let table = widths.reduce(0) { $0 + $1 + inset * 2 }
+        // Whole points, as for the columns.
+        return max(0, ((available - table) / 2).rounded(.down))
     }
 
     override func rect(for block: NSTextTableBlock, layoutAt startingPoint: NSPoint, in rect: NSRect, textContainer: NSTextContainer, characterRange charRange: NSRange) -> NSRect {
         var cell = super.rect(for: block, layoutAt: startingPoint, in: rect, textContainer: textContainer, characterRange: charRange)
         let widths = contentWidths(in: rect.width)
         guard block.startingColumn < widths.count else { return cell }
-        cell.origin.x = rect.minX + widths[..<block.startingColumn].reduce(0) { $0 + $1 + inset * 2 } + inset
+        cell.origin.x = rect.minX + leadingSpace(before: widths, in: rect.width) + widths[..<block.startingColumn].reduce(0) { $0 + $1 + inset * 2 } + inset
         cell.size.width = widths[block.startingColumn]
         return cell
     }
 }
 
-/// An image paragraph: the image at its own size, within 560 × 420 pt and the line's width.
+/// An image paragraph: the image at its own size, within 560 × 420 pt and the line's width,
+/// in the middle of the line.
 /// A click opens it in the image viewer, or the default app when there is none.
 final class MarkdownImageCell: NSTextAttachmentCell {
     /// Shows a reply's image; the store sets it to open its viewer.

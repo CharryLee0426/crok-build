@@ -14,6 +14,8 @@ struct ContentView: View {
         splitView
             .id(extras.themeRevision)
             .frame(minWidth: store.minimalMode ? 560 : 920, minHeight: 650)
+            // Test builds only; outside the rebuilt content so a theme change keeps its samples.
+            .overlay { PerformanceMonitorOverlay() }
             .sheet(isPresented: $store.showSettings) { SettingsView().desktopEnvironment(store) }
             .sheet(isPresented: $store.showCommandPalette) { CommandPalette().desktopEnvironment(store) }
             .sheet(item: $store.featurePanel) { panel in FeatureBrowser(panel: panel).desktopEnvironment(store) }
@@ -29,6 +31,8 @@ struct ContentView: View {
             .background(HostWindowReader { window = $0 })
             .onChange(of: store.imageViewer != nil) { _, _ in ImageViewerPresenter.shared.sync(store, window: window) }
             .onAppear { MarkdownImageCell.open = { [weak store] url, _ in store?.openImage(url: url) } }
+            // For measured runs: CROK_DESKTOP_BROWSER opens the side panel's browser on an address at launch.
+            .onAppear { if let address = ProcessInfo.processInfo.environment["CROK_DESKTOP_BROWSER"], !address.isEmpty { store.openBrowser(address) } }
             .onChange(of: store.minimalMode) { _, minimal in
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { columnVisibility = minimal ? .detailOnly : .all }
             }
@@ -105,7 +109,7 @@ struct ContentView: View {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { store.showInspector.toggle() }
                 } label: {
                     Label("Side panel", systemImage: "sidebar.right")
-                }.help(store.showInspector ? "Hide side panel · ⌘J" : "Show files, side chat, and terminal · ⌘J")
+                }.help(store.showInspector ? "Hide side panel · ⌘J" : "Show files, side chat, terminal, and browser · ⌘J")
             }
         }
     }

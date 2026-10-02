@@ -40,14 +40,19 @@ final class TerminalSessions: ObservableObject {
 
     /// Replaces an exited (or running) shell with a new one in the same place.
     func restart(_ project: Project) {
+        close(project)
+        ensureTerminal(for: project)
+        requestFocus()
+    }
+
+    /// Ends the project's shell, if it has one.
+    func close(_ project: Project) {
         if let old = views.removeValue(forKey: project.path) {
             old.processDelegate = nil
             old.terminate()
             old.removeFromSuperview()
         }
         statuses.removeValue(forKey: project.path)
-        ensureTerminal(for: project)
-        requestFocus()
     }
 
     /// Sends Control-L, which shells and full-screen programs take as "clear and redraw".

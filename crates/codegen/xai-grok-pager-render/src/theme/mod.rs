@@ -35,7 +35,7 @@ pub enum ThemeKind {
     /// Every bg is `Reset` so the terminal canvas shows through; legible on both polarities without appearance detection.
     /// Hidden and unparseable while `cache::terminal_theme_enabled()` is off.
     Terminal = 6,
-    /// Follow system appearance. Disk stores `"auto"`; `cache::CURRENT` holds only the resolved concrete kind. Excluded from [`ALL`].
+    /// Always dark in the terminal; Crok Desktop, which shares the setting, follows the system. Disk stores `"auto"`; `cache::CURRENT` holds only the resolved concrete kind. Excluded from [`ALL`].
     Auto = 4,
 }
 

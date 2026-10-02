@@ -112,6 +112,25 @@ final class MarkdownReplyTests: XCTestCase {
         XCTAssertLessThanOrEqual(narrow.reduce(0, +), 300 - 12.5 * 6)
     }
 
+    func testATableNarrowerThanTheReplySitsInItsMiddle() throws {
+        let table = MarkdownTextTable(widest: [50, 80, 300], words: [50, 40, 70], inset: 12.5)
+        XCTAssertEqual(table.leadingSpace(before: table.contentWidths(in: 705), in: 705), 100)
+        XCTAssertEqual(table.leadingSpace(before: table.contentWidths(in: 300), in: 300), 0, accuracy: 2, "A table that wraps fills the view")
+
+        let host = host("Counts:\n\n| Area | Files |\n| --- | --- |\n| Sources | 7 |\n| Tests | 6 |\n\nDone.")
+        let textView = try XCTUnwrap(textView(in: host))
+        let layout = try XCTUnwrap(textView.layoutManager)
+        /// The line a cell's text is on, which is as wide as the cell's content.
+        func cell(_ text: String) -> NSRect {
+            let index = (textView.string as NSString).range(of: text).location
+            return layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: index), effectiveRange: nil)
+        }
+        let leading = cell("Area").minX, trailing = textView.bounds.width - cell("Files").maxX
+        XCTAssertGreaterThan(leading, 150, "The table does not start at the reply's leading edge")
+        XCTAssertEqual(leading, trailing, accuracy: 2)
+        XCTAssertEqual(cell("Tests").minX, leading, "Rows line up")
+    }
+
     func testRepliesGrowWithoutAnInnerScroller() throws {
         let long = (1...400).map { "Paragraph \($0) of a long reply that keeps going." }.joined(separator: "\n\n")
         let host = host(long)
@@ -210,15 +229,20 @@ final class MarkdownReplyTests: XCTestCase {
         let textView = try XCTUnwrap(textView(in: host))
         let deadline = Date().addingTimeInterval(5)
         var cell: MarkdownImageCell?
+        var position = NSRange()
         while cell == nil, Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.02))
             settle(host)
-            textView.textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textView.textStorage?.length ?? 0)) { value, _, _ in
-                if let found = (value as? NSTextAttachment)?.attachmentCell as? MarkdownImageCell { cell = found }
+            textView.textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textView.textStorage?.length ?? 0)) { value, range, _ in
+                if let found = (value as? NSTextAttachment)?.attachmentCell as? MarkdownImageCell { cell = found; position = range }
             }
         }
         XCTAssertNotNil(cell, "The link becomes the image")
         settle(host)
+        let layout = try XCTUnwrap(textView.layoutManager), container = try XCTUnwrap(textView.textContainer)
+        let drawn = layout.boundingRect(forGlyphRange: layout.glyphRange(forCharacterRange: position, actualCharacterRange: nil), in: container)
+        XCTAssertEqual(drawn.width, 300, accuracy: 1)
+        XCTAssertEqual(drawn.midX, textView.bounds.midX, accuracy: 1, "The image sits in the middle of the reply")
         // The image arrives after the reply was first measured; SwiftUI must measure it again.
         let scroll = try XCTUnwrap(textView.enclosingScrollView)
         XCTAssertGreaterThan(scroll.frame.height, 240, "The reply grows to fit the image")

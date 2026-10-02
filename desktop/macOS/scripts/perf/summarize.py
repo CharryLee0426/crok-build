@@ -77,24 +77,34 @@ def main(out):
     ps = lambda name: load_csv(os.path.join(out, "ps-{}.csv".format(name)))
     marks = lambda name: load_marks(os.path.join(out, "marks-{}.csv".format(name)))
 
-    m = dict(marks("stream"))
-    if "send" in m and "done" in m:
-        samples = probe("stream")
+    # "browser" is the stream scenario with a page open in the side panel's browser.
+    for name in ("stream", "browser"):
+        m = dict(marks(name))
+        if "send" not in m or "done" not in m:
+            continue
+        samples = probe(name)
         send, done, end = m["send"], m["done"], m.get("end", m["done"])
         # The burst's backlog is worked off after the harness has sent it; give it 12 s.
         steady = min(m.get("fill", send) + 12, done)
-        summary["stream"] = {
+        summary[name] = {
             "burst_seconds": round(m.get("fill", done) - send, 1),
             "steady_seconds": round(done - steady, 1),
             "burst": stats(window(samples, send, steady)),
-            "burst_process": process(ps("stream"), send, steady),
+            "burst_process": process(ps(name), send, steady),
             "steady": stats(window(samples, steady, done)),
-            "steady_process": process(ps("stream"), steady, done),
+            "steady_process": process(ps(name), steady, done),
             "after": stats(window(samples, done, end)),
         }
-        state = os.path.join(out, "state-stream", "state.json")
+        state = os.path.join(out, "state-{}".format(name), "state.json")
         if os.path.exists(state):
-            summary["stream"]["state_mb"] = round(os.path.getsize(state) / 1e6, 1)
+            summary[name]["state_mb"] = round(os.path.getsize(state) / 1e6, 1)
+        # WebKit's processes, which are not the app's: summed CPU (% of a core) and memory, once a second.
+        webkit = [r for r in load_csv(os.path.join(out, "webkit-{}.csv".format(name))) if send <= r[0] <= done]
+        if webkit:
+            summary[name]["webkit"] = {"processes": int(max(r[3] for r in webkit)),
+                                       "cpu_avg_pct": round(sum(r[1] for r in webkit) / len(webkit), 1),
+                                       "cpu_max_pct": round(max(r[1] for r in webkit), 1),
+                                       "rss_peak_mb": round(max(r[2] for r in webkit) / 1024, 1)}
 
     m = dict(marks("replay"))
     if "send" in m and "done" in m:
@@ -141,12 +151,14 @@ def main(out):
         if name == "switch":
             for action in value["actions"]:
                 print("switch {:<20} max {:>7.0f} ms  p95 {:>6.0f} ms".format(action["action"], action["max_ms"], action["p95_ms"]))
-        elif name == "stream":
+        elif name in ("stream", "browser"):
             for phase in ("burst", "steady"):
                 d = value[phase]
-                print("stream {}: p50 {} p95 {} p99 {} max {} ms, >1s {}, >2s {}, blocked {} s; {}".format(
-                    phase, d["p50_ms"], d["p95_ms"], d["p99_ms"], d["max_ms"], d["stalls_over_1s"], d["stalls_over_2s"],
+                print("{} {}: p50 {} p95 {} p99 {} max {} ms, >1s {}, >2s {}, blocked {} s; {}".format(
+                    name, phase, d["p50_ms"], d["p95_ms"], d["p99_ms"], d["max_ms"], d["stalls_over_1s"], d["stalls_over_2s"],
                     d["blocked_s"], value[phase + "_process"]))
+            if "webkit" in value:
+                print("{} WebKit processes: {}".format(name, value["webkit"]))
         elif name == "replay":
             d = value["streaming"]
             print("replay: {} s, p50 {} p95 {} p99 {} max {} ms, >1s {}, blocked {} s; blank {} of {} samples; {}".format(

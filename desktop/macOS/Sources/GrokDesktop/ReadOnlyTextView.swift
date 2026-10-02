@@ -272,7 +272,10 @@ struct ReadOnlyTextView: NSViewRepresentable {
             // Text beyond the prefix can only add height, so a partial measurement means the cap.
             if (textView.textStorage?.length ?? 0) > measuringStorage.length { return cap }
             if let cached = measuredHeights[width] { return min(cap, cached) }
-            let size = NSSize(width: wrapsLines ? width : CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            // A window being laid out measures its transcript a few points wide on the way to its real
+            // width. A table cannot be laid out that narrow, and TextKit does not return from trying:
+            // opening a task whose reply had a table hung the app. Such text is measured at the least it fits.
+            let size = NSSize(width: wrapsLines ? max(width, narrowestLayoutWidth()) : CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
             if measuringContainer.containerSize != size { measuringContainer.containerSize = size }
             measuringLayout.ensureLayout(for: measuringContainer)
             let used = measuringLayout.usedRect(for: measuringContainer)
@@ -282,6 +285,20 @@ struct ReadOnlyTextView: NSViewRepresentable {
             }
             measuredHeights[width] = ceil(height)
             return min(cap, ceil(height))
+        }
+
+        /// The narrowest the measured text can be laid out: the widest minimum of its tables, or none.
+        private func narrowestLayoutWidth() -> CGFloat {
+            var narrowest: CGFloat = 0
+            var seen: Set<ObjectIdentifier> = []
+            measuringStorage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: measuringStorage.length)) { value, _, _ in
+                for case let block as NSTextTableBlock in (value as? NSParagraphStyle)?.textBlocks ?? [] where seen.insert(ObjectIdentifier(block.table)).inserted {
+                    // A plain table lays itself out; it still needs room for its columns' padding.
+                    let minimum = (block.table as? MarkdownTextTable)?.minimumWidth ?? CGFloat(block.table.numberOfColumns) * 24
+                    narrowest = max(narrowest, minimum)
+                }
+            }
+            return narrowest
         }
 
         private var isScrolledToEnd: Bool {

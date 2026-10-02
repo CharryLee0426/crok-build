@@ -83,6 +83,11 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>Crok Desktop</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoadsInWebContent</key><true/>
+        <key>NSAllowsLocalNetworking</key><true/>
+    </dict>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>Crok Desktop uses the microphone only while you dictate a prompt.</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>

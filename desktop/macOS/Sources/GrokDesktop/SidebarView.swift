@@ -346,6 +346,10 @@ private struct ProjectFolderRow: View, Equatable {
         Button("Copy Path", systemImage: "doc.on.doc") {
             NSPasteboard.general.clearContents(); NSPasteboard.general.setString(project.path, forType: .string)
         }
+        Divider()
+        // Only the app's record of the project goes; its folder stays on disk.
+        Button("Remove Project…", systemImage: "trash", role: .destructive) { store.requestRemoveProject(project.id) }
+            .disabled(runningCount > 0)
     }
 }
 

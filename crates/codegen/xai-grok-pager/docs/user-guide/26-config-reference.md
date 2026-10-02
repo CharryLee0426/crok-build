@@ -594,8 +594,8 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | Key | Type / Values | Requirements | Managed | Details |
 | --- | --- | --- | --- | --- |
 | `ui.approval_mode` | `string` | `yes` | `user` | Deprecated; use `ui.permission_mode`. |
-| `ui.auto_dark_theme` | `string` | `yes` | `user` | Theme when `theme = auto` and the OS is dark. |
-| `ui.auto_light_theme` | `string` | `yes` | `user` | Theme when `theme = auto` and the OS is light. |
+| `ui.auto_dark_theme` | `string` | `yes` | `user` | Theme the terminal shows when `theme = auto`. |
+| `ui.auto_light_theme` | `string` | `yes` | `user` | Unused: the terminal is always dark when `theme = auto`. |
 | `ui.cancel_subagents_on_turn_cancel` | `ask / always_stop / always_continue` | `yes` | `user` | What to do with running subagents when cancelling a parent turn. |
 | `ui.collapsed_edit_blocks` | `boolean` | `yes` | `user` | Show edits as one-line +N/-M summaries. Also CROK_COLLAPSED_EDIT_BLOCKS. |
 | `ui.combine_queued_prompts` | `boolean` | `yes` | `user` | Merge consecutive plain follow-ups into one turn. |
@@ -638,7 +638,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `ui.simple_mode` | `boolean` | `yes` | `user` | Readline prompt editing when true; experimental vim prompt keys when false. |
 | `ui.status_line.command` | `string` | `yes` | `user` | Script for a `command` status line. Campaigns strip this path; a requirements layer still merges it. |
 | `ui.status_line.type` | `disabled / command` | `yes` | `user` | Optional status-line row above the shortcuts bar. Off by default. See the status-line user guide. |
-| `ui.theme` | `string` | `yes` | `user` | Color theme name, or `auto`/`system` to follow the OS. Also `/theme` and CROK_THEME. |
+| `ui.theme` | `string` | `yes` | `user` | Color theme name, or `auto`/`system`: dark in the terminal, follows the OS in Crok Desktop. Also `/theme` and CROK_THEME. |
 | `ui.ui_theme` | `string` | `yes` | `user` | Legacy alias for `ui.theme`. |
 | `ui.vim_mode` | `boolean` | `yes` | `user` | Vim keys in the scrollback, not the prompt. Also `/vim-mode`. |
 | `ui.voice_capture_mode` | `hold / toggle` | `yes` | `user` | Hold-to-talk or press-to-toggle voice capture. |

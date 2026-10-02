@@ -32,7 +32,7 @@ const THEME_CHOICES: &[EnumChoice] = &[
     EnumChoice {
         canonical: "auto",
         display: "Auto",
-        description: "Follow system dark/light appearance.",
+        description: "Dark in the terminal; Crok Desktop follows the system.",
     },
     EnumChoice {
         canonical: "groknight",
@@ -723,7 +723,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             category: SettingCategory::Appearance,
             owner: SettingOwner::Shared,
             label: "Auto dark theme",
-            description: "Theme to use when the system is in dark mode (only with theme=auto).",
+            description: "Theme the terminal shows with theme=auto, which is always dark here.",
             keywords: &["auto", "dark", "theme", "system", "appearance", "night"],
             kind: SettingKind::Enum {
                 // `Option<String>`: `None` falls back to "groknight"
@@ -739,7 +739,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             category: SettingCategory::Appearance,
             owner: SettingOwner::Shared,
             label: "Auto light theme",
-            description: "Theme to use when the system is in light mode (only with theme=auto).",
+            description: "Unused: with theme=auto the terminal is always dark (see Auto dark theme).",
             keywords: &["auto", "light", "theme", "system", "appearance", "day"],
             kind: SettingKind::Enum {
                 // `Option<String>`: `None` falls back to "grokday"

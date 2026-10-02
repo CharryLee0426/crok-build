@@ -313,14 +313,36 @@ pub(super) fn handle_session_notification_with_origin(
             ref images,
             ref message,
         } => apply_image_compressed(agent, images, message),
+        XaiSessionUpdate::ResponseCompleted {
+            ref usage,
+            ref session_usage,
+            tokens_per_sec,
+            ..
+        } => {
+            if meta.is_replay || agent.session.loading_replay {
+                false
+            } else {
+                agent.token_meter.complete_response(
+                    usage.as_ref(),
+                    session_usage.as_ref(),
+                    tokens_per_sec,
+                )
+            }
+        }
         XaiSessionUpdate::ToolCallDeltaChunk {
             ref name,
             tool_index,
+            ref arguments_delta,
             ..
         } => {
             if meta.is_replay || agent.session.loading_replay || agent.running_wake_turn.is_some() {
                 false
             } else {
+                agent.token_meter.note_stream_bytes(
+                    arguments_delta.as_deref().map_or(0, str::len),
+                    meta.prompt_id.as_deref(),
+                    std::time::Instant::now(),
+                );
                 let had_activity_before = agent.session.tracker.activity().is_some();
                 let changed = agent
                     .session
@@ -340,6 +362,7 @@ pub(super) fn handle_session_notification_with_origin(
             elapsed_ms,
             ..
         } => {
+            agent.token_meter.end_stream();
             let error_kind = crate::app::error_display::wire_error_kind(error_kind.as_deref());
             if agent.session.loading_replay {
                 let first = agent.replayed_terminal_prompts.insert(prompt_id.clone());
@@ -1501,6 +1524,24 @@ pub(super) fn handle_child_session_notification(
             let activity_label = subagent_activity_label(child_view);
             sync_subagent_activity(agent, child_sid, activity_label);
             true
+        }
+        XaiSessionUpdate::ResponseCompleted {
+            ref usage,
+            ref session_usage,
+            tokens_per_sec,
+            ..
+        } => {
+            if NotificationMeta::from_json(meta.and_then(|v| v.as_object())).is_replay {
+                return false;
+            }
+            let Some(child_view) = agent.child_view_for_live_update_mut(child_sid) else {
+                return false;
+            };
+            child_view.token_meter.complete_response(
+                usage.as_ref(),
+                session_usage.as_ref(),
+                tokens_per_sec,
+            )
         }
         XaiSessionUpdate::TurnCompleted {
             prompt_id,

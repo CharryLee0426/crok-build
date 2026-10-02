@@ -3382,7 +3382,9 @@ impl SessionActor {
                 );
             }
             self.record_response_token_usage(&response, Some(model_duration_ms));
-            let response_completed = self.response_completed_update(&response);
+            let response_completed = self
+                .response_completed_update(&response, tokens_per_sec)
+                .await;
             if let Some(mut pt) = prompt_timing.take() {
                 pt.record_stream_latency(latency.time_to_last_byte_ms);
                 pt.record_model_result(

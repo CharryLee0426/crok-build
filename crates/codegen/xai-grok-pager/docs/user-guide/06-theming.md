@@ -1,12 +1,12 @@
 # Theming and Appearance Customization
 
-Crok Build draws all TUI colors from a central theme. You can switch themes while Crok is running, follow your operating system's light or dark appearance, and adjust scrollback layout, animations, and block styling through configuration files.
+Crok Build draws all TUI colors from a central theme. You can switch themes while Crok is running, share one theme setting with Crok Desktop, and adjust scrollback layout, animations, and block styling through configuration files.
 
 ---
 
 ## Available Themes
 
-Crok includes six built-in themes, plus an `auto` option that follows your system appearance:
+Crok includes six built-in themes, plus an `auto` option that is dark in the terminal and follows your system appearance in Crok Desktop:
 
 | Theme | Config Names | Description | Truecolor Required |
 |-------|-------------|-------------|--------------------|
@@ -17,7 +17,7 @@ Crok includes six built-in themes, plus an `auto` option that follows your syste
 | **OscuraMidnight** | `oscura`, `oscura-midnight` | Deep dark base with purple accents. | Yes |
 | **Terminal** | `terminal`, `terminal-default`, `transparent`, `native` | Your terminal's own colors: no background of its own, so the terminal canvas (translucency, background images) shows through. | No |
 
-Theme names are case-insensitive. The `auto` option (alias `system`) is documented under [Auto Theme (System Appearance)](#auto-theme-system-appearance).
+Theme names are case-insensitive. The `auto` option (alias `system`) is documented under [Auto Theme](#auto-theme).
 
 ### Terminal Theme
 
@@ -67,42 +67,37 @@ theme = "tokyonight"
 
 ---
 
-## Auto Theme (System Appearance)
+## Auto Theme
 
-Set `theme = "auto"` to have Crok follow your operating system's light/dark appearance and switch themes automatically:
+`[ui].theme` is shared by the terminal and Crok Desktop. Set it to `auto` and each follows its own rule:
 
 ```toml
 [ui]
 theme = "auto"
 ```
 
-By default, dark mode maps to **GrokNight** and light mode maps to **GrokDay**. Override either mapping with `auto_dark_theme` and `auto_light_theme`:
+| Client | With `theme = "auto"` |
+|--------|-----------------------|
+| **Terminal** | Always dark, whatever your operating system's appearance is. |
+| **Crok Desktop** | Follows your operating system's light/dark appearance, and switches with it. |
+
+In the terminal `auto` shows **GrokNight**. Pick a different dark theme with `auto_dark_theme`:
 
 ```toml
 [ui]
 theme = "auto"
 auto_dark_theme = "tokyonight"
-auto_light_theme = "grokday"
 ```
+
+`auto_light_theme` is still accepted, but the terminal never uses it. For a light terminal, choose a light theme by name, such as `theme = "grokday"`.
 
 `theme = "system"` is an alias for `theme = "auto"`.
 
-### How Detection Works
-
-| Platform | Method |
-|----------|--------|
-| **macOS** | Reads `AppleInterfaceStyle` system preference |
-| **Linux** | Queries XDG Desktop Portal (`org.freedesktop.appearance.color-scheme`) |
-| **Windows** | Reads the system personalization registry |
-| **SSH / tmux / headless** | `CROK_APPEARANCE` or `LC_GROK_APPEARANCE` (`dark`/`light`), then `COLORFGBG`, then a startup OSC 11 background query. `crok wrap ssh …` stamps `LC_GROK_APPEARANCE` from the local OS theme so it survives SSH into the login shell. New tmux sessions inherit it only if the tmux server/session was created with that env (or `update-environment` includes it). OSC 11 is DCS-wrapped for tmux ≥ 3.3 when tmux is the immediate terminal (not an editor `:terminal`); reaching the outer emulator also needs `allow-passthrough`, and replies are best-effort. |
-
-Once running, Crok polls desktop APIs and env hints every 5 seconds. Toggling your OS between light and dark mode on a local desktop takes effect within seconds without restarting. Over SSH the wrap-stamped env is fixed for that hop.
-
-You can also set `CROK_THEME` (or `LC_GROK_THEME`) to force a theme or `auto` without editing `config.toml`.
+You can also set `CROK_THEME` (or `LC_GROK_THEME`) to force a theme or `auto` without editing `config.toml`. It applies to the terminal only, so `CROK_THEME=grokday crok` gives a light terminal while Crok Desktop keeps following the system.
 
 ### Via the Settings Pane
 
-Run `/settings` (alias `/config`) and open the **Appearance** category to set the **Auto dark theme** and **Auto light theme** interactively. Selecting `auto` in the `/theme` picker enables auto mode using these mappings.
+Run `/settings` (alias `/config`) and open the **Appearance** category to set the **Auto dark theme** interactively. Selecting `auto` in the `/theme` picker switches the terminal to it.
 
 ---
 

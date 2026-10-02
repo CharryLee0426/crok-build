@@ -74,6 +74,14 @@ directory. Its app has a separate bundle identity, state file, orange **TESTING*
 icon, and disabled global `crok` command switch, so it remains separate from the
 production desktop app.
 
+The test app also shows a performance monitor: a see-through black panel over the
+window with live numbers and one-minute charts for frame rate, main-thread lag
+(250 ms or more is a hang), CPU, memory, the processes the app started (one
+`crok agent` per open task, plus terminals), and ACP messages per second. Drag it
+anywhere, or fold it to one line with its chevron. It is on by default and
+**Settings › Developer** turns it off. Release builds never show it or the
+Developer section. It samples twice a second, and only while it is visible.
+
 The packaging script embeds the release harness as `Contents/Resources/crok`,
 signs that executable, and then signs the app. It also bundles the `crok` command's
 launcher, [`Resources/crok-command.sh`](Resources/crok-command.sh), as
@@ -133,8 +141,17 @@ swift test --package-path desktop/macOS
    their diffs. **Side chat** asks Crok about the task without interrupting it
    (the same as `/btw`); each task keeps its thread. **Terminal** (⌃\`) runs your
    login shell in the project folder and keeps running while you switch tabs or
-   tasks. Drag the panel's left edge to resize it; double-click the edge to reset
-   it. Drag a file from the panel onto the prompt to attach it.
+   tasks. **Browser** (⌥⌘B, or `/browser [address or search]`) is a web browser
+   beside the task: tabs, back and forward, bookmarks, address-bar suggestions
+   from its history, downloads to your Downloads folder, and Web Inspector from a
+   page's context menu. `localhost:3000` and other addresses on this Mac load
+   over plain HTTP, a path opens a local file, and anything that is not an
+   address is searched for. Its **⋯** menu adds the page's link to the prompt,
+   and **Import from Chrome…** brings a Chrome profile's sign-ins, history, and
+   bookmarks across once macOS has confirmed it's you (see
+   [Local data](#local-data-and-current-scope)). Drag the panel's left edge to
+   resize it; double-click the edge to reset it. Drag a file from the panel onto
+   the prompt to attach it.
 6. Type **/** in the composer, or press **⇧⌘P**, to browse commands and skills.
    Use the arrow keys to navigate, **Tab** to complete a command, **Return** to
    select it, and **Escape** to dismiss. Commands with arguments fill the composer
@@ -151,7 +168,13 @@ swift test --package-path desktop/macOS
    narrow to fit the list, and columns give way on a narrow window. It shows
    branch, remote, and tag badges, search, and each commit's files and diffs;
    drag the divider to resize the details. Double-click a branch badge to switch
-   to it.
+   to it. Right of **Git Graph**, the task's token figures update as it works:
+   input (↑) and output (↓) tokens this session, the share of the prompt read
+   from the provider's cache, and the output speed in tokens per second. While
+   a reply streams, the output count and a speed marked `~` are estimated from
+   the text received; the provider's figures replace them when the response
+   ends. Hover for the full numbers, or click for **Session usage** (`/usage`).
+   A narrow footer drops the speed first, then the cache rate.
 
 The command catalog is loaded from the harness for the selected project and
 updated during the session. User-invocable skills retain their exact qualified
@@ -176,8 +199,8 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   browsers. Spawning and delegation remain managed by Crok's tools.
 - **Other task actions:** `/btw` (in the side panel's Side chat), `/fork`, `/recap`,
   `/rewind`, `/tasks`, `/usage`, history, transcript search, copy/export, and
-  model/thinking selection have native interfaces. `/changes` and `/terminal` open
-  the side panel's Changes and Terminal. Image/video commands appear when their
+  model/thinking selection have native interfaces. `/changes`, `/terminal`, and
+  `/browser` open the side panel's Changes, Terminal, and Browser. Image/video commands appear when their
   tools are advertised.
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
@@ -267,8 +290,11 @@ both launch methods. See the [authentication guide](../../crates/codegen/xai-gro
 | Command palette | ⇧⌘P |
 | Enter plan mode | ⌥⌘P |
 | Toggle sidebar | ⌘B |
-| Toggle side panel (files, side chat, terminal) | ⌘J |
+| Toggle side panel (files, side chat, terminal, browser) | ⌘J |
 | Terminal | ⌃\` |
+| Browser | ⌥⌘B |
+| In a web page: address bar, reload, back, forward | ⌘L, ⌘R, ⌘[, ⌘] |
+| In a web page: new tab, close tab, zoom | ⌘T, ⌘W, ⌘+ / ⌘− / ⌘0 |
 | Git Graph | ⌥⌘G |
 | Attach photos and files | ⌘U |
 | Settings | ⌘, |
@@ -302,6 +328,22 @@ not continue in the desktop app after it quits.
 The Files tab is read-only; it does not stage, commit, or revert files. File
 previews and diffs are capped at 1 MiB (diffs per section), and the tree lists up
 to 50,000 files. Side chats are saved with their task in the desktop state file.
+The browser keeps its history, bookmarks, and open tabs in `browser/` beside the
+state file, and its cookies and site data in a WebKit store of its own; nothing
+is made until the Browser tab is first opened, and a tab starts WebKit only when
+it loads a page. Tabs reopen at the next launch and load when shown. Pages do
+not get the camera or the microphone. **Import from Chrome…** (the browser's ⋯
+menu, a new tab, or **Settings › Browser**) reads a Chrome profile's cookies,
+history (the 20,000 pages visited last), and bookmarks. Nothing is read until
+macOS confirms you with Touch ID or your login password; the cookies are
+encrypted with a key in your keychain, so macOS then asks for your login
+keychain password to release "Chrome Safe Storage" (deny it and history and
+bookmarks still import). Chrome's files are copied to a private temporary
+folder, read, and removed; Chrome and its data are not changed. Cookies that
+are expired or partitioned to an embedding site are left out, and passwords,
+autofill, and extensions are not imported. A few sites tie a sign-in to the
+browser it was made in and ask you to sign in again. **Settings › Browser**
+also chooses the search engine and clears the browser's data.
 The terminal runs your login shell with your privileges, exactly as Terminal
 does; it ends when you quit the app or restart it from the panel. Pasted and
 dragged image data waits in a temporary folder until it is sent. `/fork --worktree` (or the ask sheet)
@@ -348,6 +390,27 @@ CPU and memory. It also times launching with, and switching to, a saved
 Accessibility permission for the terminal, and the app's window must stay on the
 current Space: a window behind a full-screen app is neither laid out nor drawn.
 
+The side panel and its browser have theirs. `swift test -c release --filter BrowserPerformance`
+prints what importing a 20,000-page, 3,000-cookie Chrome profile costs (and the
+longest main-thread stall while it runs), suggestion latency over 20,000 and
+100,000 pages, and that a browser nobody opened made no tab, web view, or file.
+With `CROK_DESKTOP_UI_TESTS=1` it also times opening the tab and loading pages,
+and `--filter SidePanelPerformance` streams a `fixture:mixed` task while the
+panel is closed and on each tab in turn, times tab switches, and lays the main
+window out from a saved state. Those run in a window that is never shown, so
+they need no screen; `SidePanelPerformanceTests` uses only what 1.2.1 had, so
+copying it into an older tree measures that tree the same way.
+`CROK_LAUNCH_TABLES=1` makes its saved replies end in tables, which Crok Desktop
+1.2.1 never finished laying out (run that against an older tree under a watchdog).
+
+Two scripts compare builds without a screen. `scripts/perf/offscreen-ab.sh <base
+desktop/macOS> <head desktop/macOS> <out-dir>` runs those offscreen suites
+against two trees in turn, and `ab-summary.py <out-dir>` prints each PERF line as
+the median across rounds, one tree beside the other. `scripts/perf/launch-ab.sh
+<out-dir> <rounds> <label>=<app> …` launches packaged apps from private copies
+with scratch state and records how long each takes to own its window, the CPU it
+used by then and after, its memory once idle, and the libraries it loaded.
+
 A recorded session can be replayed the same way. `fixture:replay` streams the
 session named by `CROK_FIXTURE_REPLAY`, a `/trace` export or a session's
 `updates.jsonl`, at its recorded pace, and `REPLAY=<file> run-perf.sh <app> <out> replay`
@@ -359,8 +422,12 @@ if the transcript goes blank. Crok Desktop 1.2.0 did after a few hundred message
 (`CROK_TRANSCRIPT_REPLAY=<file>` runs it on a recording instead).
 
 For isolated development runs, `CROK_DESKTOP_STATE_FILE` selects an absolute path
-for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable, and
-`CROK_HOME` points the app's shared configuration at a scratch directory. The normal
+for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable,
+`CROK_HOME` points the app's shared configuration at a scratch directory, and
+`CROK_DESKTOP_BROWSER` opens the side panel's browser on an address at launch
+(`run-perf.sh <app> <out> browser` streams a long task beside a page that keeps
+changing; with a state file named this way the browser keeps no cookies or site
+data on disk). The normal
 packaged app continues to use its embedded runtime and standard local state.
 
 ## Vector app icon

@@ -36,8 +36,9 @@ enum KeyboardShortcutCatalog {
         Group(title: "Task", symbol: "bubble.left.and.text.bubble.right", entries: [
             Entry(action: "Plan mode", keys: ["⌥", "⌘", "P"]),
             Entry(action: "Stop the running turn", keys: ["⌘", "."]),
-            Entry(action: "Files, side chat, and terminal", keys: ["⌘", "J"]),
+            Entry(action: "Files, side chat, terminal, and browser", keys: ["⌘", "J"]),
             Entry(action: "Terminal", keys: ["⌃", "`"]),
+            Entry(action: "Browser", keys: ["⌥", "⌘", "B"]),
             Entry(action: "Git Graph", keys: ["⌥", "⌘", "G"]),
             Entry(action: "Ask a side question", keys: ["/btw"]),
             Entry(action: "Find in the conversation", keys: ["/find"]),

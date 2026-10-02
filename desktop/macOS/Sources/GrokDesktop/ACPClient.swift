@@ -206,11 +206,13 @@ final class ACPClient {
                     // small frames, and each main-queue hop has a cost. A frame that fails to
                     // decode still leaves the earlier ones to be delivered before the disconnect.
                     var messages: [[String: Any]] = []
+                    var bytes = 0
                     defer {
                         if !messages.isEmpty {
                             inFlight.wait()
-                            DispatchQueue.main.async { [weak self, messages] in
+                            DispatchQueue.main.async { [weak self, messages, bytes] in
                                 defer { inFlight.signal() }
+                                ACPTraffic.record(messages: messages.count, bytes: bytes)
                                 for message in messages { self?.receive(message, connectionID: connection.id) }
                             }
                         }
@@ -221,6 +223,7 @@ final class ACPClient {
                         lineStart = buffer.index(after: newline)
                         if line.allSatisfy({ $0 == 0x0D || $0 == 0x20 || $0 == 0x09 }) { continue }
                         messages.append(try Self.decode(line))
+                        bytes += line.count + 1
                     }
                     buffer.removeSubrange(..<lineStart)
                     guard buffer.count <= Self.maximumFrameBytes else {

@@ -1348,8 +1348,9 @@ impl AgentView {
                 )),
             );
         }
+        // Columns the location on the left keeps, whatever the items on the right would take
+        const LOCATION_FLOOR: u16 = 24;
         if let Some(url) = self.highlighted_link_url() {
-            const LOCATION_FLOOR: u16 = 24;
             const LINK_MIN: u16 = 12;
             let max_len = status
                 .room_for_front(layout.status_bar.width)
@@ -1358,6 +1359,22 @@ impl AgentView {
                 let display = crate::util::truncate_to_width(&url, max_len as usize).into_owned();
                 let link_style = Style::default().fg(theme.link_fg).bg(theme.bg_base);
                 status.push_front("link_url", Line::from(Span::styled(display, link_style)));
+            }
+        }
+        // Last, so the readout takes only columns nothing else wanted: a hovered link keeps the room it had before
+        // An item that does not fit ends the list: the counts outrank the rate
+        if !self.chat_kind
+            && let Some(readout) = self.token_meter.readout(self.session.state.is_busy())
+        {
+            for item in crate::views::token_meter::token_meter_items(&readout) {
+                let line = item.line(&theme);
+                let room = status
+                    .room_for_front(layout.status_bar.width)
+                    .saturating_sub(LOCATION_FLOOR);
+                if line.width() as u16 > room {
+                    break;
+                }
+                status.insert_before(&["context", "switcher", "dashboard"], item.id, line);
             }
         }
         let areas = status.render(buf, layout.status_bar);

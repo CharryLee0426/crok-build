@@ -67,6 +67,52 @@ final class SidebarTests: XCTestCase {
         XCTAssertFalse(reopened.recentsExpanded, "Recents starts folded on every launch")
     }
 
+    func testRemovingAProjectTakesItsTasksAndLeavesTheRest() throws {
+        let (store, app, api) = makeStore()
+        let appTasks = store.state.conversations.filter { $0.projectID == app.id }
+        store.state.conversations[2].sessionID = "app-session"
+        store.selectConversation(store.state.conversations[2])
+        store.moveTask(appTasks[0].id, to: 0, in: .project(app.id))
+        store.state.pinnedOrder = [appTasks[2].id]
+        store.toggleProjectExpanded(app.id)
+        store.unreadConversationIDs = [appTasks[0].id]
+        store.drafts[.newTask(app.id)] = "An unsent prompt"
+        var asked: [String] = []
+        store.confirmRemoveProject = { project, taskCount, completion in asked.append("\(project.name): \(taskCount)"); completion(false) }
+        store.requestRemoveProject(app.id)
+        XCTAssertEqual(asked, ["grok-desktop: 3"])
+        XCTAssertEqual(store.state.projects, [app, api], "Cancel keeps the project")
+
+        store.confirmRemoveProject = { _, _, completion in completion(true) }
+        store.requestRemoveProject(app.id)
+        XCTAssertEqual(store.state.projects, [api])
+        XCTAssertEqual(store.state.conversations.map(\.projectID), [api.id, api.id, api.id], "Other projects keep their tasks, archived ones too")
+        XCTAssertEqual(store.state.selectedProjectID, api.id, "The selection moves to a project that is still open")
+        XCTAssertNil(store.state.selectedConversationID)
+        XCTAssertTrue(store.pinnedConversations.isEmpty)
+        XCTAssertTrue(store.state.taskOrder.isEmpty && store.state.pinnedOrder.isEmpty && store.state.collapsedProjectIDs.isEmpty)
+        XCTAssertTrue(store.unreadConversationIDs.isEmpty && store.drafts.isEmpty)
+        XCTAssertTrue(store.state.deletedSessionIDs.isEmpty, "Its sessions stay in the harness and can be imported again")
+
+        store.flush()
+        let reopened = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
+        XCTAssertEqual(reopened.state.projects, [api])
+        XCTAssertEqual(reopened.state.conversations.count, 3)
+
+        store.removeProject(api.id)
+        XCTAssertTrue(store.state.projects.isEmpty && store.state.conversations.isEmpty)
+        XCTAssertNil(store.state.selectedProjectID)
+    }
+
+    func testAProjectWithAWorkingTaskIsNotRemoved() {
+        let (store, app, api) = makeStore()
+        store.runs[store.state.conversations[1].id, default: RunState()].isRunning = true
+        store.removeProject(api.id)
+        XCTAssertEqual(store.state.projects, [app, api])
+        XCTAssertEqual(store.state.conversations.count, 6)
+        XCTAssertEqual(store.banner, "Stop the tasks working in billing-api before removing it")
+    }
+
     func testSelectingATaskClearsItsUnreadMark() {
         let (store, _, _) = makeStore()
         let task = store.state.conversations[1]

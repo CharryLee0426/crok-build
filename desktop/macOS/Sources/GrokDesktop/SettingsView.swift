@@ -61,7 +61,9 @@ struct SettingsView: View {
                     .glassSurface(cornerRadius: 18)
                     DisplaySettingsSection()
                     BehaviorSettingsSection()
+                    BrowserSettingsSection()
                     CommandLineSettingsSection()
+                    if PerformanceMonitorSettings.isAvailable { DeveloperSettingsSection() }
                 }
                 .padding(3)
             }
