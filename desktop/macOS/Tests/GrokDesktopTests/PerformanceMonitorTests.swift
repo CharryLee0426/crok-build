@@ -391,7 +391,7 @@ sys.stdin.read()
                 cpu: busy ? 60 + 25 * sin(t / 2) : 6 + 3 * abs(sin(t / 3)),
                 footprint: UInt64((238 + t * 0.12 + (busy ? 6 : 0)) * 1_048_576),
                 threads: 31,
-                children: .init(count: 2, cpu: busy ? 38 + 10 * sin(t) : 2.4, footprint: 132 * 1_048_576),
+                children: .init(count: 2, cpu: busy ? 38 + 10 * sin(t) : 2.4, footprint: UInt64(132 * 1_048_576)),
                 acpMessagesPerSecond: busy ? 240 + 90 * sin(t / 2) : index > 90 ? 36 + 8 * sin(t) : 0,
                 acpBytesPerSecond: busy ? 96_000 : index > 90 ? 14_000 : 0
             ))

@@ -39,10 +39,12 @@ final class TableLayoutTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("grok-table-layout-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let wide = ["|" + (1...14).map { " Column \($0) |" }.joined(), "|" + String(repeating: " --- |", count: 14),
+                    "|" + (1...14).map { " value \($0) |" }.joined()].joined(separator: "\n")
         let replies = [
             "Two modules.\n\n| Module | What it does |\n| --- | --- |\n| Parser | Turns the Markdown source into blocks and inlines |\n| Renderer | Lays the blocks out as attributed text |",
             "| a | b |\n| - | - |\n| 1 | 2 |",
-            "Wide.\n\n|" + (1...14).map { " Column \($0) |" }.joined() + "\n|" + String(repeating: " --- |", count: 14) + "\n|" + (1...14).map { " value \($0) |" }.joined() + "\n\nAfter the table.",
+            "Wide.\n\n\(wide)\n\nAfter the table.",
         ]
         let project = Project(path: directory.path)
         let now = Date()
