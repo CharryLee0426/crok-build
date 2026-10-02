@@ -313,6 +313,63 @@ final class AppStore: ObservableObject {
         selectProject(project.id)
     }
 
+    /// Asks before a project leaves the app. The app shows an alert; tests answer directly.
+    var confirmRemoveProject: (_ project: Project, _ taskCount: Int, _ completion: @escaping (Bool) -> Void) -> Void = { project, taskCount, completion in
+        AppStore.presentRemoveProjectAlert(project: project, taskCount: taskCount, completion: completion)
+    }
+
+    func requestRemoveProject(_ id: UUID) {
+        guard let project = state.projects.first(where: { $0.id == id }) else { return }
+        confirmRemoveProject(project, state.conversations.filter { $0.projectID == id }.count) { [weak self] confirmed in
+            if confirmed { self?.removeProject(id) }
+        }
+    }
+
+    /// Takes a project and its tasks out of the app. Its folder is not touched, and its tasks'
+    /// sessions stay in the harness without a tombstone: opening the project again and importing
+    /// its harness tasks brings them back.
+    func removeProject(_ id: UUID) {
+        guard let index = state.projects.firstIndex(where: { $0.id == id }) else { return }
+        let project = state.projects[index]
+        let tasks = state.conversations.filter { $0.projectID == id }.map(\.id)
+        guard !tasks.contains(where: { runs[$0]?.isRunning == true || runs[$0]?.isConfiguring == true }) else {
+            banner = "Stop the tasks working in \(project.name) before removing it"; return
+        }
+        for task in tasks { forgetTask(task) }
+        state.conversations.removeAll { $0.projectID == id }
+        state.projects.remove(at: index)
+        state.collapsedProjectIDs.remove(id)
+        state.taskOrder.removeValue(forKey: id.uuidString)
+        state.pinnedOrder.removeAll(where: tasks.contains)
+        drafts.removeValue(forKey: .newTask(id))
+        features.terminals.close(project)
+        if state.selectedProjectID == id {
+            // The folder that took its place in the list, or the one before it.
+            state.selectedProjectID = (state.projects.indices.contains(index) ? state.projects[index] : state.projects.last)?.id
+            state.selectedConversationID = nil
+            draft = drafts[draftLocation] ?? ""; selectedFile = nil; diffText = ""
+            workspace = GitWorkspaceSnapshot(branch: "", changes: [])
+            Task { await refreshWorkspace() }
+        }
+        save()
+    }
+
+    static func presentRemoveProjectAlert(project: Project, taskCount: Int, completion: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Remove “\(project.name)” from Crok Desktop?"
+        let kept = "The folder and its files are not touched."
+        alert.informativeText = taskCount == 0 ? kept
+            : "Its \(taskCount == 1 ? "task leaves" : "\(taskCount) tasks leave") the sidebar with it. \(kept) The tasks' sessions stay in the harness: open the project again and import its harness tasks to bring them back."
+        alert.addButton(withTitle: "Remove").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window) { response in completion(response == .alertFirstButtonReturn) }
+        } else {
+            completion(alert.runModal() == .alertFirstButtonReturn)
+        }
+    }
+
     func selectProject(_ id: UUID) {
         drafts[draftLocation] = draft
         state.selectedProjectID = id; state.selectedConversationID = nil
@@ -357,18 +414,23 @@ final class AppStore: ObservableObject {
         guard runs[id]?.isRunning != true, runs[id]?.isConfiguring != true,
               let conversation = task(id) else { return }
         if let session = conversation.sessionID { state.deletedSessionIDs.insert(session) }
-        stopOperation(id, phase: "Ready")
-        drafts.removeValue(forKey: .conversation(id))
-        runs.removeValue(forKey: id)
-        transcriptRevisions.removeValue(forKey: id)
+        forgetTask(id)
         state.conversations.removeAll { $0.id == id }
-        unreadConversationIDs.remove(id)
         if state.selectedConversationID == id {
             state.selectedConversationID = nil
             draft = drafts[draftLocation] ?? ""
         }
         // A tombstone must reach disk before a later history import can discover this session.
         flush()
+    }
+
+    /// Drops what the app holds for a task that is leaving it, apart from its record.
+    private func forgetTask(_ id: UUID) {
+        stopOperation(id, phase: "Ready")
+        drafts.removeValue(forKey: .conversation(id))
+        runs.removeValue(forKey: id)
+        transcriptRevisions.removeValue(forKey: id)
+        unreadConversationIDs.remove(id)
     }
 
     func prepareSessionOptions() async {
@@ -1008,6 +1070,8 @@ final class AppStore: ObservableObject {
                         var params: [String: Any] = ["cwd": project.path]
                         if let cursor { params["cursor"] = cursor }
                         let response = try await client.request("session/list", params: params)
+                        // The project can be removed while its sessions are being listed.
+                        guard state.projects.contains(where: { $0.id == project.id }) else { break }
                         for session in response["sessions"] as? [[String: Any]] ?? [] {
                             guard let sessionID = session["sessionId"] as? String,
                                   !state.deletedSessionIDs.contains(sessionID),
