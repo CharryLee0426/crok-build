@@ -106,8 +106,9 @@ final class MarkdownCalloutCard: NSTextBlock {
 }
 
 /// A table sized like a web page's: columns take their content's width when it fits, and in a
-/// narrower view the long columns wrap first while short ones keep whole words. TextKit asks for
-/// each cell's rectangle as it lays out, so the columns follow the view as it resizes.
+/// narrower view the long columns wrap first while short ones keep whole words. A table narrower
+/// than the view sits in its middle, as display math does. TextKit asks for each cell's rectangle
+/// as it lays out, so the columns follow the view as it resizes.
 final class MarkdownTextTable: NSTextTable {
     /// Per column, the width of its longest cell on one line, and of its longest word.
     private let widest: [CGFloat]
@@ -159,17 +160,25 @@ final class MarkdownTextTable: NSTextTable {
         return over.map { Self.narrowestColumn + ($0 * scale).rounded(.down) }
     }
 
+    /// The space before columns of these content widths that centres them in `available` points.
+    func leadingSpace(before widths: [CGFloat], in available: CGFloat) -> CGFloat {
+        let table = widths.reduce(0) { $0 + $1 + inset * 2 }
+        // Whole points, as for the columns.
+        return max(0, ((available - table) / 2).rounded(.down))
+    }
+
     override func rect(for block: NSTextTableBlock, layoutAt startingPoint: NSPoint, in rect: NSRect, textContainer: NSTextContainer, characterRange charRange: NSRange) -> NSRect {
         var cell = super.rect(for: block, layoutAt: startingPoint, in: rect, textContainer: textContainer, characterRange: charRange)
         let widths = contentWidths(in: rect.width)
         guard block.startingColumn < widths.count else { return cell }
-        cell.origin.x = rect.minX + widths[..<block.startingColumn].reduce(0) { $0 + $1 + inset * 2 } + inset
+        cell.origin.x = rect.minX + leadingSpace(before: widths, in: rect.width) + widths[..<block.startingColumn].reduce(0) { $0 + $1 + inset * 2 } + inset
         cell.size.width = widths[block.startingColumn]
         return cell
     }
 }
 
-/// An image paragraph: the image at its own size, within 560 × 420 pt and the line's width.
+/// An image paragraph: the image at its own size, within 560 × 420 pt and the line's width,
+/// in the middle of the line.
 /// A click opens it in the image viewer, or the default app when there is none.
 final class MarkdownImageCell: NSTextAttachmentCell {
     /// Shows a reply's image; the store sets it to open its viewer.

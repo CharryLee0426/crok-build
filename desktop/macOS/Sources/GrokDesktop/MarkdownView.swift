@@ -496,30 +496,35 @@ private struct MarkdownTableView: View {
     let style: MarkdownStyle
 
     var body: some View {
-        ScrollView(.horizontal) {
-            Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
-                GridRow {
-                    ForEach(Array(table.header.enumerated()), id: \.offset) { column, cell in
-                        self.cell(cell, column: column, header: true)
-                    }
-                }
-                .background(Theme.tableHeader)
-                ForEach(Array(table.rows.enumerated()), id: \.offset) { index, row in
-                    Theme.line.opacity(0.45).frame(height: 0.5).gridCellUnsizedAxes(.horizontal)
-                    GridRow {
-                        ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
-                            self.cell(cell, column: column, header: false)
-                        }
-                    }
-                    .background(index % 2 == 1 ? Theme.tableStripe : Color.clear)
+        // In the middle when it fits, as display math is; a wider table scrolls sideways.
+        ViewThatFits(in: .horizontal) {
+            grid.fixedSize(horizontal: true, vertical: false).frame(maxWidth: .infinity)
+            ScrollView(.horizontal) { grid }.scrollIndicators(.automatic)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var grid: some View {
+        Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+            GridRow {
+                ForEach(Array(table.header.enumerated()), id: \.offset) { column, cell in
+                    self.cell(cell, column: column, header: true)
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.line.opacity(0.6), lineWidth: 0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .padding(1)
+            .background(Theme.tableHeader)
+            ForEach(Array(table.rows.enumerated()), id: \.offset) { index, row in
+                Theme.line.opacity(0.45).frame(height: 0.5).gridCellUnsizedAxes(.horizontal)
+                GridRow {
+                    ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
+                        self.cell(cell, column: column, header: false)
+                    }
+                }
+                .background(index % 2 == 1 ? Theme.tableStripe : Color.clear)
+            }
         }
-        .scrollIndicators(.automatic)
-        .fixedSize(horizontal: false, vertical: true)
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.line.opacity(0.6), lineWidth: 0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(1)
     }
 
     private func cell(_ content: [MarkdownInline], column: Int, header: Bool) -> some View {
@@ -579,11 +584,12 @@ private struct MarkdownImageView: View {
                 placeholder
             }
         }
-        .frame(maxWidth: 560, maxHeight: 420, alignment: .leading)
+        .frame(maxWidth: 560, maxHeight: 420)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture { if let url { NSWorkspace.shared.open(url) } }
         .help(alt.isEmpty ? source : alt)
         .accessibilityLabel(alt.isEmpty ? "Image" : alt)
+        .frame(maxWidth: .infinity)
         .task(id: source) {
             guard let url, url.isFileURL else { return }
             let image = await Task.detached(priority: .utility) { NSImage(contentsOf: url) }.value
