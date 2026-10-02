@@ -12,6 +12,8 @@
 //!
 //! This is a **startup-only** fallback: it must NOT be called once crossterm's `EventStream` is active, as both compete for stdin in raw mode.
 //! The live `SystemAppearanceWatcher` uses only desktop and env detection.
+//!
+//! crok never sends the query: the terminal's `auto` is always dark (see `system_appearance`). Only `classify_luminance` is in use; the rest is kept to match upstream.
 
 use super::system_appearance::SystemAppearance;
 use std::time::Duration;

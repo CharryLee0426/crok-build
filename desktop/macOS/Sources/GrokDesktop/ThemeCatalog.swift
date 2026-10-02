@@ -53,7 +53,7 @@ enum GrokTheme: String, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
-        case .auto: return "Crok Desktop's own look, light or dark with your Mac."
+        case .auto: return "Crok Desktop's own look, light or dark with your Mac. The terminal stays dark."
         case .groknight: return "Neutral dark base with a magenta accent. The terminal's default."
         case .grokday: return "Light theme with deepened accents for bright rooms."
         case .tokyonight: return "Dark, blue-tinted backgrounds from the Tokyo Night palette."
@@ -71,8 +71,8 @@ enum GrokTheme: String, CaseIterable, Identifiable {
         }
     }
 
-    /// What bare `/theme` switches to. Like the terminal, `auto` counts as the theme it
-    /// currently resolves to (Grok Night when dark, Grok Day when light).
+    /// What bare `/theme` switches to. `auto` counts as the theme the window currently looks
+    /// like (Grok Night when dark, Grok Day when light); the terminal's `auto` is always dark.
     static func next(after current: GrokTheme, systemIsDark: Bool) -> GrokTheme {
         let resolved = current == .auto ? (systemIsDark ? .groknight : .grokday) : current
         let index = concrete.firstIndex(of: resolved) ?? 0

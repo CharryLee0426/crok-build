@@ -1,23 +1,12 @@
-//! System appearance detection for automatic day/night theming.
+//! The appearance `theme = "auto"` resolves against.
 //!
-//! Detection chain (each step only runs when the previous returns nothing):
-//! 1. `dark-light` desktop APIs: macOS `AppleInterfaceStyle`, Linux XDG portal `org.freedesktop.appearance.color-scheme`, Windows registry
-//! 2. Explicit env stamps, `GROK_APPEARANCE` / `LC_GROK_APPEARANCE` (SSH with tmux, wrap, headless).
-//!    See [`super::env_appearance`].
-//! 3. OSC 11 terminal background query, **startup-only**; see [`detect_with_osc11_fallback`].
-//!    The result is cached so runtime `detect()` / `resolve_auto` cannot be overwritten by stale `COLORFGBG`.
-//! 4. Inherited `COLORFGBG` guess, the last resort.
-//!
-//! Detection returns `None` when every step fails.
+//! crok's terminal does not follow the system: `auto` is always dark there, so it picks `[ui].auto_dark_theme` (Crok Night by default).
+//! `[ui].theme` is shared with Crok Desktop, and only the desktop switches between light and dark with the OS.
+//! [`detect_desktop`] still reads the OS appearance, for the `LC_GROK_APPEARANCE` stamp `crok wrap` sends to a remote host.
 
 use super::ThemeKind;
-use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::watch;
-
-/// Startup OSC 11 result (`Some`/`None` after a probe); unset until [`detect_with_osc11_fallback`] runs.
-/// Runtime `detect` reuses it so a live OSC 11 polarity is not replaced by inherited `COLORFGBG`.
-static OSC11_STARTUP: OnceLock<Option<SystemAppearance>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SystemAppearance {
@@ -36,7 +25,7 @@ impl SystemAppearance {
     }
 }
 
-/// Same chain as startup, but OSC 11 reuses the cached result instead of probing. Tests replace the whole chain via the mock.
+/// Always dark: the terminal's `auto` does not follow the system. Tests replace it via the mock.
 #[must_use]
 pub fn detect() -> Option<SystemAppearance> {
     #[cfg(any(test, feature = "test-support"))]
@@ -44,38 +33,13 @@ pub fn detect() -> Option<SystemAppearance> {
         return v;
     }
 
-    detect_without_mock()
+    Some(SystemAppearance::Dark)
 }
 
-/// Startup-only: OSC 11 needs raw-mode stdin and must not run once `EventStream` is active.
-/// The watcher uses [`detect`] and still prefers a cached OSC 11 hit over `COLORFGBG`.
+/// Startup counterpart of [`detect`]. Upstream probes the terminal's background (OSC 11) here; a fixed appearance has nothing to probe.
 #[must_use]
 pub fn detect_with_osc11_fallback() -> Option<SystemAppearance> {
-    #[cfg(any(test, feature = "test-support"))]
-    if let Some(v) = mock_override() {
-        return v;
-    }
-
-    if let Some(appearance) = detect_desktop() {
-        return Some(appearance);
-    }
-    let env = crate::host::collect_unicode_env();
-    let explicit = super::env_appearance::detect_explicit_from_env_map(&env);
-    if explicit.is_some() {
-        return explicit;
-    }
-    let osc11 = super::osc11::detect_via_osc11();
-    let _ = OSC11_STARTUP.set(osc11);
-    osc11.or_else(|| super::env_appearance::detect_colorfgbg_from_env_map(&env))
-}
-
-fn resolve_appearance_chain(
-    desktop: Option<SystemAppearance>,
-    explicit: Option<SystemAppearance>,
-    osc11: Option<SystemAppearance>,
-    colorfgbg: Option<SystemAppearance>,
-) -> Option<SystemAppearance> {
-    desktop.or(explicit).or(osc11).or(colorfgbg)
+    detect()
 }
 
 /// Desktop APIs only. `grok wrap` stamps the local OS theme before SSH; env hints may be a previous hop's snapshot.
@@ -89,17 +53,7 @@ pub fn detect_desktop() -> Option<SystemAppearance> {
     }
 }
 
-fn detect_without_mock() -> Option<SystemAppearance> {
-    let env = crate::host::collect_unicode_env();
-    resolve_appearance_chain(
-        detect_desktop(),
-        super::env_appearance::detect_explicit_from_env_map(&env),
-        OSC11_STARTUP.get().copied().flatten(),
-        super::env_appearance::detect_colorfgbg_from_env_map(&env),
-    )
-}
-
-/// Returns `Some(value)` when a mock is active, `None` when real detection should proceed.
+/// Returns `Some(value)` when a mock is active, `None` when the fixed appearance applies.
 #[cfg(any(test, feature = "test-support"))]
 fn mock_override() -> Option<Option<SystemAppearance>> {
     *MOCK_APPEARANCE.lock().unwrap_or_else(|e| e.into_inner())
@@ -125,7 +79,8 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-/// Polls via [`detect()`] only (no OSC 11) and never mutates `theme_cache::CURRENT` or `AUTO_MODE`.
+/// Polls via [`detect()`] and never mutates `theme_cache::CURRENT` or `AUTO_MODE`.
+/// With `auto` fixed to dark it reports a change only under a test mock; it stays so the event loop matches upstream.
 pub struct SystemAppearanceWatcher {
     rx: watch::Receiver<Option<SystemAppearance>>,
     _handle: tokio::task::JoinHandle<()>,
@@ -182,7 +137,7 @@ impl Drop for SystemAppearanceWatcher {
 use std::sync::Mutex;
 
 /// Mock override for `detect()` / `detect_with_osc11_fallback`.
-/// When set, both skip desktop, env, and OSC 11 so tests can control the watcher loop.
+/// When set, both return it instead of dark so tests can control the watcher loop.
 #[cfg(any(test, feature = "test-support"))]
 static MOCK_APPEARANCE: Mutex<Option<Option<SystemAppearance>>> = Mutex::new(None);
 
@@ -211,56 +166,15 @@ mod tests {
         clear_mock();
     }
 
+    /// The terminal's `auto` is dark whatever the OS appearance is; only Crok Desktop follows the system.
     #[test]
-    fn appearance_chain_osc11_wins_over_conflicting_colorfgbg() {
-        assert_eq!(
-            resolve_appearance_chain(
-                None,
-                None,
-                Some(SystemAppearance::Light),
-                Some(SystemAppearance::Dark),
-            ),
-            Some(SystemAppearance::Light)
-        );
-        assert_eq!(
-            resolve_appearance_chain(
-                None,
-                None,
-                Some(SystemAppearance::Dark),
-                Some(SystemAppearance::Light),
-            ),
-            Some(SystemAppearance::Dark)
-        );
-    }
-
-    #[test]
-    fn appearance_chain_colorfgbg_used_when_osc11_absent() {
-        assert_eq!(
-            resolve_appearance_chain(None, None, None, Some(SystemAppearance::Dark)),
-            Some(SystemAppearance::Dark)
-        );
-    }
-
-    #[test]
-    fn appearance_chain_explicit_and_desktop_beat_osc11() {
-        assert_eq!(
-            resolve_appearance_chain(
-                Some(SystemAppearance::Dark),
-                Some(SystemAppearance::Light),
-                Some(SystemAppearance::Light),
-                Some(SystemAppearance::Light),
-            ),
-            Some(SystemAppearance::Dark)
-        );
-        assert_eq!(
-            resolve_appearance_chain(
-                None,
-                Some(SystemAppearance::Dark),
-                Some(SystemAppearance::Light),
-                Some(SystemAppearance::Light),
-            ),
-            Some(SystemAppearance::Dark)
-        );
+    fn auto_appearance_is_always_dark() {
+        let _guard = theme_cache::test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        clear_mock();
+        assert_eq!(detect(), Some(SystemAppearance::Dark));
+        assert_eq!(detect_with_osc11_fallback(), Some(SystemAppearance::Dark));
     }
 
     #[test]

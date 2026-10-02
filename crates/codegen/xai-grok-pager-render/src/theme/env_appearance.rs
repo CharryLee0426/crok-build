@@ -6,6 +6,8 @@
 //! Startup (`detect_with_osc11_fallback`) checks desktop, then explicit wrap/SSH stamps, then OSC 11, then `COLORFGBG`.
 //! The runtime watcher (`detect`) checks desktop, then explicit stamps, then the cached startup OSC 11, then `COLORFGBG`.
 //! It sends no new OSC 11 probe once crossterm owns stdin.
+//!
+//! That describes upstream. crok reads none of these: the terminal's `auto` is always dark (see `system_appearance`), and this module is kept to match upstream.
 
 use std::collections::HashMap;
 

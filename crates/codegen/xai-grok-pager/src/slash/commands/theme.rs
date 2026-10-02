@@ -69,13 +69,13 @@ impl SlashCommand for ThemeCommand {
         let is_auto = theme_cache::is_auto_mode();
         let available = ThemeKind::available();
 
-        // Prepend "auto" (follow system appearance) as the first option.
+        // Prepend "auto" as the first option. It is always dark here; only Crok Desktop follows the system.
         let auto_active = if is_auto { " (active)" } else { "" };
         let mut items = vec![ArgItem {
             display: "auto".to_string(),
             match_text: picker_match_text(ThemeKind::Auto),
             insert_text: "auto".to_string(),
-            description: format!("auto (follow system){auto_active}"),
+            description: format!("auto (dark; follows system in Crok Desktop){auto_active}"),
         }];
 
         // Concrete themes: only show "(active)" when not in auto mode
@@ -182,7 +182,7 @@ mod tests {
                 panic!("expected items, got {items:?}");
             };
             assert_eq!(first.insert_text, "auto");
-            assert!(first.description.contains("follow system"));
+            assert!(first.description.contains("follows system in Crok Desktop"));
             // The "auto" entry plus every available concrete theme
             assert_eq!(items.len(), ThemeKind::available().len() + 1);
         });

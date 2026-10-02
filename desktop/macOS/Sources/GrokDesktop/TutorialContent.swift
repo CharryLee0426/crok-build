@@ -329,8 +329,9 @@ enum GrokTutorial {
 
             ## Looks, keys, and extensions
 
-            - **`/theme`** — color themes (or `auto` to follow your OS); **`/settings`**
-              (or `F2`) for everything else; **`/vim-mode`** if that's your thing.
+            - **`/theme`** — color themes (`auto` is dark in the terminal and follows
+              your OS in Crok Desktop); **`/settings`** (or `F2`) for everything else;
+              **`/vim-mode`** if that's your thing.
             - **Skills** (`/skills`) — reusable prompt packages; user-invocable skills
               become slash commands automatically.
             - **MCP servers** (`/mcps`) and **plugins & hooks** (`/plugins`, `/hooks`).
