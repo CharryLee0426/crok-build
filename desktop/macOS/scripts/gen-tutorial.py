@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerates Sources/GrokDesktop/TutorialContent.swift from the terminal's tutorial pages.
 
-Usage: scripts/gen-tutorial.py [path/to/grok-build]   (defaults to the repository around this package)
+Usage: scripts/gen-tutorial.py [path/to/crok-build]   (defaults to the repository around this package)
 """
 import pathlib, sys
 
