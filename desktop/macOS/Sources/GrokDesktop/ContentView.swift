@@ -28,7 +28,7 @@ struct ContentView: View {
                 store.windowRequest = nil
             }
             // The image viewer covers the whole window, toolbar included, from a panel above it.
-            .background(HostWindowReader { window = $0 })
+            .background(HostWindowReader { window = $0; store.mainWindow = $0 })
             .onChange(of: store.imageViewer != nil) { _, _ in ImageViewerPresenter.shared.sync(store, window: window) }
             .onAppear { MarkdownImageCell.open = { [weak store] url, _ in store?.openImage(url: url) } }
             // For measured runs: CROK_DESKTOP_BROWSER opens the side panel's browser on an address at launch.

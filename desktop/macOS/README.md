@@ -153,7 +153,9 @@ swift test --package-path desktop/macOS
    from its history, downloads to your Downloads folder, and Web Inspector from a
    page's context menu. `localhost:3000` and other addresses on this Mac load
    over plain HTTP, a path opens a local file, and anything that is not an
-   address is searched for. Its **⋯** menu adds the page's link to the prompt,
+   address is searched for. ⌘W closes the tab it is showing, wherever the
+   keyboard is, and never the main window: quitting is ⌘Q. A tab on its own
+   keeps its close button. Its **⋯** menu adds the page's link to the prompt,
    and **Import from Chrome…** brings a Chrome profile's sign-ins, history, and
    bookmarks across once macOS has confirmed it's you (see
    [Local data](#local-data-and-current-scope)). Drag the panel's left edge to
@@ -301,7 +303,8 @@ both launch methods. See the [authentication guide](../../crates/codegen/xai-gro
 | Terminal | ⌃\` |
 | Browser | ⌥⌘B |
 | In a web page: address bar, reload, back, forward | ⌘L, ⌘R, ⌘[, ⌘] |
-| In a web page: new tab, close tab, zoom | ⌘T, ⌘W, ⌘+ / ⌘− / ⌘0 |
+| In a web page: new tab, zoom | ⌘T, ⌘+ / ⌘− / ⌘0 |
+| Close the browser's tab while the browser is showing, or a secondary window | ⌘W |
 | Git Graph | ⌥⌘G |
 | Attach photos and files | ⌘U |
 | Settings | ⌘, |

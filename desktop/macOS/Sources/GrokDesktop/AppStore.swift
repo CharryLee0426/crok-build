@@ -33,6 +33,8 @@ final class AppStore: ObservableObject {
     /// What the harness reported about itself and the signed-in account.
     @Published var harnessMeta = HarnessMeta()
     lazy var features = DesktopFeatures(store: self)
+    /// The window the conversation is in, which ⌘W leaves open.
+    weak var mainWindow: NSWindow?
     /// The side panel beside the conversation: files, side chat, and terminal.
     @Published var showInspector = false
     @Published var sidePanelTab: SidePanelTab = .files {
@@ -1170,6 +1172,23 @@ final class AppStore: ObservableObject {
         showSidePanel(.browser)
         let address = address.trimmingCharacters(in: .whitespacesAndNewlines)
         if address.isEmpty { features.browser.focusAddress() } else { features.browser.open(address) }
+    }
+
+    /// ⌘W closes what is in front. In the main window that is the browser's tab, while the browser
+    /// shows; the window itself stays, because closing it quits the app. Any other window closes.
+    func closeFrontmost() { closeFrontmost(NSApp.keyWindow) }
+
+    func closeFrontmost(_ window: NSWindow?) {
+        guard let window, window !== mainWindow else { closeBrowserTab(); return }
+        // A sheet or a popover has no close button, and asking one to close only sounds the alert.
+        if window.styleMask.contains(.closable) { window.performClose(nil) }
+    }
+
+    /// Closes the tab the side panel's browser is showing. Returns whether it closed one.
+    @discardableResult
+    func closeBrowserTab() -> Bool {
+        guard showInspector, sidePanelTab == .browser else { return false }
+        return features.browser.closeTab()
     }
 
     /// The side panel's terminal, in the selected project or the given one.

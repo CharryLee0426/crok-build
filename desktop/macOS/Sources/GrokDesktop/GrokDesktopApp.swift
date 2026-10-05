@@ -61,6 +61,10 @@ private struct AppCommands: Commands {
             Button("Search Tasks") { store.showSearch.toggle() }.keyboardShortcut("k")
             Button("Commands…") { store.showCommandPalette = true }.keyboardShortcut("p", modifiers: [.command, .shift])
         }
+        // In place of the standard Close, which closes the main window and so quits the app.
+        CommandGroup(replacing: .saveItem) {
+            Button("Close") { store.closeFrontmost() }.keyboardShortcut("w")
+        }
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { store.showSettings = true }.keyboardShortcut(",")
         }

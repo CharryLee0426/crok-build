@@ -139,6 +139,11 @@ final class SidePanelSnapshotTests: XCTestCase {
         browser.address.move(1)
         try write(panel(), "side-panel-browser-suggestions", size: size)
         browser.address.end(showing: nil)
+        // One page: its tab shows, for its close button. Closing it brings the start page back.
+        browser.open("http://127.0.0.1:9/")
+        try await settle(1.5)
+        try write(panel(), "side-panel-browser-one-tab", size: size)
+        browser.closeTab()
         // Several tabs, and a page that did not open, in a panel too narrow for every tab's name.
         browser.openTab(URL(string: "http://127.0.0.1:9/")!)
         browser.newTab()

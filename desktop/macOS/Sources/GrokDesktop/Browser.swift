@@ -14,7 +14,8 @@ struct BrowserBookmark: Codable, Equatable, Identifiable {
     var folder = ""
 }
 
-/// Keys the browser takes while a page has the keyboard, as other browsers do.
+/// Keys the browser takes while a page has the keyboard, as other browsers do. ⌘W is also the
+/// File menu's Close, which closes the tab wherever the keyboard is while the browser shows.
 enum BrowserShortcut: Equatable {
     case focusAddress, reload, back, forward, newTab, closeTab, zoomIn, zoomOut, actualSize
 
@@ -619,8 +620,21 @@ final class BrowserModel: ObservableObject {
         sessionChanged()
     }
 
+    /// Whether there is a tab to close: a start page on its own is what closing the last tab leaves.
+    var canCloseTab: Bool { pages.count > 1 || page?.isBlank == false }
+
+    /// Closes the selected tab. Returns whether there was one to close.
+    @discardableResult
+    func closeTab() -> Bool {
+        guard let page, canCloseTab else { return false }
+        close(page)
+        return true
+    }
+
     func close(_ page: BrowserPage) {
         guard let index = pages.firstIndex(where: { $0.id == page.id }) else { return }
+        // The start page on its own stays as it is, rather than being replaced by another.
+        if pages.count == 1, page.isBlank { return }
         page.dispose()
         pages.remove(at: index)
         if pages.isEmpty { pages = [BrowserPage(browser: self)] }
