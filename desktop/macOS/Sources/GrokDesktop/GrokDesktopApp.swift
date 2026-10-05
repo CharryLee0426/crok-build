@@ -107,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !GrokCommand.isWorkspaceTestBuild(in: Bundle.main.bundleURL) {
             GrokCommand.clearQuarantine()
         }
+        startHangRecorder()
         // Load the shipped artwork directly so an in-place rebuild cannot leave
         // the running Dock tile displaying an older Icon Services cache entry.
         guard let iconName = Bundle.main.object(forInfoDictionaryKey: "CFBundleIconFile") as? String,
@@ -114,6 +115,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileName = (iconName as NSString).pathExtension.isEmpty ? iconName + ".icns" : iconName
         if let icon = NSImage(contentsOf: resources.appendingPathComponent(fileName)) {
             NSApp.applicationIconImage = icon
+        }
+    }
+
+    /// Test builds write a report when the main thread stops answering, and say so once it answers again.
+    private func startHangRecorder() {
+        guard PerformanceMonitorSettings.isAvailable else { return }
+        HangRecorder.shared.start(describe: { [weak self] in HangContext.describe(store: self?.store) }) { [weak self] report, seconds in
+            self?.store?.banner = String(format: "Crok Desktop stopped answering for %.0f seconds. A report is in %@", seconds, report.deletingLastPathComponent().path)
         }
     }
 

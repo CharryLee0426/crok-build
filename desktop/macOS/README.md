@@ -82,6 +82,13 @@ anywhere, or fold it to one line with its chevron. It is on by default and
 **Settings › Developer** turns it off. Release builds never show it or the
 Developer section. It samples twice a second, and only while it is visible.
 
+The test app also records hangs. When its main thread has not answered for three
+seconds, it writes two files to `target/test-builds/desktop-state/hang-reports/`:
+what the window and the tasks were doing, and every thread's call stack from the
+system's `sample` tool. They are written while the app is still hung, so a force
+quit leaves them in place, and **Settings › Developer › Hang reports** opens the
+folder. Release builds do not record.
+
 The packaging script embeds the release harness as `Contents/Resources/crok`,
 signs that executable, and then signs the app. It also bundles the `crok` command's
 launcher, [`Resources/crok-command.sh`](Resources/crok-command.sh), as
