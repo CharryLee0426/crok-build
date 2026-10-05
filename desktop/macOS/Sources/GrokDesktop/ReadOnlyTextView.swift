@@ -51,7 +51,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
         let storage = NSTextStorage()
         let layoutManager = style == .diff ? DiffLayoutManager() : NSLayoutManager()
         storage.addLayoutManager(layoutManager)
-        let container = NSTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        let container = MinimumWidthTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         // Diff lines are inset inside their full-width background.
         container.lineFragmentPadding = style == .diff ? 12 : 0
         layoutManager.addTextContainer(container)
@@ -111,7 +111,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
         textView.autoresizingMask = wrapsLines ? [.width] : []
         container.widthTracksTextView = wrapsLines
         if !wrapsLines {
-            container.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            container.size = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         }
     }
 
@@ -130,6 +130,8 @@ struct ReadOnlyTextView: NSViewRepresentable {
         private let markdown = MarkdownDocumentCache()
         private var renderedBlocks: [MarkdownBlock] = []
         private var blockOffsets: [Int] = []
+        /// Per rendered block, the narrowest container its tables can be laid out in (0 without tables).
+        private var blockNarrowest: [CGFloat] = []
         private var renderedDark: Bool?
         /// Sizes the view without touching the displayed layout, whose container follows the
         /// text view's width (zero, and so unbounded, until SwiftUI first places it). Only a
@@ -167,9 +169,10 @@ struct ReadOnlyTextView: NSViewRepresentable {
             /// Where a Markdown update began to differ from what was shown, if it did.
             var markdownChange: Int?
             if style.isMarkdown {
-                if appliedStyle != style { renderedBlocks = []; blockOffsets = [] }
+                if appliedStyle != style { forgetRendering() }
                 markdownChange = renderMarkdown(text, style: style, into: storage)
             } else {
+                (textView.textContainer as? MinimumWidthTextContainer)?.minimumWidth = 0
                 appended = style == appliedStyle && style != .diff && !style.isHighlightedCode ? TextDelta.appendedSuffix(from: applied, to: text) : nil
                 if let appended {
                     storage.append(NSAttributedString(string: appended, attributes: Self.attributes(for: style)))
@@ -212,7 +215,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
         private func renderMarkdown(_ text: String, style: Style, into storage: NSTextStorage) -> Int? {
             let blocks = markdown.blocks(for: text)
             let dark = textView?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            if renderedDark != dark { renderedBlocks = []; blockOffsets = []; renderedDark = dark }
+            if renderedDark != dark { forgetRendering(); renderedDark = dark }
             var first = 0
             while first < blocks.count, first < renderedBlocks.count, blocks[first] == renderedBlocks[first] { first += 1 }
             if first == blocks.count, first == renderedBlocks.count, storage.length > 0 || blocks.isEmpty { return nil }
@@ -225,16 +228,34 @@ struct ReadOnlyTextView: NSViewRepresentable {
             }
             let tail = NSMutableAttributedString()
             var offsets = Array(blockOffsets.prefix(first))
+            var narrowest = Array(blockNarrowest.prefix(first))
             for index in first..<blocks.count {
                 offsets.append(start + tail.length)
-                tail.append(renderer.render(blocks[index], isFirst: index == 0))
+                let rendered = renderer.render(blocks[index], isFirst: index == 0)
+                narrowest.append(MarkdownTextTable.narrowestLayoutWidth(in: rendered))
+                tail.append(rendered)
             }
+            // The shown text is never laid out narrower than its tables fit, however narrow the view
+            // is for a moment: TextKit does not return from a table it cannot fit. The floor rises
+            // before the new text arrives and falls only after the old text has gone.
+            let container = textView?.textContainer as? MinimumWidthTextContainer
+            let floor = narrowest.max() ?? 0
+            if let container, floor > container.minimumWidth { container.minimumWidth = floor }
             storage.beginEditing()
             storage.replaceCharacters(in: NSRange(location: start, length: storage.length - start), with: tail)
             storage.endEditing()
+            container?.minimumWidth = floor
             renderedBlocks = blocks
             blockOffsets = offsets
+            blockNarrowest = narrowest
             return start
+        }
+
+        /// Renders every block again on the next update.
+        private func forgetRendering() {
+            renderedBlocks = []
+            blockOffsets = []
+            blockNarrowest = []
         }
 
         /// Math is drawn for one appearance, so Markdown renders again when it changes.
@@ -260,8 +281,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
         /// Shows a newly loaded image in place of its link, and has SwiftUI size the view again.
         private func imageLoaded() {
             guard let style = appliedStyle, style.isMarkdown, let storage = textView?.textStorage else { return }
-            renderedBlocks = []
-            blockOffsets = []
+            forgetRendering()
             renderMarkdown(applied, style: style, into: storage)
             remeasureAll(storage)
             contentResized?()
@@ -274,8 +294,10 @@ struct ReadOnlyTextView: NSViewRepresentable {
             if let cached = measuredHeights[width] { return min(cap, cached) }
             // A window being laid out measures its transcript a few points wide on the way to its real
             // width. A table cannot be laid out that narrow, and TextKit does not return from trying:
-            // opening a task whose reply had a table hung the app. Such text is measured at the least it fits.
-            let size = NSSize(width: wrapsLines ? max(width, narrowestLayoutWidth()) : CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            // opening a task whose reply had a table hung the app. Such text is measured at the least it
+            // fits, which for a table in a list item or a quote includes the indent around it.
+            let narrowest = wrapsLines ? MarkdownTextTable.narrowestLayoutWidth(in: measuringStorage) : 0
+            let size = NSSize(width: wrapsLines ? max(width, narrowest) : CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
             if measuringContainer.containerSize != size { measuringContainer.containerSize = size }
             measuringLayout.ensureLayout(for: measuringContainer)
             let used = measuringLayout.usedRect(for: measuringContainer)
@@ -285,20 +307,6 @@ struct ReadOnlyTextView: NSViewRepresentable {
             }
             measuredHeights[width] = ceil(height)
             return min(cap, ceil(height))
-        }
-
-        /// The narrowest the measured text can be laid out: the widest minimum of its tables, or none.
-        private func narrowestLayoutWidth() -> CGFloat {
-            var narrowest: CGFloat = 0
-            var seen: Set<ObjectIdentifier> = []
-            measuringStorage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: measuringStorage.length)) { value, _, _ in
-                for case let block as NSTextTableBlock in (value as? NSParagraphStyle)?.textBlocks ?? [] where seen.insert(ObjectIdentifier(block.table)).inserted {
-                    // A plain table lays itself out; it still needs room for its columns' padding.
-                    let minimum = (block.table as? MarkdownTextTable)?.minimumWidth ?? CGFloat(block.table.numberOfColumns) * 24
-                    narrowest = max(narrowest, minimum)
-                }
-            }
-            return narrowest
         }
 
         private var isScrolledToEnd: Bool {
@@ -499,6 +507,41 @@ private final class DiffLayoutManager: NSLayoutManager {
         }
         // Selection highlights draw on top of the line colour.
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+    }
+}
+
+/// A text container that follows its text view's width, but never below `minimumWidth`: the
+/// narrowest its text can be laid out (see `MarkdownTextTable.narrowestLayoutWidth(in:)`). A view
+/// narrower than that for a moment shows its text cut off at the edge instead of asking TextKit
+/// for a layout it never returns from.
+final class MinimumWidthTextContainer: NSTextContainer {
+    /// The size last asked for, by the text view as it resizes or by the owner.
+    private var requested: NSSize
+
+    var minimumWidth: CGFloat = 0 {
+        didSet { if minimumWidth != oldValue { apply() } }
+    }
+
+    override init(size: NSSize) {
+        requested = size
+        super.init(size: size)
+    }
+
+    required init(coder: NSCoder) {
+        requested = .zero
+        super.init(coder: coder)
+    }
+
+    override var size: NSSize {
+        get { super.size }
+        set { requested = newValue; apply() }
+    }
+
+    private func apply() {
+        // No width means no limit, as before the view is first placed; that stays as it is.
+        let width = requested.width > 0 ? max(requested.width, minimumWidth) : requested.width
+        let floored = NSSize(width: width, height: requested.height)
+        if super.size != floored { super.size = floored }
     }
 }
 

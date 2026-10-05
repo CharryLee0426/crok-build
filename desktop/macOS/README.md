@@ -379,6 +379,11 @@ packaging script. It clearly labels its output as an offline fixture. Prompts co
 received, and side questions get fixture answers.
 Rebuild with the real harness afterward.
 
+Replies with tables have theirs: `swift test --filter TableLayout` lays them out
+and draws them from two points wide up, alone and inside list items, quotes, and
+callouts, and opens the main window on a task that ends in each. A regression
+there does not fail; it never returns, or ends the run with an exception.
+
 Long tasks have their own checks. `swift test -c release --filter LongTask`
 prints the reducer, save, and launch costs of a 3,000-round task, and
 `desktop/macOS/scripts/perf/run-perf.sh <GrokDesktop executable> <out-dir>`

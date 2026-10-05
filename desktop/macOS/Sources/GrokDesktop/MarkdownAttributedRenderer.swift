@@ -414,7 +414,10 @@ struct MarkdownAttributedRenderer {
             textTable.numberOfColumns = columns
         }
         textTable.layoutAlgorithm = .automaticLayoutAlgorithm
-        textTable.collapsesBorders = true
+        // Borders collapse only in a table that stands alone. To collapse them TextKit asks each block
+        // around a cell for its table, and a table in a list item, a quote, or a callout has blocks
+        // around it that are not cells: drawing one raised an exception, which ended the app.
+        textTable.collapsesBorders = outer.isEmpty
         textTable.hidesEmptyCells = false
         textTable.setWidth(4, type: .absoluteValueType, for: .margin, edge: .minY)
         for (rowIndex, row) in texts.enumerated() {

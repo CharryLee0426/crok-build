@@ -16,6 +16,17 @@ extension NSColor {
 }
 
 extension NSTextBlock {
+    /// The width the block's own padding, borders, and margins take from what is inside it.
+    var horizontalChrome: CGFloat {
+        var total: CGFloat = 0
+        for layer in [NSTextBlock.Layer.padding, .border, .margin] {
+            for edge in [NSRectEdge.minX, .maxX] where widthValueType(for: layer, edge: edge) == .absoluteValueType {
+                total += width(for: layer, edge: edge)
+            }
+        }
+        return total
+    }
+
     /// The block within the frame TextKit draws it in, which includes its margins.
     func frameInsideMargins(_ frame: NSRect) -> NSRect {
         let left = width(for: .margin, edge: .minX), top = width(for: .margin, edge: .minY)
@@ -133,8 +144,31 @@ final class MarkdownTextTable: NSTextTable {
 
     /// The narrowest the table can be laid out: every column's padding and borders, and something
     /// of each column. TextKit does not return from laying a table out in a container it cannot
-    /// fit, so nothing may ask for less (see `ReadOnlyTextView.Coordinator.height`).
+    /// fit, so nothing may ask for less (see `narrowestLayoutWidth(in:)`).
     var minimumWidth: CGFloat { CGFloat(widest.count) * (inset * 2 + Self.narrowestColumn) + 2 }
+
+    /// The narrowest container the tables in `text` can be laid out in, or 0 without tables: each
+    /// table's own minimum, and the room the blocks around it take from the container first (a list
+    /// item's indent, a quote, a callout). A table in a list item needs more than the table alone;
+    /// laid out in less, its last column starts past the container's edge and TextKit never returns.
+    static func narrowestLayoutWidth(in text: NSAttributedString) -> CGFloat {
+        var narrowest: CGFloat = 0
+        var seen: Set<ObjectIdentifier> = []
+        text.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            guard let blocks = (value as? NSParagraphStyle)?.textBlocks, !blocks.isEmpty else { return }
+            var around: CGFloat = 0
+            for block in blocks {
+                guard let cell = block as? NSTextTableBlock else { around += block.horizontalChrome; continue }
+                if seen.insert(ObjectIdentifier(cell.table)).inserted {
+                    // A plain table lays itself out; it still needs room for its columns' padding.
+                    let minimum = (cell.table as? MarkdownTextTable)?.minimumWidth ?? CGFloat(cell.table.numberOfColumns) * 24
+                    narrowest = max(narrowest, around + minimum)
+                }
+                break
+            }
+        }
+        return narrowest
+    }
 
     /// Content widths for the columns in `available` points, shared out as CSS's automatic table layout does.
     /// Every column gets at least `narrowestColumn`, and together they fit whatever is at least `minimumWidth`.
