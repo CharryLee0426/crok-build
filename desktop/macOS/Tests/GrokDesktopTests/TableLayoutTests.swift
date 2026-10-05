@@ -150,7 +150,8 @@ final class TableLayoutTests: XCTestCase {
     /// table whose last column began past the edge was never laid out: an eight-column table in a
     /// view under 216 points. A regression here does not fail: it never returns.
     func testAReplyWithATableLaysOutAndDrawsInAViewOfAnyWidth() throws {
-        let eight = "|" + (1...8).map { " H\($0) |" }.joined() + "\n|" + String(repeating: " - |", count: 8) + "\n|" + (1...8).map { " v\($0) |" }.joined()
+        let headings = (1...8).map { " H\($0) |" }.joined(), values = (1...8).map { " v\($0) |" }.joined()
+        let eight = "|" + headings + "\n|" + String(repeating: " - |", count: 8) + "\n|" + values
         let widths: [CGFloat] = stride(from: 2, through: 140, by: 3).map { CGFloat($0) } + [180, 215, 283, 400, 800]
         for markdown in [Self.plainTable, eight, Self.tableInAList, Self.tableInANestedList, Self.tableInACallout] {
             let host = NSHostingView(rootView: Reply(text: markdown, width: 400))

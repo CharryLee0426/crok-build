@@ -136,7 +136,7 @@ final class HangRecorder: @unchecked Sendable {
     func tick() {
         let now = clock()
         let (step, context, age, directory, policy) = lock.withLock {
-            (watch.tick(now: now, policy: policy), self.context, contextAt.map { now - $0 }, self.directory, self.policy)
+            (watch.tick(now: now, policy: self.policy), self.context, contextAt.map { now - $0 }, self.directory, self.policy)
         }
         switch step {
         case .wait: break
