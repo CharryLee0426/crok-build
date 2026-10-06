@@ -238,7 +238,9 @@ Two Math font, and copying typeset math copies its LaTeX. Code blocks are
 syntax-highlighted for over a hundred languages and have a Copy button. Each reply is
 one selectable text, so a selection can run across paragraphs, tables, and code. Thinking
 renders in a scrolling text view that follows the stream, so long reasoning stays
-responsive. `/timestamps`, `/timeline`, `/find` (⌘F), `/jump`, and `/vim-mode`
+responsive. While a reply or thinking streams, a last line that so far could only be
+a rule or a heading's underline (`* **`, `---`) waits for its next characters or its
+end, so a list whose items begin in bold no longer draws a rule before each one. `/timestamps`, `/timeline`, `/find` (⌘F), `/jump`, and `/vim-mode`
 add timestamps, a turn rail, search, a turn picker, and keyboard navigation.
 A task that has run for hours shows its newest 240 messages; **Show earlier
 messages** at the top loads more, and find, `/jump`, the timeline, and vim keys

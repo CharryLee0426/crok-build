@@ -40,6 +40,9 @@ struct ReadOnlyTextView: NSViewRepresentable {
     var sizing: Sizing = .fitContent(maxHeight: 320)
     /// Keep the newest text in view as it streams, until the reader scrolls away from the end.
     var followsTail = false
+    /// The Markdown is still arriving: a last line that could yet turn out to be something else
+    /// waits until it has (see `StreamingMarkdown`).
+    var isStreaming = false
     /// A capped view scrolls internally; this hides its scroller, as for a glimpse of streaming text.
     var showsScroller = true
     /// Bumped when the content resizes without new text (an image loaded), so SwiftUI measures again.
@@ -84,7 +87,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         if coordinator.wrapsLines != wrapsLines { configureWrapping(coordinator) }
-        coordinator.update(text: text, style: style, followsTail: followsTail, measuresAll: sizing.isUncapped)
+        coordinator.update(text: text, style: style, followsTail: followsTail, measuresAll: sizing.isUncapped, isStreaming: isStreaming)
         // Read here so that bumping it updates this view.
         _ = sizeRevision
         coordinator.contentResized = { [sizeRevision = $sizeRevision] in sizeRevision.wrappedValue += 1 }
@@ -124,6 +127,9 @@ struct ReadOnlyTextView: NSViewRepresentable {
         var contentResized: (() -> Void)?
         private var applied = ""
         private var appliedStyle: Style?
+        private var appliedStreaming = false
+        /// The Markdown that is rendered: `applied`, less an unsettled last line while it streams.
+        private var renderedSource = ""
         private var pendingScrollToEnd = false
         private var followsTail = false
         /// Markdown is rendered block by block; a streamed update replaces only changed blocks.
@@ -153,7 +159,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
             measuringStorage.addLayoutManager(measuringLayout)
         }
 
-        func update(text: String, style: Style, followsTail: Bool, measuresAll: Bool = false) {
+        func update(text: String, style: Style, followsTail: Bool, measuresAll: Bool = false, isStreaming: Bool = false) {
             guard let textView, let storage = textView.textStorage, let layoutManager = textView.layoutManager else { return }
             // Contiguous layout keeps appends incremental and tail-following exact, and places the
             // Copy buttons of a reply's code cards exactly. Other static text only needs its
@@ -162,7 +168,9 @@ struct ReadOnlyTextView: NSViewRepresentable {
             if layoutManager.allowsNonContiguousLayout == contiguous { layoutManager.allowsNonContiguousLayout = !contiguous }
             self.followsTail = followsTail
             measuredLimit = measuresAll ? Int.max : Self.measuredPrefix
-            guard style != appliedStyle || text != applied else { return }
+            // The end of a stream shows a last line that was waiting, with no new text to prompt it.
+            guard style != appliedStyle || text != applied || (style.isMarkdown && isStreaming != appliedStreaming) else { return }
+            appliedStreaming = isStreaming
             // Following text starts at its end, then stays there until the reader scrolls away.
             let wasAtEnd = appliedStyle == nil || isScrolledToEnd
             var appended: String?
@@ -170,7 +178,8 @@ struct ReadOnlyTextView: NSViewRepresentable {
             var markdownChange: Int?
             if style.isMarkdown {
                 if appliedStyle != style { forgetRendering() }
-                markdownChange = renderMarkdown(text, style: style, into: storage)
+                renderedSource = isStreaming ? StreamingMarkdown.settled(text) : text
+                markdownChange = renderMarkdown(renderedSource, style: style, into: storage)
             } else {
                 (textView.textContainer as? MinimumWidthTextContainer)?.minimumWidth = 0
                 appended = style == appliedStyle && style != .diff && !style.isHighlightedCode ? TextDelta.appendedSuffix(from: applied, to: text) : nil
@@ -261,7 +270,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
         /// Math is drawn for one appearance, so Markdown renders again when it changes.
         func appearanceChanged() {
             guard let style = appliedStyle, style.isMarkdown, let storage = textView?.textStorage else { return }
-            renderMarkdown(applied, style: style, into: storage)
+            renderMarkdown(renderedSource, style: style, into: storage)
             remeasureAll(storage)
         }
 
@@ -282,7 +291,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
         private func imageLoaded() {
             guard let style = appliedStyle, style.isMarkdown, let storage = textView?.textStorage else { return }
             forgetRendering()
-            renderMarkdown(applied, style: style, into: storage)
+            renderMarkdown(renderedSource, style: style, into: storage)
             remeasureAll(storage)
             contentResized?()
         }
@@ -456,6 +465,38 @@ final class MarkdownSourceTextView: NSTextView {
         }
         guard text.length > 0 else { return super.writeSelection(to: pboard, type: type) }
         return pboard.setString(text as String, forType: .string)
+    }
+}
+
+/// What a Markdown text shows while it is still arriving.
+///
+/// A line's meaning can turn on its last characters: `* **` is a rule, until the next chunk makes
+/// it `* **Parser**`, a list item, and `***` is one until it is `***Note***`. Rendered as it
+/// stood, a reply whose items all begin in bold dropped each item, drew a rule, and took it away
+/// again. A rule is a TextKit text block, so the list beside it was laid out again each time
+/// around a block that came and went. The parser itself already waits to read a lone `-` under
+/// a paragraph as a heading's underline (see `MarkdownParser`); here the whole line waits.
+enum StreamingMarkdown {
+    /// `text` without its last line, while that line is unfinished and holds nothing yet but the
+    /// characters that draw a rule or underline a heading, and the indent or quote marker before
+    /// them. The line shows once it has anything else on it, or ends; what is shown only ever
+    /// grows, so the parser still carries on from where it was.
+    static func settled(_ text: String) -> String {
+        let bytes = text.utf8
+        var start = bytes.endIndex
+        while start > bytes.startIndex {
+            let previous = bytes.index(before: start)
+            let byte = bytes[previous]
+            if byte == 0x0A { break }
+            switch byte {
+            case UInt8(ascii: "*"), UInt8(ascii: "-"), UInt8(ascii: "_"), UInt8(ascii: "="),
+                 UInt8(ascii: " "), UInt8(ascii: "\t"), UInt8(ascii: ">"): break
+            default: return text
+            }
+            start = previous
+        }
+        // `start` follows a newline or opens the text, so it falls between characters.
+        return start == bytes.endIndex ? text : String(text[..<start])
     }
 }
 

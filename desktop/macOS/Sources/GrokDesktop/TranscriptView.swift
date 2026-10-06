@@ -343,7 +343,7 @@ struct MessageView: View, Equatable {
                     GrokMark(size: 18); Text("Crok").font(.system(size: 13, weight: .semibold))
                     if let timestamp { Spacer(minLength: 8); TranscriptTimestampLabel(date: timestamp) }
                 }
-                if !message.text.isEmpty || message.attachments?.isEmpty != false { MarkdownReply(text: message.text) }
+                if !message.text.isEmpty || message.attachments?.isEmpty != false { MarkdownReply(text: message.text, isStreaming: isStreaming) }
                 if let images = message.attachments, !images.isEmpty { TranscriptImageGrid(attachments: images) }
             }
         case .thought:
@@ -438,7 +438,7 @@ private struct ThoughtView: View {
                     Spacer(minLength: 0)
                 }.font(.system(size: 13)).foregroundStyle(Theme.muted)
             } content: {
-                ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: 360), followsTail: isStreaming)
+                ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: 360), followsTail: isStreaming, isStreaming: isStreaming)
                     .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 12)
             }
             if isStreaming && !isExpanded.wrappedValue && !message.text.isEmpty {
@@ -459,7 +459,7 @@ private struct ThoughtView: View {
     private var preview: some View {
         let full = previewHeight >= Self.previewHeight - 1
         return ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: Self.previewHeight),
-                                followsTail: true, showsScroller: false)
+                                followsTail: true, isStreaming: true, showsScroller: false)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { previewHeight = $0 }
             .mask {
                 VStack(spacing: 0) {
