@@ -41,9 +41,11 @@ struct MarkdownContent: View {
 struct MarkdownReply: View {
     var text: String
     var style: MarkdownStyle = .response
+    /// The reply is still arriving (see `ReadOnlyTextView.isStreaming`).
+    var isStreaming = false
 
     var body: some View {
-        ReadOnlyTextView(text: text, style: .reply(style), sizing: .fitContent(maxHeight: .infinity))
+        ReadOnlyTextView(text: text, style: .reply(style), sizing: .fitContent(maxHeight: .infinity), isStreaming: isStreaming)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

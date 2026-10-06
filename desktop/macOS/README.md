@@ -82,6 +82,13 @@ anywhere, or fold it to one line with its chevron. It is on by default and
 **Settings › Developer** turns it off. Release builds never show it or the
 Developer section. It samples twice a second, and only while it is visible.
 
+The test app also records hangs. When its main thread has not answered for three
+seconds, it writes two files to `target/test-builds/desktop-state/hang-reports/`:
+what the window and the tasks were doing, and every thread's call stack from the
+system's `sample` tool. They are written while the app is still hung, so a force
+quit leaves them in place, and **Settings › Developer › Hang reports** opens the
+folder. Release builds do not record.
+
 The packaging script embeds the release harness as `Contents/Resources/crok`,
 signs that executable, and then signs the app. It also bundles the `crok` command's
 launcher, [`Resources/crok-command.sh`](Resources/crok-command.sh), as
@@ -146,7 +153,9 @@ swift test --package-path desktop/macOS
    from its history, downloads to your Downloads folder, and Web Inspector from a
    page's context menu. `localhost:3000` and other addresses on this Mac load
    over plain HTTP, a path opens a local file, and anything that is not an
-   address is searched for. Its **⋯** menu adds the page's link to the prompt,
+   address is searched for. ⌘W closes the tab it is showing, wherever the
+   keyboard is, and never the main window: quitting is ⌘Q. A tab on its own
+   keeps its close button. Its **⋯** menu adds the page's link to the prompt,
    and **Import from Chrome…** brings a Chrome profile's sign-ins, history, and
    bookmarks across once macOS has confirmed it's you (see
    [Local data](#local-data-and-current-scope)). Drag the panel's left edge to
@@ -229,7 +238,9 @@ Two Math font, and copying typeset math copies its LaTeX. Code blocks are
 syntax-highlighted for over a hundred languages and have a Copy button. Each reply is
 one selectable text, so a selection can run across paragraphs, tables, and code. Thinking
 renders in a scrolling text view that follows the stream, so long reasoning stays
-responsive. `/timestamps`, `/timeline`, `/find` (⌘F), `/jump`, and `/vim-mode`
+responsive. While a reply or thinking streams, a last line that so far could only be
+a rule or a heading's underline (`* **`, `---`) waits for its next characters or its
+end, so a list whose items begin in bold no longer draws a rule before each one. `/timestamps`, `/timeline`, `/find` (⌘F), `/jump`, and `/vim-mode`
 add timestamps, a turn rail, search, a turn picker, and keyboard navigation.
 A task that has run for hours shows its newest 240 messages; **Show earlier
 messages** at the top loads more, and find, `/jump`, the timeline, and vim keys
@@ -294,7 +305,8 @@ both launch methods. See the [authentication guide](../../crates/codegen/xai-gro
 | Terminal | ⌃\` |
 | Browser | ⌥⌘B |
 | In a web page: address bar, reload, back, forward | ⌘L, ⌘R, ⌘[, ⌘] |
-| In a web page: new tab, close tab, zoom | ⌘T, ⌘W, ⌘+ / ⌘− / ⌘0 |
+| In a web page: new tab, zoom | ⌘T, ⌘+ / ⌘− / ⌘0 |
+| Close the browser's tab while the browser is showing, or a secondary window | ⌘W |
 | Git Graph | ⌥⌘G |
 | Attach photos and files | ⌘U |
 | Settings | ⌘, |
@@ -353,6 +365,49 @@ quarantine from its bundled `crok` so terminals can run it. Dictation needs micr
 each utterance with an OpenRouter model (chosen in **Settings › Behavior**) using your OpenRouter sign-in or
 `OPENROUTER_API_KEY`, and without one uses on-device recognition. GBOOM runs at full speed only in release builds.
 
+## Logs
+
+The app, its harness, and the terminal UI write one log, `~/.crok/logs/unified.jsonl`
+(`$CROK_HOME/logs/` when that is set): one JSON object per line with a UTC time
+(`ts`), the writer (`src`: `grok-desktop`, `shell` for the harness, `grok-pager`
+for the terminal UI), its process id, version, level, session (`sid`), an event
+name (`msg`), and the details (`ctx`). The file is kept under 5 MB by dropping
+its older half. **Help › Reveal Log File** shows it in Finder, and `crok logs`
+prints it as a timeline:
+
+```sh
+crok logs --errors                  # warnings and errors, newest last
+crok logs -f --src desktop          # follow what the app writes while you reproduce a problem
+crok logs --session 01a0e1a1 -n 0   # everything about one session, from all three writers
+crok logs --since 10m --grep acp.request_failed
+```
+
+What the app writes:
+
+| Event | When |
+|-------|------|
+| `app.launch`, `app.terminate` | The app starts (bundle, macOS version, state file, test build or not) and quits. |
+| `harness.start`, `harness.stop` | A harness process is started for a task or a panel, with its pid, and stopped by the app. |
+| `harness.start_failed` | The harness could not be run at all. |
+| `harness.stderr` | Each line the harness prints to standard error: its error diagnostics, and a panic or a loader failure on the way down. |
+| `harness.disconnected` | The harness exited or its connection broke: the reason, exit status, and the requests left unanswered. |
+| `acp.request` | A request the harness answered: method, duration (level `debug`). |
+| `acp.request_failed` | A request that failed: method, duration, `kind` (`remote`, `timeout`, `disconnected`, `cancelled`), and for a harness error its `code`, message, and `data`. |
+| `task.failed` | A turn ended with an error: what the transcript showed, and the error behind it. |
+| `ui.banner`, `ui.system_message`, `ui.feature_error` | Text the app showed in the banner, in a transcript's system line, or in a panel. |
+| `ui.hang` | A test build's main thread stopped answering (see the hang report it names). |
+
+Requests are logged by method and outcome only; prompts, replies, and other
+parameters are not written. `harness_pid` in the app's entries is the `pid` of the
+harness's own entries, so the two sides of one failure line up.
+
+The harness adds `acp.request_failed` for every request it fails, with the
+error's `data`, and mirrors each of its warnings and errors with the source
+location that raised it (`ctx.target`, `ctx.at`). An error the harness reports as
+the bare "Internal error" is shown in the app with the cause from its `data`;
+when the harness sent none, the message says where to look, and the entries
+around that time in `crok logs --errors` have it.
+
 ## Validation
 
 `swift test --package-path desktop/macOS` runs process-backed ACP tests, task
@@ -378,6 +433,11 @@ packaging script. It clearly labels its output as an offline fixture. Prompts co
 `fixture:plan`, `fixture:trust`, or `fixture:wait` exercise the interactive flows; replies name any attachments they
 received, and side questions get fixture answers.
 Rebuild with the real harness afterward.
+
+Replies with tables have theirs: `swift test --filter TableLayout` lays them out
+and draws them from two points wide up, alone and inside list items, quotes, and
+callouts, and opens the main window on a task that ends in each. A regression
+there does not fail; it never returns, or ends the run with an exception.
 
 Long tasks have their own checks. `swift test -c release --filter LongTask`
 prints the reducer, save, and launch costs of a 3,000-round task, and
@@ -420,6 +480,20 @@ heights. With it, `CROK_DESKTOP_UI_TESTS=1 swift test --filter TranscriptVisibil
 streams a long task through an offscreen conversation for about a minute and fails
 if the transcript goes blank. Crok Desktop 1.2.0 did after a few hundred messages
 (`CROK_TRANSCRIPT_REPLAY=<file>` runs it on a recording instead).
+
+A session that ended or hung the app can be replayed as it was sent, on the Mac
+where it did. `CROK_TRACE_HTML=<its /trace export> swift test --filter TraceSessionReplay`
+sends its prompts one by one through an offscreen main window, each answered with
+its recorded turn, relaunches after the first so the session is loaded back, and
+then resizes the window. A main thread that stops for six seconds is sampled and
+the run ends there, naming the file. `CROK_TRACE_PIECE=1` streams each reply a
+character at a time, so every partial text is laid out and drawn, and
+`CROK_TRACE_BURST=5:0.2` in a provider's bursts, cut differently on every run;
+the test's header lists the window, side panel, and timeline settings. It also
+prints which partial texts hold a block the finished reply does not. The fixture
+does the same for a running build: with `CROK_FIXTURE_REPLAY_BY_TURN=1` every
+prompt plays back the recording's next turn, and `CROK_FIXTURE_HISTORY` takes the
+recording's records for `session/load`.
 
 For isolated development runs, `CROK_DESKTOP_STATE_FILE` selects an absolute path
 for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable,

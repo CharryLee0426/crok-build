@@ -13,7 +13,7 @@ struct BrowserPanelView: View {
         VStack(spacing: 0) {
             if let page = browser.page {
                 BrowserToolbar(page: page, address: browser.address)
-                if browser.pages.count > 1 { BrowserTabStrip() }
+                BrowserTabs(page: page)
                 Divider().overlay(Theme.line.opacity(0.4))
                 BrowserContent(page: page)
                     .id(page.id)
@@ -219,6 +219,7 @@ private struct BrowserMenu: View {
     var body: some View {
         Menu {
             Button("New Tab", systemImage: "plus") { browser.newTab() }
+            if browser.canCloseTab { Button("Close Tab", systemImage: "xmark") { browser.close(page) } }
             if page.url != nil {
                 Divider()
                 Button("Add Link to Prompt", systemImage: "text.insert") { browser.addLinkToPrompt(page) }
@@ -260,6 +261,18 @@ private struct BrowserMenu: View {
 }
 
 // MARK: - Tabs
+
+/// The tab strip, once there is a tab to close: a start page on its own needs no strip, and one
+/// page does, for its close button.
+private struct BrowserTabs: View {
+    @EnvironmentObject var browser: BrowserModel
+    /// Observed, because loading its first page is what makes a lone tab closable.
+    @ObservedObject var page: BrowserPage
+
+    var body: some View {
+        if browser.canCloseTab { BrowserTabStrip() }
+    }
+}
 
 private struct BrowserTabStrip: View {
     @EnvironmentObject var browser: BrowserModel

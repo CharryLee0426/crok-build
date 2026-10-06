@@ -20,6 +20,7 @@ pub(crate) mod proxy;
 pub(crate) mod proxy_headers;
 pub mod relay;
 pub mod remote_config;
+pub mod request_log;
 pub(crate) mod restore_code;
 pub mod roster;
 pub mod server;

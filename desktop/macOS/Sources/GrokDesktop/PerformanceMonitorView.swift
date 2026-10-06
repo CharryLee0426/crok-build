@@ -517,6 +517,23 @@ struct DeveloperSettingsSection: View {
                 Toggle("Performance monitor", isOn: $monitor).toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
             .padding(.vertical, 4)
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "waveform.path.ecg").font(.system(size: 17)).foregroundStyle(Theme.muted)
+                    .frame(width: 34, height: 22).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Hang reports").font(.system(size: 14, weight: .semibold))
+                    Text("When the app stops answering for three seconds, this build saves the window's state and every thread's call stack, even if you then force quit.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Show in Finder") {
+                    let directory = HangRecorder.defaultDirectory
+                    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(directory)
+                }
+                .buttonStyle(SubtleButtonStyle()).font(.system(size: 12, weight: .medium))
+            }
+            .padding(.vertical, 4)
         }
         .settingsCard()
     }

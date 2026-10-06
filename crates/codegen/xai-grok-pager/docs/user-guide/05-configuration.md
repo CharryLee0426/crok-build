@@ -844,13 +844,29 @@ The key ones. See the README for the complete list.
 | `~/.crok/plugins/` | User-scoped plugins |
 | `~/.crok/agents/` | User-scoped agent definitions |
 | `~/.crok/lsp.json` | LSP server configuration (user-scoped) |
-| `~/.crok/logs/` | Internal log files (e.g. `unified.jsonl`, MCP server logs) |
+| `~/.crok/logs/` | Log files: `unified.jsonl` (read it with `crok logs`) and MCP server logs |
 | `.grok/config.toml` | Project-scoped MCP servers, plugins, and permission rules |
 | `.grok/skills/` | Project-scoped skill definitions |
 | `.grok/plugins/` | Project-scoped plugins |
 | `.grok/agents/` | Project-scoped agent definitions |
 | `.grok/hooks/` | Project-scoped hooks |
 | `.grok/lsp.json` | LSP server configuration |
+
+### Reading the log
+
+The agent, the terminal UI, and Crok Desktop append to one file, `~/.crok/logs/unified.jsonl`: one JSON object per line, kept under 5 MB by dropping the older half. `crok logs` prints it as a timeline:
+
+```bash
+crok logs --errors                  # warnings and errors, newest last
+crok logs -f                        # follow the log while you reproduce a problem
+crok logs --session 01a0e1a1 -n 0   # everything logged for one session
+crok logs --since 10m --src agent --grep acp.request_failed
+crok logs --json | jq .ctx          # the stored lines, for your own tooling
+```
+
+`--level` sets the least severe level shown (`error`, `warn`, `info`, `debug`), `--src` picks the writer (`agent`, `tui`, `desktop`), and `--path` prints where the file is.
+
+Every request the agent fails is logged as `acp.request_failed` with the method, the error code, and the error's `data`, which holds the cause when the message is only "Internal error". The agent's warnings and errors are logged with the source location that raised them, in `ctx.target` and `ctx.at`. A source that repeats is limited to ten entries a minute; the next entry reports how many were dropped as `ctx.suppressed`.
 
 ### How Crok saves `config.toml`
 

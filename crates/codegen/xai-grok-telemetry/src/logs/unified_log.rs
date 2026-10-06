@@ -30,6 +30,10 @@ pub const MAX_SIZE: u64 = 5 * 1024 * 1024;
 /// ACP method name for unified log notifications.
 pub const LOG_METHOD: &str = "x.ai/log";
 
+/// The `tracing` target of this module's own diagnostics. They are raised while the writer lock is held, so the
+/// tracing mirror (`unified_mirror`) must never route them back into [`emit`].
+pub(crate) const TRACING_TARGET: &str = module_path!();
+
 // ---------------------------------------------------------------------------
 // Log entry types
 // ---------------------------------------------------------------------------
@@ -358,9 +362,21 @@ fn now_ts() -> String {
 
 /// Emit a log entry from shell itself.
 pub fn emit(lvl: LogLevel, msg: &str, sid: Option<&str>, ctx: Option<serde_json::Value>) {
+    emit_from(LogSource::Shell, lvl, msg, sid, ctx);
+}
+
+/// Emit an entry written by this process on behalf of `src`. The tracing mirror uses it: the TUI hosts the pager and
+/// the shell in one process, and a mirrored event belongs to whichever of them raised it.
+pub(crate) fn emit_from(
+    src: LogSource,
+    lvl: LogLevel,
+    msg: &str,
+    sid: Option<&str>,
+    ctx: Option<serde_json::Value>,
+) {
     let entry = LogEntry {
         ts: now_ts(),
-        src: LogSource::Shell,
+        src,
         pid: Some(std::process::id()),
         ver: VERSION.get().cloned(),
         lvl,

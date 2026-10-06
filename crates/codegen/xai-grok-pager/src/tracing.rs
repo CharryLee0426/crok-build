@@ -348,6 +348,7 @@ pub fn init_tracing() -> TracingHandle {
     let hooks_log_layer = xai_grok_telemetry::hooks_log::layer();
     let registry = tracing_subscriber::registry()
         .with(fmt_layer.with_filter(env_filter))
+        .with(xai_grok_telemetry::unified_mirror::layer())
         .with(instrumentation_layer)
         .with(sampling_log_layer)
         .with(xai_grok_telemetry::span_profile::layer("tui"))

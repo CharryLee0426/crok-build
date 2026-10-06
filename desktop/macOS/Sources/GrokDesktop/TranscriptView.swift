@@ -15,7 +15,15 @@ struct TranscriptView: View {
     var body: some View {
         let messages = store.conversation?.messages ?? []
         HStack(spacing: 0) {
-            transcript(messages)
+            // The transcript fills the room it is given, whatever is in it, so it is laid over a
+            // view that does just that, and nothing around it asks it how large it would be.
+            // Asked directly, the scroll view measures its rows to answer: each time the stacks
+            // around it lay out, at the heights they try (none, any), and each time the lazy
+            // stack of rows estimates its height again, which lays those stacks out again. A
+            // hang of Crok Desktop 1.2.2 on macOS 26 was that going round without end
+            // (`LazySubviewPlacements`, then `LazyStack.measureEstimates` under the window's
+            // `GeometryReader`, in one transaction).
+            Color.clear.overlay { transcript(messages) }
             if tools.showTimeline {
                 let ticks = timeline.ticks(conversation: store.state.selectedConversationID, revision: store.transcriptRevision(of: store.state.selectedConversationID),
                                            messages: messages, expanded: tools.expandedMessageIDs, compact: compactConversation)
@@ -343,7 +351,7 @@ struct MessageView: View, Equatable {
                     GrokMark(size: 18); Text("Crok").font(.system(size: 13, weight: .semibold))
                     if let timestamp { Spacer(minLength: 8); TranscriptTimestampLabel(date: timestamp) }
                 }
-                if !message.text.isEmpty || message.attachments?.isEmpty != false { MarkdownReply(text: message.text) }
+                if !message.text.isEmpty || message.attachments?.isEmpty != false { MarkdownReply(text: message.text, isStreaming: isStreaming) }
                 if let images = message.attachments, !images.isEmpty { TranscriptImageGrid(attachments: images) }
             }
         case .thought:
@@ -438,7 +446,7 @@ private struct ThoughtView: View {
                     Spacer(minLength: 0)
                 }.font(.system(size: 13)).foregroundStyle(Theme.muted)
             } content: {
-                ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: 360), followsTail: isStreaming)
+                ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: 360), followsTail: isStreaming, isStreaming: isStreaming)
                     .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 12)
             }
             if isStreaming && !isExpanded.wrappedValue && !message.text.isEmpty {
@@ -459,7 +467,7 @@ private struct ThoughtView: View {
     private var preview: some View {
         let full = previewHeight >= Self.previewHeight - 1
         return ReadOnlyTextView(text: message.text, style: .markdown, sizing: .fitContent(maxHeight: Self.previewHeight),
-                                followsTail: true, showsScroller: false)
+                                followsTail: true, isStreaming: true, showsScroller: false)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { previewHeight = $0 }
             .mask {
                 VStack(spacing: 0) {

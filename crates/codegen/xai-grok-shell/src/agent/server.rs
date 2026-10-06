@@ -543,9 +543,14 @@ fn setup_acp_connection(
 
     // `Agent` is implemented for `Rc<T: Agent>` so this works.
     let incoming = LineBufferedRead::spawn_local(incoming);
-    let (conn, handle_io) = acp::AgentSideConnection::new(agent, outgoing, incoming, |fut| {
-        tokio::task::spawn_local(fut);
-    });
+    let (conn, handle_io) = acp::AgentSideConnection::new(
+        crate::agent::request_log::RequestLog(agent),
+        outgoing,
+        incoming,
+        |fut| {
+            tokio::task::spawn_local(fut);
+        },
+    );
     tokio::task::spawn_local(
         GatewayReceiver::new(conn_gw_rx, conn)
             .with_on_meta(xai_grok_otel::span_from_meta_traceparent)

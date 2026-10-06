@@ -144,9 +144,14 @@ fn spawn_agent_local(
     let agent = Rc::new(agent);
     *keepalive.borrow_mut() = Some(Rc::clone(&agent));
     let incoming = LineBufferedRead::spawn_local(incoming);
-    let (conn, handle_io) = acp::AgentSideConnection::new(agent, outgoing, incoming, |fut| {
-        tokio::task::spawn_local(fut);
-    });
+    let (conn, handle_io) = acp::AgentSideConnection::new(
+        crate::agent::request_log::RequestLog(agent),
+        outgoing,
+        incoming,
+        |fut| {
+            tokio::task::spawn_local(fut);
+        },
+    );
     tokio::task::spawn_local(
         GatewayReceiver::new(gw_rx, conn)
             .with_on_meta(xai_grok_otel::span_from_meta_traceparent)
@@ -470,7 +475,7 @@ pub async fn run_headless(
                 *keepalive_for_spawn.borrow_mut() = Some(Rc::clone(&agent));
                 let incoming = LineBufferedRead::spawn_local(incoming);
                 let (conn, handle_io) = acp::AgentSideConnection::new(
-                    agent,
+                    crate::agent::request_log::RequestLog(agent),
                     outgoing,
                     incoming,
                     |fut| {
@@ -958,7 +963,7 @@ pub async fn run_leader(
                 *keepalive_for_spawn.borrow_mut() = Some(Rc::clone(&agent));
                 let incoming = LineBufferedRead::spawn_local(incoming);
                 let (conn, handle_io) = acp::AgentSideConnection::new(
-                    agent,
+                    crate::agent::request_log::RequestLog(agent),
                     outgoing,
                     incoming,
                     |fut| {

@@ -463,6 +463,80 @@ final class BrowserTests: XCTestCase {
         next.shutdown()
     }
 
+    func testATabOnItsOwnClosesToTheStartPage() throws {
+        let store = makeStore()
+        let browser = store.features.browser
+        browser.prepare()
+        let start = try XCTUnwrap(browser.page)
+        XCTAssertFalse(browser.canCloseTab, "a start page on its own is not a tab to close")
+        XCTAssertFalse(browser.closeTab())
+        browser.close(start)
+        XCTAssertEqual(browser.pages.map(\.id), [start.id], "and closing it leaves it as it is")
+
+        let file = directory.appendingPathComponent("page.html")
+        try Data("<!doctype html><title>Fixture page</title>".utf8).write(to: file)
+        browser.open(file.path)
+        XCTAssertNotNil(start.webView)
+        XCTAssertTrue(browser.canCloseTab, "one page can be closed")
+        XCTAssertTrue(browser.closeTab())
+        XCTAssertNil(start.webView, "its web view goes with it")
+        XCTAssertEqual(browser.pages.count, 1)
+        XCTAssertTrue(try XCTUnwrap(browser.page).isBlank)
+        XCTAssertEqual(browser.address.text, "")
+        XCTAssertFalse(browser.canCloseTab)
+
+        browser.newTab()
+        XCTAssertTrue(browser.canCloseTab, "two start pages are two tabs")
+        XCTAssertTrue(browser.closeTab())
+        XCTAssertEqual(browser.pages.count, 1)
+        store.shutdown()
+    }
+
+    func testCommandWClosesTheBrowsersTabAndNeverTheMainWindow() {
+        final class Window: NSWindow {
+            var closeRequests = 0
+            override func performClose(_ sender: Any?) { closeRequests += 1 }
+        }
+        func window(_ style: NSWindow.StyleMask) -> Window {
+            let window = Window(contentRect: CGRect(x: 0, y: 0, width: 200, height: 200), styleMask: style, backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            return window
+        }
+        let store = makeStore()
+        let browser = store.features.browser
+        let main = window([.titled, .closable]), other = window([.titled, .closable]), sheet = window([.titled])
+        store.mainWindow = main
+        browser.prepare()
+        browser.newTab()
+        browser.newTab()
+
+        // The browser is not on screen: nothing closes, least of all the window.
+        store.closeFrontmost(main)
+        XCTAssertEqual(browser.pages.count, 3)
+        store.showInspector = true
+        store.sidePanelTab = .files
+        store.closeFrontmost(main)
+        XCTAssertEqual(browser.pages.count, 3, "the side panel is showing something else")
+
+        // The browser is showing: its tabs close, down to the start page.
+        store.sidePanelTab = .browser
+        store.closeFrontmost(main)
+        XCTAssertEqual(browser.pages.count, 2)
+        (1...3).forEach { _ in store.closeFrontmost(main) }
+        XCTAssertEqual(browser.pages.count, 1, "the start page stays")
+        XCTAssertEqual(main.closeRequests, 0, "closing the main window would quit the app")
+
+        // Another window is in front: it closes, and the browser keeps its tabs.
+        browser.newTab()
+        store.closeFrontmost(other)
+        XCTAssertEqual(other.closeRequests, 1)
+        store.closeFrontmost(sheet)
+        XCTAssertEqual(sheet.closeRequests, 0, "a sheet has no close button to press")
+        XCTAssertEqual(browser.pages.count, 2)
+        XCTAssertEqual(main.closeRequests, 0)
+        store.shutdown()
+    }
+
     func testVisitedWebPagesAreRememberedAndCanBeBookmarked() async throws {
         let store = makeStore()
         let browser = store.features.browser

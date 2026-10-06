@@ -13,8 +13,21 @@ enum ACPClientError: LocalizedError {
         case .notRunning: return "The Crok harness is not running."
         case .timedOut(let method): return "Crok did not respond to \(method) in time."
         case .disconnected(let reason), .invalidMessage(let reason): return reason
-        case .remote(_, let message, _): return message
+        case .remote(let code, let message, let data):
+            // The harness answers most failures with the bare "Internal error" and puts the cause in `data`.
+            let generic = code == -32603 && message.caseInsensitiveCompare("Internal error") == .orderedSame
+            guard let detail = Self.detail(in: data), detail != message else {
+                return generic ? "\(message). The cause is in the log: Help > Reveal Log File, or run `crok logs --errors`." : message
+            }
+            return generic ? detail : "\(message): \(detail)"
         }
+    }
+
+    /// The readable part of an error's `data`: the text itself, or the message an object carries.
+    static func detail(in data: Any?) -> String? {
+        if let text = data as? String { return text.isEmpty ? nil : text }
+        guard let object = data as? [String: Any] else { return nil }
+        return ["message", "error", "detail", "details"].lazy.compactMap { object[$0] as? String }.first { !$0.isEmpty }
     }
 }
 
@@ -30,6 +43,10 @@ final class ACPClient {
     private struct PendingRequest {
         let continuation: CheckedContinuation<[String: Any], Error>
         let timeout: Task<Void, Never>?
+        let method: String
+        let session: String?
+        let harness: Int32
+        let started = Date()
     }
 
     private final class Connection: @unchecked Sendable {
@@ -43,6 +60,8 @@ final class ACPClient {
         var stderrFinished = false
         var exitStatus: Int32?
         var stderrTail = Data()
+        /// The end of the last stderr chunk when it stopped mid-line.
+        var stderrLine = ""
 
         func closeInput() {
             writer.async { [input] in try? input.fileHandleForWriting.close() }
@@ -104,12 +123,15 @@ final class ACPClient {
             }
             try process.run()
         } catch {
+            DesktopLog.error("harness.start_failed", ["executable": executable, "cwd": cwd, "arguments": arguments, "error": DesktopLog.describe(error)])
             connection = nil
             newConnection.closeInput()
             try? newConnection.output.fileHandleForReading.close()
             try? newConnection.errors.fileHandleForReading.close()
             throw error
         }
+        // The harness stamps its own entries with this pid, which is what ties the two sides together.
+        DesktopLog.info("harness.start", ["harness_pid": process.processIdentifier, "executable": executable, "cwd": cwd, "arguments": arguments])
         readStdout(newConnection)
         readStderr(newConnection)
     }
@@ -134,7 +156,8 @@ final class ACPClient {
                         } catch { /* The response or cancellation already completed this request. */ }
                     }
                 }
-                pending[key] = PendingRequest(continuation: continuation, timeout: timeoutTask)
+                pending[key] = PendingRequest(continuation: continuation, timeout: timeoutTask, method: method,
+                                              session: params["sessionId"] as? String, harness: connection.process.processIdentifier)
                 write(bytes, to: connection)
             }
         } onCancel: { [weak self] in
@@ -159,6 +182,7 @@ final class ACPClient {
     func stop() {
         let previous = connection
         connection = nil
+        if let previous { DesktopLog.debug("harness.stop", ["harness_pid": previous.process.processIdentifier, "pending": pending.count]) }
         failPending(ACPClientError.disconnected("The Crok connection was closed."))
         previous?.terminate()
     }
@@ -284,6 +308,7 @@ final class ACPClient {
                         if connection.stderrTail.count > Self.maximumStderrBytes {
                             connection.stderrTail = Data(connection.stderrTail.suffix(Self.maximumStderrBytes))
                         }
+                        self.logStderr(String(decoding: chunk, as: UTF8.self), from: connection)
                         self.onLog?(String(decoding: chunk, as: UTF8.self))
                     }
                 }
@@ -332,15 +357,51 @@ final class ACPClient {
     private func complete(_ key: String, connectionID: UUID, result: Result<[String: Any], Error>) {
         guard connection?.id == connectionID, let request = pending.removeValue(forKey: key) else { return }
         request.timeout?.cancel()
+        Self.log(request, id: key, result: result)
         request.continuation.resume(with: result)
     }
 
     private func failPending(_ error: Error) {
-        let requests = pending.values
+        let requests = pending
         pending.removeAll()
-        for request in requests {
+        for (key, request) in requests {
             request.timeout?.cancel()
+            Self.log(request, id: key, result: .failure(error))
             request.continuation.resume(throwing: error)
+        }
+    }
+
+    /// Every request leaves one entry: what was asked, of which harness, how long it took and how it ended.
+    /// Parameters and results are left out; they carry the conversation.
+    private static func log(_ request: PendingRequest, id: String, result: Result<[String: Any], Error>) {
+        var context: [String: Any?] = [
+            "method": request.method, "id": id, "harness_pid": request.harness,
+            "duration_ms": Int(Date().timeIntervalSince(request.started) * 1000)
+        ]
+        switch result {
+        case .success:
+            DesktopLog.debug("acp.request", session: request.session, context)
+        case .failure(let error):
+            context.merge(DesktopLog.context(for: error)) { _, new in new }
+            let level: DesktopLog.Level
+            switch error {
+            case is CancellationError: level = .debug; context["kind"] = "cancelled"
+            case ACPClientError.remote(let code, _, _): level = code == -32603 ? .error : .warn; context["kind"] = "remote"
+            case ACPClientError.timedOut: level = .error; context["kind"] = "timeout"
+            // The disconnect has an entry of its own, with the reason.
+            default: level = .warn; context["kind"] = "disconnected"
+            }
+            DesktopLog.shared.log(level, "acp.request_failed", session: request.session, context)
+        }
+    }
+
+    /// Whole stderr lines, as the harness printed them: its error-level diagnostics, and anything said on the way
+    /// down (a panic, a missing library) that never reaches its own log.
+    private func logStderr(_ text: String, from connection: Connection) {
+        var lines = (connection.stderrLine + text).components(separatedBy: "\n")
+        connection.stderrLine = lines.removeLast()
+        for line in lines.map({ DesktopLog.plain($0).trimmingCharacters(in: .whitespaces) }) where !line.isEmpty {
+            DesktopLog.warn("harness.stderr", ["harness_pid": connection.process.processIdentifier, "line": DesktopLog.bounded(line, to: 2000)])
         }
     }
 
@@ -355,6 +416,11 @@ final class ACPClient {
     private func disconnect(_ connectionID: UUID, reason: String) {
         guard let previous = connection, previous.id == connectionID else { return }
         connection = nil
+        let unfinished = DesktopLog.plain(previous.stderrLine).trimmingCharacters(in: .whitespaces)
+        DesktopLog.error("harness.disconnected", [
+            "harness_pid": previous.process.processIdentifier, "reason": DesktopLog.plain(reason), "exit_status": previous.exitStatus.map { Int($0) },
+            "pending": pending.values.map(\.method).sorted(), "stderr": unfinished.isEmpty ? nil : unfinished
+        ])
         failPending(ACPClientError.disconnected(reason))
         previous.terminate()
         onDisconnect?(reason)
