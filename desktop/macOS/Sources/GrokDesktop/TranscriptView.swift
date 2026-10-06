@@ -15,7 +15,15 @@ struct TranscriptView: View {
     var body: some View {
         let messages = store.conversation?.messages ?? []
         HStack(spacing: 0) {
-            transcript(messages)
+            // The transcript fills the room it is given, whatever is in it, so it is laid over a
+            // view that does just that, and nothing around it asks it how large it would be.
+            // Asked directly, the scroll view measures its rows to answer: each time the stacks
+            // around it lay out, at the heights they try (none, any), and each time the lazy
+            // stack of rows estimates its height again, which lays those stacks out again. A
+            // hang of Crok Desktop 1.2.2 on macOS 26 was that going round without end
+            // (`LazySubviewPlacements`, then `LazyStack.measureEstimates` under the window's
+            // `GeometryReader`, in one transaction).
+            Color.clear.overlay { transcript(messages) }
             if tools.showTimeline {
                 let ticks = timeline.ticks(conversation: store.state.selectedConversationID, revision: store.transcriptRevision(of: store.state.selectedConversationID),
                                            messages: messages, expanded: tools.expandedMessageIDs, compact: compactConversation)
