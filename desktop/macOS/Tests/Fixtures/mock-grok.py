@@ -8,14 +8,15 @@ as fixture data. Prompts containing `fixture:permission`, `fixture:question`,
 `fixture:subagents` streams a simulated child agent lifecycle, and `fixture:think`
 streams several seconds of reasoning (CROK_FIXTURE_THINK_SECONDS, default 8).
 CROK_FIXTURE_LOAD_DELAY (seconds) slows session/load, as a large real session is, and
-CROK_FIXTURE_HISTORY names a JSON file of {sessionId: [session updates]} to replay.
+CROK_FIXTURE_HISTORY names a JSON file of {sessionId: [session updates]} to replay (an
+entry with `params` is a recorded record, sent with its own method and metadata).
 `fixture:wait` waits for Stop and `fixture:error` returns a protocol error.
 `fixture:long[:N[:M]]` streams one long agentic turn for performance tests: N rounds
 (default 3000) as fast as the client reads, then M rounds at a model's streaming pace (see
 `stream_long_task`); `fixture:mixed[:N[:M]]` is the same with rows of a real task's varied heights
 (see `mixed_round`). `fixture:replay` plays back a recorded session (a trace export or a
-session's updates.jsonl, named by CROK_FIXTURE_REPLAY) at its recorded pace (see
-`replay_session`).
+session's updates.jsonl, named by CROK_FIXTURE_REPLAY) at its recorded pace, and with
+CROK_FIXTURE_REPLAY_BY_TURN every prompt plays back its next turn (see `replay_session`).
 The ordinary scenario streams Markdown, a plan, and a simulated tool result, and
 names any image or resource-link attachments it received. Side questions
 (`_x.ai/btw`), the command catalog, MCPs, skills, and goals are also simulated over ACP.
@@ -25,6 +26,7 @@ import base64
 import json
 import os
 import queue
+import random
 import re
 import struct
 import sys
@@ -94,6 +96,8 @@ class MockHarness:
         self.rewind_conflicts = []
         self.goal = None
         self.subagents = {}
+        self.replayed_turns = {}
+        self.replayed_usage = {}
 
     def commands(self):
         commands = [
@@ -270,20 +274,73 @@ class MockHarness:
             records = [json.loads(line) for line in text.splitlines() if line.strip()]
         return [record for record in records if isinstance(record.get("params", {}).get("update"), dict)]
 
-    def replay_session(self, session_id, stop):
+    @staticmethod
+    def recorded_turn(records, turn):
+        """The updates of one recorded turn, from the record after its prompt to its `turn_completed`.
+        A turn past the recording's last repeats the last."""
+        turns = [[]]
+        for record in records:
+            kind = record["params"]["update"].get("sessionUpdate")
+            if kind == "user_message_chunk":
+                # What the harness sent between turns (a reload's snapshots) is not part of either.
+                turns[-1] = []
+                continue
+            turns[-1].append(record)
+            if kind == "turn_completed":
+                turns.append([])
+        turns = [records for records in turns if any(record["params"]["update"].get("sessionUpdate") == "turn_completed" for record in records)]
+        return turns[min(turn, len(turns) - 1)] if turns else []
+
+    def complete_response(self, session_id, usage):
+        """The harness reports each model response's token counts as it ends (`response_completed`),
+        which a recording does not keep. A replayed turn reports its recorded usage as one response,
+        with the session's totals since this process started."""
+        call = {
+            "input_tokens": max(0, usage.get("inputTokens", 0) - usage.get("cachedReadTokens", 0)),
+            "output_tokens": usage.get("outputTokens", 0),
+            "cache_read_input_tokens": usage.get("cachedReadTokens", 0),
+            "cache_creation_input_tokens": usage.get("cacheCreationTokens", 0),
+        }
+        with self.state_lock:
+            totals = self.replayed_usage.setdefault(session_id, dict.fromkeys(call, 0))
+            for key, value in call.items():
+                totals[key] += value
+            totals = dict(totals)
+        update = {"sessionUpdate": "response_completed", "stop_reason": "end_turn", "usage": call, "session_usage": totals}
+        seconds = usage.get("apiDurationMs", 0) / 1000
+        if seconds and call["output_tokens"]:
+            update["tokens_per_sec"] = round(call["output_tokens"] / seconds, 1)
+        self.emit({"method": "_x.ai/session/update", "params": {"sessionId": session_id, "update": update}})
+
+    def replay_session(self, session_id, stop, turn=None):
         """`fixture:replay`: plays a recorded session back as one turn. CROK_FIXTURE_REPLAY names
         the recording (see `recorded_updates`). Updates keep their recorded spacing divided by
         CROK_FIXTURE_REPLAY_SPEED (1 by default; 0 sends them as fast as the client reads), with
         gaps cut to CROK_FIXTURE_REPLAY_MAX_GAP seconds (30). A recording keeps each reply and
-        reasoning block as one chunk, so they stream in 24-character pieces, one every
-        CROK_FIXTURE_CHUNK_SECONDS (0.02), as a model's output does. The first
+        reasoning block as one chunk, so they stream in pieces of CROK_FIXTURE_REPLAY_PIECE
+        characters (24; 1 shows every partial text a stream can stop at), one every
+        CROK_FIXTURE_CHUNK_SECONDS (0.02), as a model's output does; or, with
+        CROK_FIXTURE_REPLAY_BURST=N:S, in tokens of one to six characters, N at once and then S
+        seconds, cut at different places on every run. The first
         CROK_FIXTURE_REPLAY_FAST_TURNS turns (0) are sent at once, so the recorded pace starts on
         a transcript that is already long. Prompts after the first are left out: the client shows
-        the prompts it sends. With CROK_FIXTURE_DONE_FILE set, `<file>` records when the replay ended."""
+        the prompts it sends. With CROK_FIXTURE_DONE_FILE set, `<file>` records when the replay ended.
+
+        With CROK_FIXTURE_REPLAY_BY_TURN set, every prompt, whatever it says, plays back one recorded
+        turn instead (`turn`: the session's first prompt the first, its second the next), so the
+        session is rebuilt prompt by prompt as it was sent; CROK_FIXTURE_REPLAY_FAST_TURNS then
+        counts those turns."""
         records = self.recorded_updates(os.environ["CROK_FIXTURE_REPLAY"])
+        if turn is not None:
+            records = self.recorded_turn(records, turn)
         speed = float(os.environ.get("CROK_FIXTURE_REPLAY_SPEED", "1"))
         max_gap = float(os.environ.get("CROK_FIXTURE_REPLAY_MAX_GAP", "30"))
         fast_turns = int(os.environ.get("CROK_FIXTURE_REPLAY_FAST_TURNS", "0"))
+        size = max(1, int(os.environ.get("CROK_FIXTURE_REPLAY_PIECE", "24")))
+        burst = os.environ.get("CROK_FIXTURE_REPLAY_BURST")
+        if burst:
+            count, _, gap = burst.partition(":")
+            burst = (max(1, int(count)), float(gap or "0.2"))
         def recorded_at(record):
             meta = record["params"].get("_meta") or {}
             return (meta.get("agentTimestampMs") or record.get("timestamp", 0) * 1000) / 1000
@@ -296,10 +353,11 @@ class MockHarness:
             kind = update.get("sessionUpdate")
             if kind == "turn_completed":
                 turns += 1
+                self.complete_response(session_id, update.get("usage") or {})
             if kind == "user_message_chunk":
                 continue
             at = recorded_at(record)
-            fast = turns < fast_turns
+            fast = (turn if turn is not None else turns) < fast_turns
             if fast or not at:
                 previous = at or previous
                 started = time.time() - schedule / speed if speed > 0 else started
@@ -311,14 +369,26 @@ class MockHarness:
             chunk_pause = float(os.environ.get("CROK_FIXTURE_CHUNK_SECONDS", "0.02")) if speed > 0 and not fast else 0
             method = "_x.ai/session/update" if record.get("method", "").startswith("_") else "session/update"
             text = (update.get("content") or {}).get("text") if kind in ("agent_message_chunk", "agent_thought_chunk") else None
-            pieces = [text[offset:offset + 24] for offset in range(0, len(text), 24)] if text and not fast else [None]
-            for piece in pieces:
+            pieces = [text[offset:offset + size] for offset in range(0, len(text), size)] if text and not fast else [None]
+            pauses = [chunk_pause] * len(pieces)
+            if burst and text and not fast and speed > 0:
+                # Tokens of a few characters, several at once and then a gap, as a provider's stream arrives.
+                pieces, offset = [], 0
+                while offset < len(text):
+                    length = random.randint(1, 6)
+                    pieces.append(text[offset:offset + length])
+                    offset += length
+                pauses = [burst[1] if (index + 1) % burst[0] == 0 else 0 for index in range(len(pieces))]
+            for piece, pause in zip(pieces, pauses):
                 if piece is not None:
                     update = dict(update, content={"type": "text", "text": piece})
                 with self.state_lock:
                     self.history.setdefault(session_id, []).append(update)
-                self.emit({"method": method, "params": {"sessionId": session_id, "update": update}})
-                if stop.wait(chunk_pause) if chunk_pause else stop.is_set():
+                params = {"sessionId": session_id, "update": update}
+                if record["params"].get("_meta"):
+                    params["_meta"] = record["params"]["_meta"]
+                self.emit({"method": method, "params": params})
+                if stop.wait(pause) if pause else stop.is_set():
                     return False
         done = os.environ.get("CROK_FIXTURE_DONE_FILE")
         if done:
@@ -440,6 +510,15 @@ class MockHarness:
             # Like the harness, echo each prompt block so session/load replays attachments.
             for block in blocks:
                 self.update(session_id, {"sessionUpdate": "user_message_chunk", "content": block})
+            if os.environ.get("CROK_FIXTURE_REPLAY_BY_TURN") and os.environ.get("CROK_FIXTURE_REPLAY"):
+                with self.state_lock:
+                    # A session loaded with history carries on from the turn after its last.
+                    loaded = sum(1 for entry in self.history.get(session_id, [])
+                                 if (entry.get("params", {}).get("update") or entry).get("sessionUpdate") == "turn_completed")
+                    turn = self.replayed_turns.get(session_id, loaded)
+                    self.replayed_turns[session_id] = turn + 1
+                finish("end_turn" if self.replay_session(session_id, stop, turn) else "cancelled")
+                return
             self.update(session_id, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "Preparing the offline desktop fixture."}})
             long_run = re.search(r"fixture:(long|mixed)(?::(\d+))?(?::(\d+))?", prompt)
             if long_run:
@@ -701,7 +780,11 @@ class MockHarness:
             if method == "session/load":
                 time.sleep(float(os.environ.get("CROK_FIXTURE_LOAD_DELAY", "0")))
                 for update in list(self.history.get(session_id, [])):
-                    self.update(session_id, update, remember=False)
+                    if isinstance(update.get("params"), dict):
+                        # A recorded record (see `recorded_updates`) goes out as it was sent, to this session.
+                        self.emit({"method": update.get("method", "session/update"), "params": {**update["params"], "sessionId": session_id}})
+                    else:
+                        self.update(session_id, update, remember=False)
             self.update(session_id, {"sessionUpdate": "available_commands_update", "availableCommands": self.commands(), "_meta": {"tools": self.advertised_tools}}, remember=False)
             self.result(request_id, {"sessionId": session_id, **self.session_state()})
         elif method in ("session/set_model", "session/set_mode", "session/set_config_option", "session/prompt"):

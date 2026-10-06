@@ -438,6 +438,20 @@ streams a long task through an offscreen conversation for about a minute and fai
 if the transcript goes blank. Crok Desktop 1.2.0 did after a few hundred messages
 (`CROK_TRANSCRIPT_REPLAY=<file>` runs it on a recording instead).
 
+A session that ended or hung the app can be replayed as it was sent, on the Mac
+where it did. `CROK_TRACE_HTML=<its /trace export> swift test --filter TraceSessionReplay`
+sends its prompts one by one through an offscreen main window, each answered with
+its recorded turn, relaunches after the first so the session is loaded back, and
+then resizes the window. A main thread that stops for six seconds is sampled and
+the run ends there, naming the file. `CROK_TRACE_PIECE=1` streams each reply a
+character at a time, so every partial text is laid out and drawn, and
+`CROK_TRACE_BURST=5:0.2` in a provider's bursts, cut differently on every run;
+the test's header lists the window, side panel, and timeline settings. It also
+prints which partial texts hold a block the finished reply does not. The fixture
+does the same for a running build: with `CROK_FIXTURE_REPLAY_BY_TURN=1` every
+prompt plays back the recording's next turn, and `CROK_FIXTURE_HISTORY` takes the
+recording's records for `session/load`.
+
 For isolated development runs, `CROK_DESKTOP_STATE_FILE` selects an absolute path
 for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable,
 `CROK_HOME` points the app's shared configuration at a scratch directory, and
