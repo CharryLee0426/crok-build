@@ -6,3 +6,4 @@ pub mod hooks_log;
 pub mod memory_log;
 pub mod sampling_log;
 pub mod unified_log;
+pub mod unified_mirror;

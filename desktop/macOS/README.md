@@ -365,6 +365,49 @@ quarantine from its bundled `crok` so terminals can run it. Dictation needs micr
 each utterance with an OpenRouter model (chosen in **Settings › Behavior**) using your OpenRouter sign-in or
 `OPENROUTER_API_KEY`, and without one uses on-device recognition. GBOOM runs at full speed only in release builds.
 
+## Logs
+
+The app, its harness, and the terminal UI write one log, `~/.crok/logs/unified.jsonl`
+(`$CROK_HOME/logs/` when that is set): one JSON object per line with a UTC time
+(`ts`), the writer (`src`: `grok-desktop`, `shell` for the harness, `grok-pager`
+for the terminal UI), its process id, version, level, session (`sid`), an event
+name (`msg`), and the details (`ctx`). The file is kept under 5 MB by dropping
+its older half. **Help › Reveal Log File** shows it in Finder, and `crok logs`
+prints it as a timeline:
+
+```sh
+crok logs --errors                  # warnings and errors, newest last
+crok logs -f --src desktop          # follow what the app writes while you reproduce a problem
+crok logs --session 01a0e1a1 -n 0   # everything about one session, from all three writers
+crok logs --since 10m --grep acp.request_failed
+```
+
+What the app writes:
+
+| Event | When |
+|-------|------|
+| `app.launch`, `app.terminate` | The app starts (bundle, macOS version, state file, test build or not) and quits. |
+| `harness.start`, `harness.stop` | A harness process is started for a task or a panel, with its pid, and stopped by the app. |
+| `harness.start_failed` | The harness could not be run at all. |
+| `harness.stderr` | Each line the harness prints to standard error: its error diagnostics, and a panic or a loader failure on the way down. |
+| `harness.disconnected` | The harness exited or its connection broke: the reason, exit status, and the requests left unanswered. |
+| `acp.request` | A request the harness answered: method, duration (level `debug`). |
+| `acp.request_failed` | A request that failed: method, duration, `kind` (`remote`, `timeout`, `disconnected`, `cancelled`), and for a harness error its `code`, message, and `data`. |
+| `task.failed` | A turn ended with an error: what the transcript showed, and the error behind it. |
+| `ui.banner`, `ui.system_message`, `ui.feature_error` | Text the app showed in the banner, in a transcript's system line, or in a panel. |
+| `ui.hang` | A test build's main thread stopped answering (see the hang report it names). |
+
+Requests are logged by method and outcome only; prompts, replies, and other
+parameters are not written. `harness_pid` in the app's entries is the `pid` of the
+harness's own entries, so the two sides of one failure line up.
+
+The harness adds `acp.request_failed` for every request it fails, with the
+error's `data`, and mirrors each of its warnings and errors with the source
+location that raised it (`ctx.target`, `ctx.at`). An error the harness reports as
+the bare "Internal error" is shown in the app with the cause from its `data`;
+when the harness sent none, the message says where to look, and the entries
+around that time in `crok logs --errors` have it.
+
 ## Validation
 
 `swift test --package-path desktop/macOS` runs process-backed ACP tests, task

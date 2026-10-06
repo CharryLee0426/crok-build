@@ -146,6 +146,8 @@ See ~/.crok/README.md for more information.
     /// Show what the crok home (~/.crok) uses on disk
     #[command(name = "du", visible_alias = "disk-usage")]
     DiskUsage(crate::disk_usage_cmd::DiskUsageArgs),
+    /// Read the log the agent, the TUI and Crok Desktop write (~/.crok/logs/unified.jsonl)
+    Logs(crate::logs_cmd::LogsArgs),
     /// Expose this workspace to the Computer Hub (via the leader).
     ///
     /// Disabled by default and enabled server-side per account; set `GROK_WORKSPACE_COMMAND=1` to enable it locally for testing.

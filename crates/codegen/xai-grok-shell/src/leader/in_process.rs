@@ -76,10 +76,14 @@ pub async fn spawn_agent(
             return;
         }
         let incoming = LineBufferedRead::spawn_local(agent_in_read.compat());
-        let (conn, handle_io) =
-            acp::AgentSideConnection::new(agent, agent_out_write.compat_write(), incoming, |fut| {
+        let (conn, handle_io) = acp::AgentSideConnection::new(
+            crate::agent::request_log::RequestLog(agent),
+            agent_out_write.compat_write(),
+            incoming,
+            |fut| {
                 tokio::task::spawn_local(fut);
-            });
+            },
+        );
         tokio::task::spawn_local(
             GatewayReceiver::new(gateway_rx, conn)
                 .with_on_meta(xai_grok_otel::span_from_meta_traceparent)

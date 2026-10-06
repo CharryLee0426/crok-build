@@ -48,7 +48,13 @@ final class AppStore: ObservableObject {
     @Published var workspace = GitWorkspaceSnapshot(branch: "", changes: [])
     @Published var selectedFile: String?
     @Published var diffText = ""
-    @Published var banner: String?
+    /// Most failures reach the user here, so each new banner is logged with the task it was shown over.
+    @Published var banner: String? {
+        didSet {
+            guard let banner, banner != oldValue else { return }
+            DesktopLog.info("ui.banner", session: selectedSessionID, ["text": banner])
+        }
+    }
     @Published var syncing = false
     @Published var loginLog = ""
     @Published var loginRunning = false
@@ -56,7 +62,12 @@ final class AppStore: ObservableObject {
     @Published var featurePanel: FeaturePanel?
     @Published var featureRows: [FeatureRow] = []
     @Published var featureLoading = false
-    @Published var featureError: String?
+    @Published var featureError: String? {
+        didSet {
+            guard let featureError, featureError != oldValue else { return }
+            DesktopLog.warn("ui.feature_error", ["text": featureError, "panel": featurePanel.map { String(describing: $0) }])
+        }
+    }
     @Published var savedPlanContent: String?
     @Published var savedPlanLoading = false
     @Published var savedPlanError: String?
@@ -585,8 +596,12 @@ final class AppStore: ObservableObject {
             } catch {
                 guard operationIDs[id] == operationID else { return }
                 let stopped = error is CancellationError || cancellationRequested.contains(id)
+                let phase = runs[id]?.phase
                 runs[id]?.phase = stopped ? "Stopped" : "Needs attention"
                 if !stopped {
+                    var context = DesktopLog.context(for: error)
+                    context["phase"] = phase; context["task"] = id.uuidString; context["project"] = project.path
+                    DesktopLog.error("task.failed", session: task(id)?.sessionID, context)
                     append(Message(kind: .system, text: error.localizedDescription, createdAt: Date()), to: id)
                     if SlashCommand.split(prompt) != nil { banner = error.localizedDescription }
                 }
@@ -1156,6 +1171,17 @@ final class AppStore: ObservableObject {
     }
     func revealProject() { if let project { NSWorkspace.shared.open(URL(fileURLWithPath: project.path)) } }
 
+    /// The harness session of the task on screen, which log entries about the window are filed under.
+    var selectedSessionID: String? { state.selectedConversationID.flatMap(task)?.sessionID }
+
+    /// Shows the unified log in Finder. `crok logs` reads the same file.
+    func revealLog() {
+        DesktopLog.shared.flush()
+        let file = DesktopLog.shared.file
+        if FileManager.default.fileExists(atPath: file.path) { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+        else { banner = "Nothing has been logged yet. The log will be at \(file.path)" }
+    }
+
     /// Opens the side panel on a tab.
     func showSidePanel(_ tab: SidePanelTab) {
         sidePanelTab = tab
@@ -1248,6 +1274,10 @@ final class AppStore: ObservableObject {
     func append(_ message: Message, to id: UUID) {
         flushTranscript(id)
         guard let i = state.conversations.firstIndex(where: { $0.id == id }) else { return }
+        // A system line is the app speaking in the transcript, and what it says is usually that something failed.
+        if message.kind == .system {
+            DesktopLog.info("ui.system_message", session: state.conversations[i].sessionID, ["text": DesktopLog.bounded(message.text, to: 2000), "task": id.uuidString])
+        }
         // As in `flushTranscript`: appending in place, not to a copy of every message.
         var messages = state.conversations[i].messages
         state.conversations[i].messages = []

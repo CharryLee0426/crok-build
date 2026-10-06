@@ -78,6 +78,7 @@ fn process_identity(command: Option<&Command>, is_interactive: bool) -> Option<P
             | Command::Completions { .. }
             | Command::Worktree(_)
             | Command::DiskUsage(_)
+            | Command::Logs(_)
             | Command::Workspace(_),
         ) => (Entrypoint::Cli, Interactivity::Unattended),
         None if is_interactive => return None,
@@ -117,6 +118,7 @@ fn command_needs_pre_sandbox_policy_heal(command: Option<&Command>) -> bool {
             | Command::Version { .. }
             | Command::Completions { .. }
             | Command::DiskUsage(_)
+            | Command::Logs(_)
             | Command::Workspace(_),
         ) => false,
     }
@@ -238,6 +240,7 @@ fn init_tracing_simple(app_entrypoint: &'static str) {
         .with_writer(std::io::stderr);
     let registry = tracing_subscriber::registry()
         .with(fmt_layer.with_filter(env_filter))
+        .with(xai_grok_telemetry::unified_mirror::layer())
         .with(xai_grok_telemetry::sampling_log::layer())
         .with(xai_grok_telemetry::span_profile::layer(app_entrypoint))
         .with(xai_grok_telemetry::instrumentation::layer())
@@ -2335,6 +2338,10 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                 init_tracing_simple("cli");
                 let _otel_guard = xai_grok_telemetry::otel_layer::otel_guard();
                 return xai_grok_pager::disk_usage_cmd::run(disk_usage_args);
+            }
+            // No tracing here: the mirror would append to the file being read.
+            Command::Logs(logs_args) => {
+                return xai_grok_pager::logs_cmd::run(logs_args);
             }
             Command::Workspace(workspace_args) => {
                 init_tracing_simple("cli");
