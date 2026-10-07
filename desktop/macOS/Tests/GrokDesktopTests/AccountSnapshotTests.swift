@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import GrokDesktop
 
-/// Renders the account panels to PNGs in light and dark when GROK_DESKTOP_SNAPSHOT_DIR is set.
+/// Renders the account panels to PNGs in light and dark when CROK_DESKTOP_SNAPSHOT_DIR is set.
 @MainActor
 final class AccountSnapshotTests: XCTestCase {
     private var directory: URL!

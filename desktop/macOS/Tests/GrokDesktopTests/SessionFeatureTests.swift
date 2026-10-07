@@ -415,7 +415,7 @@ final class SessionFeatureTests: XCTestCase {
         return url
     }
 
-    /// Captured from `grok doctor --json` (grok 1.0.41) run outside a terminal on macOS.
+    /// Captured from `crok doctor --json` (crok 1.0.41) run outside a terminal on macOS.
     static let doctorSample = #"""
     {
       "schemaVersion": "1",

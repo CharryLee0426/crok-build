@@ -3,7 +3,7 @@ import Darwin
 import SwiftUI
 
 /// The terminal's external prompt editor (P/app/external_editor.rs): the draft goes to
-/// `<tmp>/grok-prompt-<uuid>.md` (0600), opens in `$VISUAL`/`$EDITOR`, and is read back with the same
+/// `<tmp>/crok-prompt-<uuid>.md` (0600), opens in `$VISUAL`/`$EDITOR`, and is read back with the same
 /// rules and messages. On the desktop the editor runs in Terminal, or the default app for Markdown
 /// when no editor is configured.
 enum ExternalPromptEditor {
@@ -23,7 +23,7 @@ enum ExternalPromptEditor {
 
     /// Creates the prompt file; it must not exist yet, and only the user may read it.
     static func createPromptFile(_ text: String, directory: URL = FileManager.default.temporaryDirectory) throws -> URL {
-        let url = directory.appendingPathComponent("grok-prompt-\(UUID().uuidString.lowercased()).md")
+        let url = directory.appendingPathComponent("crok-prompt-\(UUID().uuidString.lowercased()).md")
         let descriptor = Darwin.open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)

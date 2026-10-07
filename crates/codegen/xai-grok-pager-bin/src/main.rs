@@ -277,9 +277,9 @@ async fn run_setup_command(json: bool) {
         eprintln!("or set a deployment key:");
         eprintln!();
         if cfg!(unix) {
-            eprintln!("  export GROK_DEPLOYMENT_KEY=<your-key>");
+            eprintln!("  export CROK_DEPLOYMENT_KEY=<your-key>");
         } else {
-            eprintln!("  $env:GROK_DEPLOYMENT_KEY=\"<your-key>\"");
+            eprintln!("  $env:CROK_DEPLOYMENT_KEY=\"<your-key>\"");
         }
         eprintln!("  crok setup");
         eprintln!();
@@ -289,7 +289,7 @@ async fn run_setup_command(json: bool) {
         eprintln!("  deployment_key = \"<your-key>\"");
         eprintln!();
         eprintln!(
-            "If you don't have a deployment key, contact your organization's Grok administrator."
+            "If you don't have a deployment key, contact your organization's Crok administrator."
         );
         std::process::exit(1);
     }
@@ -1738,7 +1738,7 @@ fn flag_dashboard_at_startup_if_requested(args: &mut PagerArgs) -> Result<()> {
         anyhow::bail!(
             "the Agent Dashboard is disabled. Enable it by removing \
              `[dashboard] enabled = false` from ~/.crok/config.toml and \
-             unsetting GROK_AGENT_DASHBOARD=0."
+             unsetting CROK_AGENT_DASHBOARD=0."
         );
     }
     args.command = None;
@@ -1817,10 +1817,10 @@ impl WorkerCount {
                 used,
                 cores,
             } => Some(format!(
-                "crok: clamped {GROK_WORKER_THREADS_ENV}={requested} to {used} (valid range is 1..={cores})"
+                "crok: clamped CROK_WORKER_THREADS={requested} to {used} (valid range is 1..={cores})"
             )),
             Self::Ignored { value, .. } => Some(format!(
-                "crok: ignoring {GROK_WORKER_THREADS_ENV}={value:?} (not a valid integer)"
+                "crok: ignoring CROK_WORKER_THREADS={value:?} (not a valid integer)"
             )),
         }
     }
@@ -2268,7 +2268,7 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                     };
                     anyhow::bail!(
                         "top-level {flag} applies to the pager TUI, not the agent subcommand. \
-                         Use `grok-pager agent {flag}` instead."
+                         Use `crok agent {flag}` instead."
                     );
                 }
                 enforce_version_policy_or_exit();
@@ -2937,7 +2937,7 @@ mod tests {
         );
         assert_eq!(
             resolve_worker_override("100000", cores).notice().unwrap(),
-            "crok: clamped GROK_WORKER_THREADS=100000 to 360 (valid range is 1..=360)"
+            "crok: clamped CROK_WORKER_THREADS=100000 to 360 (valid range is 1..=360)"
         );
     }
     #[test]
@@ -2950,7 +2950,7 @@ mod tests {
         }
         assert_eq!(
             resolve_worker_override("abc", cores).notice().unwrap(),
-            "crok: ignoring GROK_WORKER_THREADS=\"abc\" (not a valid integer)"
+            "crok: ignoring CROK_WORKER_THREADS=\"abc\" (not a valid integer)"
         );
     }
     #[test]

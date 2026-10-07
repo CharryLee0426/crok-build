@@ -43,7 +43,7 @@ pub enum ManagedConfigError {
     )]
     ConnectionInterrupted(String),
     #[error(
-        "The deployment key was rejected. Confirm that GROK_DEPLOYMENT_KEY is set correctly and hasn't expired."
+        "The deployment key was rejected. Confirm that CROK_DEPLOYMENT_KEY is set correctly and hasn't expired."
     )]
     DeploymentKeyRejected,
     #[error(

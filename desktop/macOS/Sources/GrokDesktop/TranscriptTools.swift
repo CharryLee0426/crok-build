@@ -132,7 +132,7 @@ final class TranscriptToolsModel: ObservableObject {
         static let vimMode = "transcriptVimMode"
     }
 
-    private let configQueue = DispatchQueue(label: "ai.grok.desktop.transcript-config", qos: .utility)
+    private let configQueue = DispatchQueue(label: "dev.chenli.crok.desktop.transcript-config", qos: .utility)
     private var preferencesLoaded = false
     private var preferenceEdits = 0
     private var scrollSerial = 0
@@ -563,7 +563,7 @@ final class TranscriptToolsModel: ObservableObject {
 
     // MARK: - /export and /transcript
 
-    /// The terminal's Markdown for a task: `grok export <session>` renders it exactly; a task the
+    /// The terminal's Markdown for a task: `crok export <session>` renders it exactly; a task the
     /// harness has not saved yet (or a failing CLI) falls back to the same format built here.
     func exportMarkdown(for id: UUID) async -> (markdown: String, source: TranscriptDocument.Source) {
         guard let store, let conversation = store.task(id) else { return ("", .local) }
@@ -831,7 +831,7 @@ final class TranscriptDebugHUD: ObservableObject {
 final class TranscriptScrollLog: @unchecked Sendable {
     let url: URL
     private let handle: FileHandle
-    private let queue = DispatchQueue(label: "ai.grok.desktop.scroll-log", qos: .utility)
+    private let queue = DispatchQueue(label: "dev.chenli.crok.desktop.scroll-log", qos: .utility)
     private let started = Date()
 
     init(url: URL) throws {

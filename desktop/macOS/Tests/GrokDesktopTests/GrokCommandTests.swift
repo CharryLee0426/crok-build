@@ -4,7 +4,7 @@ import SwiftUI
 import XCTest
 @testable import GrokDesktop
 
-/// The `grok` command: the bundled launcher, the `/usr/local/bin` link, and its Settings switch.
+/// The `crok` command: the bundled launcher, the `/usr/local/bin` link, and its Settings switch.
 /// Links go into temporary folders; nothing here touches `/usr/local/bin`.
 @MainActor
 final class GrokCommandTests: XCTestCase {
@@ -334,7 +334,7 @@ private actor PrivilegedRequests {
     func append(_ command: String, _ prompt: String) { all.append(Request(command: command, prompt: prompt)) }
 }
 
-/// Writes PNGs of the `grok` command's Settings section when GROK_DESKTOP_SNAPSHOT_DIR is set.
+/// Writes PNGs of the `crok` command's Settings section when CROK_DESKTOP_SNAPSHOT_DIR is set.
 @MainActor
 final class GrokCommandSnapshotTests: XCTestCase {
     func testRenderCommandLineSettings() throws {

@@ -103,13 +103,13 @@ final class ThemePalette {
         red: Theme.adaptiveNS(0xB3261E, 0xF2877E), codeBackground: Theme.tintNS(light: 0.045, dark: 0.055), inlineCode: Theme.tintNS(light: 0.065, dark: 0.09),
         tableHeader: Theme.tintNS(light: 0.05, dark: 0.065), tableStripe: Theme.tintNS(light: 0.02, dark: 0.025))
 
-    /// Grok Night: neutral grays with TokyoNight accents (groknight.rs).
+    /// Crok Night: neutral grays with TokyoNight accents (groknight.rs).
     static let grokNight = ThemePalette(
         .groknight, canvas: 0x141414, sidebar: 0x111111, surface: 0x242424, input: 0x1C1C1C, hover: 0x2C2C2C, line: 0x323237,
         ink: 0xE1E1E1, muted: 0x787878, accent: 0xBB9AF7, green: 0x9ECE6A, red: 0xF7768E,
         codeBackground: 0x1C1C1C, inlineCode: 0x242424, tableHeader: 0x242424, tableStripe: 0x1C1C1C)
 
-    /// Grok Day: the light counterpart (grokday.rs).
+    /// Crok Day: the light counterpart (grokday.rs).
     static let grokDay = ThemePalette(
         .grokday, canvas: 0xEEEEEE, sidebar: 0xE4E4E4, surface: 0xF5F5F5, input: 0xEEEEEE, hover: 0xDEDEDE, line: 0xC8C8CD,
         ink: 0x262626, muted: 0x626262, accent: 0x7D4BC6, green: 0x378E23, red: 0xCD3048,

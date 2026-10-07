@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import GrokDesktop
 
-/// Renders the session sheets and the trace window to PNGs when GROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
+/// Renders the session sheets and the trace window to PNGs when CROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
 @MainActor
 final class SessionSnapshotTests: XCTestCase {
     private var directory: URL!

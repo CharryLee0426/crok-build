@@ -1,7 +1,7 @@
 import XCTest
 @testable import GrokDesktop
 
-/// Documents checked against Grok's own TOML parser (the `toml` 0.9.12 crate, TOML 1.1) to pin
+/// Documents checked against Crok's own TOML parser (the `toml` 0.9.12 crate, TOML 1.1) to pin
 /// which files the importer will edit and which it refuses: the two must agree on every one.
 final class ClaudeImportTOMLCorpusTests: XCTestCase {
     private let acceptedByGrok = [

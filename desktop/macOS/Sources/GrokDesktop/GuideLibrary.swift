@@ -1,6 +1,6 @@
 import Foundation
 
-/// One how-to guide from `$GROK_HOME/docs/user-guide`.
+/// One how-to guide from `$CROK_HOME/docs/user-guide`.
 struct GuideDocument: Identifiable, Equatable {
     /// The file name, e.g. `06-theming.md`, which is also what guides link to.
     var id: String { fileName }
@@ -35,8 +35,8 @@ enum GuideDocsTarget: Equatable {
     }
 }
 
-/// The guides every `grok` process start (including `grok agent stdio`) extracts to
-/// `$GROK_HOME/docs/user-guide/NN-*.md`, listed in the terminal's order (`xai-grok-pager/src/docs.rs`).
+/// The guides every `crok` process start (including `crok agent stdio`) extracts to
+/// `$CROK_HOME/docs/user-guide/NN-*.md`, listed in the terminal's order (`xai-grok-pager/src/docs.rs`).
 enum GuideLibrary {
     struct Entry {
         let fileName: String

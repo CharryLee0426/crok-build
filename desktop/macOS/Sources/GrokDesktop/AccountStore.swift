@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-/// Model providers Grok Desktop can sign in to. xAI accounts are not supported;
+/// Model providers Crok Desktop can sign in to. xAI accounts are not supported;
 /// Grok models are available through OpenRouter.
 enum AccountProvider: String, CaseIterable, Identifiable {
     case openrouter

@@ -355,7 +355,7 @@ To reclaim space, run `crok worktree gc --max-age 7d --dry-run`, then the same c
 Untracked rows are not in the registry, so gc never visits them. Remove one with `crok worktree rm --dry-run <path>`, then without `--dry-run`.
 ```
 
-After the grok-home table, `crok du` may print **Redirections**, **Orphaned redirections**, and **Unattributed redirect directories**. Those bytes live in Grove escape jails, not in the grok-home total. An empty scan prints nothing. Reclaim a live jail with `crok worktree clean-artifacts`. Purge live jails plus proven orphans with `crok du --clean --yes`. Delete only proven orphans with `crok du --clean-orphaned --yes`.
+After the crok-home table, `crok du` may print **Redirections**, **Orphaned redirections**, and **Unattributed redirect directories**. Those bytes live in Grove escape jails, not in the crok-home total. An empty scan prints nothing. Reclaim a live jail with `crok worktree clean-artifacts`. Purge live jails plus proven orphans with `crok du --clean --yes`. Delete only proven orphans with `crok du --clean-orphaned --yes`.
 
 `AGE` is the value `crok worktree gc` measures: time since the worktree was last accessed, or since it was created when that is more recent. Session and agent activity update it; a shell or editor left open in the directory does not. An untracked worktree has no registry entry, so its age comes from the newest file underneath it.
 

@@ -636,7 +636,7 @@ final class SessionFeatureModel: ObservableObject {
         trace = .idle
     }
 
-    /// Exports the selected task's trace to a private HTML file with `grok trace view`.
+    /// Exports the selected task's trace to a private HTML file with `crok trace view`.
     func loadTrace() async {
         guard harnessRequestsEnabled, let store else { return }
         let requestID = UUID()
@@ -724,7 +724,7 @@ final class SessionFeatureModel: ObservableObject {
     }
 
     /// Terminal fixes change terminal and shell configuration, so they run where the user can
-    /// review and confirm them: in Terminal, with the terminal's own `grok doctor fix` prompt.
+    /// review and confirm them: in Terminal, with the terminal's own `crok doctor fix` prompt.
     func runFixInTerminal(_ fix: DoctorFixSpec) {
         guard let store else { return }
         do {

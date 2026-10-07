@@ -116,7 +116,7 @@ pub fn create_snapshot_with_symlink(btrfs_info: &BtrfsInfo, dest: &Path) -> Resu
             })?;
         } else if !is_safe_snapshot_delete_target(&snapshot_path) {
             bail!(
-                "refusing to delete pre-existing snapshot {}: outside grok-managed \
+                "refusing to delete pre-existing snapshot {}: outside crok-managed \
                  btrfs storage",
                 snapshot_path.display()
             );

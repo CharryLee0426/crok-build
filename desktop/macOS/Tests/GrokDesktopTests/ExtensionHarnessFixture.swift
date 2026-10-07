@@ -3,7 +3,7 @@ import XCTest
 
 /// An offline harness for the extension panels: the shared mock plus the memory, marketplace,
 /// plugins, hooks, skills-config, workflows, and session-info methods, all recorded to disk.
-/// GROK_HOME and HOME point into the fixture directory for the fixture's lifetime.
+/// CROK_HOME and HOME point into the fixture directory for the fixture's lifetime.
 @MainActor
 final class ExtensionHarnessFixture {
     let directory: URL

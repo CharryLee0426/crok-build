@@ -25,7 +25,7 @@ struct AgentDefinitionEntry: Identifiable, Equatable {
 }
 
 /// Finds agent definitions the way the harness does: user-visible built-ins, then `.grok/agents`
-/// and `.claude/agents` from the project up to its git root, `~/.grok/agents`, `~/.claude/agents`,
+/// and `.claude/agents` from the project up to its git root, `~/.crok/agents`, `~/.claude/agents`,
 /// bundled agents, and finally plugin agents under `plugin:agent` names.
 enum AgentCatalog {
     /// The user's home, honouring `HOME` like the harness does (so tests can point it elsewhere).

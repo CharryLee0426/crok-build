@@ -10,7 +10,7 @@ import Foundation
 struct ClaudeImportEnvironment {
     /// The home that holds `.claude/` and `.claude.json`.
     var home: URL
-    /// `$GROK_HOME`, or `~/.grok`.
+    /// `$CROK_HOME`, or `~/.crok`.
     var grokHome: URL
     /// The project directory the terminal would have as its working directory.
     var cwd: URL
@@ -92,7 +92,7 @@ struct ClaudePermissionRule: Equatable {
         }
         if ["EnterWorktree", "NotebookEdit", "NotebookRead"].contains(rule) { return nil }
         if let tool = ClaudeToolFilter(claudeName: rule) { self.tool = tool; pattern = nil; return }
-        // Claude's `mcp__server[__tool]` spelling becomes Grok's unprefixed `server__tool`.
+        // Claude's `mcp__server[__tool]` spelling becomes Crok's unprefixed `server__tool`.
         if rule.hasPrefix("mcp__"), rule.count > 5 {
             let rest = String(rule.dropFirst(5))
             tool = .mcp
@@ -151,7 +151,7 @@ enum ClaudeImportItemKind: Int, CaseIterable, Comparable {
     static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
-/// An MCP server definition, already converted to the `[mcp_servers.<name>]` lines Grok reads.
+/// An MCP server definition, already converted to the `[mcp_servers.<name>]` lines Crok reads.
 struct ClaudeMCPServer: Equatable {
     var lines: [String]
     /// The command line or URL, shown beside the name.
@@ -545,7 +545,7 @@ enum ClaudeMCPConverter {
         return .some(result)
     }
 
-    /// `oauth = { clientId, clientSecretEnvVar, scopes, callbackPort }` (camelCase, as Grok reads it).
+    /// `oauth = { clientId, clientSecretEnvVar, scopes, callbackPort }` (camelCase, as Crok reads it).
     private static func optionalOAuth(_ value: ClaudeJSON?) -> String?? {
         guard let value, !value.isNull else { return .some(nil) }
         guard case .object = value, let clientID = optionalString(value["clientId"]), let secret = optionalString(value["clientSecretEnvVar"]),
@@ -559,7 +559,7 @@ enum ClaudeMCPConverter {
         return .some(inlineTable(fields))
     }
 
-    /// Grok's single-select `setup` block: `fields` (id, label, type "select", required, default,
+    /// Crok's single-select `setup` block: `fields` (id, label, type "select", required, default,
     /// options) and `variables` (alias `values`) mapping each name to `{ from, map }`.
     private static func optionalSetup(_ value: ClaudeJSON?) -> String?? {
         guard let value, !value.isNull else { return .some(nil) }
@@ -598,8 +598,8 @@ enum ClaudeMCPConverter {
 // MARK: - Applying
 
 enum ClaudeImporter {
-    /// Writes a plan additively: global items to `$GROK_HOME/config.toml` and
-    /// `$GROK_HOME/hooks/imported-from-claude.json`, project items to the same names under
+    /// Writes a plan additively: global items to `$CROK_HOME/config.toml` and
+    /// `$CROK_HOME/hooks/imported-from-claude.json`, project items to the same names under
     /// `<repoRoot>/.grok/`. Existing keys, servers, and rules are never overwritten. Every file is
     /// checked and edited in memory before any is written, so a bad file stops the whole import.
     static func apply(_ plan: ClaudeImportPlan, environment: ClaudeImportEnvironment) throws -> ClaudeImportResult {
@@ -755,7 +755,7 @@ enum ClaudeImporter {
         return false
     }
 
-    /// Writes `[claude_compat] imported = true` to the global config: the user's choice to stop Grok
+    /// Writes `[claude_compat] imported = true` to the global config: the user's choice to stop Crok
     /// reading `.claude/` at runtime. Recorded even when nothing was imported.
     static func markImported(_ environment: ClaudeImportEnvironment) throws {
         try GrokConfig.withWriteLock { try markImportedLocked(environment) }
@@ -779,7 +779,7 @@ enum ClaudeImporter {
 
 // MARK: - State file
 
-/// `$GROK_HOME/claude_import_state.json`: hashes of the Claude settings seen at the last import or
+/// `$CROK_HOME/claude_import_state.json`: hashes of the Claude settings seen at the last import or
 /// dismissal, so the terminal does not offer the import again until they change.
 enum ClaudeImportState {
     /// Records the current hashes for the global scope and this working directory.
@@ -873,7 +873,7 @@ enum ClaudeImportFiles {
         return text
     }
 
-    /// Writes atomically. Files keep their permissions; new files under `$GROK_HOME` (which may hold
+    /// Writes atomically. Files keep their permissions; new files under `$CROK_HOME` (which may hold
     /// secrets from imported env vars) are private to the user.
     static func write(_ data: Data, to link: URL, privateDirectory: Bool, privateFile: Bool) throws {
         let manager = FileManager.default

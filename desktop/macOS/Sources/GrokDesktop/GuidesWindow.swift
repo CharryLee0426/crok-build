@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// `/docs`: the how-to guides the harness extracts to `$GROK_HOME/docs/user-guide`, with search
+/// `/docs`: the how-to guides the harness extracts to `$CROK_HOME/docs/user-guide`, with search
 /// across titles and text, and links between guides.
 struct DocsWindow: View {
     @EnvironmentObject var extras: ExtrasFeatureModel

@@ -141,7 +141,7 @@ impl LockdownSource {
     /// Human row; `exempt` names what an advisory source does not bind.
     fn human_row(&self, exempt: &str) -> String {
         if self.advisory {
-            format!("{} (advisory; grok-native {exempt} exempt)", self.source)
+            format!("{} (advisory; crok-native {exempt} exempt)", self.source)
         } else {
             self.source.clone()
         }
@@ -1594,7 +1594,7 @@ fn print_human(r: &InspectReport, out: &mut impl Write) -> std::io::Result<()> {
         )?,
         ManagedOnlyScope::Advisory => writeln!(
             out,
-            "  {TREE} MCP managed servers only: advisory (Claude managed-settings; grok-native servers exempt)"
+            "  {TREE} MCP managed servers only: advisory (Claude managed-settings; crok-native servers exempt)"
         )?,
     }
     if !r.permissions.marketplace_allowlist.is_empty() {
@@ -3033,8 +3033,8 @@ mod tests {
         print_human(&report, &mut out).expect("buffer write succeeds");
         let text = String::from_utf8(out).unwrap();
         for needle in [
-            "managed-settings.json (advisory; grok-native servers exempt)",
-            "managed-settings.json (advisory; grok-native marketplaces exempt)",
+            "managed-settings.json (advisory; crok-native servers exempt)",
+            "managed-settings.json (advisory; crok-native marketplaces exempt)",
         ] {
             assert!(text.contains(needle), "missing {needle:?} in:\n{text}");
         }

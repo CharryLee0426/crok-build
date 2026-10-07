@@ -350,7 +350,7 @@ final class PromptAttachmentsModel: ObservableObject {
     }
 
     /// Where pasted and dragged image data is saved while it waits to be sent.
-    nonisolated static let scratchDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("GrokDesktopAttachments", isDirectory: true)
+    nonisolated static let scratchDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("CrokDesktopAttachments", isDirectory: true)
 
     nonisolated static func isScratch(_ url: URL) -> Bool {
         url.standardizedFileURL.path.hasPrefix(scratchDirectory.standardizedFileURL.path)

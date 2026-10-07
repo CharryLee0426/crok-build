@@ -40,7 +40,7 @@ struct GrokTutorialTopic: Identifiable, Equatable {
     }
 }
 
-/// `/tutorial`: the terminal's "Welcome to Grok Build" topics, with ✓ marks for pages already read.
+/// `/tutorial`: the terminal's "Welcome to Crok Build" topics, with ✓ marks for pages already read.
 struct TutorialWindow: View {
     @EnvironmentObject var extras: ExtrasFeatureModel
     /// Nil shows the welcome page, like the terminal's topic list.

@@ -249,8 +249,8 @@ impl ManagedConfig {
         let changes =
             original.bytes.as_deref() != Some(updated.as_slice()) || original.bytes.is_none();
         let backup_path_hint = (changes && original.bytes.is_some())
-            .then(|| transaction::artifact_hint(&target_path, "grok-backup"));
-        let temp_path_hint = changes.then(|| transaction::artifact_hint(&target_path, "grok-tmp"));
+            .then(|| transaction::artifact_hint(&target_path, "crok-backup"));
+        let temp_path_hint = changes.then(|| transaction::artifact_hint(&target_path, "crok-tmp"));
         let lock_path = transaction::sibling_artifact(&target_path, "grok.lock");
 
         Ok(ManagedConfigPlan {

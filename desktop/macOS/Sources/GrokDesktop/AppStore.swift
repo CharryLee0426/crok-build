@@ -122,7 +122,7 @@ final class AppStore: ObservableObject {
     private var saveTask: Task<Void, Never>?
     private var saveDeadline: Date?
     /// Serializes state writes so the newest snapshot always lands last.
-    private let persistence = DispatchQueue(label: "ai.grok.desktop.state", qos: .utility)
+    private let persistence = DispatchQueue(label: "dev.chenli.crok.desktop.state", qos: .utility)
     /// Transcripts live in files of their own; see `TranscriptArchive`.
     private let archive: TranscriptArchive
     private var pendingTranscript: [UUID: [[String: Any]]] = [:]

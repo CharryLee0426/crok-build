@@ -16,7 +16,7 @@ final class AccountFeatureModel: ObservableObject {
 
     /// Opens links in the browser. Tests replace it so nothing leaves the process.
     var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
-    /// `$GROK_HOME`, read when needed. Tests point it at a temporary directory.
+    /// `$CROK_HOME`, read when needed. Tests point it at a temporary directory.
     var grokHome: () -> URL = { GrokPaths.home }
     /// Downloads release notes. Tests replace it so no request reaches the network.
     var downloadText: (URL, TimeInterval) async -> String? = ReleaseNotesLoader.download
@@ -26,7 +26,7 @@ final class AccountFeatureModel: ObservableObject {
     private var draftsRequestID: UUID?
     private var announcementsGeneration: UInt64 = 0
     private var announcementExpiry: Task<Void, Never>?
-    private let announcementWrites = DispatchQueue(label: "ai.grok.desktop.announcements", qos: .utility)
+    private let announcementWrites = DispatchQueue(label: "dev.chenli.crok.desktop.announcements", qos: .utility)
     /// "No, and don't ask again" applies to the rest of this run even before config.toml is read again.
     private var feedbackTraceLatched = false
     private var showResolvedModel = false
@@ -427,7 +427,7 @@ final class AccountFeatureModel: ObservableObject {
         openURL(url)
     }
 
-    /// The hidden set the terminal and Grok Desktop share, after this app's own queued writes.
+    /// The hidden set the terminal and Crok Desktop share, after this app's own queued writes.
     private func readHiddenAnnouncements() -> Set<String> {
         announcementWrites.sync {}
         return AnnouncementHiddenFile.read(home: grokHome())
@@ -463,7 +463,7 @@ struct AccountAuthDescription: Equatable {
     var method: String
     var note: String?
 
-    /// Grok Desktop signs in only with OpenRouter or OpenAI Codex credentials.
+    /// Crok Desktop signs in only with OpenRouter or OpenAI Codex credentials.
     static let providerCredentials = AccountAuthDescription(method: "Provider credentials", note: nil)
 }
 

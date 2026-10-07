@@ -5,5 +5,5 @@ The example contains a recorded reasoning message, a successful file read, a fai
 From the repository root:
 
 ```sh
-grok trace view crates/codegen/xai-grok-pager/src/trace_view/fixtures/session --format html --output /tmp/agent-trace.html
+crok trace view crates/codegen/xai-grok-pager/src/trace_view/fixtures/session --format html --output /tmp/agent-trace.html
 ```

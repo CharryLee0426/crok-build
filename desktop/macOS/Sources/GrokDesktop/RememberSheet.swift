@@ -44,7 +44,7 @@ extension ExtensionFeatureModel {
     }
 }
 
-/// `/remember [text]`: write a note, optionally let Grok enhance it with the task's context, and save it.
+/// `/remember [text]`: write a note, optionally let Crok enhance it with the task's context, and save it.
 struct RememberSheet: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var extensions: ExtensionFeatureModel

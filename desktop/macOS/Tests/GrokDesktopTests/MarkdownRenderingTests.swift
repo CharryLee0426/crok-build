@@ -129,7 +129,7 @@ final class MarkdownRenderingTests: XCTestCase {
         return nil
     }
 
-    /// Writes PNGs of a rendered reply, of reasoning, and of a panel when GROK_DESKTOP_SNAPSHOT_DIR is set.
+    /// Writes PNGs of a rendered reply, of reasoning, and of a panel when CROK_DESKTOP_SNAPSHOT_DIR is set.
     func testRenderMarkdownSnapshots() throws {
         guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let reply = Message(kind: .assistant, text: Self.sample)

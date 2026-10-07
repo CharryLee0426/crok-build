@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import GrokDesktop
 
-/// Writes PNGs of the composer's states when GROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
+/// Writes PNGs of the composer's states when CROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
 @MainActor
 final class ComposerSnapshotTests: XCTestCase {
     private var directory: URL!

@@ -67,7 +67,7 @@ fn empty_state_markdown(capture_enabled: bool, dream_enabled: bool) -> String {
         text.push_str("- `/dream` organizes saved notes into topics.\n");
     }
     text.push_str(
-        "\nGrok Build remembers conventions, decisions, and project facts across sessions so you \
+        "\nCrok Build remembers conventions, decisions, and project facts across sessions so you \
          don't have to repeat yourself. Notes live in **workspace** memory for this repository and \
          **global** memory shared across all your projects; each has a generated `MEMORY.md` index \
          that fills in as notes are saved.\n",
@@ -96,7 +96,7 @@ there (or remove the line) to keep memory on. Anything already remembered is kep
         Some(MemoryDisabledReason::ProcessDisabled) => {
             "\
 **Memory is off for this process.** Start a new session without `--no-memory` or \
-`GROK_MEMORY=0` to use it.
+`CROK_MEMORY=0` to use it.
 
 Memory was turned off when Crok Build started, so it can't be turned on here. Anything already \
 remembered is kept on disk."

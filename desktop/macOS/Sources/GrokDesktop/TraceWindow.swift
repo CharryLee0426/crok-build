@@ -11,7 +11,7 @@ enum TraceViewState: Equatable {
     case failed(directory: String, error: String)
 }
 
-/// `/trace`: the terminal's trace explorer, exported by `grok trace view --format html` and shown
+/// `/trace`: the terminal's trace explorer, exported by `crok trace view --format html` and shown
 /// in a web view. It follows the selected task while the window is open.
 struct TraceWindow: View {
     @EnvironmentObject var sessions: SessionFeatureModel

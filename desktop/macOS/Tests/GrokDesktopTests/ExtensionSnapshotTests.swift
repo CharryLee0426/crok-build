@@ -4,7 +4,7 @@ import XCTest
 @testable import GrokDesktop
 
 /// Renders the extension panels and the remember sheet, loaded from the offline harness, when
-/// GROK_DESKTOP_SNAPSHOT_DIR is set.
+/// CROK_DESKTOP_SNAPSHOT_DIR is set.
 @MainActor
 final class ExtensionSnapshotTests: XCTestCase {
     private func output() throws -> URL {

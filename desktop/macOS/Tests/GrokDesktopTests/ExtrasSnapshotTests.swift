@@ -4,7 +4,7 @@ import XCTest
 @testable import GrokDesktop
 
 /// Renders the theme, guides, tutorial, palette, and shortcuts views to PNGs for visual review
-/// when GROK_DESKTOP_SNAPSHOT_DIR is set.
+/// when CROK_DESKTOP_SNAPSHOT_DIR is set.
 @MainActor
 final class ExtrasSnapshotTests: XCTestCase {
     private var directory: URL!

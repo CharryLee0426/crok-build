@@ -86,7 +86,7 @@ enum SessionForkChoice: String, CaseIterable, Identifiable {
 
 enum SessionWorktreeDetection {
     /// Mirrors the terminal's `parent_session_is_worktree`: the session summary records a worktree,
-    /// or the folder's `.git` is a file (a linked worktree) or carries Grok's worktree marker.
+    /// or the folder's `.git` is a file (a linked worktree) or carries Crok's worktree marker.
     static func isWorktree(sessionDirectory: URL?, cwd: String) -> Bool {
         if let summary = sessionDirectory?.appendingPathComponent("summary.json"),
            let data = try? Data(contentsOf: summary),
@@ -564,7 +564,7 @@ enum DoctorRequest: Equatable {
     }
 }
 
-/// An automatic fix `grok doctor fix` can apply. They configure the terminal, so they run in Terminal.
+/// An automatic fix `crok doctor fix` can apply. They configure the terminal, so they run in Terminal.
 struct DoctorFixSpec: Equatable, Identifiable {
     let handle: String
     let label: String
@@ -585,7 +585,7 @@ struct DoctorFixSpec: Equatable, Identifiable {
     }
 }
 
-/// `grok doctor --json` (schema version 1, camelCase). Every field is optional so a newer
+/// `crok doctor --json` (schema version 1, camelCase). Every field is optional so a newer
 /// harness that adds or drops facts still decodes.
 struct DoctorReport: Decodable, Equatable {
     struct RuntimeFact: Decodable, Equatable {
@@ -720,7 +720,7 @@ struct DoctorReport: Decodable, Equatable {
 // MARK: - /trace
 
 enum TraceExport {
-    /// `grok trace view <session directory> --format html -o <file>`. The directory is passed
+    /// `crok trace view <session directory> --format html -o <file>`. The directory is passed
     /// rather than the session ID so the CLI reads exactly the session the desktop resolved.
     static func arguments(source: String, output: String) -> [String] {
         ["trace", "view", source, "--format", "html", "-o", output]
@@ -728,7 +728,7 @@ enum TraceExport {
 
     /// A private scratch file for one export; the page embeds the whole transcript.
     static func outputFile(sessionID: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GrokDesktopTraces", isDirectory: true)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CrokDesktopTraces", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let safe = String(sessionID.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" ? Character($0) : "_" }.prefix(120))
         return directory.appendingPathComponent("\(safe.isEmpty ? "trace" : safe)-\(UUID().uuidString.prefix(8)).html")

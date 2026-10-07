@@ -290,7 +290,7 @@ source = "github"
 repo = "ACME/more-plugins"
 ```
 
-The same lists work in Claude `managed-settings.json` (advisory for already-configured grok-native sources). URL comparison folds case on the **scheme and host only**, and strips exactly one trailing `.git` (`repo.git.git` is a different repo). Use `crok inspect` to see the loaded allowlist.
+The same lists work in Claude `managed-settings.json` (advisory for already-configured crok-native sources). URL comparison folds case on the **scheme and host only**, and strips exactly one trailing `.git` (`repo.git.git` is a different repo). Use `crok inspect` to see the loaded allowlist.
 
 Provision extra sources from policy with `extraKnownMarketplaces` / `extra_known_marketplaces`. First pinning layer wins a name; a configured source already holding that name with a different URL is not overwritten (logged). `autoUpdate = false` on an extra pin turns **global** session-start plugin auto-update off (there is no per-marketplace crok equivalent).
 

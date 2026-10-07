@@ -31,7 +31,7 @@ enum ACPClientError: LocalizedError {
     }
 }
 
-/// A newline-delimited JSON-RPC connection to `grok agent stdio`.
+/// A newline-delimited JSON-RPC connection to `crok agent stdio`.
 /// All callbacks and request completions are delivered on the main actor; pipe I/O is not.
 @MainActor
 final class ACPClient {
@@ -55,7 +55,7 @@ final class ACPClient {
         let input = Pipe()
         let output = Pipe()
         let errors = Pipe()
-        let writer = DispatchQueue(label: "ai.grok.desktop.acp.stdin", qos: .userInitiated)
+        let writer = DispatchQueue(label: "dev.chenli.crok.desktop.acp.stdin", qos: .userInitiated)
         var stdoutFinished = false
         var stderrFinished = false
         var exitStatus: Int32?
@@ -214,7 +214,7 @@ final class ACPClient {
     }
 
     private func readStdout(_ connection: Connection) {
-        DispatchQueue(label: "ai.grok.desktop.acp.stdout", qos: .userInitiated).async { [weak self, connection] in
+        DispatchQueue(label: "dev.chenli.crok.desktop.acp.stdout", qos: .userInitiated).async { [weak self, connection] in
             let handle = connection.output.fileHandleForReading
             defer { try? handle.close() }
             var buffer = Data()
@@ -297,7 +297,7 @@ final class ACPClient {
     }
 
     private func readStderr(_ connection: Connection) {
-        DispatchQueue(label: "ai.grok.desktop.acp.stderr", qos: .utility).async { [weak self, connection] in
+        DispatchQueue(label: "dev.chenli.crok.desktop.acp.stderr", qos: .utility).async { [weak self, connection] in
             let handle = connection.errors.fileHandleForReading
             defer { try? handle.close() }
             do {

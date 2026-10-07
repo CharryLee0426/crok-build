@@ -192,7 +192,7 @@ final class MarkdownReplyTests: XCTestCase {
         if MarkdownPerformanceTests.isOptimized { XCTAssertLessThan(total / Double(steps), 16) }
     }
 
-    /// Writes PNGs of a narrow reply, as in the side chat, when GROK_DESKTOP_SNAPSHOT_DIR is set.
+    /// Writes PNGs of a narrow reply, as in the side chat, when CROK_DESKTOP_SNAPSHOT_DIR is set.
     func testRenderNarrowReplySnapshots() throws {
         guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let text = """

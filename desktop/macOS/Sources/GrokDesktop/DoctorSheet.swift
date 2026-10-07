@@ -81,7 +81,7 @@ struct DoctorDesktopCheck: Identifiable, Equatable {
     }
 }
 
-/// A `.command` file that runs one `grok doctor fix` in Terminal, where the fix shows its own
+/// A `.command` file that runs one `crok doctor fix` in Terminal, where the fix shows its own
 /// preview and asks before changing anything.
 enum DoctorTerminalScript {
     static func contents(binary: String, fix: DoctorFixSpec) -> String {
@@ -101,7 +101,7 @@ enum DoctorTerminalScript {
     }
 
     static func write(binary: String, fix: DoctorFixSpec) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GrokDesktopDoctor", isDirectory: true)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CrokDesktopDoctor", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let url = directory.appendingPathComponent("doctor-fix-\(fix.handle)-\(UUID().uuidString.prefix(8)).command")
         try Data(contents(binary: binary, fix: fix).utf8).write(to: url, options: .atomic)
@@ -110,7 +110,7 @@ enum DoctorTerminalScript {
     }
 }
 
-/// `/doctor [fix [name]]`: the terminal's environment report from `grok doctor --json`, desktop
+/// `/doctor [fix [name]]`: the terminal's environment report from `crok doctor --json`, desktop
 /// checks, and the automatic fixes, which run in Terminal.
 struct DoctorSheet: View {
     @EnvironmentObject var store: AppStore
