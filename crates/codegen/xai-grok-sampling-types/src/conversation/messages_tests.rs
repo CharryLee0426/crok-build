@@ -417,3 +417,103 @@ fn upgrade_legacy_reasoning_singular_anthropic_no_id() {
     assert_eq!(r.id, "");
     assert_eq!(r.encrypted_content.as_deref(), Some("signature-bytes-here"));
 }
+
+fn thinking_item(id: String, sealed: &str) -> ConversationItem {
+    ConversationItem::Reasoning(rs::ReasoningItem {
+        id,
+        summary: vec![],
+        content: None,
+        encrypted_content: Some(sealed.to_owned()),
+        status: None,
+    })
+}
+
+/// The kinds of the blocks in message `index`, in order.
+fn block_kinds(request: &crate::messages::MessagesRequest, index: usize) -> Vec<String> {
+    let wire = serde_json::to_value(request).unwrap();
+    wire["messages"][index]["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|block| block["type"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn reasoning_placement_round_trips_through_the_item_id() {
+    for placement in [
+        MessagesReasoningPlacement::default(),
+        MessagesReasoningPlacement {
+            redacted: true,
+            before_tool_call: None,
+        },
+        MessagesReasoningPlacement {
+            redacted: false,
+            before_tool_call: Some("toolu_1"),
+        },
+        MessagesReasoningPlacement {
+            redacted: true,
+            before_tool_call: Some("call:with:colons"),
+        },
+    ] {
+        let ConversationItem::Reasoning(item) =
+            thinking_item(messages_reasoning_id(placement), "sealed")
+        else {
+            unreachable!()
+        };
+        assert_eq!(messages_reasoning_placement(&item), placement);
+    }
+    // A plain leading block keeps the empty id items had before placement was recorded.
+    assert_eq!(
+        messages_reasoning_id(MessagesReasoningPlacement::default()),
+        ""
+    );
+    // Another provider's id says nothing about placement.
+    let ConversationItem::Reasoning(foreign) = thinking_item("rs_0123".into(), "sealed") else {
+        unreachable!()
+    };
+    assert_eq!(
+        messages_reasoning_placement(&foreign),
+        MessagesReasoningPlacement::default()
+    );
+}
+
+/// A thinking block recorded against a tool call the turn does not make opens the turn:
+/// the API refuses an assistant turn that ends in thinking.
+#[test]
+fn a_thinking_block_without_its_tool_call_opens_the_turn() {
+    let before_missing_call = messages_reasoning_id(MessagesReasoningPlacement {
+        redacted: false,
+        before_tool_call: Some("toolu_gone"),
+    });
+    let request = build_messages_request(&ConversationRequest {
+        items: vec![
+            ConversationItem::user("go"),
+            thinking_item(before_missing_call, "sig"),
+            ConversationItem::assistant("done"),
+            ConversationItem::user("next"),
+        ],
+        ..Default::default()
+    });
+    assert_eq!(block_kinds(&request, 1), ["thinking", "text"]);
+}
+
+/// Compaction drops a trailing assistant turn whose tool call has no result yet and leaves the
+/// thinking that led to it. Thinking alone is not a turn, so it is not sent.
+#[test]
+fn thinking_with_no_answer_is_not_sent_as_a_turn() {
+    let request = build_messages_request(&ConversationRequest {
+        items: vec![
+            ConversationItem::user("go"),
+            thinking_item(String::new(), "sig"),
+            ConversationItem::user("Summarize the conversation."),
+        ],
+        ..Default::default()
+    });
+    let roles: Vec<_> = request
+        .messages
+        .iter()
+        .map(|message| serde_json::to_value(&message.role).unwrap())
+        .collect();
+    assert_eq!(roles, ["user", "user"]);
+}

@@ -2326,6 +2326,14 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                     if count > 0 {
                         println!("DeepSeek model list refreshed: {count} models.");
                     }
+                    let count = xai_grok_shell::agent::builtin_providers::refresh_anthropic_models(
+                        &agent_config,
+                        true,
+                    )
+                    .await?;
+                    if count > 0 {
+                        println!("Anthropic model list refreshed: {count} models.");
+                    }
                 }
                 return xai_grok_pager::models::list_available_models(&agent_config).await;
             }

@@ -543,6 +543,8 @@ Key environment variables that affect headless mode:
 | Variable                        | Description                                                   |
 | ------------------------------- | ------------------------------------------------------------- |
 | `OPENROUTER_API_KEY`            | OpenRouter API key (the simplest credential for CI)           |
+| `ANTHROPIC_API_KEY`             | Claude API key (`anthropic/...` models)                       |
+| `CROK_ANTHROPIC_CACHE_TTL`      | `5m` or `1h` (default): how long Anthropic keeps the prompt cache between requests. `5m` is cheaper when requests follow each other without a pause |
 | `DEEPSEEK_API_KEY`              | DeepSeek API key                                              |
 | `ZAI_API_KEY`                   | GLM Coding Plan key from z.ai (`glm/...` models)              |
 | `ZHIPU_API_KEY`                 | GLM Coding Plan key from bigmodel.cn (`glm-cn/...` models)    |
@@ -611,7 +613,7 @@ Crok stores data in `~/.crok` (override with `CROK_HOME`; see [Environment Varia
 | Path                     | Contents                              |
 | ------------------------ | ------------------------------------- |
 | `config.toml`            | User configuration                    |
-| `provider-auth/`         | Saved provider credentials (OpenRouter, Codex, DeepSeek, GLM) |
+| `provider-auth/`         | Saved provider credentials (OpenRouter, Codex, Anthropic, DeepSeek, GLM) |
 | `sessions/`              | Session transcripts (SQLite)          |
 | `memory/`                | Cross-session memory store            |
 | `logs/`                  | Internal log files (for example `unified.jsonl`) |

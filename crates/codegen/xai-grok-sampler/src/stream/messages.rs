@@ -11,8 +11,9 @@ use futures_util::stream::{BoxStream, Stream};
 
 use xai_grok_sampling_types::messages::{self, MessageStreamEvent};
 use xai_grok_sampling_types::{
-    AssistantItem, ConversationItem, ConversationResponse, ResponseModelMetadata, SamplingError,
-    StopReason, TokenUsage, ToolCall, rs,
+    AssistantItem, ConversationItem, ConversationResponse, MessagesReasoningPlacement,
+    ResponseModelMetadata, SamplingError, StopReason, TokenUsage, ToolCall, messages_reasoning_id,
+    rs,
 };
 
 use crate::events::{SamplingChannel, SamplingErrorInfo, SamplingEvent};
@@ -50,6 +51,25 @@ enum BlockType {
     Text,
     ToolUse,
     Thinking,
+}
+
+/// One thinking block of the response, with what the next request needs to put it back where it was.
+struct ThinkingBlock {
+    item: rs::ReasoningItem,
+    redacted: bool,
+    /// It came after text or a tool call, so it is waiting for the next tool call to name its place.
+    awaiting_tool_call: bool,
+    before_tool_call: Option<String>,
+}
+
+impl ThinkingBlock {
+    fn into_item(mut self) -> rs::ReasoningItem {
+        self.item.id = messages_reasoning_id(MessagesReasoningPlacement {
+            redacted: self.redacted,
+            before_tool_call: self.before_tool_call.as_deref(),
+        });
+        self.item
+    }
 }
 
 /// Transform a raw Anthropic Messages API stream into a stream of [`SamplingEvent`]s.
@@ -106,11 +126,14 @@ pub fn stream_messages<'a>(
         let mut final_stop_sequence: Option<String> = None;
 
         // Assistant-response accumulators (built up as ContentBlockStop events fire)
-        // Reasoning is collected into a synthesized `rs::ReasoningItem`
-        // It is emitted as a sibling `ConversationItem::Reasoning` before the trailing Assistant
+        // Each thinking block becomes a synthesized `rs::ReasoningItem`, in the order the blocks arrived
+        // They are emitted as sibling `ConversationItem::Reasoning` items before the trailing Assistant
+        // A turn can hold several, and the API expects every one of them back: dropping one invalidates those after it
         let mut assistant_text = String::new();
         let mut assistant_tool_calls: Vec<ToolCall> = Vec::new();
-        let mut assistant_reasoning: Option<rs::ReasoningItem> = None;
+        let mut assistant_reasoning: Vec<ThinkingBlock> = Vec::new();
+        // Text or a tool call has started, so a thinking block from here on is no longer at the head of the turn
+        let mut answer_started = false;
 
         // Index counters
         let mut chunk_index: u64 = 0;
@@ -159,6 +182,16 @@ pub fn stream_messages<'a>(
                     final_input_tokens = message.usage.input_tokens;
                     final_cache_read_input_tokens = message.usage.cache_read_input_tokens;
                     final_cache_creation_input_tokens = message.usage.cache_creation_input_tokens;
+                    // Sent only when the request asked for it: the API found the conversation ahead of a replayed thinking block changed
+                    // The model answers without that block and those after it, and the prompt cache restarts from the change
+                    for transformation in &message.input_transformations {
+                        tracing::warn!(
+                            kind = transformation.r#type.as_deref().unwrap_or("unknown"),
+                            path = transformation.path.as_deref().unwrap_or("unknown"),
+                            reason = transformation.reason.as_deref().unwrap_or("unknown"),
+                            "messages API changed the request: earlier conversation differs from what a replayed thinking block was produced with"
+                        );
+                    }
                     // Yield the real id, model, and input usage before any content
                     // Partial-mode framing then emits them on the real `message_start` instead of a synthesized placeholder
                     yield SamplingEvent::ResponseStarted {
@@ -203,6 +236,7 @@ pub fn stream_messages<'a>(
                         }
                     }
                     ContentBlock::Text { text, .. } => {
+                        answer_started = true;
                         blocks.insert(
                             index,
                             BlockState {
@@ -223,6 +257,12 @@ pub fn stream_messages<'a>(
                         }
                     }
                     ContentBlock::ToolUse { id, name, .. } => {
+                        answer_started = true;
+                        for thinking in &mut assistant_reasoning {
+                            if std::mem::take(&mut thinking.awaiting_tool_call) {
+                                thinking.before_tool_call = Some(id.clone());
+                            }
+                        }
                         let tool_index = next_tool_index;
                         next_tool_index += 1;
                         block_to_tool_index.insert(index, tool_index);
@@ -251,10 +291,24 @@ pub fn stream_messages<'a>(
                             arguments_delta: None,
                         };
                     }
-                    // Encrypted reasoning the model chose to redact
-                    // The `RedactedThinking` wire variant exists so a stream containing one deserializes instead of failing the whole event parse
-                    // Its opaque `data` blob is not forwarded as a `SamplingEvent`; no consumer claims redacted_thinking support
-                    ContentBlock::RedactedThinking { .. } => {}
+                    // Encrypted reasoning the model chose to redact: an opaque `data` blob with no deltas
+                    // Nothing is shown for it, but it is kept so the next request can send the turn back whole
+                    ContentBlock::RedactedThinking { data } => {
+                        if !data.is_empty() {
+                            assistant_reasoning.push(ThinkingBlock {
+                                item: rs::ReasoningItem {
+                                    id: String::new(),
+                                    summary: vec![],
+                                    content: None,
+                                    encrypted_content: Some(data),
+                                    status: None,
+                                },
+                                redacted: true,
+                                awaiting_tool_call: answer_started,
+                                before_tool_call: None,
+                            });
+                        }
+                    }
                     // Image / ToolResult are not expected in assistant streams.
                     _ => {}
                 },
@@ -357,12 +411,17 @@ pub fn stream_messages<'a>(
                                     } else {
                                         Some(state.signature)
                                     };
-                                    assistant_reasoning = Some(rs::ReasoningItem {
-                                        id: String::new(),
-                                        summary,
-                                        content: None,
-                                        encrypted_content,
-                                        status: None,
+                                    assistant_reasoning.push(ThinkingBlock {
+                                        item: rs::ReasoningItem {
+                                            id: String::new(),
+                                            summary,
+                                            content: None,
+                                            encrypted_content,
+                                            status: None,
+                                        },
+                                        redacted: false,
+                                        awaiting_tool_call: answer_started,
+                                        before_tool_call: None,
                                     });
                                 }
                             }
@@ -520,10 +579,10 @@ pub fn stream_messages<'a>(
             reasoning_effort: None,
         });
 
-        let mut items: Vec<ConversationItem> = Vec::new();
-        if let Some(r) = assistant_reasoning {
-            items.push(ConversationItem::Reasoning(r));
-        }
+        let mut items: Vec<ConversationItem> = assistant_reasoning
+            .into_iter()
+            .map(|thinking| ConversationItem::Reasoning(thinking.into_item()))
+            .collect();
         items.push(assistant_item);
 
         let stream_end = Instant::now();

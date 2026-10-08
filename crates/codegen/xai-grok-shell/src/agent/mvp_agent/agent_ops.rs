@@ -32,6 +32,8 @@ pub(super) fn set_xai_baseline_key(config: &mut SamplingConfig, key: String) -> 
                     | "api.deepseek.com"
                     | "api.z.ai"
                     | "open.bigmodel.cn"
+                    // Anthropic shares the Messages backend with customer gateways, so only its host tells it apart.
+                    | "api.anthropic.com"
             )
         )
     });
@@ -5278,6 +5280,7 @@ mod baseline_credential_tests {
             crate::agent::builtin_providers::DEEPSEEK_BASE_URL,
             crate::agent::builtin_providers::GLM_BASE_URL,
             crate::agent::builtin_providers::GLM_CN_BASE_URL,
+            crate::agent::builtin_providers::ANTHROPIC_BASE_URL,
         ] {
             for existing in [None, Some("provider-owned-key".to_owned())] {
                 let mut config = SamplingConfig {

@@ -86,6 +86,9 @@ pub(crate) struct SideCallSetup {
     pub(crate) model: String,
     /// Must match the main turn so the side-call shares the prompt-cache prefix.
     pub(crate) reasoning_effort: Option<xai_grok_sampling_types::ReasoningEffort>,
+    /// Anthropic renders the tool list ahead of the conversation and refuses a conversation that holds
+    /// tool calls but names no tools, so there even a call that wants no tool carries the turn's.
+    pub(crate) tools_lead_the_prompt: bool,
 }
 
 pub(super) fn should_strip_side_call_reasoning(
@@ -146,6 +149,10 @@ impl SessionActor {
         let reasoning_effort = sampling_config.as_ref().and_then(|c| c.reasoning_effort);
         let strip_reasoning =
             should_strip_side_call_reasoning(client.api_backend(), reasoning_effort);
+        let tools_lead_the_prompt = sampling_config.as_ref().is_some_and(|c| {
+            crate::agent::builtin_providers::anthropic_options(&c.api_backend, &c.base_url)
+                .is_some()
+        });
         let model = sampling_config.map(|c| c.model).unwrap_or_default();
         Ok(SideCallSetup {
             client,
@@ -153,6 +160,7 @@ impl SessionActor {
             context_window,
             model,
             reasoning_effort,
+            tools_lead_the_prompt,
         })
     }
 

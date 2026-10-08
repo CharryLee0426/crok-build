@@ -5238,6 +5238,7 @@ pub(crate) fn sampling_config_for_model(
         supports_backend_search: info.supports_backend_search,
         supports_tools: super::builtin_providers::tool_support(&info.api_backend, &info.model),
         supports_images: super::builtin_providers::image_support(&info.api_backend, &info.model),
+        anthropic: super::builtin_providers::anthropic_options(&info.api_backend, &info.base_url),
         compactions_remaining: info.compactions_remaining,
         compaction_at_tokens: info.compaction_at_tokens,
         doom_loop_recovery: None,

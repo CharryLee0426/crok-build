@@ -21,7 +21,7 @@ Catalog metadata supplies context limits, output limits, and capabilities. User 
 default = "openrouter/anthropic/claude-sonnet-4.6"
 ```
 
-The built-in provider IDs `openrouter`, `openai-codex`, `deepseek`, `glm` and `glm-cn` also work with custom aliases, including new model slugs:
+The built-in provider IDs `openrouter`, `openai-codex`, `anthropic`, `deepseek`, `glm` and `glm-cn` also work with custom aliases, including new model slugs:
 
 ```toml
 [model.my-router-model]
@@ -43,7 +43,7 @@ Implementation references: [OpenRouter OAuth PKCE](https://openrouter.ai/docs/gu
 
 ## Default Models
 
-Crok's models come from the provider you sign in to: `crok login openai-codex` adds the Codex subscription models (`openai-codex/...`), `crok login openrouter` or `OPENROUTER_API_KEY` adds the OpenRouter catalog (`openrouter/...`, including Grok models under `openrouter/x-ai/...`), `crok login deepseek` or `DEEPSEEK_API_KEY` adds your DeepSeek account's models (`deepseek/...`, fetched at sign-in and hourly after; `crok models --refresh` fetches them now), and `crok login glm` or `crok login glm-cn` adds the GLM Coding Plan's models (`glm/glm-5.3`, `glm/glm-5.3-flash`, or the same under `glm-cn/`). A model a provider releases later can be used at once by its prefixed ID, for example `crok --model glm/<new-model>`. Models hosted by SpaceXAI's own API, such as `grok-4.5`, are hidden unless `XAI_API_KEY` is set. Set `[models] default` to choose the model new sessions start with.
+Crok's models come from the provider you sign in to: `crok login openai-codex` adds the Codex subscription models (`openai-codex/...`), `crok login openrouter` or `OPENROUTER_API_KEY` adds the OpenRouter catalog (`openrouter/...`, including Grok models under `openrouter/x-ai/...`), `crok login deepseek` or `DEEPSEEK_API_KEY` adds your DeepSeek account's models (`deepseek/...`, fetched at sign-in and hourly after; `crok models --refresh` fetches them now), `crok login glm` or `crok login glm-cn` adds the GLM Coding Plan's models (`glm/glm-5.3`, `glm/glm-5.3-flash`, or the same under `glm-cn/`), and `crok login anthropic` or `ANTHROPIC_API_KEY` adds your Claude API account's models (`anthropic/...`, fetched at sign-in and hourly after). A model a provider releases later can be used at once by its prefixed ID, for example `crok --model glm/<new-model>`. Models hosted by SpaceXAI's own API, such as `grok-4.5`, are hidden unless `XAI_API_KEY` is set. Set `[models] default` to choose the model new sessions start with.
 
 List all available models:
 
@@ -274,19 +274,21 @@ When you override a built-in model, Crok starts with the default configuration (
 
 ### Anthropic (Claude)
 
-Use Claude models directly via the Anthropic Messages API:
+For the Claude API itself, sign in instead of writing an entry: `crok login anthropic` (or `ANTHROPIC_API_KEY`) adds every model your account has under `anthropic/...`, with the key in the header Anthropic expects and requests shaped for its prompt cache. See [Authentication](02-authentication.md#anthropic-claude-api).
+
+A `[model.*]` entry is for a gateway or another service that speaks the Anthropic Messages protocol:
 
 ```toml
-[model.claude-opus]
-model = "claude-opus-4-6"
-base_url = "https://api.anthropic.com/v1"
-name = "Claude Opus 4.6"
+[model.claude-gateway]
+model = "claude-opus-5-5"
+base_url = "https://gateway.example.com/v1"
+name = "Claude Opus 5.5 (gateway)"
 api_backend = "messages"
-context_window = 200000
-extra_headers = { "x-api-key" = "sk-ant-...", "anthropic-version" = "2023-06-01" }
+context_window = 1000000
+extra_headers = { "x-api-key" = "gateway-key", "anthropic-version" = "2023-06-01" }
 ```
 
-The `messages` backend uses the Anthropic Messages protocol. Anthropic authenticates with an `x-api-key` header rather than `Authorization: Bearer`, so pass your key through `extra_headers`, which Crok sends verbatim.
+The `messages` backend uses the Anthropic Messages protocol. A service that authenticates with an `x-api-key` header rather than `Authorization: Bearer` takes its key through `extra_headers`, which Crok sends verbatim.
 
 ### OpenAI (Chat Completions)
 

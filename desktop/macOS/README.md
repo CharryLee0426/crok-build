@@ -12,7 +12,7 @@ Open `Crok-Desktop-<version>-arm64.dmg` and drag **Crok Desktop** to
 **Applications**. The app includes Crok Build, the same runtime and `crok` TUI as
 the CLI, so nothing else needs to be installed. It requires macOS 14 or later on
 Apple silicon. On first launch, connect a model provider in **Settings › Accounts**:
-sign in to OpenRouter or OpenAI Codex, or add a DeepSeek or GLM Coding Plan API key.
+sign in to OpenRouter or OpenAI Codex, or add a Claude API, DeepSeek or GLM Coding Plan API key.
 xAI accounts are not supported; Grok models are available through OpenRouter.
 
 The disk image is ad hoc signed and not notarized, so macOS blocks the first launch
@@ -123,12 +123,13 @@ swift test --package-path desktop/macOS
 
 1. Choose **Open Project** and select the folder Crok should work in.
 2. In **Settings**, check **Accounts** (`/login` opens the same place). OpenRouter
-   and OpenAI Codex sign in with the browser. DeepSeek and the GLM Coding Plan take
-   an API key: choose **Add Key…**, paste it, and for GLM pick the site you
+   and OpenAI Codex sign in with the browser. Anthropic (the Claude API), DeepSeek
+   and the GLM Coding Plan take an API key: choose **Add Key…**, paste it, and for GLM pick the site you
    subscribed on (z.ai or bigmodel.cn; a key from one is refused by the other). The
    key is checked with the provider before it is saved, and a refused key shows the
    reason under the list. Existing CLI credentials from `crok login <provider>`, and
-   keys in `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY` or `ZHIPU_API_KEY`,
+   keys in `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY`
+   or `ZHIPU_API_KEY`,
    are reused. Each provider shows its saved account identity when available, and
    connected accounts cannot start another sign-in. API keys do not include an
    account name; this is stated explicitly. xAI accounts (xAI sign-in,

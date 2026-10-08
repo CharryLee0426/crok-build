@@ -7,6 +7,7 @@
 
 use std::sync::LazyLock;
 
+pub mod anthropic;
 pub mod deepseek;
 pub mod glm;
 pub mod openrouter;

@@ -803,6 +803,8 @@ impl SessionActor {
             crate::agent::builtin_providers::tool_support(&cfg.api_backend, &cfg.model);
         let supports_images =
             crate::agent::builtin_providers::image_support(&cfg.api_backend, &cfg.model);
+        let anthropic =
+            crate::agent::builtin_providers::anthropic_options(&cfg.api_backend, &cfg.base_url);
         SamplingConfig {
             api_key,
             base_url: cfg.base_url,
@@ -855,6 +857,7 @@ impl SessionActor {
             supports_backend_search: self.supports_backend_search.get(),
             supports_tools,
             supports_images,
+            anthropic,
             compactions_remaining: self.compactions_remaining.get(),
             compaction_at_tokens: self.compaction_at_tokens.get(),
             // The sampler sends the opt-in header itself when this is set.

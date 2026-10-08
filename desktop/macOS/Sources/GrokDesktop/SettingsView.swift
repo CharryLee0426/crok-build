@@ -53,7 +53,7 @@ struct SettingsView: View {
 }
 
 /// The model providers in Settings: browser sign-in for OpenRouter and OpenAI Codex, and a pasted
-/// API key for DeepSeek and the GLM Coding Plan. Sign-ins are shared with the CLI.
+/// API key for DeepSeek, the GLM Coding Plan and the Claude API. Sign-ins are shared with the CLI.
 struct AccountsSettingsSection: View {
     @EnvironmentObject var store: AppStore
     @StateObject private var accounts: AccountStore

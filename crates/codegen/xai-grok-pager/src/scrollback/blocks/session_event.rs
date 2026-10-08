@@ -472,7 +472,7 @@ impl SessionEvent {
             SessionEvent::ReAuthRequired => {
                 "Authentication required: your provider credentials were rejected or \
                  have expired. Run `crok login` for your provider (openai-codex, openrouter, \
-                 deepseek, glm or glm-cn), then resend your message."
+                 anthropic, deepseek, glm or glm-cn), then resend your message."
                     .to_string()
             }
             SessionEvent::ContextTooLarge => {

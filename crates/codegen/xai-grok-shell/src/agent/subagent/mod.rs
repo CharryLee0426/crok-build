@@ -802,6 +802,10 @@ async fn read_parent_sampling_config(
                     &cfg.api_backend,
                     &cfg.model,
                 ),
+                anthropic: crate::agent::builtin_providers::anthropic_options(
+                    &cfg.api_backend,
+                    &cfg.base_url,
+                ),
                 api_key: creds.api_key,
                 base_url: cfg.base_url,
                 mtls_cert_dir: cfg.mtls_cert_dir,

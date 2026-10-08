@@ -279,6 +279,7 @@ pub struct PruningSettings {
     pub soft_trim_head: Option<usize>,
     pub soft_trim_tail: Option<usize>,
     pub hard_clear_age_turns: Option<usize>,
+    pub prune_every_n_turns: Option<usize>,
 }
 
 /// Index and chunking configuration (`[memory.index]`).
@@ -618,6 +619,9 @@ pub struct PruningConfig {
     pub soft_trim_tail: usize,
     /// Turn age after which tool results are hard-cleared (replaced with placeholder).
     pub hard_clear_age_turns: usize,
+    /// Prune on every Nth prompt turn only; `1` prunes on each.
+    /// The turns in between send the history the provider has cached.
+    pub prune_every_n_turns: usize,
 }
 
 impl Default for PruningConfig {
@@ -629,6 +633,7 @@ impl Default for PruningConfig {
             soft_trim_head: 1500,
             soft_trim_tail: 1500,
             hard_clear_age_turns: 10,
+            prune_every_n_turns: 5,
         }
     }
 }
@@ -1022,6 +1027,9 @@ impl MemoryConfig {
                 hard_clear_age_turns: pruning
                     .hard_clear_age_turns
                     .unwrap_or(defaults.pruning.hard_clear_age_turns),
+                prune_every_n_turns: pruning
+                    .prune_every_n_turns
+                    .unwrap_or(defaults.pruning.prune_every_n_turns),
             },
             root_dir_override: None,
             flat_memory_root: false,

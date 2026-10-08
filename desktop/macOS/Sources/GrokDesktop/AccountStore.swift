@@ -8,6 +8,7 @@ enum AccountProvider: String, CaseIterable, Identifiable {
     case codex = "openai-codex"
     case deepseek
     case glm
+    case anthropic
 
     var id: String { rawValue }
     var name: String {
@@ -16,6 +17,7 @@ enum AccountProvider: String, CaseIterable, Identifiable {
         case .codex: return "OpenAI Codex"
         case .deepseek: return "DeepSeek"
         case .glm: return "GLM Coding Plan"
+        case .anthropic: return "Anthropic"
         }
     }
 
@@ -32,6 +34,9 @@ enum AccountProvider: String, CaseIterable, Identifiable {
                                      keyPage: "https://z.ai/manage-apikey/apikey-list", environmentKeys: ["ZAI_API_KEY"]),
                     AccountKeySource(id: "glm-cn", title: "China mainland", site: "bigmodel.cn",
                                      keyPage: "https://bigmodel.cn/coding-plan/personal/overview", environmentKeys: ["ZHIPU_API_KEY"])]
+        case .anthropic:
+            return [AccountKeySource(id: "anthropic", title: "Anthropic", site: "platform.claude.com",
+                                     keyPage: "https://platform.claude.com/settings/keys", environmentKeys: ["ANTHROPIC_API_KEY"])]
         }
     }
 
@@ -43,6 +48,8 @@ enum AccountProvider: String, CaseIterable, Identifiable {
         case .openrouter, .codex: return "Sign in with your browser"
         case .deepseek: return "Add an API key from platform.deepseek.com"
         case .glm: return "Add the API key from your z.ai or bigmodel.cn subscription"
+        // The Claude API, billed per token. A Claude subscription is a different product and has no key.
+        case .anthropic: return "Add a Claude API key from platform.claude.com"
         }
     }
 }
@@ -145,7 +152,7 @@ struct AccountStatusReader {
                                      detail: expiry <= now().timeIntervalSince1970 ? "Signed in · session renews automatically" : "Signed in",
                                      savedAs: provider.rawValue)
             }
-        case .deepseek, .glm:
+        case .deepseek, .glm, .anthropic:
             return readKeyProvider(provider)
         }
     }

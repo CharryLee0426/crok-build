@@ -737,11 +737,11 @@ final class AppStore: ObservableObject {
         let methods = initial["authMethods"] as? [[String: Any]] ?? []
         let preferred = (initial["_meta"] as? [String: Any])?["defaultAuthMethodId"] as? String
         let offered = Set(methods.compactMap { $0["id"] as? String })
-        // `xai.api_key` is the harness's provider-credential method (OpenRouter, OpenAI Codex, DeepSeek, GLM Coding Plan).
+        // `xai.api_key` is the harness's provider-credential method (OpenRouter, OpenAI Codex, DeepSeek, GLM Coding Plan, Anthropic).
         let supported = ["xai.api_key"]
         let method = ([preferred].compactMap { $0 } + supported).first { supported.contains($0) && offered.contains($0) }
         guard let method else {
-            throw DesktopError.message("No model provider is signed in. Open Settings and connect one under Accounts (OpenAI Codex, OpenRouter, DeepSeek, or a GLM Coding Plan), then try again.")
+            throw DesktopError.message("No model provider is signed in. Open Settings and connect one under Accounts (OpenAI Codex, OpenRouter, DeepSeek, a GLM Coding Plan, or the Claude API), then try again.")
         }
         let result = try await client.request("authenticate", params: ["methodId": method, "_meta": ["headless": true]], timeout: 60)
         if let meta = result["_meta"] as? [String: Any], !meta.isEmpty { harnessMeta.authenticate = meta }

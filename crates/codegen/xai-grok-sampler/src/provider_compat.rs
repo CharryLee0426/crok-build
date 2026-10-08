@@ -1,10 +1,13 @@
 //! Provider-specific wire adaptation. Authentication is resolved by the caller.
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, PoisonError};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
-use xai_grok_sampling_types::{ApiBackend, Result, SamplingError, rs};
+use xai_grok_sampling_types::{
+    AnthropicOptions, ApiBackend, PromptCacheTtl, Result, SamplingError, messages, rs,
+};
 
 /// Codex's sticky-routing token. The first response of a turn carries it; every later request of
 /// that turn echoes it so the turn stays on the backend holding its prompt cache. Another turn
@@ -299,6 +302,162 @@ fn mark_cache_breakpoint(message: &mut Value) {
             }
         }
         _ => {}
+    }
+}
+
+/// The API version every request to Anthropic's endpoint names.
+pub(crate) const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+/// Lets a request say what the API does with a replayed thinking block whose conversation has since been edited.
+/// The request body names a field this beta defines, so the two always travel together.
+pub(crate) const ANTHROPIC_THINKING_BINDING_BETA: &str = "thinking-binding-controls-2026-08-01";
+
+/// Set once Anthropic has refused the beta itself. Betas are renamed and retired, and a refused header
+/// fails every request, so from then on this process sends neither the header nor its field.
+/// Every request builds a new sampling client, so the flag lives here.
+static ANTHROPIC_THINKING_BINDING_REFUSED: AtomicBool = AtomicBool::new(false);
+
+/// Whether requests still carry the thinking-binding beta and the field it defines.
+pub(crate) fn anthropic_sends_thinking_binding() -> bool {
+    !ANTHROPIC_THINKING_BINDING_REFUSED.load(Ordering::Relaxed)
+}
+
+/// Whether a 400 from Anthropic refuses the beta header's value or the field it defines.
+/// A block that fails the check the beta controls is a different 400: it names the beta too, as
+/// the remedy, and must not turn the remedy off.
+fn anthropic_refuses_thinking_binding(status: reqwest::StatusCode, message: &str) -> bool {
+    status == reqwest::StatusCode::BAD_REQUEST
+        && !message.contains("bound to a different conversation")
+        && ((message.contains("anthropic-beta")
+            && message.contains(ANTHROPIC_THINKING_BINDING_BETA))
+            || (message.contains("block_binding") && message.contains("Extra inputs")))
+}
+
+/// Called with every error Anthropic's endpoint answers. Returns whether the beta was just given up,
+/// in which case the same request sent again goes without it.
+pub(crate) fn note_anthropic_error(status: reqwest::StatusCode, message: &str) -> bool {
+    let refused = anthropic_refuses_thinking_binding(status, message);
+    if refused && !ANTHROPIC_THINKING_BINDING_REFUSED.swap(true, Ordering::Relaxed) {
+        tracing::warn!(
+            beta = ANTHROPIC_THINKING_BINDING_BETA,
+            "Anthropic refused the thinking-binding beta; requests go without it from here on"
+        );
+    }
+    refused
+}
+
+/// The least output a call that was meant to force a tool is given. Current models think before they
+/// answer and cannot be told not to, and the thinking is spent from the same budget.
+const ANTHROPIC_FORCED_TOOL_MIN_TOKENS: u32 = 4096;
+
+/// Shape a Messages request for Anthropic's own endpoint, which refuses fields that other Messages
+/// hosts accept and has cache controls they lack.
+pub(crate) fn prepare_anthropic_request(
+    request: &mut messages::MessagesRequest,
+    options: AnthropicOptions,
+) {
+    use messages::{
+        CacheControl, ContentBlock, MessageContent, MessageRole, PrefixMismatchBehavior,
+        SystemParam, ThinkingBlockBinding, ThinkingConfig, ToolChoiceParam,
+    };
+
+    // Opus 4.7 and later refuse sampling parameters with a 400; earlier models answer the same without them.
+    request.temperature = None;
+    request.top_p = None;
+    request.top_k = None;
+
+    // A forced tool call is refused by Opus 5.5, Sonnet 5.5 and Fable 5.1, and by every model while it thinks.
+    // Ask for the call in words and leave room to think before it; the caller already copes with no call.
+    let forced = match request.tool_choice.take() {
+        Some(ToolChoiceParam::Tool { name }) => {
+            Some(format!("Answer by calling the `{name}` tool."))
+        }
+        Some(ToolChoiceParam::Any) => Some("Answer by calling one of the tools.".to_owned()),
+        other => {
+            request.tool_choice = other;
+            None
+        }
+    };
+    if let Some(instruction) = forced {
+        request.tool_choice = Some(ToolChoiceParam::Auto);
+        request.max_tokens = request.max_tokens.max(ANTHROPIC_FORCED_TOOL_MIN_TOKENS);
+        if let Some(last) = request
+            .messages
+            .last_mut()
+            .filter(|message| matches!(message.role, MessageRole::User))
+        {
+            match &mut last.content {
+                MessageContent::Text(text) => {
+                    text.push_str("\n\n");
+                    text.push_str(&instruction);
+                }
+                MessageContent::Blocks(blocks) => blocks.push(ContentBlock::Text {
+                    text: instruction,
+                    cache_control: None,
+                }),
+            }
+        }
+    }
+
+    // A thinking block is signed over the conversation that produced it. Compaction, a rewind and the
+    // pruning of old tool results all change that conversation, and an account opened since
+    // 2026-08-31 then gets a 400 for the turn. Ask for the block to be left out instead.
+    if anthropic_sends_thinking_binding()
+        && let Some(ThinkingConfig::Adaptive { block_binding, .. }) = &mut request.thinking
+    {
+        *block_binding = Some(ThinkingBlockBinding {
+            prefix_mismatch_behavior: PrefixMismatchBehavior::DropBlock,
+        });
+    }
+
+    // A thinking block without a signature is another provider's reasoning, kept as text. The API refuses it.
+    for message in &mut request.messages {
+        if matches!(message.role, MessageRole::Assistant)
+            && let MessageContent::Blocks(blocks) = &mut message.content
+        {
+            blocks.retain(|block| {
+                !matches!(block, ContentBlock::Thinking { signature, .. } if signature.is_empty())
+            });
+        }
+    }
+    request.messages.retain(|message| {
+        !matches!(message.role, MessageRole::Assistant)
+            || !matches!(&message.content, MessageContent::Blocks(blocks) if blocks.is_empty())
+    });
+
+    let marker = CacheControl {
+        ttl: (options.cache_ttl == PromptCacheTtl::OneHour)
+            .then(|| options.cache_ttl.as_str().to_owned()),
+        ..CacheControl::ephemeral()
+    };
+    // Tools are rendered ahead of the system prompt. Marked on their own they are read back by every
+    // request with the same tools, whatever its system prompt: another session, a subagent, a side call.
+    // This is the fourth and last breakpoint a request may carry.
+    if let Some(last_tool) = request.tools.as_mut().and_then(|tools| tools.last_mut()) {
+        last_tool.cache_control = Some(marker.clone());
+    }
+    // One lifetime for every entry: the API refuses a longer-lived breakpoint after a shorter-lived one.
+    if let Some(SystemParam::Blocks(blocks)) = &mut request.system {
+        for block in blocks {
+            if block.cache_control.is_some() {
+                block.cache_control = Some(marker.clone());
+            }
+        }
+    }
+    for message in &mut request.messages {
+        let MessageContent::Blocks(blocks) = &mut message.content else {
+            continue;
+        };
+        for block in blocks {
+            if let ContentBlock::Text { cache_control, .. }
+            | ContentBlock::Image { cache_control, .. }
+            | ContentBlock::ToolUse { cache_control, .. }
+            | ContentBlock::ToolResult { cache_control, .. } = block
+                && cache_control.is_some()
+            {
+                *cache_control = Some(marker.clone());
+            }
+        }
     }
 }
 
@@ -1307,6 +1466,83 @@ mod tests {
         assert!(matches!(
             event,
             rs::ResponseStreamEvent::ResponseIncomplete(_)
+        ));
+    }
+
+    /// What `build_messages_request` produces for `items`, shaped for Anthropic's endpoint.
+    fn anthropic_wire(items: Vec<xai_grok_sampling_types::ConversationItem>) -> Value {
+        let mut request = xai_grok_sampling_types::build_messages_request(
+            &xai_grok_sampling_types::ConversationRequest {
+                items,
+                reasoning_effort: Some(xai_grok_sampling_types::ReasoningEffort::High),
+                ..Default::default()
+            },
+        );
+        prepare_anthropic_request(&mut request, AnthropicOptions::default());
+        serde_json::to_value(&request).unwrap()
+    }
+
+    fn reasoning(text: &str, signature: Option<&str>) -> xai_grok_sampling_types::ConversationItem {
+        let mut item = xai_grok_sampling_types::synthesized_reasoning_item(text);
+        item.encrypted_content = signature.map(str::to_owned);
+        xai_grok_sampling_types::ConversationItem::Reasoning(item)
+    }
+
+    /// Reasoning another provider wrote arrives as text with no signature. Anthropic refuses a
+    /// thinking block it did not sign, so the block is left out and the rest of the turn is sent.
+    #[test]
+    fn anthropic_requests_leave_out_reasoning_the_api_did_not_sign() {
+        use xai_grok_sampling_types::ConversationItem;
+        let wire = anthropic_wire(vec![
+            ConversationItem::user("first"),
+            reasoning("another provider's reasoning", None),
+            ConversationItem::assistant("an answer"),
+            ConversationItem::user("second"),
+            reasoning("signed here", Some("sig")),
+            ConversationItem::assistant("another answer"),
+            ConversationItem::user("third"),
+        ]);
+        let kinds = |index: usize| -> Vec<&str> {
+            wire["messages"][index]["content"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|block| block["type"].as_str().unwrap())
+                .collect()
+        };
+        assert_eq!(kinds(1), ["text"]);
+        assert_eq!(kinds(3), ["thinking", "text"]);
+        assert_eq!(wire["messages"].as_array().unwrap().len(), 5);
+    }
+
+    /// Only a refusal of the beta itself gives it up. The error it exists to prevent names the beta
+    /// too, as the remedy, and must leave it on.
+    #[test]
+    fn only_a_refusal_of_the_thinking_binding_beta_gives_it_up() {
+        let bad_request = reqwest::StatusCode::BAD_REQUEST;
+        for refusal in [
+            "Unexpected value(s) `thinking-binding-controls-2026-08-01` for the `anthropic-beta` header. Please consult our documentation or try again without the header.",
+            "thinking.block_binding: Extra inputs are not permitted",
+        ] {
+            assert!(
+                anthropic_refuses_thinking_binding(bad_request, refusal),
+                "{refusal}"
+            );
+        }
+        for other in [
+            "messages.5.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to \"drop_block\". That setting requires the `thinking-binding-controls-2026-08-01` value in the `anthropic-beta` header.",
+            "Unexpected value(s) `context-1m-2025-08-07` for the `anthropic-beta` header.",
+            "tool_choice: type \"tool\" and \"any\" are not supported for this model.",
+        ] {
+            assert!(
+                !anthropic_refuses_thinking_binding(bad_request, other),
+                "{other}"
+            );
+        }
+        // The same words on another status are not this refusal.
+        assert!(!anthropic_refuses_thinking_binding(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "thinking.block_binding: Extra inputs are not permitted"
         ));
     }
 }

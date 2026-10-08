@@ -120,8 +120,10 @@ pub(crate) fn resolve_default_model(
                     2
                 } else if key.as_str() == "deepseek/deepseek-v4-pro" {
                     3
-                } else {
+                } else if key.as_str() == "anthropic/claude-opus-5-5" {
                     4
+                } else {
+                    5
                 }
             });
         if let Some((key, entry)) = preferred {
