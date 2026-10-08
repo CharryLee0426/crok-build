@@ -158,8 +158,11 @@ struct ComposerView: View {
                             .frame(height: min(300, max(80, CGFloat(slashCommands.count) * 65)))
                     }
                     .glassSurface(cornerRadius: 14)
-                    // Sits just above the card, however tall attachments make it.
-                    .alignmentGuide(.top) { dimensions in dimensions[.bottom] + 10 }
+                    // Sits just above the card, however tall attachments make it. An overlay ignores alignment
+                    // guides its content sets, so the menu rises from a frame of no height at the card's top.
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 10)
+                    .frame(height: 0, alignment: .bottom)
                 }
             }
     }
