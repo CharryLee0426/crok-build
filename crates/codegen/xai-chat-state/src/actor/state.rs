@@ -136,6 +136,8 @@ pub(crate) struct ChatState {
     pub prompt_texts: Vec<String>,
     /// Accumulated token usage.
     pub total_tokens: u64,
+    /// Whether a turn request has already been pruned; cleared when the conversation is replaced or rewound.
+    pub request_pruning_engaged: bool,
     /// Timestamp when the current stream started (epoch ms).
     pub stream_start_ms: Option<i64>,
     /// Timestamp when the current turn started (epoch ms).
@@ -220,6 +222,7 @@ impl ChatState {
             prompt_index: 0,
             prompt_texts: Vec::new(),
             total_tokens: initial_tokens,
+            request_pruning_engaged: false,
             stream_start_ms: None,
             turn_start_ms: None,
             agent_edited_paths: BTreeSet::new(),

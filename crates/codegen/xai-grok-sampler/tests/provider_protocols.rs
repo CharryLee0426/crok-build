@@ -14,9 +14,19 @@ use xai_grok_sampling_types::{
 type Captured = Arc<Mutex<Vec<(HeaderMap, Value)>>>;
 
 async fn server(path: &str, events: Vec<Value>) -> (String, Captured, tokio::task::JoinHandle<()>) {
+    server_with_headers(path, events, &[]).await
+}
+
+/// Like [`server`], with `response_headers` on every response.
+async fn server_with_headers(
+    path: &str,
+    events: Vec<Value>,
+    response_headers: &[(&'static str, &'static str)],
+) -> (String, Captured, tokio::task::JoinHandle<()>) {
     let captured: Captured = Arc::new(Mutex::new(Vec::new()));
     let sink = captured.clone();
     let keep_open = path.contains("codex");
+    let response_headers = response_headers.to_vec();
     let sse: String = events
         .into_iter()
         .map(|value| format!("data: {value}\n\n"))
@@ -28,6 +38,7 @@ async fn server(path: &str, events: Vec<Value>) -> (String, Captured, tokio::tas
                 .unwrap()
                 .push((headers, serde_json::from_slice(&body).unwrap()));
             let sse = sse.clone();
+            let response_headers = response_headers.clone();
             async move {
                 let body = if keep_open {
                     axum::body::Body::from_stream(
@@ -39,10 +50,12 @@ async fn server(path: &str, events: Vec<Value>) -> (String, Captured, tokio::tas
                 } else {
                     axum::body::Body::from(sse)
                 };
-                axum::response::Response::builder()
-                    .header("content-type", "text/event-stream")
-                    .body(body)
-                    .unwrap()
+                let mut response =
+                    axum::response::Response::builder().header("content-type", "text/event-stream");
+                for (name, value) in response_headers {
+                    response = response.header(name, value);
+                }
+                response.body(body).unwrap()
             }
         }),
     );
@@ -370,5 +383,147 @@ async fn openrouter_replays_signed_reasoning_after_streamed_tool_call() {
         Some(&json!("signed-fixture"))
     );
     assert!(assistant.get("model_id").is_none());
+    task.abort();
+}
+
+/// Where `cache_control` sits in an OpenRouter body: `/messages/{index}` for a whole message, or
+/// `/messages/{index}/content/{part}` for one content part.
+fn cache_breakpoints(body: &Value) -> Vec<String> {
+    let mut found = Vec::new();
+    for (index, message) in body["messages"].as_array().unwrap().iter().enumerate() {
+        if message.get("cache_control").is_some() {
+            found.push(format!("/messages/{index}"));
+        }
+        for (part, block) in message["content"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            if block.get("cache_control").is_some() {
+                found.push(format!("/messages/{index}/content/{part}"));
+            }
+        }
+    }
+    found
+}
+
+#[tokio::test]
+async fn claude_on_openrouter_marks_cache_breakpoints_and_pins_one_session() {
+    let chunk = |delta: Value, finish: Value| json!({"id":"chat-fixture","object":"chat.completion.chunk","created":0,"model":"anthropic/claude-test","choices":[{"index":0,"delta":delta,"finish_reason":finish}]});
+    let mut last = chunk(
+        json!({"tool_calls":[{"index":0,"id":"call-fixture","type":"function","function":{"name":"read","arguments":"{\"path\":\"hello.txt\"}"}}]}),
+        json!("tool_calls"),
+    );
+    last["usage"] = json!({"prompt_tokens":5000,"completion_tokens":40,"total_tokens":5040,"prompt_tokens_details":{"cached_tokens":4000,"cache_write_tokens":900}});
+    let events = vec![
+        chunk(
+            json!({"reasoning":"Need the file.","reasoning_details":[{"type":"reasoning.text","index":0,"text":"Need the file.","signature":"signed-fixture","format":"anthropic-claude-v1"}]}),
+            Value::Null,
+        ),
+        last,
+    ];
+    let (base, captured, task) = server("/api/v1/chat/completions", events).await;
+    let client = SamplingClient::new(SamplerConfig {
+        base_url: format!("{base}/api/v1"),
+        model: "anthropic/claude-test".into(),
+        api_backend: ApiBackend::OpenRouter,
+        api_key: Some("fixture-token".into()),
+        ..Default::default()
+    })
+    .unwrap();
+    let response = client.conversation_collect(request()).await.unwrap();
+    let usage = response.usage.as_ref().unwrap();
+    assert_eq!(usage.cached_prompt_tokens, 4000);
+    assert_eq!(usage.cache_creation_prompt_tokens, 900);
+
+    let mut next = request();
+    let persisted = serde_json::to_value(&response.items).unwrap();
+    next.items
+        .extend(serde_json::from_value::<Vec<ConversationItem>>(persisted).unwrap());
+    next.items
+        .push(ConversationItem::tool_result("call-fixture", "hello"));
+    client.conversation_collect(next).await.unwrap();
+
+    let requests = captured.lock().unwrap();
+    let [(_, first), (_, second)] = requests.as_slice() else {
+        panic!("expected two requests, got {}", requests.len());
+    };
+    for body in [first, second] {
+        assert_eq!(body.get("session_id"), Some(&json!("conv-fixture")));
+        assert_eq!(body.get("prompt_cache_key"), Some(&json!("conv-fixture")));
+    }
+    assert_eq!(
+        cache_breakpoints(first),
+        ["/messages/0/content/0", "/messages/1/content/0"]
+    );
+    // The tool result is the newest message; the prompt is where the first request ended.
+    assert_eq!(
+        cache_breakpoints(second),
+        [
+            "/messages/0/content/0",
+            "/messages/1/content/0",
+            "/messages/3"
+        ]
+    );
+    assert_eq!(
+        second.pointer("/messages/2/reasoning_details/0/signature"),
+        Some(&json!("signed-fixture"))
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn codex_keeps_a_turn_on_one_backend_and_side_calls_on_the_parent_session() {
+    let done = json!({"type":"response.done","response":{"id":"resp_fixture","status":"completed","model":"gpt-codex-test","output":[{"type":"message","id":"msg_fixture","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Done.","annotations":[]}]}],"usage":{"input_tokens":10,"output_tokens":5}}});
+    let (base, captured, task) = server_with_headers(
+        "/backend-api/codex/responses",
+        vec![done],
+        &[("x-codex-turn-state", "ts-first")],
+    )
+    .await;
+    let client = SamplingClient::new(SamplerConfig {
+        base_url: format!("{base}/backend-api"),
+        model: "gpt-codex-test".into(),
+        api_backend: ApiBackend::OpenAiCodex,
+        api_key: Some("fixture-token".into()),
+        ..Default::default()
+    })
+    .unwrap();
+    let in_turn = |turn: &str| ConversationRequest {
+        x_grok_conv_id: Some("conv-turn-state".into()),
+        x_grok_turn_idx: Some(turn.into()),
+        ..request()
+    };
+    let side_call = ConversationRequest {
+        x_grok_conv_id: Some("recap-fixture".into()),
+        prompt_cache_key: Some("conv-turn-state".into()),
+        ..request()
+    };
+    for request in [in_turn("3"), in_turn("3"), in_turn("4"), side_call] {
+        client
+            .conversation_collect_with_idle_timeout(request, Duration::from_secs(2))
+            .await
+            .unwrap();
+    }
+
+    let requests = captured.lock().unwrap();
+    let turn_state: Vec<_> = requests
+        .iter()
+        .map(|(headers, _)| {
+            headers
+                .get("x-codex-turn-state")
+                .map(|value| value.to_str().unwrap())
+        })
+        .collect();
+    // Echoed within the turn that received it, never into another turn or a side call.
+    assert_eq!(turn_state, [None, Some("ts-first"), None, None]);
+    for (headers, body) in requests.iter() {
+        assert_eq!(headers.get("session-id").unwrap(), "conv-turn-state");
+        assert_eq!(
+            body.get("prompt_cache_key"),
+            Some(&json!("conv-turn-state"))
+        );
+    }
     task.abort();
 }

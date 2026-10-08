@@ -1011,6 +1011,10 @@ impl SamplingClient {
             crate::provider_compat::prepare_openrouter_request(
                 &mut body,
                 self.defaults.supports_tools,
+                payload
+                    .prompt_cache_key
+                    .as_deref()
+                    .or(payload.x_grok_conv_id.as_deref()),
             );
             self.build_json_request(grok_headers.apply(builder), &body)
                 .await?
@@ -1173,6 +1177,10 @@ impl SamplingClient {
             crate::provider_compat::prepare_openrouter_request(
                 &mut body,
                 self.defaults.supports_tools,
+                payload
+                    .prompt_cache_key
+                    .as_deref()
+                    .or(payload.x_grok_conv_id.as_deref()),
             );
             self.build_json_request(http_request, &body).await?
         } else if let Some(dialect) =
@@ -1613,10 +1621,29 @@ impl SamplingClient {
         let mut http_request = grok_headers
             .apply(builder)
             .header(ACCEPT, HeaderValue::from_static("text/event-stream"));
-        if self.defaults.api_backend == ApiBackend::OpenAiCodex && !x_grok_conv_id.is_empty() {
+        // ChatGPT derives prompt-cache affinity from `session-id`, so a side call that shares the
+        // parent's `prompt_cache_key` has to present the parent's session as well.
+        let codex_session = (self.defaults.api_backend == ApiBackend::OpenAiCodex)
+            .then(|| {
+                request
+                    .inner
+                    .prompt_cache_key
+                    .as_deref()
+                    .filter(|key| !key.is_empty())
+                    .unwrap_or(x_grok_conv_id)
+            })
+            .filter(|session| !session.is_empty());
+        let codex_turn = codex_session.zip(request.x_grok_turn_idx.as_deref());
+        if let Some(session) = codex_session {
             http_request = http_request
-                .header("session-id", x_grok_conv_id)
+                .header("session-id", session)
                 .header("x-client-request-id", x_grok_req_id);
+        }
+        if let Some((session, turn)) = codex_turn
+            && let Some(token) = crate::provider_compat::CODEX_TURN_STATES.get(session, turn)
+        {
+            http_request =
+                http_request.header(crate::provider_compat::CODEX_TURN_STATE_HEADER, token);
         }
         if let Some(policy) = self.defaults.doom_loop_recovery {
             http_request = http_request
@@ -1679,6 +1706,15 @@ impl SamplingClient {
                 should_retry,
                 error_code: parse_error_code(bytes.as_ref()),
             });
+        }
+
+        if let Some((session, turn)) = codex_turn
+            && let Some(token) = response
+                .headers()
+                .get(crate::provider_compat::CODEX_TURN_STATE_HEADER)
+                .and_then(|value| value.to_str().ok())
+        {
+            crate::provider_compat::CODEX_TURN_STATES.remember(session, turn, token);
         }
 
         let model_metadata = extract_model_metadata(response.headers());
@@ -2533,6 +2569,7 @@ mod tests {
             search_parameters: None,
             response_format: None,
             reasoning_effort: None,
+            prompt_cache_key: None,
             x_grok_conv_id: None,
             x_grok_req_id: None,
             x_grok_session_id: None,

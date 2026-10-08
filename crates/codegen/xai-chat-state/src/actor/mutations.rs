@@ -551,6 +551,7 @@ impl ChatStateActor {
         self.state.conversation = items;
         self.state.estimated_tokens_since_model = 0;
         self.state.total_tokens = estimated_tokens;
+        self.state.request_pruning_engaged = false;
         self.state.estimate_at_last_response = base_estimate;
         self.rebase_turn_capture_offset();
         self.send_event(ChatStateEvent::ConversationReset {
@@ -588,6 +589,7 @@ impl ChatStateActor {
         self.state.sampling_config = snap.sampling_config;
         self.state.prompt_index = snap.prompt_index;
         self.state.total_tokens = snap.total_tokens;
+        self.state.request_pruning_engaged = false;
         self.state.estimated_tokens_since_model = 0;
         self.state.estimate_at_last_response = if snap.estimate_at_last_response > 0 {
             snap.estimate_at_last_response

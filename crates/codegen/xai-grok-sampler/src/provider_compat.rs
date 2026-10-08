@@ -1,9 +1,57 @@
 //! Provider-specific wire adaptation. Authentication is resolved by the caller.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 use xai_grok_sampling_types::{ApiBackend, Result, SamplingError, rs};
+
+/// Codex's sticky-routing token. The first response of a turn carries it; every later request of
+/// that turn echoes it so the turn stays on the backend holding its prompt cache. Another turn
+/// must not send it.
+pub(crate) const CODEX_TURN_STATE_HEADER: &str = "x-codex-turn-state";
+
+/// Every request builds a new sampling client, so the tokens outlive clients here.
+pub(crate) static CODEX_TURN_STATES: LazyLock<CodexTurnStates> =
+    LazyLock::new(CodexTurnStates::default);
+
+/// A token is only ever read back for its session's current turn, so a full map is cleared
+/// rather than pruned.
+const CODEX_TURN_STATE_SESSIONS: usize = 256;
+
+/// The turn-state token each Codex session received, with the turn it belongs to.
+#[derive(Default)]
+pub(crate) struct CodexTurnStates(Mutex<HashMap<String, (String, String)>>);
+
+impl CodexTurnStates {
+    /// The token `session` received during `turn`. One from an earlier turn is forgotten.
+    pub(crate) fn get(&self, session: &str, turn: &str) -> Option<String> {
+        let mut states = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        match states.get(session) {
+            Some((stored_turn, token)) if stored_turn == turn => Some(token.clone()),
+            Some(_) => {
+                states.remove(session);
+                None
+            }
+            None => None,
+        }
+    }
+
+    /// The first token a turn receives wins, as in the Codex CLI.
+    pub(crate) fn remember(&self, session: &str, turn: &str, token: &str) {
+        let mut states = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if states
+            .get(session)
+            .is_some_and(|(stored_turn, _)| stored_turn == turn)
+        {
+            return;
+        }
+        if states.len() >= CODEX_TURN_STATE_SESSIONS && !states.contains_key(session) {
+            states.clear();
+        }
+        states.insert(session.to_owned(), (turn.to_owned(), token.to_owned()));
+    }
+}
 
 /// Read a routing claim from the bearer sent on this request. This is not JWT
 /// validation; authorization remains the subscription server's responsibility.
@@ -120,7 +168,15 @@ pub(crate) fn prepare_codex_request(body: &mut Value) {
     }
 }
 
-pub(crate) fn prepare_openrouter_request(body: &mut Value, supports_tools: Option<bool>) {
+/// OpenRouter's documented limit for `session_id`.
+const OPENROUTER_SESSION_ID_MAX_CHARS: usize = 256;
+
+/// `cache_key` names the conversation whose prompt cache this request should reuse.
+pub(crate) fn prepare_openrouter_request(
+    body: &mut Value,
+    supports_tools: Option<bool>,
+    cache_key: Option<&str>,
+) {
     let Some(body) = body.as_object_mut() else {
         return;
     };
@@ -133,8 +189,21 @@ pub(crate) fn prepare_openrouter_request(body: &mut Value, supports_tools: Optio
             body.remove(key);
         }
     }
+    // Without a session OpenRouter pins a provider only after it has seen a cache hit, so the first
+    // requests of a conversation can land on providers that each keep their own cache.
+    // OpenAI and Meta route on `prompt_cache_key` themselves.
+    if let Some(key) = cache_key
+        .filter(|key| !key.is_empty() && key.chars().count() <= OPENROUTER_SESSION_ID_MAX_CHARS)
+    {
+        body.insert("session_id".into(), json!(key));
+        body.insert("prompt_cache_key".into(), json!(key));
+    }
+    let explicit_cache = body
+        .get("model")
+        .and_then(Value::as_str)
+        .is_some_and(caches_only_at_breakpoints);
     if let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) {
-        for message in messages {
+        for message in messages.iter_mut() {
             if let Some(message) = message.as_object_mut() {
                 message.remove("model_id");
                 if let Some(reasoning) = message.remove("reasoning_content")
@@ -147,6 +216,89 @@ pub(crate) fn prepare_openrouter_request(body: &mut Value, supports_tools: Optio
                 }
             }
         }
+        if explicit_cache {
+            mark_cache_breakpoints(messages);
+        }
+    }
+}
+
+/// Only Claude needs marked breakpoints to cache at all. Other models on OpenRouter cache prefixes
+/// by themselves, and marking them would only add cache writes (GPT-5.6 and later bill those).
+fn caches_only_at_breakpoints(model: &str) -> bool {
+    model
+        .strip_prefix('~')
+        .unwrap_or(model)
+        .starts_with("anthropic/")
+}
+
+/// Marks the system prompt, the newest message, and where the previous request ended: three of the
+/// four breakpoints Anthropic allows. The last one keeps a turn that appended more than the 20-block
+/// lookback reading the previous request's entry instead of writing the whole prefix again.
+fn mark_cache_breakpoints(messages: &mut [Value]) {
+    fn role(message: &Value) -> Option<&str> {
+        message.get("role").and_then(Value::as_str)
+    }
+    fn carries_breakpoint(message: &Value) -> bool {
+        matches!(role(message), Some("user" | "tool"))
+    }
+    if let Some(system) = messages
+        .iter_mut()
+        .find(|message| role(message) == Some("system"))
+    {
+        mark_cache_breakpoint(system);
+    }
+    let Some(tip) = messages.iter().rposition(carries_breakpoint) else {
+        return;
+    };
+    let previous = messages.get(..tip).and_then(|before_tip| {
+        let assistant = before_tip
+            .iter()
+            .rposition(|message| role(message) == Some("assistant"))?;
+        before_tip
+            .get(..assistant)?
+            .iter()
+            .rposition(carries_breakpoint)
+    });
+    for index in std::iter::once(tip).chain(previous) {
+        if let Some(message) = messages.get_mut(index) {
+            mark_cache_breakpoint(message);
+        }
+    }
+}
+
+/// A tool result takes the marker on the message, as OpenRouter's own SDK sends it; other roles
+/// take it on their last text part, so plain-string content becomes a one-part array.
+fn mark_cache_breakpoint(message: &mut Value) {
+    let marker = json!({"type": "ephemeral"});
+    let Some(message) = message.as_object_mut() else {
+        return;
+    };
+    if message.get("role").and_then(Value::as_str) == Some("tool") {
+        message.insert("cache_control".into(), marker);
+        return;
+    }
+    let Some(content) = message.get_mut("content") else {
+        return;
+    };
+    match content {
+        // Anthropic rejects an empty text block, so an empty message stays as it is.
+        Value::String(text) if !text.is_empty() => {
+            let text = std::mem::take(text);
+            *content = json!([{"type": "text", "text": text, "cache_control": marker}]);
+        }
+        Value::Array(parts) => {
+            let last_text = parts
+                .iter()
+                .rposition(|part| part.get("type").and_then(Value::as_str) == Some("text"));
+            if let Some(part) = last_text
+                .or_else(|| parts.len().checked_sub(1))
+                .and_then(|index| parts.get_mut(index))
+                .and_then(Value::as_object_mut)
+            {
+                part.insert("cache_control".into(), marker);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -635,12 +787,160 @@ mod tests {
     }
 
     #[test]
+    fn a_codex_turn_keeps_its_first_token_and_never_lends_it_to_another_turn() {
+        let states = CodexTurnStates::default();
+        assert_eq!(states.get("session", "1"), None);
+        states.remember("session", "1", "first");
+        states.remember("session", "1", "second");
+        assert_eq!(states.get("session", "1").as_deref(), Some("first"));
+        assert_eq!(states.get("other-session", "1"), None);
+        assert_eq!(states.get("session", "2"), None);
+        assert_eq!(
+            states.get("session", "1"),
+            None,
+            "asking for a later turn forgets the earlier token"
+        );
+        states.remember("session", "2", "next");
+        assert_eq!(states.get("session", "2").as_deref(), Some("next"));
+    }
+
+    #[test]
     fn openrouter_omits_tools_for_models_without_tool_support() {
         let mut body = json!({"messages":[],"tools":[{"type":"function"}],"tool_choice":"auto","parallel_tool_calls":true});
-        prepare_openrouter_request(&mut body, Some(false));
+        prepare_openrouter_request(&mut body, Some(false), None);
         assert!(body.get("tools").is_none());
         assert!(body.get("tool_choice").is_none());
         assert!(body.get("parallel_tool_calls").is_none());
+    }
+
+    fn cache_markers(body: &Value) -> Vec<String> {
+        fn walk(value: &Value, path: String, found: &mut Vec<String>) {
+            match value {
+                Value::Object(map) => {
+                    for (key, child) in map {
+                        if key == "cache_control" {
+                            found.push(path.clone());
+                        } else {
+                            walk(child, format!("{path}/{key}"), found);
+                        }
+                    }
+                }
+                Value::Array(items) => {
+                    for (index, child) in items.iter().enumerate() {
+                        walk(child, format!("{path}/{index}"), found);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        walk(body, String::new(), &mut found);
+        found
+    }
+
+    /// The second request of a tool loop, plus a reminder the turn appended after the result.
+    fn claude_tool_loop(model: &str) -> Value {
+        json!({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "Be precise."},
+                {"role": "user", "content": "Read hello.txt"},
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "call-1", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
+                {"role": "tool", "tool_call_id": "call-1", "content": "hello"},
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "call-2", "type": "function", "function": {"name": "read", "arguments": "{}"}},
+                    {"id": "call-3", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
+                {"role": "tool", "tool_call_id": "call-2", "content": "a"},
+                {"role": "tool", "tool_call_id": "call-3", "content": "b"},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "<system-reminder>Keep going.</system-reminder>"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA"}}]}
+            ]
+        })
+    }
+
+    #[test]
+    fn claude_on_openrouter_caches_at_the_system_prompt_the_tip_and_the_previous_tip() {
+        for model in [
+            "anthropic/claude-opus-5.5",
+            "~anthropic/claude-haiku-latest",
+        ] {
+            let mut body = claude_tool_loop(model);
+            prepare_openrouter_request(&mut body, None, Some("session-1"));
+            assert_eq!(
+                cache_markers(&body),
+                [
+                    "/messages/0/content/0",
+                    // The previous request ended on the last result of the first tool call.
+                    "/messages/3",
+                    // The newest message carries its marker on its last text part, not on the image.
+                    "/messages/7/content/0",
+                ],
+                "{model}"
+            );
+            assert_eq!(
+                body.pointer("/messages/0/content/0/text"),
+                Some(&json!("Be precise."))
+            );
+            assert_eq!(
+                body.pointer("/messages/3/cache_control"),
+                Some(&json!({"type": "ephemeral"}))
+            );
+            assert_eq!(body.pointer("/messages/3/content"), Some(&json!("hello")));
+        }
+
+        // The first request: no assistant turn yet, so only the system prompt and the prompt itself.
+        let mut first = json!({"model": "anthropic/claude-sonnet-5.5", "messages": [
+            {"role": "system", "content": "Be precise."},
+            {"role": "user", "content": "Read hello.txt"}]});
+        prepare_openrouter_request(&mut first, None, None);
+        assert_eq!(
+            cache_markers(&first),
+            ["/messages/0/content/0", "/messages/1/content/0"]
+        );
+
+        // A tool result as the newest message; an empty message gets no empty text block.
+        let mut tool_tip = json!({"model": "anthropic/claude-sonnet-5.5", "messages": [
+            {"role": "system", "content": ""},
+            {"role": "user", "content": "Read it"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "call-1", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "hello"}]});
+        prepare_openrouter_request(&mut tool_tip, None, None);
+        assert_eq!(
+            cache_markers(&tool_tip),
+            ["/messages/1/content/0", "/messages/3"]
+        );
+        assert_eq!(tool_tip.pointer("/messages/0/content"), Some(&json!("")));
+    }
+
+    #[test]
+    fn models_that_cache_on_their_own_get_no_markers_but_every_model_gets_a_session() {
+        for model in [
+            "openai/gpt-5.6-sol",
+            "meta/muse-spark-1.3",
+            "x-ai/grok-4.6",
+            "openrouter/auto",
+        ] {
+            let mut body = claude_tool_loop(model);
+            prepare_openrouter_request(&mut body, None, Some("session-1"));
+            assert!(cache_markers(&body).is_empty(), "{model}");
+            assert_eq!(
+                body.pointer("/messages/0/content"),
+                Some(&json!("Be precise."))
+            );
+            assert_eq!(body.get("session_id"), Some(&json!("session-1")), "{model}");
+            assert_eq!(body.get("prompt_cache_key"), Some(&json!("session-1")));
+        }
+
+        // OpenRouter rejects a session id over 256 characters, and an empty one routes nowhere.
+        for key in ["", &"k".repeat(257)] {
+            let mut body = claude_tool_loop("openai/gpt-5.6-sol");
+            prepare_openrouter_request(&mut body, None, Some(key));
+            assert!(body.get("session_id").is_none());
+            assert!(body.get("prompt_cache_key").is_none());
+        }
     }
 
     fn set(body: &mut Value, key: &str, value: Value) {

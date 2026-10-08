@@ -781,7 +781,7 @@ pub struct TokenUsage {
     /// OpenAI: `prompt_tokens_details.cached_tokens`. Messages: `cache_read_input_tokens`.
     #[serde(default)]
     pub cached_prompt_tokens: u32,
-    /// Prompt tokens written to cache this call (Messages `cache_creation_input_tokens`, billed at ~1.25x).
+    /// Prompt tokens written to cache this call (Messages `cache_creation_input_tokens`, OpenRouter `prompt_tokens_details.cache_write_tokens`; billed at ~1.25x).
     /// Part of `prompt_tokens` but distinct from cache reads; 0 on backends without a cache-write signal.
     #[serde(default)]
     pub cache_creation_prompt_tokens: u32,
@@ -798,10 +798,10 @@ impl TokenUsage {
 
 impl From<Usage> for TokenUsage {
     fn from(u: Usage) -> Self {
-        let cached_prompt_tokens = u
+        let (cached_prompt_tokens, cache_creation_prompt_tokens) = u
             .prompt_tokens_details
             .as_ref()
-            .map_or(0, |d| d.cached_tokens);
+            .map_or((0, 0), |d| (d.cached_tokens, d.cache_write_tokens));
         Self {
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
@@ -811,7 +811,7 @@ impl From<Usage> for TokenUsage {
                 .as_ref()
                 .map_or(0, |d| d.reasoning_tokens),
             cached_prompt_tokens,
-            cache_creation_prompt_tokens: 0,
+            cache_creation_prompt_tokens,
         }
     }
 }
@@ -2311,8 +2311,14 @@ mod tests {
                         .as_deref()
                         == Some("cache-key-1")
                 }
+                // The sampler's OpenRouter preparation forwards the carried key; its tests check the body.
+                crate::ApiBackend::OpenRouter => {
+                    ChatCompletionRequest::from(request())
+                        .prompt_cache_key
+                        .as_deref()
+                        == Some("cache-key-1")
+                }
                 crate::ApiBackend::ChatCompletions
-                | crate::ApiBackend::OpenRouter
                 | crate::ApiBackend::DeepSeek
                 | crate::ApiBackend::Glm => {
                     let mapped = ChatCompletionRequest::from(request());
