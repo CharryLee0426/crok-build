@@ -24,7 +24,7 @@ final class ExtrasFeatureModel: ObservableObject {
     private var lastConfigTheme: String?
     private var activationObserver: NSObjectProtocol?
     /// Serial, so the last theme chosen is the last one written.
-    private let configWriter = DispatchQueue(label: "ai.grok.desktop.theme-config", qos: .utility)
+    private let configWriter = DispatchQueue(label: "dev.chenli.crok.desktop.theme-config", qos: .utility)
 
     static let tutorialProgressKey = "tutorialExploredTopics"
 
@@ -39,7 +39,7 @@ final class ExtrasFeatureModel: ObservableObject {
         self.store = store
         activeTheme = Theme.palette.theme
         reloadTutorialProgress()
-        // The terminal may have switched themes while Grok Desktop was in the background.
+        // The terminal may have switched themes while Crok Desktop was in the background.
         activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncThemeFromConfig() }
         }

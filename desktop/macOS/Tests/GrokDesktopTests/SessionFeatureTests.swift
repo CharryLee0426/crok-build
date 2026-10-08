@@ -293,7 +293,9 @@ final class SessionFeatureTests: XCTestCase {
         XCTAssertEqual(DoctorDesktopCheck.microphone(.notDetermined).value, "Not requested yet")
         XCTAssertEqual(DoctorDesktopCheck.notifications(.denied).value, "Off")
         XCTAssertEqual(DoctorDesktopCheck.signIn([:]).value, "Not signed in")
-        XCTAssertEqual(DoctorDesktopCheck.signIn([:]).detail, "Open Settings and sign in to OpenRouter or OpenAI Codex.")
+        XCTAssertEqual(DoctorDesktopCheck.signIn([:]).detail, "Open Settings and connect a provider under Accounts: OpenAI Codex, OpenRouter, DeepSeek, or a GLM Coding Plan.")
+        XCTAssertEqual(DoctorDesktopCheck.signIn([.deepseek: AccountStatus(state: .connected), .glm: AccountStatus(state: .connected)]).value,
+                       "Signed in · DeepSeek, GLM Coding Plan")
         XCTAssertEqual(DoctorDesktopCheck.signIn([.codex: AccountStatus(state: .connected, identity: "dev@example.com", detail: "Signed in")]).value, "Signed in · OpenAI Codex")
         XCTAssertEqual(DoctorDesktopCheck.signIn([.openrouter: AccountStatus(state: .connected), .codex: AccountStatus(state: .connected)]).value,
                        "Signed in · OpenRouter, OpenAI Codex")
@@ -415,7 +417,7 @@ final class SessionFeatureTests: XCTestCase {
         return url
     }
 
-    /// Captured from `grok doctor --json` (grok 1.0.41) run outside a terminal on macOS.
+    /// Captured from `crok doctor --json` (crok 1.0.41) run outside a terminal on macOS.
     static let doctorSample = #"""
     {
       "schemaVersion": "1",

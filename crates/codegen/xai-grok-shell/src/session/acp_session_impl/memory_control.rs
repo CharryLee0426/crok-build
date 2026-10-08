@@ -225,7 +225,7 @@ impl SessionActor {
         ) {
             (Some(MemoryDisabledReason::ProcessDisabled), _) => {
                 return "Memory cannot be enabled: it was turned off for this process \
-                        (`--no-memory` or `GROK_MEMORY=0`). Start a new session without it."
+                        (`--no-memory` or `CROK_MEMORY=0`). Start a new session without it."
                     .to_owned();
             }
             (Some(MemoryDisabledReason::RolloutRestricted), _) => {

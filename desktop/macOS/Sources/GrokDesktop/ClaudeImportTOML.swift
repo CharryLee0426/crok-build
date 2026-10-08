@@ -362,7 +362,7 @@ private struct ClaudeTOMLParser {
         return array
     }
 
-    /// TOML 1.1 inline tables (which Grok's parser accepts) may span lines, hold comments, and end with a comma.
+    /// TOML 1.1 inline tables (which Crok's parser accepts) may span lines, hold comments, and end with a comma.
     private mutating func inlineTable(depth: Int) throws -> ClaudeTOMLTable {
         let table = ClaudeTOMLTable(.inline)
         index += 1
@@ -532,7 +532,7 @@ private struct ClaudeTOMLParser {
 
 // MARK: - Scalars
 
-/// Validates number, date, and time literals as Grok's TOML parser (TOML 1.1) does, including the
+/// Validates number, date, and time literals as Crok's TOML parser (TOML 1.1) does, including the
 /// ranges: integers must fit 64 bits and dates must exist.
 enum ClaudeTOMLScalar {
     private static func isDigit(_ byte: UInt8, radix: Int = 10) -> Bool {

@@ -252,7 +252,7 @@ pub(crate) fn dispatch_open_transcript_pager(app: &mut AppView) {
         return;
     };
 
-    let path = std::env::temp_dir().join(format!("grok-transcript-{}.md", uuid::Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!("crok-transcript-{}.md", uuid::Uuid::new_v4()));
     match std::fs::write(&path, content) {
         Ok(()) => {
             app.pending_pager_path = Some(path);

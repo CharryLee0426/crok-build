@@ -11,9 +11,9 @@ and load provider credentials and configuration.
 Open `Crok-Desktop-<version>-arm64.dmg` and drag **Crok Desktop** to
 **Applications**. The app includes Crok Build, the same runtime and `crok` TUI as
 the CLI, so nothing else needs to be installed. It requires macOS 14 or later on
-Apple silicon. On first launch, sign in to OpenRouter or OpenAI Codex from
-**Settings › Accounts**. xAI accounts are not supported; Grok models are available
-through OpenRouter.
+Apple silicon. On first launch, connect a model provider in **Settings › Accounts**:
+sign in to OpenRouter or OpenAI Codex, or add a DeepSeek or GLM Coding Plan API key.
+xAI accounts are not supported; Grok models are available through OpenRouter.
 
 The disk image is ad hoc signed and not notarized, so macOS blocks the first launch
 with a message that it cannot verify the app. Open **System Settings › Privacy &
@@ -54,7 +54,7 @@ Run these commands from the repository root:
 make build-desktop
 open "desktop/macOS/dist/Crok Desktop.app"
 
-# Build a separate workspace-local test app with orange TESTING artwork:
+# Build a separate workspace-local test app with a TESTING-badged icon:
 make build-test-desktop
 open "target/test-builds/desktop/Crok Desktop Test.app"
 
@@ -70,9 +70,9 @@ build or install the CLI/TUI. They do not compile or install the desktop app.
 Use `make deploy-desktop DESKTOP_INSTALL_DIR=/Applications` to choose a different
 app destination, provided it is writable. `make build-test-desktop` keeps the
 packaged test app and its state under the repository's `target/test-builds/`
-directory. Its app has a separate bundle identity, state file, orange **TESTING**
-icon, and disabled global `crok` command switch, so it remains separate from the
-production desktop app.
+directory. Its app has a separate bundle identity, state file, an icon with an
+orange **TESTING** pill, and disabled global `crok` command switch, so it remains
+separate from the production desktop app.
 
 The test app also shows a performance monitor: a see-through black panel over the
 window with live numbers and one-minute charts for frame rate, main-thread lag
@@ -122,15 +122,21 @@ swift test --package-path desktop/macOS
 ## Use the app
 
 1. Choose **Open Project** and select the folder Crok should work in.
-2. In **Settings**, check **Accounts** and sign in to OpenRouter or OpenAI Codex
-   (`/login` opens the same place). Existing CLI credentials from
-   `crok login openrouter` or `crok login openai-codex`, and `OPENROUTER_API_KEY`,
+2. In **Settings**, check **Accounts** (`/login` opens the same place). OpenRouter
+   and OpenAI Codex sign in with the browser. DeepSeek and the GLM Coding Plan take
+   an API key: choose **Add Key…**, paste it, and for GLM pick the site you
+   subscribed on (z.ai or bigmodel.cn; a key from one is refused by the other). The
+   key is checked with the provider before it is saved, and a refused key shows the
+   reason under the list. Existing CLI credentials from `crok login <provider>`, and
+   keys in `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY` or `ZHIPU_API_KEY`,
    are reused. Each provider shows its saved account identity when available, and
-   signed-in accounts cannot start another sign-in. OpenRouter API keys do not
-   include an account name; this is stated explicitly. xAI accounts (xAI sign-in,
+   connected accounts cannot start another sign-in. API keys do not include an
+   account name; this is stated explicitly. xAI accounts (xAI sign-in,
    `XAI_API_KEY`) are not supported; use Grok models through OpenRouter. To sign
-   out, run `crok logout <provider>` (or `crok logout` for every provider) in the
-   side panel's Terminal.
+   out or remove a key, use the **⋯** menu on a connected account, or run
+   `crok logout <provider>` (or `crok logout` for every provider) in the side
+   panel's Terminal. A key that comes from the environment has no menu; unset the
+   variable instead.
 3. Start a task and send a prompt. Responses stream into the conversation, with
    expandable thinking and tool output, plan progress, permission requests,
    project trust decisions, and agent questions. Messages you send while Crok is
@@ -242,10 +248,11 @@ responsive. While a reply or thinking streams, a last line that so far could onl
 a rule or a heading's underline (`* **`, `---`) waits for its next characters or its
 end, so a list whose items begin in bold no longer draws a rule before each one. `/timestamps`, `/timeline`, `/find` (⌘F), `/jump`, and `/vim-mode`
 add timestamps, a turn rail, search, a turn picker, and keyboard navigation.
-A task that has run for hours shows its newest 240 messages; **Show earlier
-messages** at the top loads more, and find, `/jump`, the timeline, and vim keys
-bring back whatever they point at. Streaming costs the same at round 3,000 as at
-round 1.
+A task that has run for hours shows all of its messages: the rows are an AppKit
+list that lays out and draws only what is in sight, so scrolling to the start,
+find, `/jump`, the timeline, and vim keys reach any of them, and streaming costs
+the same at round 3,000 as at round 1. Opening a reasoning or tool block keeps it
+where it was clicked while the rows after it slide.
 
 ### Sidebar
 
@@ -481,6 +488,34 @@ streams a long task through an offscreen conversation for about a minute and fai
 if the transcript goes blank. Crok Desktop 1.2.0 did after a few hundred messages
 (`CROK_TRANSCRIPT_REPLAY=<file>` runs it on a recording instead).
 
+The conversation's rows are AppKit: `TranscriptListView` keeps a height for every
+message, lays out and makes views only for the rows near what is in sight, and
+decides itself what stays put when heights change, so no row is ever measured in
+a loop however long the task. `swift test --filter TranscriptListTests` checks it
+alone on a 15,000-message session (what has views, following, a reader's place
+kept through arriving output, resizes, and opened blocks, jumping to a message
+never laid out) and prints what opening, streaming, resizing, and scrolling
+through all of it cost; `CROK_DESKTOP_SNAPSHOT_DIR=<dir> swift test --filter TranscriptListSnapshot`
+draws every kind of row beside the SwiftUI row it replaced. `fixture:marathon:N:M`
+is the session those are sized for: reasoning that is a line, a paragraph, or
+pages long in turn, three commands running at once in every round with a few
+lines to hundreds of lines of output, and every fifth reply in every Markdown
+format. `CROK_DESKTOP_UI_TESTS=1 swift test --filter TranscriptMarathon` sends
+3,000 rounds of it through an offscreen conversation at once (`CROK_MARATHON_ROUNDS`
+changes that), then keeps it streaming while the window is dragged to other
+sizes, taken to a screen's size and back as full screen does, scrolled to the
+middle, searched, and returned to its end.
+
+Those windows are never on screen, and what draws them (`cacheDisplay`) shows
+neither the window's title bar nor Core Animation's masks and motion as the
+screen does. `CROK_DESKTOP_WINDOW_SHOTS=<folder> swift test --filter TranscriptWindow`
+opens the real main window instead, under the desktop where nobody sees it, and
+has the window server picture it: the rows clear of the title bar and the find
+bar, a long task kept at its end as the window and the side panel change, a
+block opening in place while the rows after it slide, and the fade at the top
+of reasoning that streams. The pictures are of the app's own window, so they
+need no screen-recording permission.
+
 A session that ended or hung the app can be replayed as it was sent, on the Mac
 where it did. `CROK_TRACE_HTML=<its /trace export> swift test --filter TraceSessionReplay`
 sends its prompts one by one through an offscreen main window, each answered with
@@ -504,27 +539,41 @@ changing; with a state file named this way the browser keeps no cookies or site
 data on disk). The normal
 packaged app continues to use its embedded runtime and standard local state.
 
-## Vector app icon
+## App icon
 
-[`Resources/GrokMark.svg`](Resources/GrokMark.svg) is the editable vector source,
-reconstructed from the [Grok homepage](https://grok.com/) mark. No downloaded
-raster artwork or font glyph is used. The desktop icon follows Apple's macOS
-icon grid, like the other coding agents' icons: an 824 pt continuous-corner tile
-on the 1024 pt canvas, with a top-lit black gradient, a faint bezel, and the
-system's soft drop shadow, and the white mark at about half the tile. The test
-build uses an orange tile with a TESTING pill. The in-app symbol uses the same paths.
+The icon is the labubu artwork in two versions, one for each appearance:
+[`Resources/AppIcon-LightMode.jpg`](Resources/AppIcon-LightMode.jpg), the dark
+tile shown in light mode, and
+[`Resources/AppIcon-DarkMode.jpg`](Resources/AppIcon-DarkMode.jpg), the light
+tile shown in dark mode. Both follow Apple's macOS icon grid, like the other
+coding agents' icons: the artwork fills an 824 pt tile with continuous corners of
+radius 185.4 pt on the 1024 pt canvas (Claude's icon has the same outline), with a
+faint bezel and the system's soft drop shadow. The test build adds an orange
+TESTING pill below the face.
 
-The packaging script regenerates the icon before building. To regenerate it
+The bundle's icon, which Finder and the Dock show while the app is not running,
+is the light-mode one. While the app runs it sets the Dock icon from the window
+appearance: Crok Day shows the light-mode icon, the dark themes show the
+dark-mode one, and the auto theme follows the system as it switches between light
+and dark.
+
+[`Resources/GrokMark.svg`](Resources/GrokMark.svg) is the editable vector source
+of the in-app mark: the labubu head traced from the artwork, with its strokes
+thickened a little so the face stays legible at sidebar sizes. The terminal's
+braille logo and the sign-in page show the same head.
+
+The packaging script regenerates the icons before building. To regenerate them
 independently, run from the repository root:
 
 ```sh
-swift desktop/macOS/scripts/make-icon.swift desktop/macOS/Resources/AppIcon.icns
+swift desktop/macOS/scripts/make-icon.swift
 ```
 
-The generator creates the multi-resolution ICNS, a scalable `Resources/AppIcon.svg`,
-a PNG preview in `dist/`, and the native `GrokSymbol.swift` shape. Edit
-`GrokMark.svg` to change the geometry, then regenerate; avoid editing the generated
-Swift shape directly. Each required icon size is rendered from vector paths.
+The generator writes `Resources/AppIcon.icns` and `Resources/AppIconDark.icns` at
+every ICNS size, a side-by-side PNG preview in `dist/`, and the native
+`GrokSymbol.swift` shape. Replace a JPEG (square, at least 1024 px) to change an
+icon, or edit `GrokMark.svg` to change the in-app mark, then regenerate; avoid
+editing the generated Swift shape directly.
 
 ## Distribution
 

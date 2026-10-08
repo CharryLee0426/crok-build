@@ -45,7 +45,7 @@ final class ComposerFeatureModel: ObservableObject {
     private var heldEntries: Set<UUID> = []
     private var operationWatchers: [UUID: Task<Void, Never>] = [:]
     private static let isRunningTests = NSClassFromString("XCTestCase") != nil
-    nonisolated private static let configQueue = DispatchQueue(label: "ai.grok.desktop.composer-config", qos: .userInitiated)
+    nonisolated private static let configQueue = DispatchQueue(label: "dev.chenli.crok.desktop.composer-config", qos: .userInitiated)
 
     init(store: AppStore) {
         self.store = store

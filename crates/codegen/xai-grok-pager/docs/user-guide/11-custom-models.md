@@ -21,7 +21,7 @@ Catalog metadata supplies context limits, output limits, and capabilities. User 
 default = "openrouter/anthropic/claude-sonnet-4.6"
 ```
 
-The built-in provider IDs `openrouter` and `openai-codex` also work with custom aliases, including new model slugs:
+The built-in provider IDs `openrouter`, `openai-codex`, `deepseek`, `glm` and `glm-cn` also work with custom aliases, including new model slugs:
 
 ```toml
 [model.my-router-model]
@@ -43,7 +43,7 @@ Implementation references: [OpenRouter OAuth PKCE](https://openrouter.ai/docs/gu
 
 ## Default Models
 
-Crok's models come from the provider you sign in to: `crok login openai-codex` adds the Codex subscription models (`openai-codex/...`), and `crok login openrouter` or `OPENROUTER_API_KEY` adds the OpenRouter catalog (`openrouter/...`, including Grok models under `openrouter/x-ai/...`). Models hosted by SpaceXAI's own API, such as `grok-4.5`, are hidden unless `XAI_API_KEY` is set. Set `[models] default` to choose the model new sessions start with.
+Crok's models come from the provider you sign in to: `crok login openai-codex` adds the Codex subscription models (`openai-codex/...`), `crok login openrouter` or `OPENROUTER_API_KEY` adds the OpenRouter catalog (`openrouter/...`, including Grok models under `openrouter/x-ai/...`), `crok login deepseek` or `DEEPSEEK_API_KEY` adds your DeepSeek account's models (`deepseek/...`, fetched at sign-in and hourly after; `crok models --refresh` fetches them now), and `crok login glm` or `crok login glm-cn` adds the GLM Coding Plan's models (`glm/glm-5.3`, `glm/glm-5.3-flash`, or the same under `glm-cn/`). A model a provider releases later can be used at once by its prefixed ID, for example `crok --model glm/<new-model>`. Models hosted by SpaceXAI's own API, such as `grok-4.5`, are hidden unless `XAI_API_KEY` is set. Set `[models] default` to choose the model new sessions start with.
 
 List all available models:
 
@@ -113,6 +113,8 @@ Set `api_backend` in your `[model.*]` config to choose which protocol the model 
 | `"messages"` | Anthropic Messages (`/v1/messages`) | |
 | `"openrouter"` | OpenRouter Chat Completions with provider-specific reasoning support | |
 | `"openai_codex"` | ChatGPT Codex subscription Responses | |
+| `"deepseek"` | DeepSeek Chat Completions: thinking is switched per request and earlier reasoning is sent back through a tool loop | |
+| `"glm"` | Zhipu GLM Chat Completions, as the GLM Coding Plan serves it: reasoning is always on and tool calls are streamed | |
 
 When you omit `api_backend`, Crok uses the configured provider's backend, or `chat_completions` for a standalone custom model.
 
@@ -149,7 +151,7 @@ Crok resolves the API key in this order:
 
 1. The `api_key` field in the model config
 2. The environment variable(s) named by `env_key` — a single string or an array of names. The first set, non-empty value wins (for example `env_key = ["ANTHROPIC_AUTH_TOKEN", "LC_ANTHROPIC_AUTH_TOKEN"]` for SSH `LC_*` forwarding)
-3. The signed-in provider credential (from `crok login openrouter` or `crok login openai-codex`), for a provider model with no `api_key`/`env_key` of its own
+3. The signed-in provider credential (from `crok login <provider>`, or the provider's environment key), for a provider model with no `api_key`/`env_key` of its own. It is sent only to that provider's own endpoint: a provider model whose `base_url` or `api_backend` is changed gets no credential
 4. The `XAI_API_KEY` environment variable (global fallback; Crok also accepts `CROK_CODE_XAI_API_KEY` for backward compatibility)
 
 ### Context Window

@@ -8,6 +8,7 @@ app_name="${DESKTOP_APP_NAME:-Crok Desktop}"
 bundle_identifier="${DESKTOP_BUNDLE_ID:-dev.chenli.crok.desktop}"
 app_dir="${DESKTOP_APP_DIR:-$package_dir/dist/$app_name.app}"
 icon_path="${DESKTOP_ICON_PATH:-$package_dir/Resources/AppIcon.icns}"
+dark_icon_path="${DESKTOP_DARK_ICON_PATH:-${icon_path%.icns}Dark.icns}"
 icon_preview="${DESKTOP_ICON_PREVIEW_PATH:-$package_dir/dist/AppIcon-preview.png}"
 icon_style="${DESKTOP_ICON_STYLE:-standard}"
 test_build="${DESKTOP_TEST_BUILD:-0}"
@@ -17,6 +18,7 @@ version="${DESKTOP_VERSION:-$(/usr/bin/tr -d '[:space:]' < "$package_dir/VERSION
 grok_source="${CROK_BINARY:-${GROK_BINARY:-$repository_dir/target/release/xai-grok-pager}}"
 if [[ "$app_dir" != /* ]]; then app_dir="$PWD/$app_dir"; fi
 if [[ "$icon_path" != /* ]]; then icon_path="$PWD/$icon_path"; fi
+if [[ "$dark_icon_path" != /* ]]; then dark_icon_path="$PWD/$dark_icon_path"; fi
 if [[ "$icon_preview" != /* ]]; then icon_preview="$PWD/$icon_preview"; fi
 if [[ -n "$state_file" && "$state_file" != /* ]]; then state_file="$PWD/$state_file"; fi
 if [[ "$grok_source" != /* ]]; then grok_source="$PWD/$grok_source"; fi
@@ -40,7 +42,7 @@ replace_executable() {
     /bin/mv -f "$temporary" "$2"
 }
 
-icon_arguments=("$icon_path" "$package_dir/Resources/GrokMark.svg" "$package_dir/Sources/GrokDesktop/GrokSymbol.swift" "$icon_preview")
+icon_arguments=("$icon_path" "$dark_icon_path" "$package_dir/Resources/GrokMark.svg" "$package_dir/Sources/GrokDesktop/GrokSymbol.swift" "$icon_preview")
 case "$icon_style" in
     standard) ;;
     test) icon_arguments+=(--test) ;;
@@ -61,12 +63,16 @@ printf 'Bundled harness: %s\n' "$grok_source"
 /usr/bin/install -m 755 "$package_dir/Resources/crok-command.sh" "$app_dir/Contents/Resources/bin/crok"
 # Give changed artwork a new resource name so Finder and Dock can distinguish
 # an in-place development rebuild from their cached icon for the same app.
+# The light-mode icon is the bundle's icon; the app swaps in the dark one at run time.
 icon_hash="$(/usr/bin/shasum -a 256 "$icon_path" | /usr/bin/cut -c 1-12)"
 icon_name="AppIcon-$icon_hash"
-for stale_icon in "$app_dir/Contents/Resources"/AppIcon-*.icns; do
+dark_icon_hash="$(/usr/bin/shasum -a 256 "$dark_icon_path" | /usr/bin/cut -c 1-12)"
+dark_icon_name="AppIconDark-$dark_icon_hash"
+for stale_icon in "$app_dir/Contents/Resources"/AppIcon-*.icns "$app_dir/Contents/Resources"/AppIconDark-*.icns; do
     if [[ -f "$stale_icon" ]]; then /bin/rm "$stale_icon"; fi
 done
 cp "$icon_path" "$app_dir/Contents/Resources/$icon_name.icns"
+cp "$dark_icon_path" "$app_dir/Contents/Resources/$dark_icon_name.icns"
 
 cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -78,6 +84,7 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key><string>GrokDesktop</string>
     <key>CFBundleIdentifier</key><string>dev.chenli.crok.desktop</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>GrokDesktopDarkIconFile</key><string>AppIconDark</string>
     <key>GrokDesktopTestBuild</key><false/>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>Crok Desktop</string>
@@ -100,6 +107,7 @@ PLIST
 /usr/bin/plutil -replace CFBundleName -string "$app_name" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleIdentifier -string "$bundle_identifier" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleIconFile -string "$icon_name" "$app_dir/Contents/Info.plist"
+/usr/bin/plutil -replace GrokDesktopDarkIconFile -string "$dark_icon_name" "$app_dir/Contents/Info.plist"
 if [[ -n "$state_file" ]]; then
     /usr/bin/plutil -insert GrokDesktopStateFile -string "$state_file" "$app_dir/Contents/Info.plist"
 fi

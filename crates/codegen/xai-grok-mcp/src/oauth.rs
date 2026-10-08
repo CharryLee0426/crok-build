@@ -10,7 +10,7 @@ use crate::rmcp::transport::auth::{
     OAuthClientConfig,
 };
 
-const MCP_OAUTH_CLIENT_NAME: &str = "Grok";
+const MCP_OAUTH_CLIENT_NAME: &str = "Crok";
 
 #[cfg(debug_assertions)]
 const CONSENT_URL_FILE_ENV: &str = "GROK_TEST_MCP_CONSENT_URL_FILE";

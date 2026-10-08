@@ -14,7 +14,7 @@ struct ReleaseNotesState: Equatable {
 }
 
 /// Release notes are published per version at `x.ai/cli/changelogs/<VERSION>.external.md`, and
-/// `$GROK_HOME/CHANGELOG.md` holds the last copy the terminal or Grok Desktop downloaded.
+/// `$CROK_HOME/CHANGELOG.md` holds the last copy the terminal or Crok Desktop downloaded.
 enum ReleaseNotesLoader {
     static let base = "https://x.ai/cli/changelogs"
     static let timeout: TimeInterval = 3
@@ -61,7 +61,7 @@ enum ReleaseNotesLoader {
         return String(data: data, encoding: .utf8)
     }
 
-    /// The runtime's version from `grok version --json` (`{"currentVersion": "1.0.41 (abc123)"}`).
+    /// The runtime's version from `crok version --json` (`{"currentVersion": "1.0.41 (abc123)"}`).
     static func cliVersion(binary: String) async -> String? {
         guard let output = try? await GrokCLI.run(binary, arguments: ["version", "--json"], timeout: 10), output.status == 0 else { return nil }
         return parseVersion(output.stdout)

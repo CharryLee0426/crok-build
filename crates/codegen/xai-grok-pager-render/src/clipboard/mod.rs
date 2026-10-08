@@ -524,7 +524,7 @@ pub fn write_copy_fallback(text: &str) -> std::io::Result<std::path::PathBuf> {
     let Some(path) = default_copy_fallback_path() else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            "no home directory resolves; set GROK_COPY_FILE to enable the copy backup file",
+            "no home directory resolves; set CROK_COPY_FILE to enable the copy backup file",
         ));
     };
     #[cfg(unix)]

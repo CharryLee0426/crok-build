@@ -4256,6 +4256,92 @@ async fn apply_turn_request_pruning_keeps_items_when_actor_is_gone() {
     assert!(matches!(out.first(), Some(ConversationItem::User(_))));
 }
 
+fn pruning_test_actor() -> crate::handle::ChatStateHandle {
+    use crate::actor::ChatStateActor;
+    use crate::persistence::MockChatPersistence;
+    use crate::types::PruningConfig;
+
+    let (mock, _rx) = MockChatPersistence::new();
+    let (event_tx, _) = tokio::sync::mpsc::unbounded_channel();
+    ChatStateActor::spawn_with_pruning(
+        vec![],
+        test_config_with_window(10_000),
+        PruningConfig {
+            keep_last_n_turns: 2,
+            soft_trim_threshold: 4000,
+            soft_trim_head: 20,
+            soft_trim_tail: 20,
+            hard_clear_age_turns: 10,
+            ..Default::default()
+        },
+        Box::new(mock),
+        event_tx,
+        tokio_util::sync::CancellationToken::new(),
+    )
+}
+
+fn tool_result_len(items: &[ConversationItem], index: usize) -> usize {
+    match items.get(index) {
+        Some(ConversationItem::ToolResult(tr)) => tr.content.len(),
+        other => panic!("expected ToolResult at index {index}, got {other:?}"),
+    }
+}
+
+/// A reminder pushed in the middle of a turn must not age the turn's own results into the trim window:
+/// the next request would rewrite content the previous one sent and miss the prompt cache.
+#[tokio::test]
+async fn turn_request_pruning_ignores_mid_turn_reminders() {
+    let handle = pruning_test_actor();
+    push_turns(&handle, 4, 8_000).await;
+    handle.record_token_usage(6_001);
+
+    let before = handle
+        .apply_turn_request_pruning(handle.get_conversation().await)
+        .await;
+    assert!(tool_result_len(&before, 2) < 8_000, "old enough to trim");
+    assert_eq!(tool_result_len(&before, 5), 8_000, "one turn short of it");
+
+    handle.push_user_message(ConversationItem::system_reminder("Keep going."));
+    let after = handle
+        .apply_turn_request_pruning(handle.get_conversation().await)
+        .await;
+    assert_eq!(tool_result_len(&after, 5), 8_000);
+    assert_eq!(
+        after
+            .get(..12)
+            .map(|items| serde_json::to_value(items).unwrap()),
+        before
+            .get(..12)
+            .map(|items| serde_json::to_value(items).unwrap()),
+        "everything the previous request sent goes out unchanged"
+    );
+}
+
+/// A pruned request reports fewer tokens. Dropping back under the threshold must not send the next
+/// request unpruned, until compaction or a rewind replaces the conversation.
+#[tokio::test]
+async fn turn_request_pruning_stays_engaged_until_the_conversation_is_replaced() {
+    let handle = pruning_test_actor();
+    push_turns(&handle, 5, 8_000).await;
+    let build = || handle.build_request(vec![], None, false, None, "c".into(), "r".into());
+
+    handle.record_token_usage(6_001);
+    let first = build().await.unwrap();
+    assert!(tool_result_len(&first.items, 2) < 8_000);
+
+    handle.record_token_usage(4_000);
+    let second = build().await.unwrap();
+    assert_eq!(
+        serde_json::to_value(&second.items).unwrap(),
+        serde_json::to_value(&first.items).unwrap()
+    );
+
+    handle.replace_conversation(handle.get_conversation().await);
+    handle.record_token_usage(4_000);
+    let after_replace = build().await.unwrap();
+    assert_eq!(tool_result_len(&after_replace.items, 2), 8_000);
+}
+
 /// Retained conversation size is bounded after many turns: old tool results
 /// are replaced with a short placeholder, not retained in full.
 #[tokio::test]

@@ -108,6 +108,7 @@ private struct AppCommands: Commands {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var store: AppStore?
+    private var appIcon: AppIconController?
     func applicationDidFinishLaunching(_ notification: Notification) {
         DesktopLog.info("app.launch", [
             "bundle": Bundle.main.bundleIdentifier, "app": Bundle.main.bundleURL, "os": ProcessInfo.processInfo.operatingSystemVersionString,
@@ -118,14 +119,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             GrokCommand.clearQuarantine()
         }
         startHangRecorder()
-        // Load the shipped artwork directly so an in-place rebuild cannot leave
-        // the running Dock tile displaying an older Icon Services cache entry.
-        guard let iconName = Bundle.main.object(forInfoDictionaryKey: "CFBundleIconFile") as? String,
-              let resources = Bundle.main.resourceURL else { return }
-        let fileName = (iconName as NSString).pathExtension.isEmpty ? iconName + ".icns" : iconName
-        if let icon = NSImage(contentsOf: resources.appendingPathComponent(fileName)) {
-            NSApp.applicationIconImage = icon
-        }
+        let icon = AppIconController()
+        icon.start()
+        appIcon = icon
     }
 
     /// Test builds write a report when the main thread stops answering, and say so once it answers again.

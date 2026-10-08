@@ -4,8 +4,8 @@ import SwiftUI
 import XCTest
 @testable import GrokDesktop
 
-/// `/import-claude` against temporary home, `GROK_HOME`, and project directories; nothing here reads
-/// or writes the real `~/.claude` or `~/.grok`.
+/// `/import-claude` against temporary home, `CROK_HOME`, and project directories; nothing here reads
+/// or writes the real `~/.claude` or `~/.crok`.
 final class ClaudeImportTests: XCTestCase {
     private var root: URL!
     private var home: URL { root.appendingPathComponent("home", isDirectory: true) }
@@ -645,7 +645,7 @@ final class ClaudeImportTests: XCTestCase {
         XCTAssertEqual(model.focus, .item(12))
     }
 
-    /// Writes the sheet in light and dark when GROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
+    /// Writes the sheet in light and dark when CROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
     @MainActor
     func testRenderImportClaudeSnapshots() throws {
         guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }

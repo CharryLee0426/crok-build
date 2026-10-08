@@ -132,7 +132,7 @@ final class SidebarTests: XCTestCase {
         XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-800 * 86_400), now: now), "2y")
     }
 
-    /// Writes PNGs of the sidebar when GROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
+    /// Writes PNGs of the sidebar when CROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
     func testRenderSidebarSnapshots() throws {
         guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let (store, _, _) = makeStore()

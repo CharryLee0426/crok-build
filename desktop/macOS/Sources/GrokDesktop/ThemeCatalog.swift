@@ -72,7 +72,7 @@ enum GrokTheme: String, CaseIterable, Identifiable {
     }
 
     /// What bare `/theme` switches to. `auto` counts as the theme the window currently looks
-    /// like (Grok Night when dark, Grok Day when light); the terminal's `auto` is always dark.
+    /// like (Crok Night when dark, Crok Day when light); the terminal's `auto` is always dark.
     static func next(after current: GrokTheme, systemIsDark: Bool) -> GrokTheme {
         let resolved = current == .auto ? (systemIsDark ? .groknight : .grokday) : current
         let index = concrete.firstIndex(of: resolved) ?? 0

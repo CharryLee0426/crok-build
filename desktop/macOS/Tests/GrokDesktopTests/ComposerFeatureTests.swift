@@ -266,7 +266,7 @@ final class ComposerFeatureTests: XCTestCase {
 
     func testEditPromptFileIsPrivateAndReadBackFollowsTheTerminalRules() throws {
         let file = try ExternalPromptEditor.createPromptFile("draft", directory: directory)
-        XCTAssertTrue(file.lastPathComponent.hasPrefix("grok-prompt-") && file.pathExtension == "md")
+        XCTAssertTrue(file.lastPathComponent.hasPrefix("crok-prompt-") && file.pathExtension == "md")
         let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
         XCTAssertEqual(permissions?.intValue, 0o600)
         XCTAssertEqual(try ExternalPromptEditor.readBack(file, original: "draft").get(), "draft")

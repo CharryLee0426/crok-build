@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import GrokDesktop
 
-/// PNGs of the transcript tools for visual review, written when GROK_DESKTOP_SNAPSHOT_DIR is set.
+/// PNGs of the transcript tools for visual review, written when CROK_DESKTOP_SNAPSHOT_DIR is set.
 @MainActor
 final class TranscriptToolsSnapshotTests: XCTestCase {
     private var directory: URL!

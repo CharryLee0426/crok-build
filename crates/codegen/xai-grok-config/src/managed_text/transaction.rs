@@ -129,7 +129,7 @@ pub(super) fn apply(
             observe(observer, TransactionPhase::BeforeBackupReserve, &plan)?;
             let (path, mut file) = reserve_artifact(
                 &plan.target_path,
-                "grok-backup",
+                "crok-backup",
                 plan.backup_path_hint.as_deref(),
                 plan.original.mode,
             )?;
@@ -141,7 +141,7 @@ pub(super) fn apply(
         observe(observer, TransactionPhase::BeforeTempReserve, &plan)?;
         let (temp_path, mut temp_file) = reserve_artifact(
             &plan.target_path,
-            "grok-tmp",
+            "crok-tmp",
             plan.temp_path_hint.as_deref(),
             plan.original.mode,
         )?;
@@ -353,7 +353,7 @@ fn rollback(
     parent_anchor.revalidate()?;
     if let Some(original) = &plan.original.bytes {
         let (rollback_path, mut rollback_file) =
-            reserve_artifact(&plan.target_path, "grok-rollback", None, plan.original.mode)?;
+            reserve_artifact(&plan.target_path, "crok-rollback", None, plan.original.mode)?;
         if let Err(error) = write_reserved(
             &rollback_path,
             &mut rollback_file,

@@ -9,6 +9,14 @@ pub enum LoginProvider {
     Openrouter,
     #[value(name = "openai-codex", alias = "codex")]
     OpenAiCodex,
+    /// DeepSeek, with an API key
+    Deepseek,
+    /// GLM Coding Plan subscription from z.ai
+    #[value(name = "glm", alias = "zai", alias = "glm-coding-plan")]
+    Glm,
+    /// GLM Coding Plan subscription from bigmodel.cn (China mainland)
+    #[value(name = "glm-cn", alias = "zhipu", alias = "bigmodel")]
+    GlmCn,
 }
 
 impl LoginProvider {
@@ -16,6 +24,9 @@ impl LoginProvider {
         match self {
             Self::Openrouter => xai_grok_login::provider_auth::ModelProvider::OpenRouter,
             Self::OpenAiCodex => xai_grok_login::provider_auth::ModelProvider::OpenAiCodex,
+            Self::Deepseek => xai_grok_login::provider_auth::ModelProvider::DeepSeek,
+            Self::Glm => xai_grok_login::provider_auth::ModelProvider::Glm,
+            Self::GlmCn => xai_grok_login::provider_auth::ModelProvider::GlmCn,
         }
     }
 }
@@ -40,12 +51,12 @@ pub enum Command {
         #[arg(value_enum)]
         provider: Option<LoginProvider>,
     },
-    /// Sign in to OpenRouter or a ChatGPT Codex subscription
+    /// Sign in to a model provider: a ChatGPT Codex subscription, OpenRouter, DeepSeek, or a GLM Coding Plan
     Login {
         /// Provider to sign in to.
         #[arg(value_enum)]
         provider: LoginProvider,
-        /// Read an OpenRouter API key from stdin instead of opening OAuth.
+        /// Read the provider's API key from stdin instead of opening a browser or prompting for it.
         #[arg(long)]
         with_api_key: bool,
     },
@@ -57,7 +68,7 @@ pub enum Command {
     Memory(crate::memory_cmd::MemoryArgs),
     /// List available models and exit
     Models {
-        /// Fetch the newest OpenRouter catalog immediately, bypassing its cache TTL.
+        /// Fetch the newest OpenRouter and DeepSeek model lists immediately, bypassing their cache TTL.
         #[arg(long)]
         refresh: bool,
     },
@@ -155,7 +166,7 @@ See ~/.crok/README.md for more information.
     Workspace(WorkspaceMgmtArgs),
     /// Open the Agent Dashboard view at startup.
     /// The dashboard shows every session, top-level and subagents.
-    /// Disabled when `[dashboard].enabled = false` in `~/.crok/config.toml` or when the `GROK_AGENT_DASHBOARD=0` env var is set.
+    /// Disabled when `[dashboard].enabled = false` in `~/.crok/config.toml` or when the `CROK_AGENT_DASHBOARD=0` env var is set.
     Dashboard,
 }
 /// Arguments for the `wrap` subcommand: the command to run, then its args.
@@ -366,8 +377,8 @@ pub struct ServeArgs {
     /// Address for the server to listen on
     #[arg(long, default_value = "127.0.0.1:2419")]
     pub bind: SocketAddr,
-    /// Secret token for client authentication (auto-generated if not provided)
-    #[arg(long, env = "GROK_AGENT_SECRET")]
+    /// Secret token for client authentication (auto-generated if not provided) [env: CROK_AGENT_SECRET]
+    #[arg(long, env = "GROK_AGENT_SECRET", hide_env = true)]
     pub secret: Option<String>,
     /// Remote agent URL for proxy mode
     #[arg(long)]
@@ -712,8 +723,8 @@ pub struct PagerArgs {
         value_parser = clap::value_parser!(u64).range(1..)
     )]
     pub background_wait_timeout_secs: u64,
-    /// Sandbox profile for filesystem and network access.
-    #[arg(long, env = "GROK_SANDBOX", value_name = "PROFILE")]
+    /// Sandbox profile for filesystem and network access [env: CROK_SANDBOX].
+    #[arg(long, env = "GROK_SANDBOX", hide_env = true, value_name = "PROFILE")]
     pub sandbox: Option<String>,
     /// Session storage mode: local or writeback.
     #[arg(long = "storage-mode", value_name = "MODE", hide = true)]
@@ -1410,6 +1421,13 @@ mod tests {
             ("openrouter", LoginProvider::Openrouter),
             ("openai-codex", LoginProvider::OpenAiCodex),
             ("codex", LoginProvider::OpenAiCodex),
+            ("deepseek", LoginProvider::Deepseek),
+            ("glm", LoginProvider::Glm),
+            ("zai", LoginProvider::Glm),
+            ("glm-coding-plan", LoginProvider::Glm),
+            ("glm-cn", LoginProvider::GlmCn),
+            ("zhipu", LoginProvider::GlmCn),
+            ("bigmodel", LoginProvider::GlmCn),
         ] {
             let args = PagerArgs::try_parse_from(["grok", "login", name]).unwrap();
             assert!(

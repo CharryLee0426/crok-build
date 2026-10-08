@@ -75,6 +75,10 @@ pub struct ChatCompletionRequest {
     pub response_format: Option<crate::rs::ResponseFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// Sticky routing key for prompt-cache reuse; see [`crate::ConversationRequest::prompt_cache_key`].
+    /// Never serialized here: only the OpenRouter preparation puts it on the wire.
+    #[serde(skip)]
+    pub prompt_cache_key: Option<String>,
 
     /// custom headers
     #[serde(skip)]
@@ -119,6 +123,7 @@ impl ChatCompletionRequest {
             search_parameters: None,
             response_format: None,
             reasoning_effort: None,
+            prompt_cache_key: None,
             x_grok_conv_id: None,
             x_grok_req_id: None,
             x_grok_session_id: None,
@@ -147,6 +152,7 @@ impl ChatCompletionRequest {
             search_parameters: None,
             response_format: None,
             reasoning_effort: None,
+            prompt_cache_key: None,
             x_grok_conv_id: None,
             x_grok_req_id: None,
             x_grok_session_id: None,
@@ -557,6 +563,13 @@ pub struct PromptTokensDetails {
     pub cached_tokens: u32,
     #[serde(default)]
     pub audio_tokens: u32,
+    /// OpenRouter extension: prompt tokens written to the cache by this request, part of `prompt_tokens`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cache_write_tokens: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -1076,13 +1089,27 @@ pub enum ApiBackend {
     /// ChatGPT subscription Responses endpoint (always streaming, stateless).
     #[serde(rename = "openai_codex", alias = "open_ai_codex")]
     OpenAiCodex,
+    /// DeepSeek's Chat Completions dialect.
+    #[serde(rename = "deepseek", alias = "deep_seek")]
+    DeepSeek,
+    /// Zhipu GLM's Chat Completions dialect, as served to GLM Coding Plan subscribers.
+    Glm,
     /// Use the Anthropic Messages API (/v1/messages)
     Messages,
 }
 
 impl ApiBackend {
+    /// Whether requests go to `/chat/completions` and streams arrive as Chat Completions chunks.
+    pub fn is_chat_completions_wire(&self) -> bool {
+        matches!(
+            self,
+            Self::ChatCompletions | Self::OpenRouter | Self::DeepSeek | Self::Glm
+        )
+    }
+
     /// Whether the backend enforces a response JSON schema natively alongside tool calls.
     /// The Messages API does not (a schema there blocks tool use), so structured output there goes through the StructuredOutput tool.
+    /// DeepSeek and GLM only accept `json_object`, so they take the tool route too.
     pub fn supports_native_schema(&self) -> bool {
         matches!(
             self,
@@ -1090,20 +1117,24 @@ impl ApiBackend {
         )
     }
 
-    /// Whether [`ConversationRequest::prompt_cache_key`] reaches the wire. Only the Responses mapping sends it, so a key set elsewhere is inert.
+    /// Whether [`ConversationRequest::prompt_cache_key`] reaches the wire: the Responses mapping sends it, and the OpenRouter preparation sends it as `session_id` and `prompt_cache_key`.
+    /// A key set for any other backend is inert.
     ///
     /// [`ConversationRequest::prompt_cache_key`]: crate::conversation::ConversationRequest::prompt_cache_key
     pub fn forwards_prompt_cache_key(&self) -> bool {
-        matches!(self, Self::Responses | Self::OpenAiCodex)
+        matches!(self, Self::Responses | Self::OpenAiCodex | Self::OpenRouter)
     }
 
     /// Request-body cap the hosts speaking this protocol enforce; the budget when a model sets no `max_request_bytes`.
     /// The xAI inference proxy rejects bodies over 50 MiB (nginx `proxy-body-size`); Messages API hosts reject bodies over 30 MB.
     pub const fn default_max_request_bytes(&self) -> NonZeroU64 {
         match self {
-            Self::ChatCompletions | Self::Responses | Self::OpenRouter | Self::OpenAiCodex => {
-                NonZeroU64::new(50 * 1024 * 1024).unwrap()
-            }
+            Self::ChatCompletions
+            | Self::Responses
+            | Self::OpenRouter
+            | Self::OpenAiCodex
+            | Self::DeepSeek
+            | Self::Glm => NonZeroU64::new(50 * 1024 * 1024).unwrap(),
             Self::Messages => NonZeroU64::new(30_000_000).unwrap(),
         }
     }

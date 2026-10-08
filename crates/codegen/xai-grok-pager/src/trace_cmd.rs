@@ -510,8 +510,8 @@ async fn run_upload(
         )
     {
         anyhow::bail!(
-            "No trace upload bucket configured. Set `GROK_TELEMETRY_GCS_BUCKET`, \
-             `GROK_TRACE_UPLOAD_BUCKET`, or `endpoints.trace_upload_bucket` in \
+            "No trace upload bucket configured. Set `CROK_TELEMETRY_GCS_BUCKET`, \
+             `CROK_TRACE_UPLOAD_BUCKET`, or `endpoints.trace_upload_bucket` in \
              config for direct GCS uploads."
         );
     }

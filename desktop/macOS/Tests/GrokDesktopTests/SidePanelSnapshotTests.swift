@@ -4,7 +4,7 @@ import XCTest
 @testable import GrokDesktop
 
 /// PNGs of the side panel, composer attachments, and sent attachments, written when
-/// GROK_DESKTOP_SNAPSHOT_DIR is set. Glass is not drawn offscreen, so surfaces show their tints only.
+/// CROK_DESKTOP_SNAPSHOT_DIR is set. Glass is not drawn offscreen, so surfaces show their tints only.
 @MainActor
 final class SidePanelSnapshotTests: XCTestCase {
     private var directory: URL!

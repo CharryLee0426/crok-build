@@ -32,6 +32,22 @@ final class TranscriptReducerTests: XCTestCase {
         XCTAssertEqual(messages[1].text, "Read complete.")
     }
 
+    func testAnUpdateSaysWhichMessageItChanged() {
+        var messages: [Message] = []
+        func apply(_ update: [String: Any]) -> Int? { TranscriptReducer.apply(update, to: &messages) }
+        XCTAssertEqual(apply(["sessionUpdate": "agent_thought_chunk", "content": ["type": "text", "text": "Checking "]]), 0, "a new message")
+        XCTAssertEqual(apply(["sessionUpdate": "agent_thought_chunk", "content": ["type": "text", "text": "the files."]]), 0, "more of the same one")
+        XCTAssertEqual(apply(["sessionUpdate": "tool_call", "toolCallId": "first", "title": "first", "status": "in_progress"]), 1)
+        XCTAssertEqual(apply(["sessionUpdate": "tool_call", "toolCallId": "second", "title": "second", "status": "in_progress"]), 2)
+        XCTAssertEqual(apply(["sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": "Both are running."]]), 3)
+        // Commands that run together finish in their own order, each in its own message, well before the last.
+        XCTAssertEqual(apply(["sessionUpdate": "tool_call_update", "toolCallId": "first", "status": "completed"]), 1)
+        XCTAssertEqual(apply(["sessionUpdate": "tool_call_update", "toolCallId": "second", "content": [["type": "content", "content": ["type": "text", "text": "output"]]]]), 2)
+        XCTAssertNil(apply(["sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": ""]]), "nothing to add")
+        XCTAssertNil(apply(["sessionUpdate": "plan", "entries": []]), "not a transcript update")
+        XCTAssertEqual(messages.count, 4)
+    }
+
     func testInterleavedToolUpdatesDoNotOverwriteAnotherTool() {
         var messages: [Message] = []
         for id in ["first", "second"] {

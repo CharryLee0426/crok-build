@@ -351,6 +351,7 @@ struct ClientDefaults {
     extra_response_includes: Vec<String>,
     doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
     supports_tools: Option<bool>,
+    supports_images: Option<bool>,
 }
 
 /// Endpoint URL builder, resolved once at client construction so each request only appends its path.
@@ -670,6 +671,7 @@ impl SamplingClient {
             extra_response_includes: config.extra_response_includes,
             doom_loop_recovery: config.doom_loop_recovery,
             supports_tools: config.supports_tools,
+            supports_images: config.supports_images,
         };
 
         let endpoint_base = if defaults.api_backend == ApiBackend::OpenAiCodex {
@@ -938,7 +940,19 @@ impl SamplingClient {
             });
         }
 
-        let completion = serde_json::from_slice::<ChatCompletionResponse>(&bytes).map_err(|e| {
+        let normalized;
+        let body: &[u8] = match crate::provider_compat::ChatDialect::of(&self.defaults.api_backend)
+        {
+            Some(dialect) => {
+                normalized = crate::provider_compat::normalize_dialect_response(
+                    dialect,
+                    &String::from_utf8_lossy(&bytes),
+                )?;
+                normalized.as_bytes()
+            }
+            None => &bytes,
+        };
+        let completion = serde_json::from_slice::<ChatCompletionResponse>(body).map_err(|e| {
             let raw_body = String::from_utf8_lossy(&bytes);
             tracing::error!(
                 error = %e,
@@ -997,6 +1011,21 @@ impl SamplingClient {
             crate::provider_compat::prepare_openrouter_request(
                 &mut body,
                 self.defaults.supports_tools,
+                payload
+                    .prompt_cache_key
+                    .as_deref()
+                    .or(payload.x_grok_conv_id.as_deref()),
+            );
+            self.build_json_request(grok_headers.apply(builder), &body)
+                .await?
+        } else if let Some(dialect) =
+            crate::provider_compat::ChatDialect::of(&self.defaults.api_backend)
+        {
+            let mut body = serde_json::to_value(&payload).map_err(SamplingError::Serialization)?;
+            crate::provider_compat::prepare_dialect_request(
+                dialect,
+                &mut body,
+                self.defaults.supports_images,
             );
             self.build_json_request(grok_headers.apply(builder), &body)
                 .await?
@@ -1148,6 +1177,21 @@ impl SamplingClient {
             crate::provider_compat::prepare_openrouter_request(
                 &mut body,
                 self.defaults.supports_tools,
+                payload
+                    .prompt_cache_key
+                    .as_deref()
+                    .or(payload.x_grok_conv_id.as_deref()),
+            );
+            self.build_json_request(http_request, &body).await?
+        } else if let Some(dialect) =
+            crate::provider_compat::ChatDialect::of(&self.defaults.api_backend)
+        {
+            let mut body =
+                serde_json::to_value(&streaming_request).map_err(SamplingError::Serialization)?;
+            crate::provider_compat::prepare_dialect_request(
+                dialect,
+                &mut body,
+                self.defaults.supports_images,
             );
             self.build_json_request(http_request, &body).await?
         } else {
@@ -1226,11 +1270,13 @@ impl SamplingClient {
 
         let event_stream = byte_stream.eventsource();
 
+        let dialect = crate::provider_compat::ChatDialect::of(&self.defaults.api_backend);
+
         // Map SSE events into ChatCompletionChunk.
         // Uses `scan` so that `[DONE]` and transport errors both terminate the stream (`None`)
         // The first transport error is emitted to the consumer, then subsequent polls return `None`
         let chunks = event_stream
-            .scan(false, |had_transport_error, event_res| {
+            .scan(false, move |had_transport_error, event_res| {
                 if *had_transport_error {
                     return std::future::ready(None);
                 }
@@ -1250,6 +1296,22 @@ impl SamplingClient {
 
                         if let Some(stream_error) = try_parse_stream_error(data) {
                             Some(Err(stream_error))
+                        } else if let Some(dialect) = dialect {
+                            Some(
+                                crate::provider_compat::normalize_dialect_response(dialect, data)
+                                    .and_then(|data| {
+                                        serde_json::from_str::<ChatCompletionChunk>(&data).map_err(
+                                            |e| {
+                                                tracing::error!(
+                                                    error = %e,
+                                                    raw_data = %data,
+                                                    "Failed to deserialize ChatCompletionChunk from stream"
+                                                );
+                                                SamplingError::Serialization(e)
+                                            },
+                                        )
+                                    }),
+                            )
                         } else {
                             Some(
                                 serde_json::from_str::<ChatCompletionChunk>(data).map_err(|e| {
@@ -1559,10 +1621,29 @@ impl SamplingClient {
         let mut http_request = grok_headers
             .apply(builder)
             .header(ACCEPT, HeaderValue::from_static("text/event-stream"));
-        if self.defaults.api_backend == ApiBackend::OpenAiCodex && !x_grok_conv_id.is_empty() {
+        // ChatGPT derives prompt-cache affinity from `session-id`, so a side call that shares the
+        // parent's `prompt_cache_key` has to present the parent's session as well.
+        let codex_session = (self.defaults.api_backend == ApiBackend::OpenAiCodex)
+            .then(|| {
+                request
+                    .inner
+                    .prompt_cache_key
+                    .as_deref()
+                    .filter(|key| !key.is_empty())
+                    .unwrap_or(x_grok_conv_id)
+            })
+            .filter(|session| !session.is_empty());
+        let codex_turn = codex_session.zip(request.x_grok_turn_idx.as_deref());
+        if let Some(session) = codex_session {
             http_request = http_request
-                .header("session-id", x_grok_conv_id)
+                .header("session-id", session)
                 .header("x-client-request-id", x_grok_req_id);
+        }
+        if let Some((session, turn)) = codex_turn
+            && let Some(token) = crate::provider_compat::CODEX_TURN_STATES.get(session, turn)
+        {
+            http_request =
+                http_request.header(crate::provider_compat::CODEX_TURN_STATE_HEADER, token);
         }
         if let Some(policy) = self.defaults.doom_loop_recovery {
             http_request = http_request
@@ -1625,6 +1706,15 @@ impl SamplingClient {
                 should_retry,
                 error_code: parse_error_code(bytes.as_ref()),
             });
+        }
+
+        if let Some((session, turn)) = codex_turn
+            && let Some(token) = response
+                .headers()
+                .get(crate::provider_compat::CODEX_TURN_STATE_HEADER)
+                .and_then(|value| value.to_str().ok())
+        {
+            crate::provider_compat::CODEX_TURN_STATES.remember(session, turn, token);
         }
 
         let model_metadata = extract_model_metadata(response.headers());
@@ -2280,7 +2370,10 @@ impl SamplingClient {
         let request_id = crate::types::RequestId::random();
         let length_policy = request.length_policy;
         let result = match self.api_backend() {
-            ApiBackend::ChatCompletions | ApiBackend::OpenRouter => {
+            ApiBackend::ChatCompletions
+            | ApiBackend::OpenRouter
+            | ApiBackend::DeepSeek
+            | ApiBackend::Glm => {
                 let (raw, meta) = self.conversation_stream(request).await?;
                 let events =
                     crate::stream::stream_chat_completions(raw, meta, request_id, idle_timeout);
@@ -2476,6 +2569,7 @@ mod tests {
             search_parameters: None,
             response_format: None,
             reasoning_effort: None,
+            prompt_cache_key: None,
             x_grok_conv_id: None,
             x_grok_req_id: None,
             x_grok_session_id: None,
@@ -2643,9 +2737,13 @@ mod tests {
             (false, ApiBackend::Responses | ApiBackend::OpenAiCodex) => {
                 ("application/json", EMPTY_RESPONSE_JSON)
             }
-            (false, ApiBackend::ChatCompletions | ApiBackend::OpenRouter) => {
-                ("application/json", EMPTY_CHAT_COMPLETION_JSON)
-            }
+            (
+                false,
+                ApiBackend::ChatCompletions
+                | ApiBackend::OpenRouter
+                | ApiBackend::DeepSeek
+                | ApiBackend::Glm,
+            ) => ("application/json", EMPTY_CHAT_COMPLETION_JSON),
             (false, ApiBackend::Messages) => ("application/json", EMPTY_MESSAGE_JSON),
         };
         let (tx, rx) = oneshot::channel();
@@ -2686,12 +2784,20 @@ mod tests {
             ..Default::default()
         };
         let sent = match (streaming, &backend) {
-            (false, ApiBackend::ChatCompletions | ApiBackend::OpenRouter) => {
-                client.conversation(request).await.map(drop)
-            }
-            (true, ApiBackend::ChatCompletions | ApiBackend::OpenRouter) => {
-                client.conversation_stream(request).await.map(drop)
-            }
+            (
+                false,
+                ApiBackend::ChatCompletions
+                | ApiBackend::OpenRouter
+                | ApiBackend::DeepSeek
+                | ApiBackend::Glm,
+            ) => client.conversation(request).await.map(drop),
+            (
+                true,
+                ApiBackend::ChatCompletions
+                | ApiBackend::OpenRouter
+                | ApiBackend::DeepSeek
+                | ApiBackend::Glm,
+            ) => client.conversation_stream(request).await.map(drop),
             (false, ApiBackend::Responses | ApiBackend::OpenAiCodex) => {
                 client.conversation_responses(request).await.map(drop)
             }

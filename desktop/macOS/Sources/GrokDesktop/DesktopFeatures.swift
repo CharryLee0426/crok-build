@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 extension Notification.Name {
-    static let grokFocusComposer = Notification.Name("ai.grok.desktop.focus-composer")
+    static let grokFocusComposer = Notification.Name("dev.chenli.crok.desktop.focus-composer")
 }
 
 /// State for the native equivalents of the terminal's commands, grouped by area. Each model

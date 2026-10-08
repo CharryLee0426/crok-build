@@ -136,7 +136,7 @@ there is no `/logout` or `/privacy`, and `/usage` has no billing.
 | [`/import-claude`](../../crates/codegen/xai-grok-pager/src/slash/commands/import_claude.rs) | — | `/import-claude` | Native: scans Claude settings, MCP servers, hooks, and skill/rule folders; the sheet merges selected items into Crok's configuration as the pager does, keeping comments |
 | [`/jump`](../../crates/codegen/xai-grok-pager/src/slash/commands/jump.rs) | — | `/jump` | Native turn picker with live scrolling; Escape restores the previous position |
 | `/browser` (desktop only) | `/web`, `/browse` | `/browser [address or search]` | Native: the side panel's Browser tab (also ⌥⌘B). An address loads (`localhost:3000` over HTTP, a path as a local file), anything else is searched for; bare `/browser` puts the keyboard in the address bar. Tabs, bookmarks, history suggestions, downloads, and Import from Chrome (sign-ins, history, bookmarks, after Touch ID or the login password) |
-| `/login` (desktop only) | — | `/login` | Native Accounts settings: sign in to OpenRouter or OpenAI Codex (browser sign-in through `crok login openrouter` or `crok login openai-codex`) |
+| `/login` (desktop only) | — | `/login` | Native Accounts settings: sign in to OpenRouter or OpenAI Codex (browser sign-in through `crok login openrouter` or `crok login openai-codex`), or add a DeepSeek or GLM Coding Plan API key (saved through `crok login <provider> --with-api-key`) |
 | [`/loop`](../../crates/codegen/xai-grok-pager/src/slash/commands/loop_cmd.rs) | — | `/loop [interval] <prompt>` | Harness: forwarded; scheduled runs appear in `/tasks` with Delete |
 | [`/mcps`](../../crates/codegen/xai-grok-pager/src/slash/commands/mcps.rs) | — | `/mcps` | Native servers panel: status, tools, add (one URL-or-command field), toggle, restart, authorize, remove |
 | [`/memory`](../../crates/codegen/xai-grok-pager/src/slash/commands/memory.rs) | `/mem` | `/memory` | Native Memory panel: grouped notes with preview, search, enable toggle with reasons, Delete via `memory/forget` (BLAKE3 hash), Flush and Dream |
@@ -160,7 +160,7 @@ there is no `/logout` or `/privacy`, and `/usage` has no billing.
 | [`/rewind`](../../crates/codegen/xai-grok-pager/src/slash/commands/rewind.rs) | `/undo` | `/rewind` | Native checkpoint picker, affected-file preview, and confirmed conversation/files/both restore; external conflicts block restore |
 | [`/scroll-debug`](../../crates/codegen/xai-grok-pager/src/slash/commands/scroll_debug.rs) | — | `/scroll-debug` | Native (hidden): toggles the scroll HUD; with arguments the text goes to the model |
 | [`/session-info`](../../crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs) | `/status`, `/info` (shell) | `/session-info` | Native: Session info tab of the Usage sheet with click-to-copy rows |
-| [`/settings`](../../crates/codegen/xai-grok-pager/src/slash/commands/settings_cmd.rs) | `/config`, `/preferences`, `/prefs` | `/settings` | Native Settings: themes, accounts (OpenRouter and OpenAI Codex), conversation display, permissions, input, and voice |
+| [`/settings`](../../crates/codegen/xai-grok-pager/src/slash/commands/settings_cmd.rs) | `/config`, `/preferences`, `/prefs` | `/settings` | Native Settings: themes, accounts (OpenRouter, OpenAI Codex, DeepSeek, and the GLM Coding Plan), conversation display, permissions, input, and voice |
 | [`/share`](../../crates/codegen/xai-grok-pager/src/slash/commands/share.rs) | — | `/share` | Same as the terminal: "Session sharing is temporarily disabled" |
 | [`/tasks`](../../crates/codegen/xai-grok-pager/src/slash/commands/tasks.rs) | — | `/tasks` | Native sheet: workflows, subagents, background tasks, and scheduled tasks with Stop/Delete |
 | [`/theme`](../../crates/codegen/xai-grok-pager/src/slash/commands/theme.rs) | `/t` | `/theme [name]` | Native: the terminal's themes (auto, groknight, grokday, tokyonight, rosepine-moon, oscura-midnight) with live preview; saved to `[ui].theme` |
@@ -351,7 +351,7 @@ terminal transport commands remain available in the side panel's **Terminal**.
 | `crok inspect` | Show discovered configuration; `--json` | `app/cli.rs` |
 | `crok doctor` | Report; `fix [id]` | `doctor_cmd/mod.rs` |
 | `crok leader` | `list`, `info`, `kill` | `app/cli.rs` |
-| `crok login`, `logout` | `login openrouter` or `login openai-codex`; `logout [provider]` (all providers when omitted); xAI accounts are not supported | `app/cli.rs` |
+| `crok login`, `logout` | `login openrouter`, `login openai-codex`, `login deepseek`, `login glm` or `login glm-cn`; `logout [provider]` (all providers when omitted); xAI accounts are not supported | `app/cli.rs` |
 | `crok mcp` | `list`, `add`, `remove`, `enable`, `disable`, `doctor` | `mcp_cmd.rs` |
 | `crok plugin` | `list`, `install`, `uninstall` (`rm`/`remove`), `update`, `enable`, `disable`, `details`, `validate`, `tag` | `plugin_cmd.rs` |
 | `crok plugin marketplace` | `list`, `add`, `remove`, `update` | `plugin_cmd.rs` |

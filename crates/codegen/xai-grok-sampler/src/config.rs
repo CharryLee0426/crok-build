@@ -110,6 +110,11 @@ pub struct SamplerConfig {
     #[serde(default)]
     pub supports_tools: Option<bool>,
 
+    /// Whether the model reads images, where its provider's catalog says so (DeepSeek, GLM).
+    /// `Some(false)` sends a note in place of each image; `None` sends images as they are.
+    #[serde(default)]
+    pub supports_images: Option<bool>,
+
     /// Per-model config for the `x-compactions-remaining` header; `None` disables it.
     #[serde(default)]
     pub compactions_remaining: Option<CompactionsRemaining>,
@@ -165,6 +170,7 @@ impl Default for SamplerConfig {
             bearer_resolver: None,
             supports_backend_search: false,
             supports_tools: None,
+            supports_images: None,
             compactions_remaining: None,
             compaction_at_tokens: None,
             doom_loop_recovery: None,

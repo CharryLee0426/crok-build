@@ -441,7 +441,7 @@ impl SessionActor {
 
     /// Messages and OpenRouter models never see `use_tool`'s file forms: Anthropic rejects the schema's
     /// root-level union (`oneOf`) with HTTP 400, which fails every turn. Checked per request because a model switch
-    /// mid-session keeps the finalized toolset.
+    /// mid-session keeps the finalized toolset. DeepSeek and GLM document plain object schemas only, so they are spared the union too.
     pub(crate) async fn mcp_file_forms_hidden(&self) -> bool {
         self.chat_state_handle
             .get_sampling_config()
@@ -451,6 +451,8 @@ impl SessionActor {
                     config.api_backend,
                     xai_grok_sampling_types::ApiBackend::Messages
                         | xai_grok_sampling_types::ApiBackend::OpenRouter
+                        | xai_grok_sampling_types::ApiBackend::DeepSeek
+                        | xai_grok_sampling_types::ApiBackend::Glm
                 )
             })
     }
@@ -797,14 +799,10 @@ impl SessionActor {
             &cfg.base_url,
         );
         let request_compression = crate::util::config::request_compression_for_url(&cfg.base_url);
-        let supports_tools = (cfg.api_backend == xai_grok_sampling_types::ApiBackend::OpenRouter)
-            .then(|| {
-                crate::agent::builtin_providers::cached_models()
-                    .iter()
-                    .find(|model| model.id == cfg.model)
-                    .map(|model| model.supports_tools())
-            })
-            .flatten();
+        let supports_tools =
+            crate::agent::builtin_providers::tool_support(&cfg.api_backend, &cfg.model);
+        let supports_images =
+            crate::agent::builtin_providers::image_support(&cfg.api_backend, &cfg.model);
         SamplingConfig {
             api_key,
             base_url: cfg.base_url,
@@ -856,6 +854,7 @@ impl SessionActor {
             },
             supports_backend_search: self.supports_backend_search.get(),
             supports_tools,
+            supports_images,
             compactions_remaining: self.compactions_remaining.get(),
             compaction_at_tokens: self.compaction_at_tokens.get(),
             // The sampler sends the opt-in header itself when this is set.

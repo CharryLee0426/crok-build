@@ -51,6 +51,13 @@ struct ReadOnlyTextView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
+        Self.makeScrollView(style: style, wrapsLines: wrapsLines, showsScroller: showsScroller && !sizing.isUncapped, coordinator: context.coordinator)
+    }
+
+    /// The scroll view and text view a coordinator drives. SwiftUI builds one through `makeNSView`;
+    /// the transcript's AppKit rows build one directly and size it themselves (see `TranscriptTextBox`).
+    @MainActor
+    static func makeScrollView(style: Style, wrapsLines: Bool, showsScroller: Bool, coordinator: Coordinator) -> PassthroughScrollView {
         let storage = NSTextStorage()
         let layoutManager = style == .diff ? DiffLayoutManager() : NSLayoutManager()
         storage.addLayoutManager(layoutManager)
@@ -75,18 +82,18 @@ struct ReadOnlyTextView: NSViewRepresentable {
         let scroll = PassthroughScrollView()
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
-        scroll.hasVerticalScroller = showsScroller && !sizing.isUncapped
+        scroll.hasVerticalScroller = showsScroller
         scroll.autohidesScrollers = true
         scroll.documentView = textView
-        context.coordinator.attach(scroll: scroll, textView: textView)
-        textView.onAppearanceChange = { [weak coordinator = context.coordinator] in coordinator?.appearanceChanged() }
-        configureWrapping(context.coordinator)
+        coordinator.attach(scroll: scroll, textView: textView)
+        textView.onAppearanceChange = { [weak coordinator] in coordinator?.appearanceChanged() }
+        configureWrapping(coordinator, wrapsLines: wrapsLines)
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let coordinator = context.coordinator
-        if coordinator.wrapsLines != wrapsLines { configureWrapping(coordinator) }
+        if coordinator.wrapsLines != wrapsLines { Self.configureWrapping(coordinator, wrapsLines: wrapsLines) }
         coordinator.update(text: text, style: style, followsTail: followsTail, measuresAll: sizing.isUncapped, isStreaming: isStreaming)
         // Read here so that bumping it updates this view.
         _ = sizeRevision
@@ -105,7 +112,8 @@ struct ReadOnlyTextView: NSViewRepresentable {
         }
     }
 
-    private func configureWrapping(_ coordinator: Coordinator) {
+    @MainActor
+    private static func configureWrapping(_ coordinator: Coordinator, wrapsLines: Bool) {
         guard let scroll = coordinator.scroll, let textView = coordinator.textView, let container = textView.textContainer else { return }
         coordinator.wrapsLines = wrapsLines
         coordinator.measuredHeights.removeAll()
@@ -228,7 +236,9 @@ struct ReadOnlyTextView: NSViewRepresentable {
             var first = 0
             while first < blocks.count, first < renderedBlocks.count, blocks[first] == renderedBlocks[first] { first += 1 }
             if first == blocks.count, first == renderedBlocks.count, storage.length > 0 || blocks.isEmpty { return nil }
-            let start = first < blockOffsets.count ? blockOffsets[first] : storage.length
+            // Past the blocks that are still as rendered; all of the text when none is, as after
+            // `forgetRendering` (another appearance, an image that loaded), not after it.
+            let start = first == 0 ? 0 : first < blockOffsets.count ? blockOffsets[first] : storage.length
             let renderer: MarkdownAttributedRenderer
             if case .reply(let markdownStyle) = style {
                 renderer = .reply(markdownStyle, dark: dark) { [weak self] url in self?.image(url) }
@@ -280,16 +290,22 @@ struct ReadOnlyTextView: NSViewRepresentable {
             if appliedStyle?.isReply == true { (textView as? MarkdownSourceTextView)?.codeCardsChanged() }
         }
 
+        /// An image was not there to show when the text was last rendered: once it loads, the
+        /// text is another height.
+        private(set) var awaitsImage = false
+
         /// A reply's image, once loaded; until then it shows as a link.
         private func image(_ url: URL) -> NSImage? {
             if let image = MarkdownImageCache.shared.image(for: url) { return image }
+            awaitsImage = true
             MarkdownImageCache.shared.load(url) { [weak self] in self?.imageLoaded() }
             return nil
         }
 
-        /// Shows a newly loaded image in place of its link, and has SwiftUI size the view again.
+        /// Shows a newly loaded image in place of its link, and has the view sized again.
         private func imageLoaded() {
             guard let style = appliedStyle, style.isMarkdown, let storage = textView?.textStorage else { return }
+            awaitsImage = false
             forgetRendering()
             renderMarkdown(renderedSource, style: style, into: storage)
             remeasureAll(storage)
@@ -316,6 +332,23 @@ struct ReadOnlyTextView: NSViewRepresentable {
             }
             measuredHeights[width] = ceil(height)
             return min(cap, ceil(height))
+        }
+
+        /// The height of all of the text at a width, taken from the layout that shows it: the text
+        /// view is given the width, and its one layout serves for measuring and for drawing. For an
+        /// owner that asks at the one width it then places the view at, as the transcript's rows do;
+        /// SwiftUI asks at several widths first, and gets `height(forWidth:cap:)`, which leaves
+        /// the shown layout alone. Nil when the text does not wrap to its view.
+        func shownHeight(forWidth width: CGFloat) -> CGFloat? {
+            guard wrapsLines, let scroll, let textView, let layoutManager = textView.layoutManager, let container = textView.textContainer else { return nil }
+            if let cached = measuredHeights[width] { return cached }
+            if scroll.frame.width != width { scroll.setFrameSize(NSSize(width: width, height: max(scroll.frame.height, 1))) }
+            // The container follows the text view, and is never narrower than its tables can be laid out in.
+            guard abs(textView.frame.width - width) < 0.5, container.containerSize.width > 1 else { return nil }
+            layoutManager.ensureLayout(for: container)
+            let height = ceil(layoutManager.usedRect(for: container).height + textView.textContainerInset.height * 2)
+            measuredHeights[width] = height
+            return height
         }
 
         private var isScrolledToEnd: Bool {

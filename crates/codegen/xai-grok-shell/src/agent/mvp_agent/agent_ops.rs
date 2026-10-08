@@ -18,10 +18,23 @@ struct SessionConfigInputs {
 pub(super) fn set_xai_baseline_key(config: &mut SamplingConfig, key: String) -> bool {
     let native_backend = matches!(
         config.api_backend,
-        crate::sampling::ApiBackend::OpenRouter | crate::sampling::ApiBackend::OpenAiCodex
+        crate::sampling::ApiBackend::OpenRouter
+            | crate::sampling::ApiBackend::OpenAiCodex
+            | crate::sampling::ApiBackend::DeepSeek
+            | crate::sampling::ApiBackend::Glm
     );
-    let native_host = url::Url::parse(&config.base_url)
-        .is_ok_and(|url| matches!(url.host_str(), Some("openrouter.ai" | "chatgpt.com")));
+    let native_host = url::Url::parse(&config.base_url).is_ok_and(|url| {
+        matches!(
+            url.host_str(),
+            Some(
+                "openrouter.ai"
+                    | "chatgpt.com"
+                    | "api.deepseek.com"
+                    | "api.z.ai"
+                    | "open.bigmodel.cn"
+            )
+        )
+    });
     if native_backend || native_host {
         return false;
     }
@@ -5262,6 +5275,9 @@ mod baseline_credential_tests {
         for url in [
             crate::agent::builtin_providers::OPENROUTER_BASE_URL,
             crate::agent::builtin_providers::CODEX_BASE_URL,
+            crate::agent::builtin_providers::DEEPSEEK_BASE_URL,
+            crate::agent::builtin_providers::GLM_BASE_URL,
+            crate::agent::builtin_providers::GLM_CN_BASE_URL,
         ] {
             for existing in [None, Some("provider-owned-key".to_owned())] {
                 let mut config = SamplingConfig {
@@ -5279,6 +5295,8 @@ mod baseline_credential_tests {
         for backend in [
             crate::sampling::ApiBackend::OpenRouter,
             crate::sampling::ApiBackend::OpenAiCodex,
+            crate::sampling::ApiBackend::DeepSeek,
+            crate::sampling::ApiBackend::Glm,
         ] {
             let mut config = SamplingConfig {
                 base_url: "https://provider-proxy.example/v1".into(),

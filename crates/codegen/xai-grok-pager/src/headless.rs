@@ -412,12 +412,13 @@ fn auto_respond_to_permissions(
 /// "Not signed in" error message, tailored to the session type.
 fn auth_required_message(interactive: bool) -> String {
     if interactive {
-        "Not signed in. Run `crok login openai-codex` or `crok login openrouter` to authenticate."
+        "Not signed in. Run `crok login openai-codex`, `crok login openrouter`, \
+         `crok login deepseek` or `crok login glm` to authenticate."
             .to_string()
     } else {
-        "Not signed in. Set OPENROUTER_API_KEY, pipe a key to \
-         `crok login openrouter --with-api-key`, or run `crok login openai-codex` \
-         on a machine with a browser."
+        "Not signed in. Set OPENROUTER_API_KEY, DEEPSEEK_API_KEY or ZAI_API_KEY, pipe a key to \
+         `crok login <openrouter|deepseek|glm|glm-cn> --with-api-key`, or run \
+         `crok login openai-codex` on a machine with a browser."
             .to_string()
     }
 }

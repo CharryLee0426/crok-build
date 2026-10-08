@@ -925,7 +925,7 @@ pub(crate) async fn spawn_session_actor(
                         stage = failure.stage,
                         error = %failure.error,
                         "MEMORY_INIT: memory-v2 {} failed; memory is disabled for this session. \
-                         Restart to retry, or start with `--no-memory` / `GROK_MEMORY=0` to skip memory.",
+                         Restart to retry, or start with `--no-memory` / `CROK_MEMORY=0` to skip memory.",
                         failure.stage,
                     );
                     memory_storage_for_session = None;

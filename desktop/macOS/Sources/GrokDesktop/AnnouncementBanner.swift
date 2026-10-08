@@ -77,7 +77,7 @@ enum AnnouncementRules {
     }
 }
 
-/// `$GROK_HOME/announcements.json`: `{"hidden_ids": [...]}`, shared with the terminal.
+/// `$CROK_HOME/announcements.json`: `{"hidden_ids": [...]}`, shared with the terminal.
 enum AnnouncementHiddenFile {
     static func url(home: URL) -> URL { home.appendingPathComponent("announcements.json") }
 

@@ -135,7 +135,7 @@ final class SidePanelPerformanceTests: XCTestCase {
         store.draft = "fixture:mixed:125:2000"
         store.send()
         let started = Date().addingTimeInterval(20)
-        while !(store.run.isRunning && (store.conversation?.messages.count ?? 0) > TranscriptPage.size) && Date() < started { try await shown(0.1) }
+        while !(store.run.isRunning && (store.conversation?.messages.count ?? 0) > 240) && Date() < started { try await shown(0.1) }
         XCTAssertTrue(store.run.isRunning, "the task is streaming (phase \(store.run.phase), banner \(store.banner ?? "none"))")
         try await shown(2)
 

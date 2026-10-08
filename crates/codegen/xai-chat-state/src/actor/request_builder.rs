@@ -69,6 +69,12 @@ impl ChatStateActor {
                 body_bytes_after,
             });
         }
+        if should_prune(
+            self.state.total_tokens,
+            self.state.sampling_config.context_window,
+        ) {
+            self.state.request_pruning_engaged = true;
+        }
         items = self.prune_items_for_turn_request(items);
         if let Some(reminder) = memory_reminder {
             inject_memory_reminder(&mut items, &reminder);
@@ -104,14 +110,19 @@ impl ChatStateActor {
         }
     }
 
+    /// Once pruning has engaged it stays engaged until the conversation is replaced or rewound.
+    /// A pruned request reports fewer tokens, which could drop back under the threshold and send the
+    /// next request unpruned: every flip rewrites old tool results and misses the provider's cache.
     pub(super) fn prune_items_for_turn_request(
         &self,
         mut items: Vec<ConversationItem>,
     ) -> Vec<ConversationItem> {
-        if should_prune(
-            self.state.total_tokens,
-            self.state.sampling_config.context_window,
-        ) {
+        if self.state.request_pruning_engaged
+            || should_prune(
+                self.state.total_tokens,
+                self.state.sampling_config.context_window,
+            )
+        {
             prune_conversation(&mut items, &self.pruning_config);
         }
         items
@@ -130,7 +141,9 @@ pub(crate) fn should_prune(total_tokens: u64, context_window: std::num::NonZeroU
 }
 
 /// Prune old, large tool results from the conversation in place.
-/// Turn age is estimated by walking backward and counting `User` items.
+/// Turn age counts the `User` items that start a prompt turn, walking backward. Mid-turn reminders
+/// and interjections do not age anything: if they did, a running turn would rewrite results it had
+/// already sent and miss the provider's prompt cache on its next request.
 pub(crate) fn prune_conversation(conversation: &mut [ConversationItem], config: &PruningConfig) {
     if !config.enabled {
         return;
@@ -140,11 +153,13 @@ pub(crate) fn prune_conversation(conversation: &mut [ConversationItem], config: 
     let mut seen_first_user = false;
 
     for item in conversation.iter_mut().rev() {
-        if matches!(item, ConversationItem::User(_)) {
-            if seen_first_user {
-                turn_from_end += 1;
+        if let ConversationItem::User(user) = item {
+            if user.synthetic_reason.starts_prompt_turn() {
+                if seen_first_user {
+                    turn_from_end += 1;
+                }
+                seen_first_user = true;
             }
-            seen_first_user = true;
             continue;
         }
 

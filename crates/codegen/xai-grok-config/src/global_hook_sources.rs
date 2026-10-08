@@ -60,7 +60,7 @@ pub enum GlobalHookSourceError {
         #[source]
         source: io::Error,
     },
-    #[error("symlinked GROK_HOME is not allowed under sandbox write-deny: {path}")]
+    #[error("symlinked CROK_HOME is not allowed under sandbox write-deny: {path}")]
     SymlinkedGrokHome { path: PathBuf },
     #[error("hook source path contains a symlink component (retargetable): {path}")]
     SymlinkedSource { path: PathBuf },

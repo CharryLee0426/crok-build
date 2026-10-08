@@ -93,6 +93,7 @@ pub enum TitleItem {
     Cwd,
     Model,
     TurnTimer,
+    #[serde(rename = "crok", alias = "grok")]
     Grok,
     ActionRequired,
 }
@@ -156,7 +157,7 @@ sleep_prevention = true
 progress_bar = true
 # Show an automatic \"where was I\" session recap when you return after being away.
 # Shell session_recap is on by default; disable via [features] session_recap or
-# GROK_SESSION_RECAP=0. Manual /recap uses only the shell flag.
+# CROK_SESSION_RECAP=0. Manual /recap uses only the shell flag.
 session_recap = true
 # Minimum seconds unfocused (\"stepped away\") before requesting a recap; a
 # debounce against quick tab blips. The \"3 min since the last turn\" timing is
@@ -168,7 +169,7 @@ session_recap_threshold_secs = 30
 enabled = true
 # Items shown in the title. Options: action-required, spinner, activity,
 # session-name, cwd, model, turn-timer, crok
-items = [\"action-required\", \"spinner\", \"activity\", \"session-name\", \"grok\"]
+items = [\"action-required\", \"spinner\", \"activity\", \"session-name\", \"crok\"]
 
 # [[ui.notifications.hooks]]
 # command = \"terminal-notifier -title 'Crok' -message '$GROK_MESSAGE'\"
@@ -319,6 +320,28 @@ mod tests {
                 TitleItem::SessionName,
             ]
         );
+    }
+
+    /// The brand item is written `crok`; configs carried over from grok still say `grok`.
+    #[test]
+    fn title_brand_item_is_crok_and_still_reads_grok() {
+        let toml_str = r#"
+            [title]
+            items = ["crok", "grok"]
+        "#;
+        let parsed: NotificationConfig = toml::from_str(toml_str).expect("deserialize");
+        assert_eq!(parsed.title.items, vec![TitleItem::Grok, TitleItem::Grok]);
+        assert_eq!(
+            serde_json::to_string(&TitleItem::Grok).expect("serialize"),
+            r#""crok""#
+        );
+        let template: toml::Value =
+            toml::from_str(&NotificationConfig::to_toml_with_comments()).expect("template parses");
+        let ui: NotificationConfig = template["ui"]["notifications"]
+            .clone()
+            .try_into()
+            .expect("template deserializes");
+        assert!(ui.title.items.contains(&TitleItem::Grok));
     }
 
     #[test]

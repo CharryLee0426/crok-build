@@ -194,7 +194,7 @@ impl fmt::Display for GrantRefuse {
             Self::NoHome => write!(
                 f,
                 "Couldn't save folder trust: no home directory for the trust store. \
-                 Set GROK_HOME to an absolute directory (or unset it), then start Crok again."
+                 Set CROK_HOME to an absolute directory (or unset it), then start Crok again."
             ),
             Self::Unreadable => write!(
                 f,

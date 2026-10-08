@@ -453,7 +453,7 @@ struct VoiceOpenRouterTranscriber {
     }
 }
 
-/// The OpenRouter key shared with the terminal: `OPENROUTER_API_KEY`, else `grok login openrouter`'s
+/// The OpenRouter key shared with the terminal: `OPENROUTER_API_KEY`, else `crok login openrouter`'s
 /// `provider-auth/openrouter.json` (read_provider_credential).
 enum VoiceOpenRouterCredential {
     static func read(home: URL = GrokPaths.home, environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {

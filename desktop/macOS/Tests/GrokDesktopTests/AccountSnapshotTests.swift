@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import GrokDesktop
 
-/// Renders the account panels to PNGs in light and dark when GROK_DESKTOP_SNAPSHOT_DIR is set.
+/// Renders the account panels to PNGs in light and dark when CROK_DESKTOP_SNAPSHOT_DIR is set.
 @MainActor
 final class AccountSnapshotTests: XCTestCase {
     private var directory: URL!
@@ -75,6 +75,22 @@ final class AccountSnapshotTests: XCTestCase {
         try render("usage-no-session-usage", UsageSheet(initialTab: .usage, loadsOnAppear: false), store: store, size: CGSize(width: 680, height: 700))
         account.usageTab = .context
         try render("usage-no-session", UsageSheet(initialTab: .context, loadsOnAppear: false), store: store, size: CGSize(width: 680, height: 700))
+    }
+
+    /// Settings › Accounts with nothing connected, and with a DeepSeek key saved, the GLM key form open, and a refused key's reason.
+    func testRenderAccountsSettings() throws {
+        let store = makeStore()
+        let home = directory!
+        let accounts = { AccountStore(reader: AccountStatusReader(home: home, environment: [:])) }
+        // The Settings sheet sets the text color for every section it holds.
+        try render("accounts-signed-out", AccountsSettingsSection(accounts: accounts()).padding(24).foregroundStyle(Theme.ink), store: store,
+                   size: CGSize(width: 660, height: 400))
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("provider-auth"), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["provider": "deepseek", "access_token": "sk-fixture"])
+            .write(to: home.appendingPathComponent("provider-auth/deepseek.json"))
+        store.loginFailure = "z.ai did not accept this API key. If your subscription is from bigmodel.cn, use that site's sign-in instead (crok login glm-cn). Nothing was saved."
+        try render("accounts-key-form", AccountsSettingsSection(accounts: accounts(), keyEntry: .glm).padding(24).foregroundStyle(Theme.ink), store: store,
+                   size: CGSize(width: 660, height: 540))
     }
 
     func testRenderFeedbackSheet() throws {

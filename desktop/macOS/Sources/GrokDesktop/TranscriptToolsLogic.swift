@@ -75,7 +75,7 @@ enum TranscriptClipboard {
         return newlines + (text.utf8.last == 10 ? 0 : 1)
     }
 
-    /// `$GROK_COPY_FILE` (with `~` expanded), or `$GROK_HOME/last-copy.txt`.
+    /// `$GROK_COPY_FILE` (with `~` expanded), or `$CROK_HOME/last-copy.txt`.
     static func backupURL(environment: [String: String], grokHome: URL) -> URL {
         if let raw = environment["CROK_COPY_FILE"]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
             return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
@@ -83,7 +83,7 @@ enum TranscriptClipboard {
         return grokHome.appendingPathComponent("last-copy.txt")
     }
 
-    /// Short form for messages: `~/.grok/…` (or `$GROK_HOME/…` when relocated), then `~/…`.
+    /// Short form for messages: `~/.crok/…` (or `$CROK_HOME/…` when relocated), then `~/…`.
     static func displayPath(_ url: URL, grokHome: URL, home: String = NSHomeDirectory()) -> String {
         let path = url.standardizedFileURL.path
         let grok = grokHome.standardizedFileURL.path
@@ -611,7 +611,7 @@ enum TranscriptDebugFormat {
         return sorted[lower] + (sorted[lower + 1] - sorted[lower]) * (rank - Double(lower))
     }
 
-    /// `$GROK_HOME/logs/scroll-log-YYYYMMDD-HHMMSS.jsonl`, stamped in UTC like the terminal's.
+    /// `$CROK_HOME/logs/scroll-log-YYYYMMDD-HHMMSS.jsonl`, stamped in UTC like the terminal's.
     static func scrollLogURL(grokHome: URL, date: Date = Date()) -> URL {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

@@ -7,14 +7,14 @@ enum GrokCommandStatus: Equatable {
     case notInstalled
     /// Links to this app's launcher.
     case installed
-    /// Links to the launcher in another copy of Grok Desktop.
+    /// Links to the launcher in another copy of Crok Desktop.
     case otherCopy(app: String)
-    /// Links to a Grok Desktop launcher that no longer exists: that app was moved or deleted.
+    /// Links to a Crok Desktop launcher that no longer exists: that app was moved or deleted.
     case broken(app: String)
     /// Another program is installed as `crok`. Only a symlink is replaced, and only when the user agrees.
     case taken(by: String, replaceable: Bool)
 
-    /// The command is Grok Desktop's, so turning it off removes the link.
+    /// The command is Crok Desktop's, so turning it off removes the link.
     var isOn: Bool {
         switch self {
         case .installed, .otherCopy, .broken: return true
@@ -24,7 +24,7 @@ enum GrokCommandStatus: Equatable {
 }
 
 /// The `crok` command: a symlink at `/usr/local/bin/crok`, on every Mac's default PATH, to the launcher
-/// bundled as `Contents/Resources/bin/crok`, which runs the app's copy of the Grok Build TUI.
+/// bundled as `Contents/Resources/bin/crok`, which runs the app's copy of the Crok Build TUI.
 enum GrokCommand {
     static let defaultLink = URL(fileURLWithPath: "/usr/local/bin/crok")
     static let launcherPath = "Contents/Resources/bin/crok"
@@ -101,7 +101,7 @@ enum GrokCommand {
         }
     }
 
-    /// Removes the link, which must be Grok Desktop's.
+    /// Removes the link, which must be Crok Desktop's.
     static func uninstall(link: URL, privileged: PrivilegedRunner) async throws {
         guard unlink(link.path) != 0 else { return }
         let code = errno
@@ -173,7 +173,7 @@ enum GrokCommand {
     }
 }
 
-/// The `grok` command's switch in Settings.
+/// The `crok` command's switch in Settings.
 @MainActor
 final class GrokCommandModel: ObservableObject {
     @Published private(set) var status: GrokCommandStatus = .notInstalled
@@ -241,7 +241,7 @@ final class GrokCommandModel: ObservableObject {
     }
 }
 
-/// Settings for the `grok` command, which runs the Grok Build TUI bundled with the app from any terminal.
+/// Settings for the `crok` command, which runs the Crok Build TUI bundled with the app from any terminal.
 struct CommandLineSettingsSection: View {
     @StateObject private var command: GrokCommandModel
     @State private var confirmingReplace = false

@@ -101,7 +101,7 @@ final class TerminalSessions: ObservableObject {
         environment["SHELL"] = shell
         environment["HOME"] = environment["HOME"] ?? NSHomeDirectory()
         if environment["LANG"] == nil && environment["LC_ALL"] == nil { environment["LANG"] = preferredLocale }
-        // Last, so `grok` works here even with the command off, and a grok the user installed still wins.
+        // Last, so `crok` works here even with the command off, and a crok the user installed still wins.
         // Login shells keep entries they inherit when they rebuild PATH.
         if let commandDirectory {
             let path = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"

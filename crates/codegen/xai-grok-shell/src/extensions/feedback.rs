@@ -46,7 +46,7 @@ pub async fn handle(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
 
 /// Shown for every `x.ai/feedback*` request while the feature flag is off
 pub const FEEDBACK_DISABLED_MESSAGE: &str = "Feedback is disabled. To enable, set \
-GROK_FEEDBACK_ENABLED=true or [features] feedback = true in config.toml.";
+CROK_FEEDBACK_ENABLED=true or [features] feedback = true in config.toml.";
 
 fn apply_feedback_context(submission: &mut FeedbackSubmission, ctx: Option<FeedbackContext>) {
     let Some(ctx) = ctx else {

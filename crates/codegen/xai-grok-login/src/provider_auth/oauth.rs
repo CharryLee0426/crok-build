@@ -43,6 +43,9 @@ impl AuthorizationFlow {
         let mut authorize_url = Url::parse(match provider {
             ModelProvider::OpenRouter => OPENROUTER_AUTHORIZE_URL,
             ModelProvider::OpenAiCodex => CODEX_AUTHORIZE_URL,
+            ModelProvider::DeepSeek | ModelProvider::Glm | ModelProvider::GlmCn => {
+                bail!(no_browser_sign_in(provider))
+            }
         })?;
         match provider {
             ModelProvider::OpenRouter => {
@@ -64,6 +67,9 @@ impl AuthorizationFlow {
                     ("originator", "grok"),
                 ]);
             }
+            ModelProvider::DeepSeek | ModelProvider::Glm | ModelProvider::GlmCn => {
+                bail!(no_browser_sign_in(provider))
+            }
         }
         authorize_url.query_pairs_mut().extend_pairs([
             ("code_challenge", challenge.as_str()),
@@ -77,6 +83,13 @@ impl AuthorizationFlow {
             authorize_url,
         })
     }
+}
+
+fn no_browser_sign_in(provider: ModelProvider) -> String {
+    format!(
+        "{} has no browser sign-in; run `crok login {provider}` and paste an API key",
+        provider.display_name()
+    )
 }
 
 /// Open a browser and wait for the protected loopback callback, then persist the
@@ -108,6 +121,9 @@ async fn login_flow(
     manual_callback: impl Future<Output = anyhow::Result<String>>,
     allow_manual: bool,
 ) -> anyhow::Result<ProviderCredential> {
+    if !provider.has_browser_sign_in() {
+        bail!(no_browser_sign_in(provider));
+    }
     let port = if provider == ModelProvider::OpenAiCodex {
         1455
     } else {
@@ -172,6 +188,9 @@ async fn login_flow(
             exchange_openrouter(&code, &flow.verifier, OPENROUTER_TOKEN_URL).await?
         }
         ModelProvider::OpenAiCodex => exchange_codex(&code, &flow, CODEX_TOKEN_URL).await?,
+        ModelProvider::DeepSeek | ModelProvider::Glm | ModelProvider::GlmCn => {
+            bail!(no_browser_sign_in(provider))
+        }
     };
     let _lock = storage::lock(home, provider).await?;
     storage::write(home, &credential)?;
@@ -275,7 +294,7 @@ fn validate_callback(expected: &Url, state: &str, received: &Url) -> anyhow::Res
     Ok(codes.first().context("Missing OAuth code")?.to_string())
 }
 
-fn http_client() -> anyhow::Result<reqwest::Client> {
+pub(super) fn http_client() -> anyhow::Result<reqwest::Client> {
     xai_grok_extra_ca::build_reqwest_client(|builder| {
         builder
             .timeout(Duration::from_secs(30))
@@ -331,7 +350,7 @@ async fn exchange_openrouter(
         .await
         .context("Cannot exchange OpenRouter authorization code")?;
     let response: KeyResponse = response_json(response).await?;
-    ProviderCredential::api_key(&response.key)
+    ProviderCredential::api_key(ModelProvider::OpenRouter, &response.key)
 }
 
 #[derive(Deserialize)]

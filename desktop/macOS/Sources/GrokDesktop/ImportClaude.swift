@@ -250,7 +250,7 @@ private extension Array {
 
 // MARK: - Sheet
 
-/// `/import-claude`: imports Claude Code settings into Grok's configuration.
+/// `/import-claude`: imports Claude Code settings into Crok's configuration.
 struct ImportClaudeSheet: View {
     @EnvironmentObject var store: AppStore
     @StateObject private var model: ClaudeImportModel

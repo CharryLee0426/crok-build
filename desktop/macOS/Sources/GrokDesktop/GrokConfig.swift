@@ -2,7 +2,7 @@ import Foundation
 
 /// Locations the terminal client shares with the desktop.
 enum GrokPaths {
-    /// `$GROK_HOME`, or `~/.grok`.
+    /// `$CROK_HOME`, or `~/.crok`.
     static var home: URL {
         if let value = ProcessInfo.processInfo.environment["CROK_HOME"], !value.isEmpty {
             return URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
@@ -60,7 +60,7 @@ enum GrokConfigError: LocalizedError {
     }
 }
 
-/// Reads and edits `~/.grok/config.toml` the way the terminal does: one key at a time, keeping
+/// Reads and edits `~/.crok/config.toml` the way the terminal does: one key at a time, keeping
 /// every other line, comment, and table exactly as written. Edits locate tables and keys with a
 /// full TOML parser (multi-line strings, CRLF, and BOMs included), replace only the bytes of the
 /// value they change, and re-parse the result. A file that cannot be read or parsed, or whose
@@ -228,7 +228,7 @@ struct GrokConfig {
         try manager.setAttributes([.posixPermissions: existing ?? NSNumber(value: 0o600)], ofItemAtPath: target.path)
     }
 
-    /// Serialises every read-modify-write of Grok's configuration in this process, as the
+    /// Serialises every read-modify-write of Crok's configuration in this process, as the
     /// terminal does, so two quick changes cannot drop each other.
     private static let writeLock = NSRecursiveLock()
 
@@ -334,7 +334,7 @@ struct GrokConfig {
     }
 }
 
-/// Runs the bundled `grok` executable for commands that have no ACP method.
+/// Runs the bundled `crok` executable for commands that have no ACP method.
 enum GrokCLI {
     struct Output {
         let status: Int32

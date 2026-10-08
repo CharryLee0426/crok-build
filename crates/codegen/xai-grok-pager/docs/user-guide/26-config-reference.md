@@ -22,7 +22,7 @@ Crok Build also reads these layers, later rows winning except where a requiremen
 4. Project `.grok/config.toml`: only `[mcp_servers]`, `[plugins]`, `[permission]`, and `[mcp] max_output_bytes`.
 5. `CROK_CONFIG` (inline JSON) or `CROK_CONFIG_PATH` (JSON or TOML file). Allowlisted keys only.
 6. `$CROK_HOME/requirements.toml`, then `/etc/grok/requirements.toml`, then macOS MDM `ai.x.grok`. Admin layer. Keys marked `pin` in the table cannot be overridden; keys marked `yes` are also valid in this file.
-7. `GROK_*` environment variables.
+7. `CROK_*` environment variables (`GROK_*` is read too; `CROK_*` wins).
 8. CLI flags such as `--model`, `--sandbox`, `--yolo`.
 
 Run `crok inspect` or `crok inspect --json` to see which files and values won.

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Every key Grok Desktop responds to, grouped like the terminal's shortcuts cheatsheet.
+/// Every key Crok Desktop responds to, grouped like the terminal's shortcuts cheatsheet.
 enum KeyboardShortcutCatalog {
     struct Entry: Identifiable {
         var id: String { action }

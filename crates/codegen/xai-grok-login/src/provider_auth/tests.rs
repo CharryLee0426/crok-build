@@ -111,7 +111,7 @@ fn openrouter_environment_key_takes_precedence_without_changing_saved_key() {
     let dir = tempfile::tempdir().unwrap();
     storage::write(
         dir.path(),
-        &ProviderCredential::api_key("saved-key").unwrap(),
+        &ProviderCredential::api_key(ModelProvider::OpenRouter, "saved-key").unwrap(),
     )
     .unwrap();
     let _env = xai_grok_shell_base::env::EnvVarGuard::set("OPENROUTER_API_KEY", "environment-key");
@@ -128,6 +128,121 @@ fn openrouter_environment_key_takes_precedence_without_changing_saved_key() {
             .unwrap()
             .access_token(),
         "saved-key"
+    );
+}
+
+#[tokio::test]
+async fn key_providers_each_keep_their_own_key_and_are_used_as_stored() {
+    // An environment key would be read in place of the stored one.
+    let _env = xai_grok_shell_base::env::EnvVarGuard::remove("DEEPSEEK_API_KEY")
+        .and_remove("ZAI_API_KEY")
+        .and_remove("ZHIPU_API_KEY");
+    let dir = tempfile::tempdir().unwrap();
+    let keys = [
+        (ModelProvider::DeepSeek, "sk-deepseek-fixture"),
+        (ModelProvider::Glm, "zai-fixture.key"),
+        (ModelProvider::GlmCn, "bigmodel-fixture.key"),
+    ];
+    for (provider, key) in keys {
+        assert!(provider.accepts_api_key() && !provider.has_browser_sign_in());
+        store_provider_api_key(dir.path(), provider, &format!(" {key}\n"))
+            .await
+            .unwrap();
+    }
+    for (provider, key) in keys {
+        // The two GLM sites never read each other's key.
+        assert!(
+            dir.path()
+                .join(format!("provider-auth/{provider}.json"))
+                .exists()
+        );
+        let loaded = load_with_refresh(
+            dir.path(),
+            provider,
+            Some(key),
+            "http://127.0.0.1:1/no-network-expected",
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(loaded.access_token(), key);
+        assert!(!loaded.is_expired_or_near());
+    }
+    remove_provider_credential(dir.path(), ModelProvider::Glm)
+        .await
+        .unwrap();
+    assert!(!has_provider_credential(dir.path(), ModelProvider::Glm));
+    assert!(has_provider_credential(dir.path(), ModelProvider::GlmCn));
+    assert!(has_provider_credential(dir.path(), ModelProvider::DeepSeek));
+}
+
+#[tokio::test]
+async fn sign_in_methods_do_not_cross() {
+    let dir = tempfile::tempdir().unwrap();
+    // A ChatGPT subscription is not a key, and an empty or multi-line paste is not one either.
+    assert!(
+        store_provider_api_key(dir.path(), ModelProvider::OpenAiCodex, "sk-anything")
+            .await
+            .is_err()
+    );
+    for bad in ["", "   ", "line-one\nline-two"] {
+        let error = store_provider_api_key(dir.path(), ModelProvider::DeepSeek, bad)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("DeepSeek"), "{error}");
+    }
+    assert!(!dir.path().join("provider-auth").exists());
+    // Key-only providers never open a browser or bind the callback port.
+    for provider in [
+        ModelProvider::DeepSeek,
+        ModelProvider::Glm,
+        ModelProvider::GlmCn,
+    ] {
+        let error = login_with_oauth(dir.path(), provider, |_| {
+            panic!("no sign-in page exists for {provider}")
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("crok login {provider}")),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn each_provider_reads_only_its_own_environment_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = xai_grok_shell_base::env::EnvVarGuard::remove("OPENROUTER_API_KEY")
+        .and_remove("DEEPSEEK_API_KEY")
+        .and_remove("ZAI_API_KEY")
+        .and_remove("ZHIPU_API_KEY");
+    for provider in ModelProvider::ALL {
+        assert_eq!(provider_api_key_env_var(provider), None);
+        assert_eq!(ModelProvider::from_id(provider.as_str()), Some(provider));
+        assert!(!has_provider_credential(dir.path(), provider));
+    }
+    let _env = env
+        .and_set("ZAI_API_KEY", "zai-environment-key")
+        .and_set("DEEPSEEK_API_KEY", "  ");
+    assert_eq!(
+        read_provider_credential(dir.path(), ModelProvider::Glm)
+            .unwrap()
+            .unwrap()
+            .access_token(),
+        "zai-environment-key"
+    );
+    // A z.ai key says nothing about a bigmodel.cn subscription, and a blank variable is no key.
+    assert!(!has_provider_credential(dir.path(), ModelProvider::GlmCn));
+    assert!(!has_provider_credential(
+        dir.path(),
+        ModelProvider::DeepSeek
+    ));
+    assert_eq!(
+        provider_api_key_env_var(ModelProvider::Glm),
+        Some("ZAI_API_KEY")
     );
 }
 

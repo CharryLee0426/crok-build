@@ -84,7 +84,7 @@ enum DesktopCommands {
         command("feedback", "Send feedback to the Crok Build team", hint: "[text]"),
         command("doctor", "Check your environment and suggest fixes", hint: "[fix [name]]", aliases: ["terminal-setup", "terminal-check", "terminal-info"]),
         command("import-claude", "Import Claude settings into Crok"),
-        command("login", "Sign in to OpenRouter or OpenAI Codex"),
+        command("login", "Sign in to a model provider"),
         command("home", "Return to a new task without stopping this one", aliases: ["welcome"]),
         command("delete", "Delete this task"),
         command("exit", "Quit Crok Desktop", aliases: ["quit", "q"]),

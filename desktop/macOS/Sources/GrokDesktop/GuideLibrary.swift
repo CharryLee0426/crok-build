@@ -1,6 +1,6 @@
 import Foundation
 
-/// One how-to guide from `$GROK_HOME/docs/user-guide`.
+/// One how-to guide from `$CROK_HOME/docs/user-guide`.
 struct GuideDocument: Identifiable, Equatable {
     /// The file name, e.g. `06-theming.md`, which is also what guides link to.
     var id: String { fileName }
@@ -35,8 +35,8 @@ enum GuideDocsTarget: Equatable {
     }
 }
 
-/// The guides every `grok` process start (including `grok agent stdio`) extracts to
-/// `$GROK_HOME/docs/user-guide/NN-*.md`, listed in the terminal's order (`xai-grok-pager/src/docs.rs`).
+/// The guides every `crok` process start (including `crok agent stdio`) extracts to
+/// `$CROK_HOME/docs/user-guide/NN-*.md`, listed in the terminal's order (`xai-grok-pager/src/docs.rs`).
 enum GuideLibrary {
     struct Entry {
         let fileName: String
@@ -46,7 +46,7 @@ enum GuideLibrary {
 
     static let catalog: [Entry] = [
         Entry(fileName: "01-getting-started.md", title: "Getting Started", summary: "Installation, first launch, and basic interaction"),
-        Entry(fileName: "02-authentication.md", title: "Authentication", summary: "Sign in to OpenRouter or OpenAI Codex"),
+        Entry(fileName: "02-authentication.md", title: "Authentication", summary: "Sign in to OpenAI Codex, OpenRouter, DeepSeek, or a GLM Coding Plan"),
         Entry(fileName: "03-keyboard-shortcuts.md", title: "Keyboard Shortcuts", summary: "Complete reference for all TUI key bindings"),
         Entry(fileName: "04-slash-commands.md", title: "Slash Commands", summary: "All / commands, including goals, research, and workflow management"),
         Entry(fileName: "05-configuration.md", title: "Configuration", summary: "config.toml, pager.toml, environment variables, file locations"),

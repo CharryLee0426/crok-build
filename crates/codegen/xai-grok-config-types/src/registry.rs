@@ -103,7 +103,7 @@ impl FeatureConfigLayer {
             Self::SystemManaged => "the system managed_config.toml",
             Self::Managed => "managed_config.toml",
             Self::Campaign => "an active campaign",
-            Self::Overlay => "the GROK_CONFIG overlay",
+            Self::Overlay => "the CROK_CONFIG overlay",
         }
     }
 }

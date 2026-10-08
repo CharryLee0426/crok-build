@@ -281,7 +281,7 @@ On `init`, `skills` is live. It lists the session's user-invocable skill names, 
 The other `init` fields carry real data:
 
 - `apiKeySource` is `user` for API-key auth and `oauth` otherwise. Crok does not distinguish the schema's `project`, `org`, and `temporary` sources.
-- `permissionMode` is the effective headless mode mapped to the Messages enum: the `--permission-mode` value, or `bypassPermissions` under `--yolo`, else `default`. Grok-only modes such as `auto` collapse to `default`.
+- `permissionMode` is the effective headless mode mapped to the Messages enum: the `--permission-mode` value, or `bypassPermissions` under `--yolo`, else `default`. Crok-only modes such as `auto` collapse to `default`.
 - `mcp_servers[].status` is one `x.ai/mcp/list` snapshot, emitted only for `streaming-messages-json`: `connected`, `failed`, `needs-auth`, `pending`, or `disabled`. Servers still handshaking are `pending`. `disabled` is only stamped after the session reports `sessionMcpResolved`; an unresolved list row is `pending` even when `enabled` is still false. The snapshot does not wait for the Blocking startup grace; that grace still applies to the prompt's toolset. Other output formats omit the array and do not call `x.ai/mcp/list`.
 
 Crok omits the schema's pure-placeholder `init` fields it has no data for, rather than emitting dummy values: `claude_code_version`, `output_style`, and `plugins`.
@@ -543,6 +543,9 @@ Key environment variables that affect headless mode:
 | Variable                        | Description                                                   |
 | ------------------------------- | ------------------------------------------------------------- |
 | `OPENROUTER_API_KEY`            | OpenRouter API key (the simplest credential for CI)           |
+| `DEEPSEEK_API_KEY`              | DeepSeek API key                                              |
+| `ZAI_API_KEY`                   | GLM Coding Plan key from z.ai (`glm/...` models)              |
+| `ZHIPU_API_KEY`                 | GLM Coding Plan key from bigmodel.cn (`glm-cn/...` models)    |
 | `XAI_API_KEY`                   | Plain xAI API key for models served by xAI's own API (optional) |
 | `CROK_HOME`                    | Override config directory (default: `~/.crok`)                |
 | `CROK_LOG_FILE`                | Path to a log file (used verbatim as the path; works in headless and TUI, honors `RUST_LOG`) |
@@ -608,7 +611,7 @@ Crok stores data in `~/.crok` (override with `CROK_HOME`; see [Environment Varia
 | Path                     | Contents                              |
 | ------------------------ | ------------------------------------- |
 | `config.toml`            | User configuration                    |
-| `provider-auth/`         | Saved OpenRouter and Codex credentials |
+| `provider-auth/`         | Saved provider credentials (OpenRouter, Codex, DeepSeek, GLM) |
 | `sessions/`              | Session transcripts (SQLite)          |
 | `memory/`                | Cross-session memory store            |
 | `logs/`                  | Internal log files (for example `unified.jsonl`) |

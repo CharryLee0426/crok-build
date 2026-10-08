@@ -30,7 +30,9 @@ no official release: build it from this checkout.
   environment variable overrides the matching upstream `GROK_X`. Project `.grok/`
   folders and `AGENTS.md` files are read exactly as upstream reads them.
 - **Model providers.** Sign in with `crok login openrouter` or
-  `crok login openai-codex`, or set `OPENROUTER_API_KEY`. The first interactive
+  `crok login openai-codex`, add a key with `crok login deepseek` or
+  `crok login glm` (a GLM Coding Plan), or set `OPENROUTER_API_KEY`,
+  `DEEPSEEK_API_KEY` or `ZAI_API_KEY`. The first interactive
   launch asks which provider to use. Vendor account sign-in is removed; use any
   model through OpenRouter or an OpenAI-compatible endpoint. See the
   [authentication guide](crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).
@@ -117,7 +119,7 @@ configuration.
 make build-desktop
 open "desktop/macOS/dist/Crok Desktop.app"
 
-# Build the separate orange test app inside this workspace:
+# Build the separate TESTING-badged test app inside this workspace:
 make build-test-desktop
 open "target/test-builds/desktop/Crok Desktop Test.app"
 
@@ -137,7 +139,7 @@ overrides the desktop install directory. It requires Swift 5.9+ and a macOS 14+
 SDK; build with Xcode 26+ for Liquid Glass on macOS 26.
 
 The test app uses the `dev.chenli.crok.desktop.test` bundle identifier, a
-workspace-local state file, an orange icon with a **TESTING** banner, and a
+workspace-local state file, an icon with an orange **TESTING** pill, and a
 build script guard that keeps it from changing the global `/usr/local/bin/crok`
 link. The app and disk image are ad hoc signed, not notarized, and have no
 automatic updater. See the [desktop guide](desktop/macOS/README.md) for

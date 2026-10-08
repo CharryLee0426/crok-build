@@ -794,14 +794,14 @@ async fn read_parent_sampling_config(
                 &cfg.base_url,
             );
             let inherited = xai_grok_sampler::SamplerConfig {
-                supports_tools: (cfg.api_backend == crate::sampling::ApiBackend::OpenRouter)
-                    .then(|| {
-                        crate::agent::builtin_providers::cached_models()
-                            .iter()
-                            .find(|model| model.id == cfg.model)
-                            .map(|model| model.supports_tools())
-                    })
-                    .flatten(),
+                supports_tools: crate::agent::builtin_providers::tool_support(
+                    &cfg.api_backend,
+                    &cfg.model,
+                ),
+                supports_images: crate::agent::builtin_providers::image_support(
+                    &cfg.api_backend,
+                    &cfg.model,
+                ),
                 api_key: creds.api_key,
                 base_url: cfg.base_url,
                 mtls_cert_dir: cfg.mtls_cert_dir,

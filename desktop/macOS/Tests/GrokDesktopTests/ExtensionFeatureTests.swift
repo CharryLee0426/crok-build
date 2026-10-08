@@ -145,7 +145,7 @@ final class ExtensionFeatureTests: XCTestCase {
 
     @MainActor
     func testMemoryKeyboardNavigationAndSessionModePrecedence() {
-        // Paths point into a temporary GROK_HOME so previews never read the real ~/.grok.
+        // Paths point into a temporary CROK_HOME so previews never read the real ~/.crok.
         let saved = ProcessInfo.processInfo.environment["CROK_HOME"]
         setenv("CROK_HOME", directory.path, 1)
         defer { if let saved { setenv("CROK_HOME", saved, 1) } else { unsetenv("CROK_HOME") } }

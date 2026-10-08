@@ -146,6 +146,25 @@ final class TranscriptLayoutTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(tools.lastScrollSample).offsetY, offset, accuracy: 1, "the rows that arrived did not move what the reader is looking at")
     }
 
+    func testTheStoreSaysWhereATranscriptFirstChanged() throws {
+        // What shows a long task compares only the messages from there on, not all of them, for every update.
+        let task = try tasks(Self.rounds(4))[0]
+        let start = store.transcriptRevision(of: task.id)
+        XCTAssertEqual(store.transcriptFirstChange(of: task.id, since: start), Int.max, "nothing changed since")
+        store.append(Message(kind: .user, text: "One more"), to: task.id)
+        XCTAssertEqual(store.transcriptFirstChange(of: task.id, since: start), 12, "the message that was added")
+        let later = store.transcriptRevision(of: task.id)
+        store.append(Message(kind: .assistant, text: "Done."), to: task.id)
+        XCTAssertEqual(store.transcriptFirstChange(of: task.id, since: start), 12, "the first of the two")
+        XCTAssertEqual(store.transcriptFirstChange(of: task.id, since: later), 13)
+        XCTAssertNil(store.transcriptFirstChange(of: task.id, since: later + 5), "a revision it never had")
+        // Further back than it keeps track, any message may have changed.
+        for index in 0..<300 { store.append(Message(kind: .assistant, text: "Reply \(index)"), to: task.id) }
+        XCTAssertNil(store.transcriptFirstChange(of: task.id, since: start))
+        XCTAssertEqual(store.transcriptFirstChange(of: task.id, since: store.transcriptRevision(of: task.id) - 3), store.task(task.id).map { $0.messages.count - 3 })
+        XCTAssertNil(store.transcriptFirstChange(of: UUID(), since: 0).flatMap { $0 == Int.max ? nil : $0 }, "a task it has no changes for has none to report")
+    }
+
     func testAnotherTaskOpensAtItsEnd() throws {
         guard #available(macOS 15.0, *) else { throw XCTSkip("Where the transcript is scrolled is reported on macOS 15 and later") }
         let tasks = try tasks(Self.rounds(15), Self.rounds(9, named: "Another prompt"))

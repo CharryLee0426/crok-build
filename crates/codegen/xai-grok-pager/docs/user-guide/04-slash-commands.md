@@ -431,7 +431,7 @@ The status bar shows the same totals as they change, beside the context meter: `
 
 For persisted per-turn token and cost totals of any local session, use `crok usage <session-id> [turn]` from the shell. See [Session Management](17-sessions.md#the-crok-usage-subcommand).
 
-xAI account commands (`/login`, `/logout`, `/privacy`, and `/usage manage` billing) are not available; sign in to a provider with `crok login openai-codex` or `crok login openrouter` from the shell. See [Authentication](02-authentication.md).
+xAI account commands (`/login`, `/logout`, `/privacy`, and `/usage manage` billing) are not available; sign in to a provider with `crok login <provider>` (`openai-codex`, `openrouter`, `deepseek`, `glm` or `glm-cn`) from the shell. See [Authentication](02-authentication.md).
 
 ---
 

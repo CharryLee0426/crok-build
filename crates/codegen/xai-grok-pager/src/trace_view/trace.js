@@ -223,7 +223,7 @@
   const view = () => VIEWS[state.view];
 
   function renderHeader() {
-    document.title = `${data.title || "Agent trace"} · Grok Build`;
+    document.title = `${data.title || "Agent trace"} · Crok Build`;
     $("session-title").textContent = data.title || "Agent trace";
     $("session-subtitle").textContent = [data.model, data.session_id].filter(present).join(" · ");
     const turns = new Set(transcript.map(entry => entry.turn).filter(turn => turn != null));
@@ -867,7 +867,7 @@
     const panel = renderTabs(tabs, focusTab);
     if (isEncrypted(entry)) panel.append(encryptedNotice(encryptionOf(entry)));
     if (state.tab === "raw") {
-      panel.append(button("Download records JSON", "text-button", () => download(entryRaw(entry), `grok-trace-entry-${entry.index + 1}.json`)));
+      panel.append(button("Download records JSON", "text-button", () => download(entryRaw(entry), `crok-trace-entry-${entry.index + 1}.json`)));
       for (const index of entry.event_indices) {
         const event = eventsByIndex.get(index);
         if (!event) continue;
@@ -928,7 +928,7 @@
     const panel = renderTabs(linked.length ? [["input", "Input"], ["output", "Output"], ["raw", "Raw"]] : [["content", "Content"], ["raw", "Raw"]], focusTab);
     if (isEncrypted(event)) panel.append(encryptedNotice(encryptionOf(event)));
     if (state.tab === "raw") {
-      panel.append(button("Download record JSON", "text-button", () => download(event.raw, `grok-trace-record-${event.index + 1}.json`)), code(event.raw));
+      panel.append(button("Download record JSON", "text-button", () => download(event.raw, `crok-trace-record-${event.index + 1}.json`)), code(event.raw));
     } else if (linked.length) {
       for (const tool of linked) {
         const section = node("section", "tool-section");
@@ -1110,7 +1110,7 @@
   $("copy").addEventListener("click", copyJson);
   $("close-inspector").addEventListener("click", () => closeInspector());
   // Export the exact embedded document: JSON.parse would round integers above 2^53.
-  $("export").addEventListener("click", () => download(sourceJson, "grok-agent-trace.json", true));
+  $("export").addEventListener("click", () => download(sourceJson, "crok-agent-trace.json", true));
   $("session-details").addEventListener("click", showSession);
   $("close-session").addEventListener("click", () => $("session-dialog").close());
   $("artifact-select").addEventListener("change", renderArtifact);

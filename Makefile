@@ -100,7 +100,7 @@ help:
 		'make deploy-desktop     Build and install the desktop app to ~/Applications.' \
 		'make dmg-desktop        Build the desktop app and its .dmg installer in desktop/macOS/dist.' \
 		'make build-test-tui     Build the workspace-only TUI used by crok-test.' \
-		'make build-test-desktop Build the orange, TESTING-badged desktop app in target/test-builds.' \
+		'make build-test-desktop Build the TESTING-badged desktop app in target/test-builds.' \
 		'make import-grok-config Copy ~/.grok settings, sessions, and Grok Desktop state into crok.' \
 		'' \
 		'Overrides: CARGO, RUSTUP, CARGO_TARGET_DIR, PREFIX, BINDIR, DESKTOP_INSTALL_DIR.' \
