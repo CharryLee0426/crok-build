@@ -401,6 +401,7 @@ extension View {
 
 private struct GlassSurface<S: InsettableShape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.appearsActive) private var appearsActive
     var shape: S
     var interactive: Bool
 
@@ -416,6 +417,8 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
                 // The system tints its glass; a terminal palette's glass takes the palette's surface colour.
                 let tint: Color? = Theme.palette.usesSystemMaterials ? nil : Theme.surface.opacity(0.55)
                 content.glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
+                    // Glass in an inactive window loses its lit edge and blends into the window, so it takes the solid surface's edge.
+                    .overlay { if !appearsActive { shape.strokeBorder(Theme.line, lineWidth: 1) } }
             } else {
                 materialSurface(content)
             }
