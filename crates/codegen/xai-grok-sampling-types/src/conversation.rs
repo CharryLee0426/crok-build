@@ -1464,6 +1464,59 @@ pub fn openrouter_reasoning_details(item: &rs::ReasoningItem) -> Option<Vec<serd
     serde_json::from_str(item.encrypted_content.as_deref()?).ok()
 }
 
+// A Messages API turn can hold several thinking blocks, some of them between tool calls, and the
+// API expects each one back where it was. `ReasoningItem` has no field for that, so the id says it:
+// `messages:<kind>` or `messages:<kind>:<id of the tool call the block preceded>`.
+// A block that opens its turn and is not redacted keeps the empty id it always had.
+const MESSAGES_REASONING_ID_PREFIX: &str = "messages:";
+const MESSAGES_THINKING_KIND: &str = "thinking";
+const MESSAGES_REDACTED_THINKING_KIND: &str = "redacted_thinking";
+
+/// Where a Messages API thinking block goes when its turn is sent back.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MessagesReasoningPlacement<'a> {
+    /// A `redacted_thinking` block: `encrypted_content` is its opaque `data`, not a signature.
+    pub redacted: bool,
+    /// The tool call the block came directly before. `None` puts it ahead of the turn's text.
+    pub before_tool_call: Option<&'a str>,
+}
+
+/// The `ReasoningItem::id` that records `placement`.
+pub fn messages_reasoning_id(placement: MessagesReasoningPlacement<'_>) -> String {
+    let kind = if placement.redacted {
+        MESSAGES_REDACTED_THINKING_KIND
+    } else {
+        MESSAGES_THINKING_KIND
+    };
+    match placement.before_tool_call {
+        Some(tool_call) => format!("{MESSAGES_REASONING_ID_PREFIX}{kind}:{tool_call}"),
+        None if placement.redacted => format!("{MESSAGES_REASONING_ID_PREFIX}{kind}"),
+        None => String::new(),
+    }
+}
+
+/// Inverse of [`messages_reasoning_id`]. Any other id, a provider's own included, is an ordinary leading block.
+pub fn messages_reasoning_placement(item: &rs::ReasoningItem) -> MessagesReasoningPlacement<'_> {
+    let Some(rest) = item.id.strip_prefix(MESSAGES_REASONING_ID_PREFIX) else {
+        return MessagesReasoningPlacement::default();
+    };
+    let (kind, before_tool_call) = match rest.split_once(':') {
+        Some((kind, tool_call)) => (kind, Some(tool_call).filter(|id| !id.is_empty())),
+        None => (rest, None),
+    };
+    match kind {
+        MESSAGES_THINKING_KIND => MessagesReasoningPlacement {
+            redacted: false,
+            before_tool_call,
+        },
+        MESSAGES_REDACTED_THINKING_KIND => MessagesReasoningPlacement {
+            redacted: true,
+            before_tool_call,
+        },
+        _ => MessagesReasoningPlacement::default(),
+    }
+}
+
 /// Splice a streaming-fallback reasoning text into a `Vec<ConversationItem>` produced by `response_to_conversation_items`.
 /// If any existing `Reasoning` sibling already carries text, leave `items` untouched (the deltas are redundant); Otherwise, if there is a `Reasoning` sibling with no text, append a `SummaryText` part to it (avoids introducing a phantom sibling); Otherwise, insert a new `Reasoning(synthesized_reasoning_item(text))` immediately before the trailing `Assistant`.
 pub fn inject_streaming_reasoning_fallback(items: &mut Vec<ConversationItem>, text: String) {

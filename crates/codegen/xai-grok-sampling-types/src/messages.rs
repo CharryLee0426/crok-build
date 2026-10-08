@@ -90,12 +90,16 @@ pub struct TextBlock {
 pub struct CacheControl {
     #[serde(rename = "type")]
     pub r#type: String, // "ephemeral"
+    /// `"5m"` or `"1h"`. Left out, the entry lives five minutes; only Anthropic's own endpoint is known to take the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<String>,
 }
 
 impl CacheControl {
     pub fn ephemeral() -> Self {
         Self {
             r#type: "ephemeral".to_owned(),
+            ttl: None,
         }
     }
 }
@@ -159,6 +163,9 @@ pub struct ToolParam {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub input_schema: serde_json::Value,
+    /// A breakpoint on the last tool caches the tool definitions on their own, ahead of the system prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<CacheControl>,
 }
 
 /// Tool choice (Anthropic Messages API format)
@@ -190,8 +197,27 @@ pub enum ThinkingConfig {
         // Older models ignore this field; skipping `None` keeps the old wire shape
         #[serde(skip_serializing_if = "Option::is_none")]
         display: Option<ThinkingDisplay>,
+        /// What the API does with a replayed thinking block whose conversation has since been edited.
+        /// Only sent with the `thinking-binding-controls-2026-08-01` beta header; without the header the field is rejected.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        block_binding: Option<ThinkingBlockBinding>,
     },
     Disabled,
+}
+
+/// See https://platform.claude.com/docs/en/build-with-claude/extended-thinking (preserved thinking).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ThinkingBlockBinding {
+    pub prefix_mismatch_behavior: PrefixMismatchBehavior,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrefixMismatchBehavior {
+    /// Refuse the request with a 400.
+    Error,
+    /// Leave the block, and every thinking block after it, out of what the model reads, and answer.
+    DropBlock,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,6 +241,21 @@ pub struct MessagesResponse {
     pub model: String,
     pub stop_reason: Option<StopReason>,
     pub usage: MessagesUsage,
+    /// What the API changed in the request before the model read it, sent when the request carried the thinking-binding beta header.
+    /// A `thinking_dropped` entry means an earlier part of the conversation differs from what produced that block.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_transformations: Vec<InputTransformation>,
+}
+
+/// All fields optional so a new entry shape never fails the `message_start` parse.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct InputTransformation {
+    #[serde(rename = "type", default)]
+    pub r#type: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

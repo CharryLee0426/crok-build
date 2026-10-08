@@ -2,8 +2,8 @@
 //!
 //! OpenRouter's PKCE exchange produces an API key. Codex uses the ChatGPT
 //! authorization-code grant and refresh tokens, as in Pi's Codex provider.
-//! DeepSeek and the GLM Coding Plan have no browser flow: the user pastes an
-//! API key from the provider's console.
+//! DeepSeek, the GLM Coding Plan and Anthropic have no browser flow: the user
+//! pastes an API key from the provider's console.
 
 mod oauth;
 mod storage;
@@ -31,15 +31,20 @@ pub enum ModelProvider {
     /// A separate account system: its keys are not accepted by z.ai, nor z.ai's here.
     #[serde(rename = "glm-cn")]
     GlmCn,
+    /// The Claude API with a Claude Console API key, billed per token.
+    /// A Claude subscription (Pro, Max) is a different product and does not sign in here.
+    #[serde(rename = "anthropic")]
+    Anthropic,
 }
 
 impl ModelProvider {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::OpenAiCodex,
         Self::OpenRouter,
         Self::DeepSeek,
         Self::Glm,
         Self::GlmCn,
+        Self::Anthropic,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -49,6 +54,7 @@ impl ModelProvider {
             Self::DeepSeek => "deepseek",
             Self::Glm => "glm",
             Self::GlmCn => "glm-cn",
+            Self::Anthropic => "anthropic",
         }
     }
 
@@ -65,6 +71,7 @@ impl ModelProvider {
             Self::DeepSeek => "DeepSeek",
             Self::Glm => "GLM Coding Plan",
             Self::GlmCn => "GLM Coding Plan (China)",
+            Self::Anthropic => "Anthropic",
         }
     }
 
@@ -77,6 +84,7 @@ impl ModelProvider {
             Self::DeepSeek => &["DEEPSEEK_API_KEY"],
             Self::Glm => &["ZAI_API_KEY"],
             Self::GlmCn => &["ZHIPU_API_KEY"],
+            Self::Anthropic => &["ANTHROPIC_API_KEY"],
         }
     }
 
@@ -87,6 +95,7 @@ impl ModelProvider {
             Self::DeepSeek => Some("https://platform.deepseek.com/api_keys"),
             Self::Glm => Some("https://z.ai/manage-apikey/apikey-list"),
             Self::GlmCn => Some("https://bigmodel.cn/coding-plan/personal/overview"),
+            Self::Anthropic => Some("https://platform.claude.com/settings/keys"),
         }
     }
 

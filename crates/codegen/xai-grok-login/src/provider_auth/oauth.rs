@@ -43,7 +43,10 @@ impl AuthorizationFlow {
         let mut authorize_url = Url::parse(match provider {
             ModelProvider::OpenRouter => OPENROUTER_AUTHORIZE_URL,
             ModelProvider::OpenAiCodex => CODEX_AUTHORIZE_URL,
-            ModelProvider::DeepSeek | ModelProvider::Glm | ModelProvider::GlmCn => {
+            ModelProvider::DeepSeek
+            | ModelProvider::Glm
+            | ModelProvider::GlmCn
+            | ModelProvider::Anthropic => {
                 bail!(no_browser_sign_in(provider))
             }
         })?;
@@ -67,7 +70,10 @@ impl AuthorizationFlow {
                     ("originator", "grok"),
                 ]);
             }
-            ModelProvider::DeepSeek | ModelProvider::Glm | ModelProvider::GlmCn => {
+            ModelProvider::DeepSeek
+            | ModelProvider::Glm
+            | ModelProvider::GlmCn
+            | ModelProvider::Anthropic => {
                 bail!(no_browser_sign_in(provider))
             }
         }
@@ -188,7 +194,10 @@ async fn login_flow(
             exchange_openrouter(&code, &flow.verifier, OPENROUTER_TOKEN_URL).await?
         }
         ModelProvider::OpenAiCodex => exchange_codex(&code, &flow, CODEX_TOKEN_URL).await?,
-        ModelProvider::DeepSeek | ModelProvider::Glm | ModelProvider::GlmCn => {
+        ModelProvider::DeepSeek
+        | ModelProvider::Glm
+        | ModelProvider::GlmCn
+        | ModelProvider::Anthropic => {
             bail!(no_browser_sign_in(provider))
         }
     };

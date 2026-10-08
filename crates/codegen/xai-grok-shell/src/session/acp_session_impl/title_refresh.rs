@@ -131,10 +131,21 @@ impl SessionActor {
         // Deliberately tool-free: unlike the turn summary, the request carries no tools
         // The model then can't spend the call on a tool invocation that would leave empty text and burn the checkpoint
         // (The conversation prefix still shares the parent prompt-cache key.)
+        // Anthropic is the exception: without the turn's tools the request shares no cached prefix, and is refused
+        // The instruction tells the model to call none
+        let (tools, hosted_tools) = if setup.tools_lead_the_prompt {
+            let tool_defs = self.prepare_tool_definitions().await;
+            (
+                self.turn_base_tool_specs(&tool_defs),
+                self.hosted_tools_for_turn(),
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        };
         let request = self.parent_cached_request(AuxCall {
             items,
-            tools: Vec::new(),
-            hosted_tools: Vec::new(),
+            tools,
+            hosted_tools,
             model: setup.model.clone(),
             reasoning_effort: setup.reasoning_effort,
             backend: setup.client.api_backend(),

@@ -78,6 +78,10 @@ pub struct PruningConfig {
     pub soft_trim_tail: usize,
     /// Turn age after which tool results are hard-cleared (replaced with placeholder).
     pub hard_clear_age_turns: usize,
+    /// Prune on every Nth prompt turn only; `1` prunes on each.
+    /// A prune rewrites old tool results, and a provider that caches the prompt by prefix then reads
+    /// nothing after the first rewritten one from its cache. The turns in between send what it holds.
+    pub prune_every_n_turns: usize,
 }
 
 impl Default for PruningConfig {
@@ -89,6 +93,7 @@ impl Default for PruningConfig {
             soft_trim_head: 1500,
             soft_trim_tail: 1500,
             hard_clear_age_turns: 10,
+            prune_every_n_turns: 5,
         }
     }
 }

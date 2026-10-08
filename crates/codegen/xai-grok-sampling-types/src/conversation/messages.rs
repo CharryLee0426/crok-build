@@ -81,6 +81,8 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
     let mut system_blocks: Vec<TextBlock> = Vec::new();
     let mut messages: Vec<Message> = Vec::new();
     let mut pending_assistant: Vec<ContentBlock> = Vec::new();
+    // Thinking blocks that sat between tool calls, held for the assistant item that makes the call.
+    let mut pending_thinking: Vec<(String, ContentBlock)> = Vec::new();
     let mut pending_tool_results: Vec<ContentBlock> = Vec::new();
 
     let sanitize_tool_call_id = |id: &str| -> String {
@@ -144,14 +146,25 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
             .collect()
     };
 
-    let flush_assistant = |pending: &mut Vec<ContentBlock>, msgs: &mut Vec<Message>| {
-        if !pending.is_empty() {
+    let flush_assistant = |pending: &mut Vec<ContentBlock>,
+                           thinking: &mut Vec<(String, ContentBlock)>,
+                           msgs: &mut Vec<Message>| {
+        // A block whose tool call never arrived opens the turn: the API refuses a turn that ends in thinking.
+        pending.splice(0..0, thinking.drain(..).map(|(_, block)| block));
+        // Thinking alone is not a turn. It happens when the answer it led to was dropped (a tool call cut off before its result).
+        let answers = pending.iter().any(|block| {
+            !matches!(
+                block,
+                ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }
+            )
+        });
+        if answers {
             msgs.push(Message {
                 role: MessageRole::Assistant,
-                content: MessageContent::Blocks(pending.clone()),
+                content: MessageContent::Blocks(std::mem::take(pending)),
             });
-            pending.clear();
         }
+        pending.clear();
     };
 
     let flush_tool_results = |pending: &mut Vec<ContentBlock>, msgs: &mut Vec<Message>| {
@@ -167,7 +180,7 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
     for item in &req.items {
         match item {
             ConversationItem::System(s) => {
-                flush_assistant(&mut pending_assistant, &mut messages);
+                flush_assistant(&mut pending_assistant, &mut pending_thinking, &mut messages);
                 flush_tool_results(&mut pending_tool_results, &mut messages);
                 system_blocks.push(TextBlock {
                     r#type: "text".to_string(),
@@ -176,7 +189,7 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
                 });
             }
             ConversationItem::User(u) => {
-                flush_assistant(&mut pending_assistant, &mut messages);
+                flush_assistant(&mut pending_assistant, &mut pending_thinking, &mut messages);
                 flush_tool_results(&mut pending_tool_results, &mut messages);
                 let blocks = content_parts_to_anthropic_blocks(&u.content);
                 messages.push(Message {
@@ -187,6 +200,17 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
             ConversationItem::Assistant(a) => {
                 flush_tool_results(&mut pending_tool_results, &mut messages);
 
+                // A block recorded against a call this turn does not make opens the turn instead.
+                let (mut placed, unplaced): (Vec<_>, Vec<_>) =
+                    std::mem::take(&mut pending_thinking).into_iter().partition(
+                        |(tool_call, _)| {
+                            a.tool_calls
+                                .iter()
+                                .any(|tc| tc.id.as_ref() == tool_call.as_str())
+                        },
+                    );
+                pending_assistant.extend(unplaced.into_iter().map(|(_, block)| block));
+
                 if !a.content.is_empty() {
                     pending_assistant.push(ContentBlock::Text {
                         text: a.content.as_ref().to_owned(),
@@ -195,6 +219,13 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
                 }
 
                 for tc in &a.tool_calls {
+                    placed.retain(|(tool_call, block)| {
+                        let before_this_call = tool_call.as_str() == tc.id.as_ref();
+                        if before_this_call {
+                            pending_assistant.push(block.clone());
+                        }
+                        !before_this_call
+                    });
                     let input =
                         serde_json::from_str(&tc.arguments).unwrap_or(serde_json::json!({}));
                     pending_assistant.push(ContentBlock::ToolUse {
@@ -206,7 +237,7 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
                 }
             }
             ConversationItem::ToolResult(t) => {
-                flush_assistant(&mut pending_assistant, &mut messages);
+                flush_assistant(&mut pending_assistant, &mut pending_thinking, &mut messages);
                 let content = if t.images.is_empty() {
                     ToolResultContent::Text(t.content.as_ref().to_owned())
                 } else {
@@ -260,23 +291,36 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
                     continue;
                 }
                 flush_tool_results(&mut pending_tool_results, &mut messages);
-                let thinking = reasoning_item_text(r);
-                let signature = r
+                let placement = messages_reasoning_placement(r);
+                let sealed = r
                     .encrypted_content
                     .as_deref()
                     .map(str::to_owned)
                     .unwrap_or_default();
-                if !thinking.is_empty() || !signature.is_empty() {
-                    pending_assistant.push(ContentBlock::Thinking {
+                let block = if placement.redacted {
+                    if sealed.is_empty() {
+                        continue;
+                    }
+                    ContentBlock::RedactedThinking { data: sealed }
+                } else {
+                    let thinking = reasoning_item_text(r);
+                    if thinking.is_empty() && sealed.is_empty() {
+                        continue;
+                    }
+                    ContentBlock::Thinking {
                         thinking,
-                        signature,
-                    });
+                        signature: sealed,
+                    }
+                };
+                match placement.before_tool_call {
+                    Some(tool_call) => pending_thinking.push((tool_call.to_owned(), block)),
+                    None => pending_assistant.push(block),
                 }
             }
         }
     }
 
-    flush_assistant(&mut pending_assistant, &mut messages);
+    flush_assistant(&mut pending_assistant, &mut pending_thinking, &mut messages);
     flush_tool_results(&mut pending_tool_results, &mut messages);
 
     apply_cache_breakpoints(&mut system_blocks, &mut messages);
@@ -301,6 +345,7 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
                     name: t.name.clone(),
                     description: t.description.clone(),
                     input_schema: t.parameters.clone(),
+                    cache_control: None,
                 })
                 .collect(),
         )
@@ -331,6 +376,7 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
         .as_ref()
         .map(|_| crate::messages::ThinkingConfig::Adaptive {
             display: Some(crate::messages::ThinkingDisplay::Summarized),
+            block_binding: None,
         });
 
     let output_config = if effort.is_some() || format.is_some() {

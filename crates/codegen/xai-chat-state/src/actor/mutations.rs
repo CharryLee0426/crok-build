@@ -343,6 +343,14 @@ impl ChatStateActor {
         if self.state.prompt_index < self.pruning_config.hard_clear_age_turns {
             return 0;
         }
+        // Between two boundaries nothing is cleared: those turns send the history the provider has cached.
+        if super::request_builder::turns_since_prune_boundary(
+            &self.state.conversation,
+            &self.pruning_config,
+        ) != 0
+        {
+            return 0;
+        }
 
         // Synthetic User items are not real turns (they do not increment `prompt_index`).
         // Raise the clearing threshold by their count so a result is never cleared before

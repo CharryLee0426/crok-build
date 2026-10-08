@@ -35,6 +35,7 @@ fn message_start() -> MessageStreamEvent {
                 cache_creation_input_tokens: 0,
                 cache_read_input_tokens: 0,
             },
+            input_transformations: Vec::new(),
         },
     }
 }
@@ -275,6 +276,133 @@ async fn multiple_thinking_blocks_emit_per_block_signatures_in_order() {
         vec!["sig-1", "sig-2"],
         "each thinking block emits its own signature in order"
     );
+}
+
+/// A turn of `thinking, text, thinking, tool_use, redacted_thinking, tool_use` must go back to the API
+/// with every block where it was: one missing or moved invalidates the thinking blocks after it.
+#[tokio::test]
+async fn every_thinking_block_is_kept_and_replayed_where_it_was() {
+    let thinking_block = |index: u32, text: &str, sig: &str| {
+        vec![
+            Ok(MessageStreamEvent::ContentBlockStart {
+                index,
+                content_block: ContentBlock::Thinking {
+                    thinking: String::new(),
+                    signature: String::new(),
+                },
+            }),
+            Ok(MessageStreamEvent::ContentBlockDelta {
+                index,
+                delta: StreamDelta::ThinkingDelta {
+                    thinking: text.into(),
+                },
+            }),
+            Ok(MessageStreamEvent::ContentBlockDelta {
+                index,
+                delta: StreamDelta::SignatureDelta {
+                    signature: sig.into(),
+                },
+            }),
+            Ok(block_stop(index)),
+        ]
+    };
+    let tool_block = |index: u32, id: &str| {
+        vec![
+            Ok(MessageStreamEvent::ContentBlockStart {
+                index,
+                content_block: ContentBlock::ToolUse {
+                    id: id.into(),
+                    name: "read_file".into(),
+                    input: serde_json::json!({}),
+                    cache_control: None,
+                },
+            }),
+            Ok(MessageStreamEvent::ContentBlockDelta {
+                index,
+                delta: StreamDelta::InputJsonDelta {
+                    partial_json: "{}".into(),
+                },
+            }),
+            Ok(block_stop(index)),
+        ]
+    };
+    let mut events: Vec<Result<MessageStreamEvent, SamplingError>> = vec![Ok(message_start())];
+    events.extend(thinking_block(0, "plan", "sig-1"));
+    events.push(Ok(text_block_start(1)));
+    events.push(Ok(text_delta(1, "Reading both files.")));
+    events.push(Ok(block_stop(1)));
+    events.extend(thinking_block(2, "first file", "sig-2"));
+    events.extend(tool_block(3, "toolu_a"));
+    events.push(Ok(MessageStreamEvent::ContentBlockStart {
+        index: 4,
+        content_block: ContentBlock::RedactedThinking {
+            data: "opaque".into(),
+        },
+    }));
+    events.push(Ok(block_stop(4)));
+    events.extend(tool_block(5, "toolu_b"));
+    events.push(Ok(message_delta_with_stop(messages::StopReason::ToolUse)));
+    events.push(Ok(MessageStreamEvent::MessageStop));
+
+    let raw = stream::iter(events).boxed();
+    let evs = collect(stream_messages(raw, None, rid(), Duration::from_secs(60))).await;
+    let SamplingEvent::Completed { response, .. } = evs.last().unwrap() else {
+        panic!("expected Completed");
+    };
+    let ids: Vec<&str> = response.reasoning_items().map(|r| r.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "",
+            "messages:thinking:toolu_a",
+            "messages:redacted_thinking:toolu_b"
+        ],
+        "a block at the head of the turn keeps the empty id it always had"
+    );
+    assert_eq!(response.tool_calls().len(), 2);
+
+    // The next request: the stored items, then the tool results.
+    let mut items = vec![xai_grok_sampling_types::ConversationItem::user("go")];
+    items.extend(response.items.iter().cloned());
+    for id in ["toolu_a", "toolu_b"] {
+        items.push(xai_grok_sampling_types::ConversationItem::tool_result(
+            id, "done",
+        ));
+    }
+    let request = xai_grok_sampling_types::build_messages_request(
+        &xai_grok_sampling_types::ConversationRequest {
+            items,
+            ..Default::default()
+        },
+    );
+    let wire = serde_json::to_value(&request).unwrap();
+    let turn = wire["messages"][1]["content"].as_array().unwrap();
+    let shape: Vec<String> = turn
+        .iter()
+        .map(|block| {
+            let kind = block["type"].as_str().unwrap();
+            let detail = block
+                .get("signature")
+                .or(block.get("data"))
+                .or(block.get("id"))
+                .or(block.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            format!("{kind}:{detail}")
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            "thinking:sig-1",
+            "text:Reading both files.",
+            "thinking:sig-2",
+            "tool_use:toolu_a",
+            "redacted_thinking:opaque",
+            "tool_use:toolu_b",
+        ]
+    );
+    assert_eq!(wire["messages"][1]["role"], "assistant");
 }
 
 #[tokio::test]
@@ -720,6 +848,7 @@ fn message_start_with_cache(
                 cache_creation_input_tokens: cache_creation,
                 cache_read_input_tokens: cache_read,
             },
+            input_transformations: Vec::new(),
         },
     }
 }

@@ -30,6 +30,14 @@ use xai_chat_state::compaction_utils::{
     validate_compacted_history,
 };
 use xai_grok_sampling_types::{ApiBackend, ConversationItem};
+/// Whether the summarizer's copy of the conversation goes without reasoning.
+/// A Messages host rejects a thinking block whose conversation was rewritten, so its copy drops them.
+/// Anthropic's own endpoint is asked to leave out a block it cannot accept instead, and with the blocks
+/// in place the summarizer reads the turn's cached conversation rather than paying for all of it again.
+fn summarizer_strips_reasoning(backend: &ApiBackend, base_url: &str) -> bool {
+    *backend == ApiBackend::Messages
+        && crate::agent::builtin_providers::anthropic_options(backend, base_url).is_none()
+}
 /// Prefix on the early-guard failure payloads below; the user-facing normalizer strips it (the renderer prepends its own headline).
 const COMPACTION_FAILED_GUARD_PREFIX: &str = "Compaction failed: ";
 /// Human-readable "next fire" for a scheduled loop in the compaction reminder.
@@ -253,7 +261,7 @@ impl SessionActor {
         let sampling_cfg = self.chat_state_handle.get_sampling_config().await;
         let strips = sampling_cfg
             .as_ref()
-            .map(|c| c.api_backend == ApiBackend::Messages)
+            .map(|c| summarizer_strips_reasoning(&c.api_backend, &c.base_url))
             .unwrap_or(false);
         let model_slug = sampling_cfg
             .as_ref()
@@ -959,7 +967,7 @@ impl SessionActor {
         }
         let summary_strips_reasoning = sampling_config
             .as_ref()
-            .map(|c| c.api_backend == ApiBackend::Messages)
+            .map(|c| summarizer_strips_reasoning(&c.api_backend, &c.base_url))
             .unwrap_or(false);
         let model_id = sampling_config.map(|c| c.model).unwrap_or_default();
         let compaction = xai_grok_telemetry::events::CompactionScope::begin(

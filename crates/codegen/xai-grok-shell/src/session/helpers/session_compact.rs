@@ -707,6 +707,11 @@ pub(crate) async fn generate_session_compact(
                 hosted_tools,
                 model: Some(sampling_config.model.to_owned()),
                 temperature: Some(1.0),
+                // Anthropic's cache is keyed on the thinking configuration and on the thinking blocks in
+                // the history, so the summarizer reads the conversation back only if both match the turn's.
+                reasoning_effort: sampling_config
+                    .anthropic
+                    .and(sampling_config.reasoning_effort),
                 x_grok_conv_id: Some(session_id.to_string()),
                 x_grok_req_id: Some(format!("xai-compact-{}", uuid::Uuid::new_v4())),
                 x_grok_session_id: Some(session_id.to_string()),

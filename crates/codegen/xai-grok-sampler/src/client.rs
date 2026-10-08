@@ -302,6 +302,40 @@ fn apply_env_http_headers(
     }
 }
 
+/// What every request to Anthropic's own endpoint carries: the API version, and the beta that defines
+/// the `thinking.block_binding` field [`crate::provider_compat::prepare_anthropic_request`] sends.
+/// A version or betas already in `headers` (from the model's configuration) are kept.
+fn apply_anthropic_headers(headers: &mut HeaderMap) {
+    use crate::provider_compat::{ANTHROPIC_THINKING_BINDING_BETA, ANTHROPIC_VERSION};
+
+    let version = HeaderName::from_static("anthropic-version");
+    if !headers.contains_key(&version) {
+        headers.insert(version, HeaderValue::from_static(ANTHROPIC_VERSION));
+    }
+    if !crate::provider_compat::anthropic_sends_thinking_binding() {
+        return;
+    }
+    let beta = HeaderName::from_static("anthropic-beta");
+    let configured = headers
+        .get(&beta)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if configured
+        .split(',')
+        .any(|name| name.trim() == ANTHROPIC_THINKING_BINDING_BETA)
+    {
+        return;
+    }
+    let betas = if configured.trim().is_empty() {
+        ANTHROPIC_THINKING_BINDING_BETA.to_owned()
+    } else {
+        format!("{configured},{ANTHROPIC_THINKING_BINDING_BETA}")
+    };
+    if let Ok(value) = HeaderValue::from_str(&betas) {
+        headers.insert(beta, value);
+    }
+}
+
 /// HTTP client for sampling. Cheap to clone.
 /// Carries an `Arc`-backed `reqwest::Client` and the default headers/request-defaults computed from a [`SamplerConfig`] at construction time.
 #[derive(Clone)]
@@ -352,6 +386,7 @@ struct ClientDefaults {
     doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
     supports_tools: Option<bool>,
     supports_images: Option<bool>,
+    anthropic: Option<xai_grok_sampling_types::AnthropicOptions>,
 }
 
 /// Endpoint URL builder, resolved once at client construction so each request only appends its path.
@@ -570,6 +605,11 @@ impl SamplingClient {
             &mut headers,
         );
 
+        // After the configured headers, so a version or betas set there are kept.
+        if config.anthropic.is_some() {
+            apply_anthropic_headers(&mut headers);
+        }
+
         // Add x-grok-client-version header for version gating at the proxy.
         if let Some(client_version) = config.client_version.as_ref()
             && let Ok(header_value) = HeaderValue::from_str(client_version)
@@ -672,6 +712,7 @@ impl SamplingClient {
             doom_loop_recovery: config.doom_loop_recovery,
             supports_tools: config.supports_tools,
             supports_images: config.supports_images,
+            anthropic: config.anthropic,
         };
 
         let endpoint_base = if defaults.api_backend == ApiBackend::OpenAiCodex {
@@ -1842,6 +1883,10 @@ impl SamplingClient {
             request.inner.top_p = self.defaults.top_p;
         }
 
+        if let Some(options) = self.defaults.anthropic {
+            crate::provider_compat::prepare_anthropic_request(&mut request.inner, options);
+        }
+
         Ok(())
     }
 
@@ -1914,7 +1959,12 @@ impl SamplingClient {
                 ));
             }
 
-            let message = user_facing_api_error_message(status, bytes.as_ref());
+            let mut message = user_facing_api_error_message(status, bytes.as_ref());
+            if self.defaults.anthropic.is_some()
+                && crate::provider_compat::note_anthropic_error(status, &message)
+            {
+                message.push_str(" Crok has stopped sending that beta; send the message again.");
+            }
             tracing::warn!(
                 status = %status,
                 error_message = %message,
@@ -2052,7 +2102,12 @@ impl SamplingClient {
             let retry_after_secs = extract_retry_after(response.headers());
             let should_retry = extract_should_retry(response.headers());
             let bytes = response.bytes().await?;
-            let message = user_facing_api_error_message(status, bytes.as_ref());
+            let mut message = user_facing_api_error_message(status, bytes.as_ref());
+            if self.defaults.anthropic.is_some()
+                && crate::provider_compat::note_anthropic_error(status, &message)
+            {
+                message.push_str(" Crok has stopped sending that beta; send the message again.");
+            }
             span_timing.span().record(ERROR, message.as_str());
             tracing::error!(
                 status = %status,
@@ -3093,6 +3148,68 @@ mod tests {
                 .is_some()
         );
         assert!(client.default_headers.get(AUTHORIZATION).is_none());
+    }
+
+    /// Anthropic's endpoint is told the API version and the beta its request body relies on.
+    /// A version or betas the model's configuration already sets are kept, not replaced.
+    #[test]
+    fn anthropic_headers_join_whatever_the_configuration_already_sends() {
+        let header = |client: &SamplingClient, name: &'static str| {
+            client
+                .default_headers
+                .get(HeaderName::from_static(name))
+                .map(|value| value.to_str().unwrap().to_owned())
+        };
+        let anthropic = |extra: &[(&str, &str)]| {
+            SamplingClient::new(SamplerConfig {
+                api_backend: ApiBackend::Messages,
+                auth_scheme: AuthScheme::XApiKey,
+                anthropic: Some(Default::default()),
+                extra_headers: extra
+                    .iter()
+                    .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                    .collect(),
+                ..minimal_config()
+            })
+            .expect("client should build")
+        };
+        let plain = anthropic(&[]);
+        assert_eq!(
+            header(&plain, "anthropic-version").as_deref(),
+            Some("2023-06-01")
+        );
+        assert_eq!(
+            header(&plain, "anthropic-beta").as_deref(),
+            Some("thinking-binding-controls-2026-08-01")
+        );
+        let configured = anthropic(&[
+            ("anthropic-version", "2099-01-01"),
+            ("anthropic-beta", "context-1m-2025-08-07"),
+        ]);
+        assert_eq!(
+            header(&configured, "anthropic-version").as_deref(),
+            Some("2099-01-01")
+        );
+        assert_eq!(
+            header(&configured, "anthropic-beta").as_deref(),
+            Some("context-1m-2025-08-07,thinking-binding-controls-2026-08-01")
+        );
+        let already = anthropic(&[(
+            "anthropic-beta",
+            "thinking-binding-controls-2026-08-01, context-1m-2025-08-07",
+        )]);
+        assert_eq!(
+            header(&already, "anthropic-beta").as_deref(),
+            Some("thinking-binding-controls-2026-08-01, context-1m-2025-08-07")
+        );
+        // Any other Messages host gets neither header.
+        let other = SamplingClient::new(SamplerConfig {
+            api_backend: ApiBackend::Messages,
+            ..minimal_config()
+        })
+        .expect("client should build");
+        assert_eq!(header(&other, "anthropic-version"), None);
+        assert_eq!(header(&other, "anthropic-beta"), None);
     }
 
     #[test]

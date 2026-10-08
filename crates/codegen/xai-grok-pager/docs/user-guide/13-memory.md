@@ -420,6 +420,7 @@ You configure pruning under `[compaction]`, not `[memory]`, because it is a comp
 | `soft_trim_head` | `1500` | Characters kept from the start of a soft-trimmed result |
 | `soft_trim_tail` | `1500` | Characters kept from the end of a soft-trimmed result |
 | `hard_clear_age_turns` | `10` | Turn age after which tool results are replaced with a placeholder |
+| `prune_every_n_turns` | `5` | Prune on every Nth prompt only. Pruning rewrites old tool results, and the provider's prompt cache then holds nothing after the first one rewritten, so the conversation from there on is billed as new input once. `1` prunes on every prompt |
 
 ---
 
