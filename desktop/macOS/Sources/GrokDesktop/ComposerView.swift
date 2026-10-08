@@ -91,11 +91,14 @@ struct ComposerView: View {
     private var editorCard: some View {
         let lines = draftLineCount
         let pending = attachments.current
+        let padding: CGFloat = 16
         return VStack(alignment: .leading, spacing: 12) {
             VoiceRecordingRow(voice: features.voice) { features.stopVoice() }
             if !pending.isEmpty {
-                ComposerAttachmentStrip(attachments: pending, onRemove: { attachments.remove($0) }, onPreview: { attachments.preview($0) })
+                ComposerAttachmentStrip(attachments: pending, bleed: padding, onRemove: { attachments.remove($0) }, onPreview: { attachments.preview($0) })
                     .padding(.bottom, -4)
+                    // Each draft's strip is scrolled on its own.
+                    .id(store.draftLocation)
             }
             PromptEditor(text: $store.draft, placeholder: placeholder, onSubmit: submitDraft, onCommandKey: handleComposerKey,
                          onTextView: { [weak model = features] view in model?.promptTextView = view },
@@ -137,7 +140,7 @@ struct ComposerView: View {
                     sendControls
                 }
             }.frame(height: 40)
-        }.padding(16).glassSurface(cornerRadius: 24)
+        }.padding(padding).glassSurface(cornerRadius: 24)
             .overlay { if cardDropTargeted || editorDropTargeted { AttachmentDropOverlay(cornerRadius: 24) } }
             .onDrop(of: [.fileURL, .image], isTargeted: $cardDropTargeted) { providers in attachments.add(providers: providers) }
             .quickLookPreview($attachments.previewURL)
