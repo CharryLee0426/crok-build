@@ -486,4 +486,13 @@ time.sleep(20)
         XCTAssertEqual(models[0].defaultReasoningID, "deep")
         XCTAssertTrue(models[1].reasoningOptions.isEmpty)
     }
+
+    func testModelsCarryTheirContextWindow() {
+        let models = SessionOptions.models(["availableModels": [
+            ["modelId": "wide", "_meta": ["totalContextTokens": 1_000_000, "supportsReasoningEffort": true]],
+            ["modelId": "unsized", "_meta": ["totalContextTokens": 0]],
+            ["modelId": "bare"]
+        ]])
+        XCTAssertEqual(models.map(\.contextWindow), [1_000_000, nil, nil])
+    }
 }

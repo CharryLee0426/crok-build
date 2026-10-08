@@ -284,7 +284,12 @@ Available model choices load before the first message and when reopening a task;
 the model picker searches both names and provider IDs. The composer displays the
 model, adjustable thinking level when supported, and conversation mode. Changes
 are acknowledged by the harness before sending is re-enabled, and model/thinking
-choices persist across relaunches. Settings includes the terminal's themes
+choices persist across relaunches. Left of the microphone, a ring fills as the
+task's context window does, turning amber from 75% and red from 95% as the
+terminal's meter does. Hover it for the tokens used and free, or click it for
+**Context** (`/context`), which shows how the window is allocated. It is dashed
+until the task's session reports: a task reopened after a relaunch reports once it
+connects, or when the ring is clicked. Settings includes the terminal's themes
 (auto, Crok Night, Crok Day, Tokyo Night, Rosé Pine Moon, Oscura Midnight),
 permission mode, conversation display, and dictation. The interface uses system typography and native toolbar
 controls. Every window is glass: the desktop shows through, blurred, most clearly in the sidebar, and controls such as

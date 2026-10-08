@@ -83,6 +83,8 @@ struct ModelOption: Identifiable, Equatable {
     var name: String
     var reasoningOptions: [ModelOption] = []
     var defaultReasoningID = ""
+    /// The model's context window in tokens (`_meta.totalContextTokens`), when the catalog says.
+    var contextWindow: Int?
 }
 
 enum SessionOptions {
@@ -91,6 +93,7 @@ enum SessionOptions {
             guard let id = value["modelId"] as? String else { return nil }
             let meta = value["_meta"] as? [String: Any] ?? [:]
             var model = ModelOption(id: id, name: value["name"] as? String ?? id)
+            model.contextWindow = (meta["totalContextTokens"] as? Int).flatMap { $0 > 0 ? $0 : nil }
             guard meta["supportsReasoningEffort"] as? Bool == true else { return model }
             let valid = Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
             let efforts = (meta["reasoningEfforts"] as? [Any] ?? []).compactMap { entry -> (ModelOption, String, Bool)? in
