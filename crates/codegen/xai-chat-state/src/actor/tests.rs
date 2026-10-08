@@ -1030,9 +1030,10 @@ async fn compaction_reseed_excludes_post_response_deltas_from_overhead() {
 async fn compaction_overhead_unaffected_by_pruning_after_last_response() {
     let h = TestHarness::new();
 
-    // 12 turns of large tool results so default pruning (10-turn age) fires.
+    // 15 turns of large tool results, so the next prompt is one the default pruning runs on
+    // (every fifth) and finds results past its 10-turn age.
     let mut conv = Vec::new();
-    for i in 0..12 {
+    for i in 0..15 {
         conv.push(ConversationItem::user(format!("q{i}")));
         conv.push(ConversationItem::tool_result(
             format!("call-{i}"),
@@ -1040,7 +1041,7 @@ async fn compaction_overhead_unaffected_by_pruning_after_last_response() {
         ));
     }
     h.handle.replace_conversation(conv.clone());
-    for _ in 0..12 {
+    for _ in 0..15 {
         h.handle.increment_prompt_index();
     }
 
@@ -4042,6 +4043,7 @@ async fn prune_retained_no_op_when_session_is_young() {
     let token = tokio_util::sync::CancellationToken::new();
     let config = PruningConfig {
         hard_clear_age_turns: 10,
+        prune_every_n_turns: 1,
         ..Default::default()
     };
     let handle = ChatStateActor::spawn_with_pruning(
@@ -4083,6 +4085,7 @@ async fn prune_retained_hard_clears_old_tool_results() {
     let config = PruningConfig {
         hard_clear_age_turns: 5,
         keep_last_n_turns: 2,
+        prune_every_n_turns: 1,
         ..Default::default()
     };
     let handle = ChatStateActor::spawn_with_pruning(
@@ -4136,6 +4139,7 @@ async fn prune_retained_disabled_is_noop() {
         enabled: false,
         hard_clear_age_turns: 3,
         keep_last_n_turns: 1,
+        prune_every_n_turns: 1,
         ..Default::default()
     };
     let handle = ChatStateActor::spawn_with_pruning(
@@ -4176,6 +4180,7 @@ async fn apply_turn_request_pruning_soft_trims_old_results_over_half_window() {
         soft_trim_head: 20,
         soft_trim_tail: 20,
         hard_clear_age_turns: 10,
+        prune_every_n_turns: 1,
         ..Default::default()
     };
     let handle = ChatStateActor::spawn_with_pruning(
@@ -4272,6 +4277,7 @@ fn pruning_test_actor() -> crate::handle::ChatStateHandle {
             soft_trim_head: 20,
             soft_trim_tail: 20,
             hard_clear_age_turns: 10,
+            prune_every_n_turns: 1,
             ..Default::default()
         },
         Box::new(mock),
@@ -4360,6 +4366,7 @@ async fn prune_retained_bounds_long_session_footprint() {
     let config = PruningConfig {
         hard_clear_age_turns: 5,
         keep_last_n_turns: 2,
+        prune_every_n_turns: 1,
         ..Default::default()
     };
     let handle = ChatStateActor::spawn_with_pruning(
@@ -4428,6 +4435,7 @@ async fn prune_retained_rewind_still_correct() {
     let config = PruningConfig {
         hard_clear_age_turns: 3,
         keep_last_n_turns: 1,
+        prune_every_n_turns: 1,
         ..Default::default()
     };
     let handle = ChatStateActor::spawn_with_pruning(
@@ -4491,6 +4499,7 @@ async fn prune_retained_synthetic_user_does_not_advance_age() {
     let config = PruningConfig {
         hard_clear_age_turns: 5,
         keep_last_n_turns: 1,
+        prune_every_n_turns: 1,
         ..Default::default()
     };
     let handle = ChatStateActor::spawn_with_pruning(
@@ -5643,4 +5652,59 @@ async fn restore_snapshot_restores_all_fields() {
     assert_eq!(idx, 1);
     let tokens = h.handle.get_total_tokens().await;
     assert_eq!(tokens, 500);
+}
+
+/// Old results are cleared on every Nth prompt, not on each: a clear rewrites history the provider
+/// has cached, so the prompts in between must leave the stored conversation as it was.
+#[tokio::test]
+async fn prune_retained_clears_in_batches_between_which_history_is_untouched() {
+    use crate::actor::ChatStateActor;
+    use crate::persistence::MockChatPersistence;
+    use crate::types::PruningConfig;
+
+    let (mock, _rx) = MockChatPersistence::new();
+    let (event_tx, _) = tokio::sync::mpsc::unbounded_channel();
+    let token = tokio_util::sync::CancellationToken::new();
+    let config = PruningConfig {
+        hard_clear_age_turns: 2,
+        keep_last_n_turns: 1,
+        prune_every_n_turns: 3,
+        ..Default::default()
+    };
+    let handle = ChatStateActor::spawn_with_pruning(
+        vec![],
+        test_config(),
+        config,
+        Box::new(mock),
+        event_tx,
+        token,
+    );
+    // Turns are laid out as [User, Assistant, ToolResult]; which turns have lost their result.
+    async fn cleared(handle: &crate::handle::ChatStateHandle) -> Vec<usize> {
+        handle
+            .get_conversation()
+            .await
+            .chunks(3)
+            .enumerate()
+            .filter(|(_, turn)| {
+                matches!(
+                    turn.get(2),
+                    Some(ConversationItem::ToolResult(tr)) if tr.content.len() < 1_000
+                )
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    // Pruning runs on the first, fourth, seventh... prompt. The seventh is the first to find results old enough.
+    push_turns(&handle, 6, 5_000).await;
+    assert_eq!(cleared(&handle).await, [0usize; 0]);
+    push_turns(&handle, 1, 5_000).await;
+    assert_eq!(cleared(&handle).await, [0, 1, 2]);
+    // The eighth and ninth leave turns 3 and 4 alone although they are now as old.
+    push_turns(&handle, 2, 5_000).await;
+    assert_eq!(cleared(&handle).await, [0, 1, 2]);
+    // The tenth catches up on everything that aged in between.
+    push_turns(&handle, 1, 5_000).await;
+    assert_eq!(cleared(&handle).await, [0, 1, 2, 3, 4, 5]);
 }

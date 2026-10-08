@@ -140,15 +140,35 @@ pub(crate) fn should_prune(total_tokens: u64, context_window: std::num::NonZeroU
     total_tokens > context_window.get() / 2
 }
 
+/// Prompt turns begun since pruning last moved forward, `0` on the turn that moves it.
+/// Pruning advances on every [`PruningConfig::prune_every_n_turns`]th prompt turn. If it advanced on
+/// each, every new prompt would rewrite the results of one more old turn, and the provider would
+/// write the turns after them to its cache again instead of reading them.
+pub(crate) fn turns_since_prune_boundary(
+    conversation: &[ConversationItem],
+    config: &PruningConfig,
+) -> usize {
+    let prompt_turns = conversation
+        .iter()
+        .filter(|item| {
+            matches!(item, ConversationItem::User(user) if user.synthetic_reason.starts_prompt_turn())
+        })
+        .count();
+    prompt_turns.saturating_sub(1) % config.prune_every_n_turns.max(1)
+}
+
 /// Prune old, large tool results from the conversation in place.
 /// Turn age counts the `User` items that start a prompt turn, walking backward. Mid-turn reminders
 /// and interjections do not age anything: if they did, a running turn would rewrite results it had
 /// already sent and miss the provider's prompt cache on its next request.
+/// Ages are taken as of the last prune boundary (see [`turns_since_prune_boundary`]), so the turns
+/// between two boundaries all prune the same results.
 pub(crate) fn prune_conversation(conversation: &mut [ConversationItem], config: &PruningConfig) {
     if !config.enabled {
         return;
     }
 
+    let since_boundary = turns_since_prune_boundary(conversation, config);
     let mut turn_from_end: usize = 0;
     let mut seen_first_user = false;
 
@@ -167,13 +187,18 @@ pub(crate) fn prune_conversation(conversation: &mut [ConversationItem], config: 
             continue;
         };
 
+        // A turn begun after the boundary has no age yet.
+        let Some(age) = turn_from_end.checked_sub(since_boundary) else {
+            continue;
+        };
+
         // Never prune recent turns.
-        if turn_from_end < config.keep_last_n_turns {
+        if age < config.keep_last_n_turns {
             continue;
         }
 
         // Hard clear: very old tool results → replace entirely.
-        if turn_from_end >= config.hard_clear_age_turns {
+        if age >= config.hard_clear_age_turns {
             if tool_result.content.as_ref() != HARD_CLEAR_PLACEHOLDER {
                 tool_result.content = std::sync::Arc::<str>::from(HARD_CLEAR_PLACEHOLDER);
             }
@@ -276,6 +301,52 @@ mod tests {
         assert!(!should_prune(1000, cw)); // 10%
         assert!(should_prune(6000, cw)); // 60%
         assert!(!should_prune(5000, cw)); // 50% exact (> not >=)
+    }
+
+    /// Between two prune boundaries every request trims the same results, so each sends the history
+    /// the one before it sent and the provider reads it from its cache.
+    #[test]
+    fn pruning_advances_only_on_every_nth_prompt_turn() {
+        let config = PruningConfig {
+            keep_last_n_turns: 1,
+            soft_trim_threshold: 4000,
+            soft_trim_head: 20,
+            soft_trim_tail: 20,
+            hard_clear_age_turns: 100,
+            prune_every_n_turns: 3,
+            ..Default::default()
+        };
+        // The turns whose result a request made after `turns` prompts sends trimmed.
+        let trimmed = |turns: usize| -> Vec<usize> {
+            let mut conversation = Vec::new();
+            for turn in 0..turns {
+                conversation.push(ConversationItem::user(format!("q{turn}")));
+                conversation.push(ConversationItem::tool_result(
+                    format!("call-{turn}"),
+                    "x".repeat(10_000),
+                ));
+                // A reminder in the middle of a turn starts no turn and ages nothing.
+                conversation.push(ConversationItem::system_reminder("keep going"));
+            }
+            assert_eq!(
+                turns_since_prune_boundary(&conversation, &config),
+                (turns - 1) % 3
+            );
+            prune_conversation(&mut conversation, &config);
+            conversation
+                .iter()
+                .filter_map(|item| match item {
+                    ConversationItem::ToolResult(result) => Some(result.content.len() < 10_000),
+                    _ => None,
+                })
+                .enumerate()
+                .filter_map(|(turn, was_trimmed)| was_trimmed.then_some(turn))
+                .collect()
+        };
+        assert_eq!(trimmed(4), [0, 1]);
+        assert_eq!(trimmed(5), [0, 1], "a turn after the boundary ages nothing");
+        assert_eq!(trimmed(6), [0, 1]);
+        assert_eq!(trimmed(7), [0, 1, 2, 3, 4]);
     }
 
     #[test]

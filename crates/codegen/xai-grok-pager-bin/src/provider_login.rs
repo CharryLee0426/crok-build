@@ -7,7 +7,7 @@ use xai_grok_pager::app::cli::LoginProvider;
 const MAX_KEY_BYTES: usize = 16_384;
 
 /// The first-run menu, in the order shown.
-const SETUP_CHOICES: [(LoginProvider, &str); 5] = [
+const SETUP_CHOICES: [(LoginProvider, &str); 6] = [
     (
         LoginProvider::OpenAiCodex,
         "OpenAI Codex (ChatGPT subscription)",
@@ -21,6 +21,10 @@ const SETUP_CHOICES: [(LoginProvider, &str); 5] = [
     (
         LoginProvider::GlmCn,
         "GLM Coding Plan (subscription from bigmodel.cn, China mainland)",
+    ),
+    (
+        LoginProvider::Anthropic,
+        "Anthropic (Claude API key, billed per token)",
     ),
 ];
 
@@ -149,6 +153,28 @@ pub async fn login(provider: LoginProvider, with_api_key: bool) -> Result<()> {
                 "Run `crok models`, then select with `crok --model deepseek/<model>` or /model."
             );
         }
+        ModelProvider::Anthropic => {
+            println!("Signed in to the Claude API.");
+            let cfg = xai_grok_shell::config::load_agent_config_disk_only()
+                .map_err(anyhow::Error::msg)?;
+            match xai_grok_shell::agent::builtin_providers::refresh_anthropic_models(&cfg, true)
+                .await
+            {
+                Ok(count) => {
+                    println!("Found {count} models. The list refreshes automatically every hour.")
+                }
+                Err(error) => eprintln!(
+                    "Signed in, but the model list could not be fetched: {error}. Run `crok models --refresh` to retry."
+                ),
+            }
+            println!(
+                "Run `crok models`, then select with `crok --model anthropic/<model>` or /model."
+            );
+            println!(
+                "Requests are billed to your Claude Console credit. Its balance is shown at \
+                 https://platform.claude.com/settings/billing; no API reports it."
+            );
+        }
         ModelProvider::Glm | ModelProvider::GlmCn => {
             let site = if provider == ModelProvider::Glm {
                 "z.ai"
@@ -227,6 +253,10 @@ fn prompt_for_key(provider: ModelProvider) -> Result<String> {
         ModelProvider::GlmCn => eprintln!(
             "Use the key of the account that holds your subscription on bigmodel.cn. \
              Subscribed on z.ai instead? Run `crok login glm`."
+        ),
+        ModelProvider::Anthropic => eprintln!(
+            "Use an API key from the Claude Console (it starts with sk-ant-api). \
+             A Claude subscription (Pro or Max) does not sign in here."
         ),
         _ => {}
     }

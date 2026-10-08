@@ -1140,6 +1140,51 @@ impl ApiBackend {
     }
 }
 
+/// How long Anthropic keeps a prompt-cache entry that nothing reads. A read restarts the clock at no charge.
+/// See https://platform.claude.com/docs/en/build-with-claude/prompt-caching.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PromptCacheTtl {
+    /// Written at 1.25 times the input price. Cheapest when requests follow each other within five minutes.
+    #[serde(rename = "5m")]
+    FiveMinutes,
+    /// Written at twice the input price. A pause of five minutes to an hour then reads the conversation
+    /// (a tenth of the input price or less) instead of writing all of it again.
+    #[default]
+    #[serde(rename = "1h")]
+    OneHour,
+}
+
+impl PromptCacheTtl {
+    /// The value of `cache_control.ttl`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::FiveMinutes => "5m",
+            Self::OneHour => "1h",
+        }
+    }
+}
+
+impl std::str::FromStr for PromptCacheTtl {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "5m" => Ok(Self::FiveMinutes),
+            "1h" => Ok(Self::OneHour),
+            other => Err(format!("unknown prompt cache ttl `{other}`: use 5m or 1h")),
+        }
+    }
+}
+
+/// Set for requests to Anthropic's own endpoint (`api.anthropic.com`), which takes fields and
+/// refuses others that the wider family of Messages-compatible hosts does not.
+/// `None` sends the plain Messages request.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnthropicOptions {
+    #[serde(default)]
+    pub cache_ttl: PromptCacheTtl,
+}
+
 /// Stable identifier shared by every model request in one root conversation tree.
 #[derive(Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]

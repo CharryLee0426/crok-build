@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use xai_grok_sampler::{SamplerConfig, SamplingClient};
 use xai_grok_sampling_types::{
-    ApiBackend, ConversationItem, ConversationRequest, ReasoningEffort, ToolSpec,
+    AnthropicOptions, ApiBackend, ConversationItem, ConversationRequest, ConversationToolChoice,
+    PromptCacheTtl, ReasoningEffort, ToolSpec,
 };
 
 type Captured = Arc<Mutex<Vec<(HeaderMap, Value)>>>;
@@ -525,5 +526,241 @@ async fn codex_keeps_a_turn_on_one_backend_and_side_calls_on_the_parent_session(
             Some(&json!("conv-turn-state"))
         );
     }
+    task.abort();
+}
+
+/// Every `cache_control` in a Messages request body, as `<where>:<ttl or "5m">`, in render order.
+fn messages_cache_breakpoints(body: &Value) -> Vec<String> {
+    let lifetime = |marker: &Value| {
+        assert_eq!(marker["type"], "ephemeral");
+        marker
+            .get("ttl")
+            .and_then(Value::as_str)
+            .unwrap_or("5m")
+            .to_owned()
+    };
+    let mut found = Vec::new();
+    for (index, tool) in body["tools"].as_array().into_iter().flatten().enumerate() {
+        if let Some(marker) = tool.get("cache_control") {
+            found.push(format!("tools.{index}:{}", lifetime(marker)));
+        }
+    }
+    for (index, block) in body["system"].as_array().into_iter().flatten().enumerate() {
+        if let Some(marker) = block.get("cache_control") {
+            found.push(format!("system.{index}:{}", lifetime(marker)));
+        }
+    }
+    for (index, message) in body["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        for block in message["content"].as_array().into_iter().flatten() {
+            if let Some(marker) = block.get("cache_control") {
+                found.push(format!("messages.{index}:{}", lifetime(marker)));
+            }
+        }
+    }
+    found
+}
+
+fn anthropic_tool_turn() -> Vec<Value> {
+    vec![
+        json!({"type":"message_start","message":{"id":"msg_fixture","type":"message","role":"assistant","content":[],"model":"claude-opus-5-5","stop_reason":null,
+            "usage":{"input_tokens":12,"output_tokens":0,"cache_creation_input_tokens":2000,"cache_read_input_tokens":0},"input_transformations":[]}}),
+        json!({"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}),
+        json!({"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Need the file."}}),
+        json!({"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-fixture"}}),
+        json!({"type":"content_block_stop","index":0}),
+        json!({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_fixture","name":"read","input":{}}}),
+        json!({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"hello.txt\"}"}}),
+        json!({"type":"content_block_stop","index":1}),
+        json!({"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}),
+        json!({"type":"message_stop"}),
+    ]
+}
+
+fn anthropic_config(base: &str) -> SamplerConfig {
+    SamplerConfig {
+        base_url: format!("{base}/v1"),
+        model: "claude-opus-5-5".into(),
+        api_backend: ApiBackend::Messages,
+        auth_scheme: xai_grok_sampler::AuthScheme::XApiKey,
+        api_key: Some("sk-ant-fixture".into()),
+        max_completion_tokens: Some(128_000),
+        anthropic: Some(AnthropicOptions::default()),
+        ..Default::default()
+    }
+}
+
+/// The Claude API with an API key: what the endpoint requires, what it refuses, and every cache
+/// breakpoint the harness is allowed, through a tool loop.
+#[tokio::test]
+async fn anthropic_api_key_requests_are_shaped_for_the_endpoint_and_its_cache() {
+    let (base, captured, task) = server("/v1/messages", anthropic_tool_turn()).await;
+    let client = SamplingClient::new(SamplerConfig {
+        // Other hosts need these for thinking; this one refuses them.
+        temperature: Some(1.0),
+        top_p: Some(0.9),
+        ..anthropic_config(&base)
+    })
+    .unwrap();
+
+    let first = client
+        .conversation_collect_with_idle_timeout(request(), Duration::from_secs(2))
+        .await
+        .unwrap();
+    let usage = first.usage.clone().unwrap();
+    assert_eq!(
+        (usage.prompt_tokens, usage.cache_creation_prompt_tokens),
+        (2012, 2000),
+        "the prompt is the uncached remainder plus both cache buckets"
+    );
+    let mut items = request().items;
+    items.extend(first.items.iter().cloned());
+    items.push(ConversationItem::tool_result("toolu_fixture", "hello"));
+    client
+        .conversation_collect_with_idle_timeout(
+            ConversationRequest { items, ..request() },
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+
+    let requests = captured.lock().unwrap();
+    let (headers, first_body) = requests.first().unwrap();
+    assert_eq!(headers.get("x-api-key").unwrap(), "sk-ant-fixture");
+    assert!(headers.get("authorization").is_none());
+    assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
+    assert_eq!(
+        headers.get("anthropic-beta").unwrap(),
+        "thinking-binding-controls-2026-08-01"
+    );
+    for (_, body) in requests.iter() {
+        for refused in ["temperature", "top_p", "top_k"] {
+            assert!(body.get(refused).is_none(), "{refused} must not be sent");
+        }
+        assert_eq!(body["max_tokens"], 128_000);
+        assert_eq!(body["output_config"]["effort"], "high");
+        assert_eq!(
+            body["thinking"],
+            json!({"type": "adaptive", "display": "summarized",
+                   "block_binding": {"prefix_mismatch_behavior": "drop_block"}})
+        );
+        assert!(body.get("tool_choice").is_none());
+    }
+    // Tools, the system prompt and the newest message: each its own entry, each kept an hour.
+    assert_eq!(
+        messages_cache_breakpoints(first_body),
+        ["tools.0:1h", "system.0:1h", "messages.0:1h"]
+    );
+    // The next step adds where the previous request ended, so it reads that entry whatever the
+    // step appended. Four is the most a request may carry.
+    let (_, second_body) = requests.get(1).unwrap();
+    assert_eq!(
+        messages_cache_breakpoints(second_body),
+        [
+            "tools.0:1h",
+            "system.0:1h",
+            "messages.0:1h",
+            "messages.2:1h"
+        ]
+    );
+    // Everything up to the previous request's end is byte for byte what that request sent.
+    assert_eq!(first_body["tools"], second_body["tools"]);
+    assert_eq!(first_body["system"], second_body["system"]);
+    assert_eq!(first_body["messages"][0], second_body["messages"][0]);
+    assert_eq!(
+        second_body["messages"][1]["content"],
+        json!([
+            {"type": "thinking", "thinking": "Need the file.", "signature": "sig-fixture"},
+            {"type": "tool_use", "id": "toolu_fixture", "name": "read", "input": {"path": "hello.txt"}}
+        ])
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn anthropic_forced_tool_call_is_asked_for_in_words() {
+    let (base, captured, task) = server("/v1/messages", anthropic_tool_turn()).await;
+    let client = SamplingClient::new(SamplerConfig {
+        anthropic: Some(AnthropicOptions {
+            cache_ttl: PromptCacheTtl::FiveMinutes,
+        }),
+        ..anthropic_config(&base)
+    })
+    .unwrap();
+    client
+        .conversation_collect_with_idle_timeout(
+            ConversationRequest {
+                tool_choice: Some(ConversationToolChoice::Function("read".into())),
+                max_output_tokens: Some(100),
+                temperature: Some(1.0),
+                reasoning_effort: None,
+                ..request()
+            },
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+
+    let requests = captured.lock().unwrap();
+    let (_, body) = requests.first().unwrap();
+    assert_eq!(body["tool_choice"], json!({"type": "auto"}));
+    assert!(body.get("temperature").is_none());
+    // Room to think before the call: thinking cannot be turned off and is spent from the same budget.
+    assert_eq!(body["max_tokens"], 4096);
+    let last = body["messages"].as_array().unwrap().last().unwrap();
+    assert_eq!(
+        last["content"].as_array().unwrap().last().unwrap()["text"],
+        "Answer by calling the `read` tool."
+    );
+    // With no effort set the request names no thinking configuration, so there is nothing to attach the binding to.
+    assert!(body.get("thinking").is_none());
+    // The five-minute lifetime is the API's default and is not spelled out.
+    assert_eq!(
+        messages_cache_breakpoints(body),
+        ["tools.0:5m", "system.0:5m", "messages.0:5m"]
+    );
+    task.abort();
+}
+
+/// A Messages host that is not Anthropic's gets none of it: the request is what it always was.
+#[tokio::test]
+async fn other_messages_hosts_get_the_plain_request() {
+    let (base, captured, task) = server("/v1/messages", anthropic_tool_turn()).await;
+    let client = SamplingClient::new(SamplerConfig {
+        anthropic: None,
+        temperature: Some(1.0),
+        ..anthropic_config(&base)
+    })
+    .unwrap();
+    client
+        .conversation_collect_with_idle_timeout(
+            ConversationRequest {
+                tool_choice: Some(ConversationToolChoice::Function("read".into())),
+                ..request()
+            },
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+
+    let requests = captured.lock().unwrap();
+    let (headers, body) = requests.first().unwrap();
+    assert!(headers.get("anthropic-version").is_none());
+    assert!(headers.get("anthropic-beta").is_none());
+    assert_eq!(body["temperature"], 1.0);
+    assert_eq!(body["tool_choice"], json!({"type": "tool", "name": "read"}));
+    assert_eq!(
+        body["thinking"],
+        json!({"type": "adaptive", "display": "summarized"})
+    );
+    assert!(body["tools"][0].get("cache_control").is_none());
+    assert_eq!(
+        messages_cache_breakpoints(body),
+        ["system.0:5m", "messages.0:5m"]
+    );
     task.abort();
 }

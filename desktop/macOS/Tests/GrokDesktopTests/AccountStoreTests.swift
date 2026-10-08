@@ -20,7 +20,7 @@ final class AccountStoreTests: XCTestCase {
     private var reader: AccountStatusReader { AccountStatusReader(home: directory, environment: [:], now: { self.now }) }
 
     func testOnlyProviderAccountsAreOffered() throws {
-        XCTAssertEqual(AccountProvider.allCases, [.openrouter, .codex, .deepseek, .glm])
+        XCTAssertEqual(AccountProvider.allCases, [.openrouter, .codex, .deepseek, .glm, .anthropic])
         // xAI sign-ins and keys are not supported, so a saved xAI session or XAI_API_KEY is ignored.
         try write(["https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": ["key": "secret-xai-token", "email": "alice@example.invalid",
                    "user_id": "user-1", "auth_mode": "oidc", "create_time": "2026-01-01T00:00:00Z"]], to: "auth.json")
@@ -58,6 +58,7 @@ final class AccountStoreTests: XCTestCase {
         // A key saved for one GLM site under the other's name, and a DeepSeek file with no key in it.
         try write(["provider": "glm", "access_token": "secret-wrong-site"], to: "provider-auth/glm-cn.json")
         try write(["provider": "deepseek", "access_token": "  "], to: "provider-auth/deepseek.json")
+        try write(["access_token": "secret-names-no-provider"], to: "provider-auth/anthropic.json")
         let statuses = reader.read()
         XCTAssertTrue(statuses.values.allSatisfy { $0.state == .unreadable && !$0.isConnected })
         XCTAssertFalse(String(describing: statuses).contains("secret"))
@@ -70,6 +71,13 @@ final class AccountStoreTests: XCTestCase {
         XCTAssertTrue(AccountProvider.openrouter.keySources.isEmpty && AccountProvider.codex.keySources.isEmpty)
         XCTAssertFalse(reader.read()[.deepseek]!.isConnected)
         XCTAssertEqual(reader.read()[.glm]?.detail, "Add the API key from your z.ai or bigmodel.cn subscription")
+        // The Claude API is one site with one key, saved under the name `crok login anthropic` uses.
+        XCTAssertEqual(AccountProvider.anthropic.keySources.map(\.id), ["anthropic"])
+        XCTAssertEqual(reader.read()[.anthropic]?.detail, "Add a Claude API key from platform.claude.com")
+        try write(["provider": "anthropic", "access_token": "sk-ant-secret"], to: "provider-auth/anthropic.json")
+        XCTAssertEqual(reader.read()[.anthropic], AccountStatus(state: .connected, detail: "API key connected", savedAs: "anthropic"))
+        XCTAssertEqual(AccountStatusReader(home: directory, environment: ["ANTHROPIC_API_KEY": "sk-ant-secret-env"]).read()[.anthropic],
+                       AccountStatus(state: .connected, detail: "API key from ANTHROPIC_API_KEY"))
 
         try write(["provider": "deepseek", "access_token": "sk-secret-deepseek", "issued_at": 1], to: "provider-auth/deepseek.json")
         try write(["provider": "glm-cn", "access_token": "secret.bigmodel"], to: "provider-auth/glm-cn.json")

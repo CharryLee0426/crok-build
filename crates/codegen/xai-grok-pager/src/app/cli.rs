@@ -17,6 +17,9 @@ pub enum LoginProvider {
     /// GLM Coding Plan subscription from bigmodel.cn (China mainland)
     #[value(name = "glm-cn", alias = "zhipu", alias = "bigmodel")]
     GlmCn,
+    /// The Claude API, with an API key from the Claude Console
+    #[value(name = "anthropic", alias = "claude", alias = "claude-api")]
+    Anthropic,
 }
 
 impl LoginProvider {
@@ -27,6 +30,7 @@ impl LoginProvider {
             Self::Deepseek => xai_grok_login::provider_auth::ModelProvider::DeepSeek,
             Self::Glm => xai_grok_login::provider_auth::ModelProvider::Glm,
             Self::GlmCn => xai_grok_login::provider_auth::ModelProvider::GlmCn,
+            Self::Anthropic => xai_grok_login::provider_auth::ModelProvider::Anthropic,
         }
     }
 }
@@ -51,7 +55,7 @@ pub enum Command {
         #[arg(value_enum)]
         provider: Option<LoginProvider>,
     },
-    /// Sign in to a model provider: a ChatGPT Codex subscription, OpenRouter, DeepSeek, or a GLM Coding Plan
+    /// Sign in to a model provider: a ChatGPT Codex subscription, OpenRouter, DeepSeek, a GLM Coding Plan, or the Claude API
     Login {
         /// Provider to sign in to.
         #[arg(value_enum)]
@@ -1428,6 +1432,9 @@ mod tests {
             ("glm-cn", LoginProvider::GlmCn),
             ("zhipu", LoginProvider::GlmCn),
             ("bigmodel", LoginProvider::GlmCn),
+            ("anthropic", LoginProvider::Anthropic),
+            ("claude", LoginProvider::Anthropic),
+            ("claude-api", LoginProvider::Anthropic),
         ] {
             let args = PagerArgs::try_parse_from(["grok", "login", name]).unwrap();
             assert!(

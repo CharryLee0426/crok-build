@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use xai_grok_sampling_types::{
-    ApiBackend, CompactionAtTokens, CompactionsRemaining, ConversationGroupId,
+    AnthropicOptions, ApiBackend, CompactionAtTokens, CompactionsRemaining, ConversationGroupId,
     DoomLoopRecoveryPolicy, ReasoningEffort, ReasoningSummary,
 };
 
@@ -115,6 +115,11 @@ pub struct SamplerConfig {
     #[serde(default)]
     pub supports_images: Option<bool>,
 
+    /// Set when `base_url` is Anthropic's own endpoint: requests are shaped for it and carry its version header.
+    /// `None` sends the plain Messages request any compatible host takes.
+    #[serde(default)]
+    pub anthropic: Option<AnthropicOptions>,
+
     /// Per-model config for the `x-compactions-remaining` header; `None` disables it.
     #[serde(default)]
     pub compactions_remaining: Option<CompactionsRemaining>,
@@ -171,6 +176,7 @@ impl Default for SamplerConfig {
             supports_backend_search: false,
             supports_tools: None,
             supports_images: None,
+            anthropic: None,
             compactions_remaining: None,
             compaction_at_tokens: None,
             doom_loop_recovery: None,

@@ -374,21 +374,45 @@ enum PromptBlocks {
 // MARK: - Composer views
 
 /// The attachments above the prompt: image thumbnails and file chips, each removable.
+/// More than fit scroll sideways, and never show outside the card they are in.
 struct ComposerAttachmentStrip: View {
     let attachments: [PromptAttachment]
+    /// The card's padding. The strip runs through it to the card's edges, fading out on the way.
+    var bleed: CGFloat = 0
     var onRemove: (UUID) -> Void
     var onPreview: (PromptAttachment) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let row = "attachments"
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(attachments) { attachment in
-                    ComposerAttachmentTile(attachment: attachment, onRemove: { onRemove(attachment.id) }, onPreview: { onPreview(attachment) })
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(attachments) { attachment in
+                        ComposerAttachmentTile(attachment: attachment, onRemove: { onRemove(attachment.id) }, onPreview: { onPreview(attachment) })
+                    }
                 }
+                .padding(.top, 7).padding(.trailing, 7 + bleed).padding(.leading, 1 + bleed)
+                .id(Self.row)
             }
-            .padding(.top, 7).padding(.trailing, 7).padding(.leading, 1)
+            .mask { fade }
+            .padding(.horizontal, -bleed)
+            .onChange(of: attachments.map(\.id)) { previous, ids in
+                // An attachment is added at the end, which may be out of sight.
+                guard ids.count > previous.count, ids.last != previous.last else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo(Self.row, anchor: .trailing) }
+            }
         }
-        .scrollClipDisabled()
+    }
+
+    /// Opaque over the strip, clear at the card's edges.
+    private var fade: some View {
+        HStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: bleed)
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: bleed)
+        }
     }
 }
 

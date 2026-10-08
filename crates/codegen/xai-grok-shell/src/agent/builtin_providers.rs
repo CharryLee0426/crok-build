@@ -6,14 +6,18 @@ use std::path::PathBuf;
 use indexmap::IndexMap;
 use xai_grok_login::AuthProviderRef;
 use xai_grok_login::provider_auth::{ModelProvider, has_provider_credential};
+use xai_grok_models::anthropic::{self, AnthropicModel};
 use xai_grok_models::deepseek::{self, DeepSeekModel};
 use xai_grok_models::glm;
 use xai_grok_models::openrouter::{self, OpenRouterModel};
-use xai_grok_sampling_types::{ApiBackend, ReasoningEffort, ReasoningEffortOption};
+use xai_grok_sampling_types::{
+    AnthropicOptions, ApiBackend, PromptCacheTtl, ReasoningEffort, ReasoningEffortOption,
+};
 
 use super::config::{Config, ModelEntry, ModelInfo};
 use super::model_providers::ModelProviderConfig;
 
+pub use xai_grok_models::anthropic::ANTHROPIC_BASE_URL;
 pub use xai_grok_models::deepseek::DEEPSEEK_BASE_URL;
 pub use xai_grok_models::glm::{GLM_BASE_URL, GLM_CN_BASE_URL};
 pub use xai_grok_models::openrouter::OPENROUTER_BASE_URL;
@@ -22,8 +26,13 @@ pub const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 /// Shown wherever a sign-in is needed. xAI account sign-in is not supported, so a provider
 /// sign-in (or a `[model.*]` entry with its own key, or `XAI_API_KEY`) is the only route.
 pub const PROVIDER_SIGN_IN_REQUIRED: &str = "No model provider is signed in. Quit and run \
-`crok login openai-codex`, `crok login openrouter`, `crok login deepseek` or `crok login glm` \
-(or set OPENROUTER_API_KEY, DEEPSEEK_API_KEY or ZAI_API_KEY), then start Crok again.";
+`crok login openai-codex`, `crok login openrouter`, `crok login anthropic`, `crok login deepseek` \
+or `crok login glm` (or set OPENROUTER_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY or \
+ZAI_API_KEY), then start Crok again.";
+
+/// `5m` or `1h`: how long Anthropic keeps this session's prompt cache between requests.
+/// Set as `CROK_ANTHROPIC_CACHE_TTL`; the binary copies every `CROK_*` variable onto its `GROK_*` name.
+const ANTHROPIC_CACHE_TTL_ENV: &str = "GROK_ANTHROPIC_CACHE_TTL";
 
 /// Offer provider setup only when no explicit model choice or usable credential applies.
 pub fn needs_provider_setup(cfg: &Config) -> bool {
@@ -66,6 +75,10 @@ pub fn deepseek_cache_path() -> PathBuf {
     xai_grok_config::grok_home().join("deepseek-models.json")
 }
 
+pub fn anthropic_cache_path() -> PathBuf {
+    xai_grok_config::grok_home().join("anthropic-models.json")
+}
+
 pub(crate) fn provider_from_id(id: &str) -> Option<ModelProvider> {
     ModelProvider::from_id(id)
 }
@@ -78,6 +91,30 @@ fn route(provider: ModelProvider) -> (&'static str, ApiBackend) {
         ModelProvider::DeepSeek => (DEEPSEEK_BASE_URL, ApiBackend::DeepSeek),
         ModelProvider::Glm => (GLM_BASE_URL, ApiBackend::Glm),
         ModelProvider::GlmCn => (GLM_CN_BASE_URL, ApiBackend::Glm),
+        ModelProvider::Anthropic => (ANTHROPIC_BASE_URL, ApiBackend::Messages),
+    }
+}
+
+/// Request shaping for Anthropic's own endpoint, and `None` for any other host that speaks the
+/// Messages protocol: a gateway or another vendor's compatible API may refuse what this one needs.
+pub(crate) fn anthropic_options(backend: &ApiBackend, base_url: &str) -> Option<AnthropicOptions> {
+    matches_auth_route(ModelProvider::Anthropic, base_url, backend.clone()).then(|| {
+        AnthropicOptions {
+            cache_ttl: anthropic_cache_ttl(std::env::var(ANTHROPIC_CACHE_TTL_ENV).ok().as_deref()),
+        }
+    })
+}
+
+/// An hour unless told otherwise. A session is worked on in bursts: between two prompts, during a
+/// long build or while a permission prompt waits, more than five minutes pass, and a five-minute
+/// entry is then gone and the whole conversation is written again at more than the input price.
+fn anthropic_cache_ttl(configured: Option<&str>) -> PromptCacheTtl {
+    match configured.map(str::trim).filter(|value| !value.is_empty()) {
+        None => PromptCacheTtl::default(),
+        Some(value) => value.parse().unwrap_or_else(|error: String| {
+            tracing::warn!(%error, "ignoring CROK_ANTHROPIC_CACHE_TTL");
+            PromptCacheTtl::default()
+        }),
     }
 }
 
@@ -156,13 +193,36 @@ pub async fn refresh_deepseek_models(cfg: &Config, force: bool) -> anyhow::Resul
     Ok(models.len())
 }
 
+/// Fetch Anthropic's model list with the signed-in key. Public for `crok login anthropic` and
+/// `crok models --refresh`; routine starts honor the TTL. Without a key there is nothing to ask with.
+pub async fn refresh_anthropic_models(cfg: &Config, force: bool) -> anyhow::Result<usize> {
+    if !enabled(cfg, ModelProvider::Anthropic) && !force {
+        return Ok(0);
+    }
+    let home = xai_grok_config::grok_home();
+    let Some(credential) =
+        xai_grok_login::provider_auth::read_provider_credential(&home, ModelProvider::Anthropic)?
+    else {
+        return Ok(0);
+    };
+    let models = anthropic::refresh_models(
+        &xai_grok_http::shared_client(),
+        &anthropic_cache_path(),
+        credential.access_token(),
+        force,
+    )
+    .await?;
+    Ok(models.len())
+}
+
 pub(crate) async fn warm_catalog(cfg: &Config) {
     if !crate::util::config::resolve_remote_fetch_enabled() {
         return;
     }
-    let (openrouter, deepseek) = tokio::join!(
+    let (openrouter, deepseek, anthropic) = tokio::join!(
         refresh_openrouter_models(cfg, false),
-        refresh_deepseek_models(cfg, false)
+        refresh_deepseek_models(cfg, false),
+        refresh_anthropic_models(cfg, false)
     );
     if let Err(error) = openrouter {
         tracing::warn!(%error, "OpenRouter model discovery failed; using cached models");
@@ -170,10 +230,15 @@ pub(crate) async fn warm_catalog(cfg: &Config) {
     if let Err(error) = deepseek {
         tracing::warn!(%error, "DeepSeek model discovery failed; using cached models");
     }
+    if let Err(error) = anthropic {
+        tracing::warn!(%error, "Anthropic model discovery failed; using cached models");
+    }
 }
 
 pub(crate) fn warm_catalog_blocking(cfg: &Config) {
-    if !(enabled(cfg, ModelProvider::OpenRouter) || enabled(cfg, ModelProvider::DeepSeek))
+    if !(enabled(cfg, ModelProvider::OpenRouter)
+        || enabled(cfg, ModelProvider::DeepSeek)
+        || enabled(cfg, ModelProvider::Anthropic))
         || !crate::util::config::resolve_remote_fetch_enabled()
     {
         return;
@@ -202,6 +267,12 @@ pub(crate) fn cached_models() -> Vec<OpenRouterModel> {
 pub(crate) fn deepseek_models() -> Vec<DeepSeekModel> {
     deepseek::read_cached_models(&deepseek_cache_path())
         .unwrap_or_else(|_| deepseek::builtin_models())
+}
+
+/// The account's own model list once fetched, and the built-in one until then.
+pub(crate) fn anthropic_models() -> Vec<AnthropicModel> {
+    anthropic::read_cached_models(&anthropic_cache_path())
+        .unwrap_or_else(|_| anthropic::builtin_models())
 }
 
 /// Whether tools apply to `model` on `backend`, where the provider's catalog says.
@@ -363,6 +434,50 @@ pub(crate) fn deepseek_entry(model: &DeepSeekModel) -> ModelEntry {
     entry
 }
 
+/// The effort a model runs at when a request names none, which is what the picker preselects:
+/// naming the default changes nothing about the request the model sees, so it costs no cache.
+/// Opus 5.5 and Haiku 5.5 default to `medium`; every other model to `high`.
+fn anthropic_default_effort(model: &str) -> ReasoningEffort {
+    if model.starts_with("claude-opus-5-5") || model.starts_with("claude-haiku-5-5") {
+        ReasoningEffort::Medium
+    } else {
+        ReasoningEffort::High
+    }
+}
+
+pub(crate) fn anthropic_entry(model: &AnthropicModel) -> ModelEntry {
+    let mut entry = entry(
+        ModelProvider::Anthropic,
+        &model.catalog_id(),
+        &model.id,
+        &model.name,
+        model.context_window(),
+    );
+    // An API key goes in `x-api-key`; `Authorization: Bearer` is for OAuth tokens.
+    entry.info.auth_scheme = xai_grok_sampler::AuthScheme::XApiKey;
+    // Reasoning from another family cannot be sent here, nor this one's there: a switch between families compacts first.
+    entry.info.model_family = Some("anthropic".into());
+    entry.info.max_completion_tokens = model
+        .max_output_tokens
+        .filter(|n| *n > 0)
+        .and_then(|n| u32::try_from(n).ok());
+    // A request with an effort also asks for adaptive thinking, which earlier models refuse:
+    // they think only with a token budget, and run here without thinking.
+    if model.adaptive_thinking {
+        let levels: Vec<ReasoningEffort> = model
+            .efforts
+            .iter()
+            .filter_map(|level| level.parse().ok())
+            .collect();
+        set_efforts(
+            &mut entry,
+            &levels,
+            Some(anthropic_default_effort(&model.id)),
+        );
+    }
+    entry
+}
+
 /// The plan's models reason at `low`, `high` or `max` and cannot be told not to.
 fn glm_entry(provider: ModelProvider, model: &glm::GlmModel) -> ModelEntry {
     let id = format!("{provider}/{}", model.id);
@@ -461,6 +576,11 @@ fn extend_catalog_with_models(
             }
         }
     }
+    if enabled(cfg, ModelProvider::Anthropic) {
+        for model in anthropic_models() {
+            catalog.insert(model.catalog_id(), anthropic_entry(&model));
+        }
+    }
     // Allow explicit provider-prefixed slugs even before discovery catches up.
     for id in cfg
         .default_model_override
@@ -474,9 +594,14 @@ fn extend_catalog_with_models(
             && let Some(provider) = provider_from_id(provider_id)
             && !slug.is_empty()
         {
-            catalog
-                .entry(id.clone())
-                .or_insert_with(|| entry(provider, &id, slug, slug, 200_000));
+            catalog.entry(id.clone()).or_insert_with(|| {
+                let mut entry = entry(provider, &id, slug, slug, 200_000);
+                if provider == ModelProvider::Anthropic {
+                    entry.info.auth_scheme = xai_grok_sampler::AuthScheme::XApiKey;
+                    entry.info.model_family = Some("anthropic".into());
+                }
+                entry
+            });
         }
     }
     // Provider-level credentials and connection settings apply to discovered models too.
@@ -1337,5 +1462,182 @@ mod tests {
         // Tools are never withheld from DeepSeek or GLM models: all of theirs take them.
         assert_eq!(tool_support(&ApiBackend::DeepSeek, "deepseek-v4-pro"), None);
         assert_eq!(tool_support(&ApiBackend::Glm, "glm-5.3"), None);
+    }
+
+    #[test]
+    fn anthropic_models_take_an_api_key_on_the_messages_route() {
+        let mut cfg = config("[model_providers.anthropic]");
+        // A slug the list has not caught up with still gets the key in the right header.
+        cfg.models.default = Some("anthropic/claude-not-listed-yet".into());
+        let mut catalog = IndexMap::new();
+        extend_catalog_with_models(&cfg, &mut catalog, Vec::new);
+        let models: Vec<_> = catalog
+            .iter()
+            .filter(|(id, _)| id.starts_with("anthropic/"))
+            .collect();
+        assert!(catalog.contains_key("anthropic/claude-not-listed-yet"));
+        assert!(
+            models.len() > 1,
+            "the list's models and the configured slug"
+        );
+        for (id, model) in models {
+            assert_eq!(
+                Some(model.info.model.as_str()),
+                id.strip_prefix("anthropic/")
+            );
+            assert_eq!(model.info.base_url, ANTHROPIC_BASE_URL, "{id}");
+            assert_eq!(model.info.api_backend, ApiBackend::Messages, "{id}");
+            assert_eq!(
+                model.info.auth_scheme,
+                xai_grok_sampler::AuthScheme::XApiKey,
+                "{id}: an API key is not a bearer token"
+            );
+            assert_eq!(
+                model.info.model_family.as_deref(),
+                Some("anthropic"),
+                "{id}"
+            );
+            assert_eq!(
+                model.auth_provider.as_ref().unwrap().builtin_provider(),
+                Some(ModelProvider::Anthropic),
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn anthropic_models_offer_effort_only_with_adaptive_thinking() {
+        let levels = |entry: &ModelEntry| -> Vec<ReasoningEffort> {
+            entry
+                .info
+                .reasoning_efforts
+                .iter()
+                .map(|e| e.value)
+                .collect()
+        };
+        let models = anthropic::builtin_models();
+        let model = |id: &str| models.iter().find(|m| m.id == id).unwrap();
+        let opus = anthropic_entry(model("claude-opus-5-5"));
+        assert_eq!(opus.info.id.as_deref(), Some("anthropic/claude-opus-5-5"));
+        assert_eq!(opus.info.context_window.get(), 1_000_000);
+        assert_eq!(opus.info.max_completion_tokens, Some(128_000));
+        assert_eq!(
+            levels(&opus),
+            [
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High,
+                ReasoningEffort::Xhigh,
+                ReasoningEffort::Max
+            ]
+        );
+        // The preselected level is the one the model runs at when a request names none.
+        assert_eq!(opus.info.reasoning_effort, Some(ReasoningEffort::Medium));
+        assert_eq!(
+            anthropic_entry(model("claude-haiku-5-5"))
+                .info
+                .reasoning_effort,
+            Some(ReasoningEffort::Medium)
+        );
+        for id in ["claude-sonnet-5-5", "claude-fable-5-1"] {
+            assert_eq!(
+                anthropic_entry(model(id)).info.reasoning_effort,
+                Some(ReasoningEffort::High),
+                "{id}"
+            );
+        }
+
+        // An effort is sent together with adaptive thinking, which an earlier model refuses:
+        // it is offered none, whatever levels it lists, and runs without thinking.
+        let budget_only = AnthropicModel {
+            id: "claude-opus-4-5-20251101".into(),
+            name: "Claude Opus 4.5".into(),
+            context_window: Some(200_000),
+            max_output_tokens: Some(64_000),
+            supports_images: Some(true),
+            adaptive_thinking: false,
+            efforts: vec!["low".into(), "medium".into(), "high".into()],
+        };
+        let entry = anthropic_entry(&budget_only);
+        assert!(!entry.info.supports_reasoning_effort);
+        assert_eq!(entry.info.reasoning_effort, None);
+        assert_eq!(entry.info.max_completion_tokens, Some(64_000));
+        // A level this build cannot name is left out rather than failing the model.
+        let later = AnthropicModel {
+            adaptive_thinking: true,
+            efforts: vec!["low".into(), "future-level".into(), "max".into()],
+            ..budget_only
+        };
+        assert_eq!(
+            levels(&anthropic_entry(&later)),
+            [ReasoningEffort::Low, ReasoningEffort::Max]
+        );
+    }
+
+    #[test]
+    fn requests_are_shaped_for_anthropic_only_at_its_own_endpoint() {
+        assert!(anthropic_options(&ApiBackend::Messages, ANTHROPIC_BASE_URL).is_some());
+        assert!(
+            anthropic_options(&ApiBackend::Messages, "https://api.anthropic.com/v1/").is_some()
+        );
+        // A gateway or another vendor's Messages-compatible API gets the plain request.
+        for base_url in [
+            "https://gateway.example/v1",
+            "https://api.anthropic.com.example/v1",
+            "https://api.anthropic.com/v2",
+        ] {
+            assert!(
+                anthropic_options(&ApiBackend::Messages, base_url).is_none(),
+                "{base_url}"
+            );
+        }
+        assert!(anthropic_options(&ApiBackend::ChatCompletions, ANTHROPIC_BASE_URL).is_none());
+
+        // An hour unless told otherwise; a value that is neither lifetime changes nothing.
+        assert_eq!(anthropic_cache_ttl(None), PromptCacheTtl::OneHour);
+        assert_eq!(anthropic_cache_ttl(Some("")), PromptCacheTtl::OneHour);
+        assert_eq!(
+            anthropic_cache_ttl(Some(" 5M ")),
+            PromptCacheTtl::FiveMinutes
+        );
+        assert_eq!(anthropic_cache_ttl(Some("1h")), PromptCacheTtl::OneHour);
+        assert_eq!(anthropic_cache_ttl(Some("30m")), PromptCacheTtl::OneHour);
+    }
+
+    #[test]
+    #[serial]
+    fn anthropic_api_key_in_the_environment_signs_in_without_changing_an_older_default() {
+        let _env = isolate_default_env();
+        let _key = EnvGuard::set("ANTHROPIC_API_KEY", "sk-ant-api03-fixture");
+        assert!(!needs_provider_setup(&config("")));
+        let catalog = resolve_model_list(&config(""), None);
+        let opus = catalog.get("anthropic/claude-opus-5-5").unwrap();
+        let credentials = resolve_credentials(opus, Some("xai-session-fixture"));
+        assert_eq!(credentials.api_key.as_deref(), Some("sk-ant-api03-fixture"));
+        assert_eq!(
+            credentials.auth_scheme,
+            xai_grok_sampler::AuthScheme::XApiKey
+        );
+
+        // On its own it starts on the main model, wherever a fetched list puts it.
+        let cfg = config("");
+        let signed_in = |mut entry: ModelEntry| {
+            entry.api_key = Some("fixture".into());
+            entry
+        };
+        let native = xai_grok_models::default_model();
+        let mut catalog = IndexMap::new();
+        catalog.insert(native.into(), ModelEntry::fallback(native, &cfg.endpoints));
+        for model in anthropic::builtin_models().iter().rev() {
+            catalog.insert(model.catalog_id(), signed_in(anthropic_entry(model)));
+        }
+        let default =
+            |catalog: &IndexMap<String, ModelEntry>| resolve_default_model(&cfg, catalog, false).0;
+        assert_eq!(default(&catalog), "anthropic/claude-opus-5-5");
+        // Someone already signed in elsewhere keeps the default they had.
+        for model in &deepseek::builtin_models() {
+            catalog.insert(model.catalog_id(), signed_in(deepseek_entry(model)));
+        }
+        assert_eq!(default(&catalog), "deepseek/deepseek-v4-pro");
     }
 }

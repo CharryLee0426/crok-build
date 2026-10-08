@@ -49,12 +49,13 @@ Start Crok by running:
 crok
 ```
 
-On first launch without a provider credential, Crok asks which provider to sign in to: OpenAI Codex (a ChatGPT subscription), OpenRouter, DeepSeek, or a GLM Coding Plan. You can also sign in ahead of time:
+On first launch without a provider credential, Crok asks which provider to sign in to: OpenAI Codex (a ChatGPT subscription), OpenRouter, DeepSeek, a GLM Coding Plan, or the Claude API. You can also sign in ahead of time:
 
 ```bash
 crok login openai-codex
 crok login openrouter
 crok login deepseek      # asks for an API key
+crok login anthropic     # Claude API; asks for an API key
 crok login glm           # GLM Coding Plan from z.ai; glm-cn for bigmodel.cn
 ```
 
@@ -249,7 +250,7 @@ Deeper files take precedence. Crok also reads `CLAUDE.md` files for compatibilit
 
 | Document | What You Will Learn |
 |----------|-------------------|
-| [Authentication](02-authentication.md) | OpenRouter and OpenAI Codex sign-in, DeepSeek and GLM Coding Plan keys |
+| [Authentication](02-authentication.md) | OpenRouter and OpenAI Codex sign-in, Claude API, DeepSeek and GLM Coding Plan keys |
 | [Keyboard Shortcuts](03-keyboard-shortcuts.md) | Complete reference for all key bindings |
 | [Slash Commands](04-slash-commands.md) | All available `/` commands |
 | [Configuration](05-configuration.md) | config.toml, pager.toml, environment variables |
