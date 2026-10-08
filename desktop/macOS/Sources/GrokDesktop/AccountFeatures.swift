@@ -129,17 +129,18 @@ final class AccountFeatureModel: ObservableObject {
             usage.context = .failed(message); usage.sessionInfo = .failed(message); usage.sessionUsage = .failed(message)
             return
         }
-        guard usageRequestID == requestID, case let (client, _, sessionID)? = session else { return }
-        async let info: Void = loadSessionInfo(requestID: requestID, client: client, sessionID: sessionID, title: title)
+        guard usageRequestID == requestID, case let (client, conversationID, sessionID)? = session else { return }
+        async let info: Void = loadSessionInfo(requestID: requestID, client: client, conversationID: conversationID, sessionID: sessionID, title: title)
         async let totals: Void = loadSessionUsage(requestID: requestID, client: client, sessionID: sessionID)
         _ = await (info, totals)
     }
 
-    private func loadSessionInfo(requestID: UUID, client: ACPClient, sessionID: String, title: String?) async {
+    private func loadSessionInfo(requestID: UUID, client: ACPClient, conversationID: UUID, sessionID: String, title: String?) async {
         do {
             let result = try ExtensionResponse.unwrap(try await client.request("_x.ai/session/info", params: ["sessionId": sessionID]))
             guard usageRequestID == requestID, let store else { return }
             let info = UsageSessionInfo(result)
+            store.features.tokens.noteContext(info.context, conversationID: conversationID)
             usage.context = .loaded(info.context)
             usage.contextModel = info.model ?? "unknown"
             usage.sessionInfo = .loaded(UsageFormatting.sessionInfoRows(

@@ -919,9 +919,9 @@ struct VoiceMicButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: voice.isActive ? "mic.fill" : "mic")
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(voice.isActive ? ComposerPalette.recording : Theme.ink)
-                .frame(width: 36, height: 40).contentShape(Circle())
+                .frame(width: 28, height: 30).contentShape(Circle())
         }
         .buttonStyle(ComposerControlStyle())
         .help(voice.isActive ? "Stop dictation" : "Dictate" + (shortcut.map { " · \($0)" } ?? ""))

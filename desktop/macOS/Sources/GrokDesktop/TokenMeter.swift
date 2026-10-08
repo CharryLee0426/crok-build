@@ -53,6 +53,16 @@ struct TokenReadout: Equatable {
     var rate: TokenRate?
 }
 
+/// How full a task's context window is: the tokens its next request carries, and the window's size.
+struct ContextUsage: Equatable {
+    var used: Int
+    /// Nil while the window's size is unknown.
+    var window: Int?
+
+    /// The share of the window in use; past 1 when the context has outgrown it.
+    var fraction: Double? { window.map { Double(used) / Double(max(1, $0)) } }
+}
+
 /// A task's token counts: what the harness has counted, plus an estimate for the response still
 /// streaming. The harness reports exact figures once per model response; between those reports
 /// the meter estimates from the text that has arrived, and the next report replaces the estimate.
@@ -179,10 +189,29 @@ enum TokenFormat {
         if let rate = readout.rate { parts.append("\(Self.rate(rate.tokensPerSecond)) tokens per second") }
         return "Token usage: " + parts.joined(separator: ", ") + ". Show session usage"
     }
+
+    /// The context ring's hover text: how full the window is, and what a click does.
+    static func contextHelp(_ usage: ContextUsage?) -> String {
+        var lines = ["Context window: not measured yet"]
+        if let usage, let window = usage.window, let fraction = usage.fraction {
+            lines = ["Context window: \(percent(fraction)) full",
+                     "\(usage.used.formatted()) of \(window.formatted()) tokens used, \(max(0, window - usage.used).formatted()) free"]
+        } else if let usage {
+            lines = ["Context window: \(usage.used.formatted()) tokens used"]
+        }
+        lines.append("Click to see how it is allocated · /context")
+        return lines.joined(separator: "\n")
+    }
+
+    static func contextAccessibilityValue(_ usage: ContextUsage?) -> String {
+        guard let usage else { return "Not measured yet" }
+        guard let window = usage.window, let fraction = usage.fraction else { return "\(usage.used.formatted()) tokens used" }
+        return "\(percent(fraction)) full, \(usage.used.formatted()) of \(window.formatted()) tokens"
+    }
 }
 
-/// Each task's token meter, fed from the harness's notifications. Its own object, so a reply
-/// streaming redraws the footer's figures and nothing else.
+/// Each task's token meter and context window use, fed from the harness's notifications. Its own
+/// object, so a reply streaming redraws the composer's figures and nothing else.
 @MainActor
 final class TokenMeterModel: ObservableObject {
     weak var store: AppStore?
@@ -190,6 +219,10 @@ final class TokenMeterModel: ObservableObject {
     @Published private(set) var meters: [UUID: TokenMeter] = [:]
     /// Every chunk lands here; chunks can arrive hundreds of times a second.
     private var current: [UUID: TokenMeter] = [:]
+    /// What the context ring shows, published as `meters` is. It outlives a harness restart: the
+    /// next process loads the same conversation.
+    @Published private(set) var contexts: [UUID: ContextUsage] = [:]
+    private var currentContexts: [UUID: ContextUsage] = [:]
     private var publish: Task<Void, Never>?
     var clock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
 
@@ -202,6 +235,8 @@ final class TokenMeterModel: ObservableObject {
     func observe(params: [String: Any], update: [String: Any]?, conversationID id: UUID) {
         guard let update, let kind = update["sessionUpdate"] as? String else { return }
         let meta = params["_meta"] as? [String: Any]
+        // Every `session/update` carries what the context holds. Replayed ones too: they arrive in order and end at the latest.
+        if let used = meta?["totalTokens"] as? Int { noteContextUsed(used, id: id) }
         // A replayed history is not a stream, and its responses were counted by an earlier harness.
         let replayed = meta?["isReplay"] as? Bool == true || store?.replaying.contains(id) == true || store?.importing.contains(id) == true
         switch kind {
@@ -222,6 +257,11 @@ final class TokenMeterModel: ObservableObject {
             guard current[id] != nil else { return }
             current[id]?.endStream()
             publishNow()
+        case "auto_compact_completed":
+            // xAI notifications carry no `totalTokens`, and after `/compact` nothing else reports until the next prompt.
+            guard let used = update["tokens_after"] as? Int else { return }
+            noteContextUsed(used, id: id)
+            publishNow()
         default: break
         }
     }
@@ -232,8 +272,27 @@ final class TokenMeterModel: ObservableObject {
         publishNow()
     }
 
+    /// What Context (`_x.ai/session/info`) measured. It also sizes the window for a model the
+    /// catalog does not list.
+    func noteContext(_ context: UsageContextSnapshot, conversationID id: UUID) {
+        // A harness that sent no breakdown reports a zero window.
+        guard context.total > 0 else { return }
+        currentContexts[id] = ContextUsage(used: Int(clamping: context.used), window: Int(clamping: context.total))
+        publishNow()
+    }
+
+    private func noteContextUsed(_ used: Int, id: UUID) {
+        guard currentContexts[id]?.used != used else { return }
+        currentContexts[id] = ContextUsage(used: used, window: currentContexts[id]?.window)
+        schedulePublish()
+    }
+
     private func noteStream(bytes: Int, promptID: String?, id: UUID) {
         current[id, default: TokenMeter()].noteStream(bytes: bytes, promptID: promptID, at: clock())
+        schedulePublish()
+    }
+
+    private func schedulePublish() {
         guard publish == nil else { return }
         publish = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.publishInterval)
@@ -245,6 +304,7 @@ final class TokenMeterModel: ObservableObject {
     private func publishNow() {
         publish?.cancel(); publish = nil
         if meters != current { meters = current }
+        if contexts != currentContexts { contexts = currentContexts }
     }
 }
 
@@ -284,5 +344,55 @@ struct ComposerTokenStats: View {
             // Digits of one width, so a count ticking up does not shift its neighbours.
             Text(text).fontWeight(.medium).monospacedDigit()
         }
+    }
+}
+
+/// Left of the microphone: how full the task's context window is, as a ring that fills clockwise.
+/// Hover for the figures; a click opens Context (`/context`), which shows how the window is
+/// allocated and measures a task that has not reported since the app opened.
+struct ComposerContextRing: View {
+    @EnvironmentObject var tokens: TokenMeterModel
+    @EnvironmentObject var account: AccountFeatureModel
+    let conversationID: UUID
+    /// The selected model's window, which follows a model switch before the harness reports again.
+    let catalogWindow: Int?
+
+    private var usage: ContextUsage? {
+        guard var usage = tokens.contexts[conversationID] else { return nil }
+        if let catalogWindow { usage.window = catalogWindow }
+        return usage
+    }
+
+    var body: some View {
+        let usage = self.usage
+        Button { account.openContext() } label: {
+            ring(usage?.fraction)
+                .frame(width: 15, height: 15)
+                .frame(width: 26, height: 30).contentShape(Capsule())
+        }
+        .buttonStyle(ComposerControlStyle())
+        .help(TokenFormat.contextHelp(usage))
+        .accessibilityLabel("Context window")
+        .accessibilityValue(TokenFormat.contextAccessibilityValue(usage))
+        .accessibilityHint("Shows how the context window is allocated")
+    }
+
+    /// Dashed while the share is unknown.
+    @ViewBuilder private func ring(_ fraction: Double?) -> some View {
+        if let fraction {
+            ZStack {
+                Circle().inset(by: 1).stroke(Theme.muted.opacity(0.3), lineWidth: 2)
+                Circle().inset(by: 1).trim(from: 0, to: min(1, fraction))
+                    .stroke(Self.tint(fraction), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+        } else {
+            Circle().inset(by: 1).stroke(Theme.muted.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
+        }
+    }
+
+    /// As the terminal's context meter: the warning colour from 75%, the error colour from 95%.
+    private static func tint(_ fraction: Double) -> Color {
+        fraction >= 0.95 ? Theme.red : fraction >= 0.75 ? ComposerPalette.warning : Theme.ink.opacity(0.7)
     }
 }

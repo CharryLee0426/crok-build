@@ -79,6 +79,7 @@ struct ComposerView: View {
     private var selectedModelName: String {
         store.run.models.first { $0.id == store.run.modelID }?.name ?? (store.run.modelID.isEmpty ? "Choose model" : store.run.modelID)
     }
+    private var selectedModelWindow: Int? { store.run.models.first { $0.id == store.run.modelID }?.contextWindow }
     private var filteredModels: [ModelOption] {
         store.run.models.filter { modelSearch.isEmpty || $0.name.localizedCaseInsensitiveContains(modelSearch) || $0.id.localizedCaseInsensitiveContains(modelSearch) }
     }
@@ -129,8 +130,11 @@ struct ComposerView: View {
                     }
                     Spacer(minLength: 0)
                     if store.run.isConfiguring {
-                        ProgressView().controlSize(.small).frame(width: 20, height: 40)
+                        ProgressView().controlSize(.small).frame(width: 20, height: 30)
                             .help("Updating conversation settings…").accessibilityLabel("Updating conversation settings")
+                    }
+                    if store.project != nil, let id = store.state.selectedConversationID {
+                        ComposerContextRing(conversationID: id, catalogWindow: selectedModelWindow)
                     }
                     if voiceAvailable {
                         VoiceMicButton(voice: features.voice, shortcut: features.voiceShortcutEnabled ? ComposerFeatureModel.voiceShortcut : nil) {
@@ -139,7 +143,7 @@ struct ComposerView: View {
                     }
                     sendControls
                 }
-            }.frame(height: 40)
+            }.frame(height: 30)
         }.padding(padding).glassSurface(cornerRadius: 24)
             .overlay { if cardDropTargeted || editorDropTargeted { AttachmentDropOverlay(cornerRadius: 24) } }
             .onDrop(of: [.fileURL, .image], isTargeted: $cardDropTargeted) { providers in attachments.add(providers: providers) }
@@ -215,8 +219,8 @@ struct ComposerView: View {
     }
     private var toolsButton: some View {
         Button { showTools.toggle() } label: {
-            Image(systemName: "plus").font(.system(size: 22, weight: .medium))
-                .frame(width: 40, height: 40).contentShape(Circle())
+            Image(systemName: "plus").font(.system(size: 17, weight: .medium))
+                .frame(width: 30, height: 30).contentShape(Circle())
         }.buttonStyle(ComposerControlStyle()).help("Attach files, or use commands, skills, and tools")
             .accessibilityLabel("Add attachments, tools, and commands")
             .popover(isPresented: $showTools, arrowEdge: .top) {
@@ -276,8 +280,8 @@ struct ComposerView: View {
     private func compactOptionsButton(iconOnly: Bool) -> some View {
         Button { showCompactOptions.toggle() } label: {
             if iconOnly {
-                Image(systemName: "slider.horizontal.3").font(.system(size: 17))
-                    .frame(width: 40, height: 40).contentShape(Circle())
+                Image(systemName: "slider.horizontal.3").font(.system(size: 13))
+                    .frame(width: 30, height: 30).contentShape(Circle())
             } else {
                 ComposerControlLabel(title: selectedModelName, symbol: "slider.horizontal.3")
             }
@@ -390,15 +394,15 @@ struct ComposerView: View {
         let mode = features.permissionMode
         let tint = mode.isAlwaysApprove ? ComposerPalette.warning : Theme.muted
         return Button { showPermissions.toggle() } label: {
-            HStack(spacing: 7) {
-                Image(systemName: mode.symbol).font(.system(size: 14)).foregroundStyle(tint).frame(width: 18).accessibilityHidden(true)
+            HStack(spacing: 6) {
+                Image(systemName: mode.symbol).font(.system(size: 12)).foregroundStyle(tint).frame(width: 16).accessibilityHidden(true)
                 if !compact {
-                    Text(mode.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Text(mode.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
                         .foregroundStyle(mode.isAlwaysApprove ? ComposerPalette.warning : Theme.ink)
                 }
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.muted).accessibilityHidden(true)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.muted).accessibilityHidden(true)
             }
-            .padding(.horizontal, 11).frame(height: 40).contentShape(Capsule())
+            .padding(.horizontal, 10).frame(height: 30).contentShape(Capsule())
             .background(mode.isAlwaysApprove ? ComposerPalette.warning.opacity(0.12) : .clear, in: Capsule())
         }
         .buttonStyle(ComposerControlStyle()).fixedSize(horizontal: true, vertical: false)
@@ -466,8 +470,8 @@ struct ComposerView: View {
     private func circleButton(symbol: String, primary: Bool, enabled: Bool = true, help: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: primary ? 16 : 13, weight: .semibold)).foregroundStyle(primary ? Theme.canvas : Theme.ink)
-                .frame(width: primary ? 40 : 34, height: primary ? 40 : 34)
+                .font(.system(size: primary ? 12 : 10, weight: .semibold)).foregroundStyle(primary ? Theme.canvas : Theme.ink)
+                .frame(width: primary ? 30 : 26, height: primary ? 30 : 26)
                 .background(primary ? (enabled ? Theme.ink : Theme.muted.opacity(0.35)) : Theme.hover, in: Circle())
         }.buttonStyle(.plain).disabled(!enabled)
             .help(help)
