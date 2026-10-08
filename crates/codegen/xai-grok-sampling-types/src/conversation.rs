@@ -2301,6 +2301,8 @@ mod tests {
             crate::ApiBackend::Messages,
             crate::ApiBackend::OpenRouter,
             crate::ApiBackend::OpenAiCodex,
+            crate::ApiBackend::DeepSeek,
+            crate::ApiBackend::Glm,
         ] {
             let on_wire = match backend {
                 crate::ApiBackend::Responses | crate::ApiBackend::OpenAiCodex => {
@@ -2309,7 +2311,10 @@ mod tests {
                         .as_deref()
                         == Some("cache-key-1")
                 }
-                crate::ApiBackend::ChatCompletions | crate::ApiBackend::OpenRouter => {
+                crate::ApiBackend::ChatCompletions
+                | crate::ApiBackend::OpenRouter
+                | crate::ApiBackend::DeepSeek
+                | crate::ApiBackend::Glm => {
                     let mapped = ChatCompletionRequest::from(request());
                     serde_json::to_value(&mapped)
                         .expect("chat request serializes")

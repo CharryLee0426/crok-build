@@ -59,7 +59,7 @@ final class AccountFeatureTests: XCTestCase {
         let usage = DesktopCommands.catalog.first { $0.name == "usage" }
         XCTAssertNil(usage?.argumentHint, "no `show|manage`")
         XCTAssertTrue(store.availableCommands.contains { $0.name == "usage" }, "/usage is always offered")
-        XCTAssertEqual(DesktopCommands.catalog.first { $0.name == "login" }?.description, "Sign in to OpenRouter or OpenAI Codex")
+        XCTAssertEqual(DesktopCommands.catalog.first { $0.name == "login" }?.description, "Sign in to a model provider")
         XCTAssertTrue(store.handleDesktopCommand("login", arguments: ""))
         XCTAssertTrue(store.showSettings, "/login opens Settings › Accounts")
         XCTAssertEqual(AccountAuthDescription.providerCredentials.method, "Provider credentials")

@@ -23,7 +23,7 @@ crok agent stdio
 ## Contents
 
 - [Installation](#installation)
-- [Authentication](#authentication) — OpenRouter and OpenAI Codex sign-in, API keys
+- [Authentication](#authentication) — OpenRouter and OpenAI Codex sign-in, DeepSeek and GLM Coding Plan keys
 - **Using Crok**
   - [Interactive TUI](#interactive-tui) — shortcuts, slash commands, file references
   - [Headless Mode](#headless-mode) — scripting, CI/CD, output formats
@@ -77,7 +77,7 @@ Crok installs beside an official `grok` and keeps its state in `~/.crok`. To sta
 
 ## Authentication
 
-Crok signs in to model providers: OpenRouter and OpenAI Codex (ChatGPT subscription). xAI accounts are not supported.
+Crok signs in to model providers: OpenAI Codex (ChatGPT subscription), OpenRouter, DeepSeek, and the GLM Coding Plan. xAI accounts are not supported.
 
 ### Provider Sign-In
 
@@ -89,19 +89,30 @@ crok login openrouter
 
 # OpenAI Codex (opens your browser; uses your ChatGPT subscription)
 crok login openai-codex
+
+# DeepSeek (asks for an API key from platform.deepseek.com)
+crok login deepseek
+
+# GLM Coding Plan (asks for the API key of your subscription)
+crok login glm               # subscribed on z.ai
+crok login glm-cn            # subscribed on bigmodel.cn
 ```
+
+DeepSeek and the GLM Coding Plan have no browser sign-in: the key is typed into the terminal without being shown, checked with the provider, and saved only if it is accepted. The two GLM sites keep separate accounts, and a key from one is refused by the other. The GLM Coding Plan's terms limit it to the coding tools its provider lists, and Crok is not on that list; see the [authentication guide](../xai-grok-pager/docs/user-guide/02-authentication.md#glm-coding-plan).
 
 Credentials are stored in `~/.crok/provider-auth/` and persist across sessions; Codex tokens refresh automatically. To remove them:
 
 ```bash
 crok logout openrouter
 crok logout openai-codex
+crok logout deepseek
+crok logout glm              # or glm-cn
 crok logout                  # sign out of every provider
 ```
 
 ### API Key
 
-For CI/CD, automation, or environments without browser access, use an OpenRouter API key:
+For CI/CD, automation, or environments without browser access, set a provider's API key (`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY` for a z.ai GLM Coding Plan, or `ZHIPU_API_KEY` for a bigmodel.cn one):
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-..."
@@ -112,9 +123,10 @@ Or save the key once from stdin:
 
 ```bash
 printenv OPENROUTER_API_KEY | crok login openrouter --with-api-key
+printenv DEEPSEEK_API_KEY | crok login deepseek --with-api-key
 ```
 
-The environment key takes precedence over the saved OpenRouter credential. Codex sign-in needs a browser, so run `crok login openai-codex` on a machine with one.
+An environment key takes precedence over that provider's saved credential. Codex sign-in needs a browser, so run `crok login openai-codex` on a machine with one.
 
 ### xAI Models
 
@@ -2252,6 +2264,9 @@ Every `CROK_*` variable below can also be spelled with a `GROK_` prefix; when bo
 | Variable                         | Description                                                                                              |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `OPENROUTER_API_KEY`  | OpenRouter API key; takes precedence over the saved `crok login openrouter` credential                  |
+| `DEEPSEEK_API_KEY`    | DeepSeek API key; takes precedence over the saved `crok login deepseek` credential                      |
+| `ZAI_API_KEY`         | GLM Coding Plan key from z.ai; takes precedence over the saved `crok login glm` credential              |
+| `ZHIPU_API_KEY`       | GLM Coding Plan key from bigmodel.cn; takes precedence over the saved `crok login glm-cn` credential    |
 | `XAI_API_KEY`         | API key from [console.x.ai](https://console.x.ai). Exposes xAI-hosted models and authenticates custom endpoints |
 | `CROK_CLI_CHAT_PROXY_BASE_URL`  | Override the cli-chat-proxy URL (default: `https://cli-chat-proxy.grok.com/v1`)                          |
 | `CROK_MODELS_BASE_URL`          | Custom base URL for inference. Model list auto-fetched from `{base_url}/models` (see [Custom Models Endpoint](#custom-models-endpoint)) |

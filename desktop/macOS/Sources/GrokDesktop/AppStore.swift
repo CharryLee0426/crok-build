@@ -58,6 +58,16 @@ final class AppStore: ObservableObject {
     @Published var syncing = false
     @Published var loginLog = ""
     @Published var loginRunning = false
+    /// Whether the running sign-in is saving a pasted API key rather than waiting on the browser.
+    @Published private(set) var loginUsesKey = false
+    /// Why the last sign-in or sign-out did not finish, in the CLI's words.
+    @Published var loginFailure: String?
+    /// Counts sign-outs, so Settings reads the saved accounts again.
+    @Published private(set) var accountsChanged = 0
+    /// The sign-in in progress or last finished, what its CLI wrote, and whether it exited with a failure.
+    private var loginRun = UUID()
+    private var loginOutput = ""
+    private var loginFailed = false
     @Published var showCommandPalette = false
     @Published var featurePanel: FeaturePanel?
     @Published var featureRows: [FeatureRow] = []
@@ -727,11 +737,11 @@ final class AppStore: ObservableObject {
         let methods = initial["authMethods"] as? [[String: Any]] ?? []
         let preferred = (initial["_meta"] as? [String: Any])?["defaultAuthMethodId"] as? String
         let offered = Set(methods.compactMap { $0["id"] as? String })
-        // `xai.api_key` is the harness's provider-credential method (OpenRouter, OpenAI Codex).
+        // `xai.api_key` is the harness's provider-credential method (OpenRouter, OpenAI Codex, DeepSeek, GLM Coding Plan).
         let supported = ["xai.api_key"]
         let method = ([preferred].compactMap { $0 } + supported).first { supported.contains($0) && offered.contains($0) }
         guard let method else {
-            throw DesktopError.message("No model provider is signed in. Open Settings and sign in to OpenRouter or OpenAI Codex under Accounts, then try again.")
+            throw DesktopError.message("No model provider is signed in. Open Settings and connect one under Accounts (OpenAI Codex, OpenRouter, DeepSeek, or a GLM Coding Plan), then try again.")
         }
         let result = try await client.request("authenticate", params: ["methodId": method, "_meta": ["headless": true]], timeout: 60)
         if let meta = result["_meta"] as? [String: Any], !meta.isEmpty { harnessMeta.authenticate = meta }
@@ -1259,28 +1269,87 @@ final class AppStore: ObservableObject {
         showSidePanel(.terminal)
         features.terminals.requestFocus()
     }
-    func login(provider: String) {
+    /// Signs in through the bundled CLI: `crok login <provider>` opens the browser, and with `apiKey`
+    /// it runs `crok login <provider> --with-api-key` and hands the key over on standard input, so
+    /// the key never appears in a process argument.
+    func login(provider: String, apiKey: String? = nil) {
         guard !loginRunning else { return }
-        guard FileManager.default.isExecutableFile(atPath: binaryPath) else { loginLog = "The bundled Crok runtime is missing. Reinstall Crok Desktop."; return }
+        loginFailure = nil
+        guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
+            loginLog = "The bundled Crok runtime is missing. Reinstall Crok Desktop."; loginFailure = loginLog; return
+        }
         let process = Process(); process.executableURL = URL(fileURLWithPath: binaryPath)
         process.currentDirectoryURL = URL(fileURLWithPath: project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path, isDirectory: true)
-        process.arguments = ["login", provider]
-        let output = Pipe(); process.standardOutput = output; process.standardError = output; process.standardInput = FileHandle.nullDevice
-        loginLog = "Opening browser sign-in…"; loginRunning = true; loginProcess = process
+        process.arguments = apiKey == nil ? ["login", provider] : ["login", provider, "--with-api-key"]
+        let output = Pipe(); process.standardOutput = output; process.standardError = output
+        let input = apiKey.map { _ in Pipe() }
+        process.standardInput = input ?? FileHandle.nullDevice
+        loginLog = apiKey == nil ? "Opening browser sign-in…" : "Checking the API key…"
+        loginRunning = true; loginUsesKey = apiKey != nil; loginProcess = process
+        // Output can arrive after the process has ended, and a later sign-in must not receive an earlier one's.
+        let run = UUID()
+        loginRun = run; loginOutput = ""; loginFailed = false
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            Task { @MainActor in self?.loginLog = String(((self?.loginLog ?? "") + "\n" + text).suffix(12_000)) }
-        }
-        process.terminationHandler = { [weak self] process in
-            output.fileHandleForReading.readabilityHandler = nil
+            // End of output: nothing more will come, so stop watching.
+            guard !data.isEmpty else { handle.readabilityHandler = nil; return }
+            guard let text = String(data: data, encoding: .utf8) else { return }
             Task { @MainActor in
-                self?.loginRunning = false; self?.loginProcess = nil
-                self?.loginLog += process.terminationStatus == 0 ? "\nSigned in. You can start a task." : "\nSign-in exited (\(process.terminationStatus))."
-                if process.terminationStatus == 0 { self?.refreshModelsAfterLogin() }
+                guard let self, self.loginRun == run else { return }
+                self.loginOutput = String((self.loginOutput + text).suffix(12_000))
+                self.loginLog = String((self.loginLog + "\n" + text).suffix(12_000))
+                // The reason for a failure is often the last thing written, and may land after the exit.
+                if self.loginFailed { self.loginFailure = Self.loginFailureText(self.loginOutput) }
             }
         }
-        do { try process.run() } catch { output.fileHandleForReading.readabilityHandler = nil; loginRunning = false; loginLog = error.localizedDescription }
+        process.terminationHandler = { [weak self] process in
+            Task { @MainActor in
+                guard let self, self.loginRun == run else { return }
+                self.loginRunning = false; self.loginProcess = nil
+                if process.terminationStatus == 0 {
+                    self.loginLog += "\nSigned in. You can start a task."
+                    self.refreshModelsAfterLogin()
+                } else {
+                    // A cancelled sign-in is not a failure to explain.
+                    self.loginFailed = process.terminationReason == .exit
+                    if self.loginFailed { self.loginFailure = Self.loginFailureText(self.loginOutput) }
+                    self.loginLog += "\nSign-in exited (\(process.terminationStatus))."
+                }
+            }
+        }
+        do { try process.run() } catch {
+            output.fileHandleForReading.readabilityHandler = nil
+            loginRunning = false; loginProcess = nil; loginLog = error.localizedDescription; loginFailure = loginLog
+            return
+        }
+        if let input, let apiKey {
+            let handle = input.fileHandleForWriting
+            // The CLI may have exited already; a write to its closed pipe must fail, not end this app.
+            _ = Darwin.fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
+            try? handle.write(contentsOf: Data((apiKey + "\n").utf8))
+            try? handle.close()
+        }
+    }
+    /// The CLI's reason for a failed sign-in: the last line it wrote, without the `Error:` label.
+    static func loginFailureText(_ log: String) -> String {
+        let line = log.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty } ?? ""
+        let text = line.hasPrefix("Error: ") ? String(line.dropFirst(7)) : line
+        return text.isEmpty ? "Sign-in did not finish." : text
+    }
+    /// Removes one saved sign-in with `crok logout <provider>`. Keys set in the environment are not touched.
+    func logout(provider: String) {
+        guard !loginRunning else { return }
+        loginFailure = nil
+        let binary = binaryPath
+        Task {
+            do {
+                let result = try await GrokCLI.run(binary, arguments: ["logout", provider], timeout: 30)
+                if result.status == 0 { refreshModelsAfterLogin() } else {
+                    loginFailure = Self.loginFailureText(result.stderr.isEmpty ? result.text : result.stderr)
+                }
+            } catch { loginFailure = error.localizedDescription }
+            accountsChanged &+= 1
+        }
     }
     private func refreshModelsAfterLogin() {
         catalogProjectID = nil

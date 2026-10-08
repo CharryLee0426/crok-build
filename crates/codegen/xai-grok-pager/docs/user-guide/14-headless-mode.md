@@ -543,6 +543,9 @@ Key environment variables that affect headless mode:
 | Variable                        | Description                                                   |
 | ------------------------------- | ------------------------------------------------------------- |
 | `OPENROUTER_API_KEY`            | OpenRouter API key (the simplest credential for CI)           |
+| `DEEPSEEK_API_KEY`              | DeepSeek API key                                              |
+| `ZAI_API_KEY`                   | GLM Coding Plan key from z.ai (`glm/...` models)              |
+| `ZHIPU_API_KEY`                 | GLM Coding Plan key from bigmodel.cn (`glm-cn/...` models)    |
 | `XAI_API_KEY`                   | Plain xAI API key for models served by xAI's own API (optional) |
 | `CROK_HOME`                    | Override config directory (default: `~/.crok`)                |
 | `CROK_LOG_FILE`                | Path to a log file (used verbatim as the path; works in headless and TUI, honors `RUST_LOG`) |
@@ -608,7 +611,7 @@ Crok stores data in `~/.crok` (override with `CROK_HOME`; see [Environment Varia
 | Path                     | Contents                              |
 | ------------------------ | ------------------------------------- |
 | `config.toml`            | User configuration                    |
-| `provider-auth/`         | Saved OpenRouter and Codex credentials |
+| `provider-auth/`         | Saved provider credentials (OpenRouter, Codex, DeepSeek, GLM) |
 | `sessions/`              | Session transcripts (SQLite)          |
 | `memory/`                | Cross-session memory store            |
 | `logs/`                  | Internal log files (for example `unified.jsonl`) |

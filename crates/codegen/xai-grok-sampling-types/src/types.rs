@@ -1076,13 +1076,27 @@ pub enum ApiBackend {
     /// ChatGPT subscription Responses endpoint (always streaming, stateless).
     #[serde(rename = "openai_codex", alias = "open_ai_codex")]
     OpenAiCodex,
+    /// DeepSeek's Chat Completions dialect.
+    #[serde(rename = "deepseek", alias = "deep_seek")]
+    DeepSeek,
+    /// Zhipu GLM's Chat Completions dialect, as served to GLM Coding Plan subscribers.
+    Glm,
     /// Use the Anthropic Messages API (/v1/messages)
     Messages,
 }
 
 impl ApiBackend {
+    /// Whether requests go to `/chat/completions` and streams arrive as Chat Completions chunks.
+    pub fn is_chat_completions_wire(&self) -> bool {
+        matches!(
+            self,
+            Self::ChatCompletions | Self::OpenRouter | Self::DeepSeek | Self::Glm
+        )
+    }
+
     /// Whether the backend enforces a response JSON schema natively alongside tool calls.
     /// The Messages API does not (a schema there blocks tool use), so structured output there goes through the StructuredOutput tool.
+    /// DeepSeek and GLM only accept `json_object`, so they take the tool route too.
     pub fn supports_native_schema(&self) -> bool {
         matches!(
             self,
@@ -1101,9 +1115,12 @@ impl ApiBackend {
     /// The xAI inference proxy rejects bodies over 50 MiB (nginx `proxy-body-size`); Messages API hosts reject bodies over 30 MB.
     pub const fn default_max_request_bytes(&self) -> NonZeroU64 {
         match self {
-            Self::ChatCompletions | Self::Responses | Self::OpenRouter | Self::OpenAiCodex => {
-                NonZeroU64::new(50 * 1024 * 1024).unwrap()
-            }
+            Self::ChatCompletions
+            | Self::Responses
+            | Self::OpenRouter
+            | Self::OpenAiCodex
+            | Self::DeepSeek
+            | Self::Glm => NonZeroU64::new(50 * 1024 * 1024).unwrap(),
             Self::Messages => NonZeroU64::new(30_000_000).unwrap(),
         }
     }

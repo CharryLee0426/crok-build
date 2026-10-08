@@ -7,6 +7,8 @@
 
 use std::sync::LazyLock;
 
+pub mod deepseek;
+pub mod glm;
 pub mod openrouter;
 
 /// The raw JSON, embedded at compile time.

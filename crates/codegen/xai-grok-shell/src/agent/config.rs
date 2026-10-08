@@ -5236,14 +5236,8 @@ pub(crate) fn sampling_config_for_model(
         attribution_callback: None,
         bearer_resolver: None,
         supports_backend_search: info.supports_backend_search,
-        supports_tools: (info.api_backend == ApiBackend::OpenRouter)
-            .then(|| {
-                super::builtin_providers::cached_models()
-                    .iter()
-                    .find(|model| model.id == info.model)
-                    .map(|model| model.supports_tools())
-            })
-            .flatten(),
+        supports_tools: super::builtin_providers::tool_support(&info.api_backend, &info.model),
+        supports_images: super::builtin_providers::image_support(&info.api_backend, &info.model),
         compactions_remaining: info.compactions_remaining,
         compaction_at_tokens: info.compaction_at_tokens,
         doom_loop_recovery: None,

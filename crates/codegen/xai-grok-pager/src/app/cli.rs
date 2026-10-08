@@ -9,6 +9,14 @@ pub enum LoginProvider {
     Openrouter,
     #[value(name = "openai-codex", alias = "codex")]
     OpenAiCodex,
+    /// DeepSeek, with an API key
+    Deepseek,
+    /// GLM Coding Plan subscription from z.ai
+    #[value(name = "glm", alias = "zai", alias = "glm-coding-plan")]
+    Glm,
+    /// GLM Coding Plan subscription from bigmodel.cn (China mainland)
+    #[value(name = "glm-cn", alias = "zhipu", alias = "bigmodel")]
+    GlmCn,
 }
 
 impl LoginProvider {
@@ -16,6 +24,9 @@ impl LoginProvider {
         match self {
             Self::Openrouter => xai_grok_login::provider_auth::ModelProvider::OpenRouter,
             Self::OpenAiCodex => xai_grok_login::provider_auth::ModelProvider::OpenAiCodex,
+            Self::Deepseek => xai_grok_login::provider_auth::ModelProvider::DeepSeek,
+            Self::Glm => xai_grok_login::provider_auth::ModelProvider::Glm,
+            Self::GlmCn => xai_grok_login::provider_auth::ModelProvider::GlmCn,
         }
     }
 }
@@ -40,12 +51,12 @@ pub enum Command {
         #[arg(value_enum)]
         provider: Option<LoginProvider>,
     },
-    /// Sign in to OpenRouter or a ChatGPT Codex subscription
+    /// Sign in to a model provider: a ChatGPT Codex subscription, OpenRouter, DeepSeek, or a GLM Coding Plan
     Login {
         /// Provider to sign in to.
         #[arg(value_enum)]
         provider: LoginProvider,
-        /// Read an OpenRouter API key from stdin instead of opening OAuth.
+        /// Read the provider's API key from stdin instead of opening a browser or prompting for it.
         #[arg(long)]
         with_api_key: bool,
     },
@@ -57,7 +68,7 @@ pub enum Command {
     Memory(crate::memory_cmd::MemoryArgs),
     /// List available models and exit
     Models {
-        /// Fetch the newest OpenRouter catalog immediately, bypassing its cache TTL.
+        /// Fetch the newest OpenRouter and DeepSeek model lists immediately, bypassing their cache TTL.
         #[arg(long)]
         refresh: bool,
     },
@@ -1410,6 +1421,13 @@ mod tests {
             ("openrouter", LoginProvider::Openrouter),
             ("openai-codex", LoginProvider::OpenAiCodex),
             ("codex", LoginProvider::OpenAiCodex),
+            ("deepseek", LoginProvider::Deepseek),
+            ("glm", LoginProvider::Glm),
+            ("zai", LoginProvider::Glm),
+            ("glm-coding-plan", LoginProvider::Glm),
+            ("glm-cn", LoginProvider::GlmCn),
+            ("zhipu", LoginProvider::GlmCn),
+            ("bigmodel", LoginProvider::GlmCn),
         ] {
             let args = PagerArgs::try_parse_from(["grok", "login", name]).unwrap();
             assert!(

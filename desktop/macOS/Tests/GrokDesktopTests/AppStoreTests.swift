@@ -189,7 +189,7 @@ time.sleep(20)
         let store = fixture.store
         await store.loadImportedConversation()
         XCTAssertEqual(store.run.phase, "Needs attention")
-        XCTAssertTrue(store.banner?.contains("Open Settings and sign in") == true)
+        XCTAssertTrue(store.banner?.contains("Open Settings and connect one under Accounts") == true)
         XCTAssertFalse(fixture.requests.contains { $0["method"] as? String == "session/load" })
     }
 

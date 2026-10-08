@@ -30,7 +30,9 @@ no official release: build it from this checkout.
   environment variable overrides the matching upstream `GROK_X`. Project `.grok/`
   folders and `AGENTS.md` files are read exactly as upstream reads them.
 - **Model providers.** Sign in with `crok login openrouter` or
-  `crok login openai-codex`, or set `OPENROUTER_API_KEY`. The first interactive
+  `crok login openai-codex`, add a key with `crok login deepseek` or
+  `crok login glm` (a GLM Coding Plan), or set `OPENROUTER_API_KEY`,
+  `DEEPSEEK_API_KEY` or `ZAI_API_KEY`. The first interactive
   launch asks which provider to use. Vendor account sign-in is removed; use any
   model through OpenRouter or an OpenAI-compatible endpoint. See the
   [authentication guide](crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).

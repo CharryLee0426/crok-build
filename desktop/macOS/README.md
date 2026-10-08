@@ -11,9 +11,9 @@ and load provider credentials and configuration.
 Open `Crok-Desktop-<version>-arm64.dmg` and drag **Crok Desktop** to
 **Applications**. The app includes Crok Build, the same runtime and `crok` TUI as
 the CLI, so nothing else needs to be installed. It requires macOS 14 or later on
-Apple silicon. On first launch, sign in to OpenRouter or OpenAI Codex from
-**Settings › Accounts**. xAI accounts are not supported; Grok models are available
-through OpenRouter.
+Apple silicon. On first launch, connect a model provider in **Settings › Accounts**:
+sign in to OpenRouter or OpenAI Codex, or add a DeepSeek or GLM Coding Plan API key.
+xAI accounts are not supported; Grok models are available through OpenRouter.
 
 The disk image is ad hoc signed and not notarized, so macOS blocks the first launch
 with a message that it cannot verify the app. Open **System Settings › Privacy &
@@ -122,15 +122,21 @@ swift test --package-path desktop/macOS
 ## Use the app
 
 1. Choose **Open Project** and select the folder Crok should work in.
-2. In **Settings**, check **Accounts** and sign in to OpenRouter or OpenAI Codex
-   (`/login` opens the same place). Existing CLI credentials from
-   `crok login openrouter` or `crok login openai-codex`, and `OPENROUTER_API_KEY`,
+2. In **Settings**, check **Accounts** (`/login` opens the same place). OpenRouter
+   and OpenAI Codex sign in with the browser. DeepSeek and the GLM Coding Plan take
+   an API key: choose **Add Key…**, paste it, and for GLM pick the site you
+   subscribed on (z.ai or bigmodel.cn; a key from one is refused by the other). The
+   key is checked with the provider before it is saved, and a refused key shows the
+   reason under the list. Existing CLI credentials from `crok login <provider>`, and
+   keys in `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY` or `ZHIPU_API_KEY`,
    are reused. Each provider shows its saved account identity when available, and
-   signed-in accounts cannot start another sign-in. OpenRouter API keys do not
-   include an account name; this is stated explicitly. xAI accounts (xAI sign-in,
+   connected accounts cannot start another sign-in. API keys do not include an
+   account name; this is stated explicitly. xAI accounts (xAI sign-in,
    `XAI_API_KEY`) are not supported; use Grok models through OpenRouter. To sign
-   out, run `crok logout <provider>` (or `crok logout` for every provider) in the
-   side panel's Terminal.
+   out or remove a key, use the **⋯** menu on a connected account, or run
+   `crok logout <provider>` (or `crok logout` for every provider) in the side
+   panel's Terminal. A key that comes from the environment has no menu; unset the
+   variable instead.
 3. Start a task and send a prompt. Responses stream into the conversation, with
    expandable thinking and tool output, plan progress, permission requests,
    project trust decisions, and agent questions. Messages you send while Crok is

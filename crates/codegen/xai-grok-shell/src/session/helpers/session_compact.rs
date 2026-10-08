@@ -465,7 +465,10 @@ pub(crate) async fn generate_session_compact(
     };
 
     let output = match sampling_config.api_backend {
-        ApiBackend::ChatCompletions | ApiBackend::OpenRouter => {
+        ApiBackend::ChatCompletions
+        | ApiBackend::OpenRouter
+        | ApiBackend::DeepSeek
+        | ApiBackend::Glm => {
             // Fold `Reasoning` siblings into the following assistant via `conversation_to_chat_messages`.
             let chat_messages: Vec<ChatRequestMessage> =
                 conversation_to_chat_messages(chat_history);

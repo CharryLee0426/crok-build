@@ -111,12 +111,17 @@ pub(crate) fn resolve_default_model(
             .iter()
             .filter(|(_, entry)| authenticated_native(entry))
             .min_by_key(|(key, _)| {
+                // Earlier sign-ins keep the default they had; each newer provider follows with its main model.
                 if key.starts_with("openai-codex/") {
                     0
                 } else if key.as_str() == "openrouter/openrouter/auto" {
                     1
-                } else {
+                } else if matches!(key.as_str(), "glm/glm-5.3" | "glm-cn/glm-5.3") {
                     2
+                } else if key.as_str() == "deepseek/deepseek-v4-pro" {
+                    3
+                } else {
+                    4
                 }
             });
         if let Some((key, entry)) = preferred {

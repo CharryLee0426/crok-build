@@ -2,15 +2,19 @@
 //!
 //! OpenRouter's PKCE exchange produces an API key. Codex uses the ChatGPT
 //! authorization-code grant and refresh tokens, as in Pi's Codex provider.
+//! DeepSeek and the GLM Coding Plan have no browser flow: the user pastes an
+//! API key from the provider's console.
 
 mod oauth;
 mod storage;
+mod verify;
 
 use anyhow::{Context as _, bail};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub use oauth::{login_with_oauth, login_with_oauth_input};
+pub use verify::{KeyCheck, check_provider_api_key};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelProvider {
@@ -18,14 +22,82 @@ pub enum ModelProvider {
     OpenRouter,
     #[serde(rename = "openai-codex")]
     OpenAiCodex,
+    #[serde(rename = "deepseek")]
+    DeepSeek,
+    /// GLM Coding Plan subscription bought on z.ai (international).
+    #[serde(rename = "glm")]
+    Glm,
+    /// GLM Coding Plan subscription bought on bigmodel.cn (China mainland).
+    /// A separate account system: its keys are not accepted by z.ai, nor z.ai's here.
+    #[serde(rename = "glm-cn")]
+    GlmCn,
 }
 
 impl ModelProvider {
+    pub const ALL: [Self; 5] = [
+        Self::OpenAiCodex,
+        Self::OpenRouter,
+        Self::DeepSeek,
+        Self::Glm,
+        Self::GlmCn,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::OpenRouter => "openrouter",
             Self::OpenAiCodex => "openai-codex",
+            Self::DeepSeek => "deepseek",
+            Self::Glm => "glm",
+            Self::GlmCn => "glm-cn",
         }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|provider| provider.as_str() == id)
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "OpenRouter",
+            Self::OpenAiCodex => "OpenAI Codex",
+            Self::DeepSeek => "DeepSeek",
+            Self::Glm => "GLM Coding Plan",
+            Self::GlmCn => "GLM Coding Plan (China)",
+        }
+    }
+
+    /// Environment variables that supply this provider's API key; the first one set wins.
+    /// Empty for Codex, whose subscription token only comes from browser sign-in.
+    pub fn api_key_env_vars(self) -> &'static [&'static str] {
+        match self {
+            Self::OpenRouter => &["OPENROUTER_API_KEY"],
+            Self::OpenAiCodex => &[],
+            Self::DeepSeek => &["DEEPSEEK_API_KEY"],
+            Self::Glm => &["ZAI_API_KEY"],
+            Self::GlmCn => &["ZHIPU_API_KEY"],
+        }
+    }
+
+    /// The page where the user creates the key, for a provider that signs in with nothing else.
+    pub fn api_key_page(self) -> Option<&'static str> {
+        match self {
+            Self::OpenRouter | Self::OpenAiCodex => None,
+            Self::DeepSeek => Some("https://platform.deepseek.com/api_keys"),
+            Self::Glm => Some("https://z.ai/manage-apikey/apikey-list"),
+            Self::GlmCn => Some("https://bigmodel.cn/coding-plan/personal/overview"),
+        }
+    }
+
+    /// Whether a pasted or piped API key is a way to sign in.
+    pub fn accepts_api_key(self) -> bool {
+        self != Self::OpenAiCodex
+    }
+
+    /// Whether `crok login` can open a browser for this provider.
+    pub fn has_browser_sign_in(self) -> bool {
+        matches!(self, Self::OpenRouter | Self::OpenAiCodex)
     }
 }
 
@@ -78,13 +150,17 @@ impl ProviderCredential {
             .is_some_and(|at| at <= now().saturating_add(60))
     }
 
-    fn api_key(key: &str) -> anyhow::Result<Self> {
+    fn api_key(provider: ModelProvider, key: &str) -> anyhow::Result<Self> {
+        let name = provider.display_name();
+        if !provider.accepts_api_key() {
+            bail!("{name} does not sign in with an API key");
+        }
         let key = key.trim();
         if key.is_empty() || key.chars().any(char::is_control) {
-            bail!("OpenRouter API key must be nonempty and contain no control characters");
+            bail!("{name} API key must be nonempty and contain no control characters");
         }
         Ok(Self {
-            provider: ModelProvider::OpenRouter,
+            provider,
             access_token: key.to_owned(),
             refresh_token: None,
             expires_at: None,
@@ -115,18 +191,26 @@ fn now() -> u64 {
         .as_secs()
 }
 
+/// The provider's key variable that is set to something usable, if any.
+pub fn provider_api_key_env_var(provider: ModelProvider) -> Option<&'static str> {
+    provider
+        .api_key_env_vars()
+        .iter()
+        .copied()
+        .find(|var| std::env::var(var).is_ok_and(|key| !key.trim().is_empty()))
+}
+
 /// Synchronous, network-free read for model discovery and request headers.
-/// OpenRouter's environment key takes precedence over its stored credential.
+/// A key in the provider's environment variable takes precedence over its stored credential.
 /// A Codex credential returned here may need refresh before sending a request.
 pub fn read_provider_credential(
     home: &Path,
     provider: ModelProvider,
 ) -> anyhow::Result<Option<ProviderCredential>> {
-    if provider == ModelProvider::OpenRouter
-        && let Ok(key) = std::env::var("OPENROUTER_API_KEY")
-        && !key.trim().is_empty()
+    if let Some(var) = provider_api_key_env_var(provider)
+        && let Ok(key) = std::env::var(var)
     {
-        return ProviderCredential::api_key(&key).map(Some);
+        return ProviderCredential::api_key(provider, &key).map(Some);
     }
     storage::read(home, provider)
 }
@@ -138,10 +222,18 @@ pub fn has_provider_credential(home: &Path, provider: ModelProvider) -> bool {
         .is_some()
 }
 
-pub async fn store_openrouter_api_key(home: &Path, key: &str) -> anyhow::Result<()> {
-    let credential = ProviderCredential::api_key(key)?;
-    let _lock = storage::lock(home, ModelProvider::OpenRouter).await?;
+pub async fn store_provider_api_key(
+    home: &Path,
+    provider: ModelProvider,
+    key: &str,
+) -> anyhow::Result<()> {
+    let credential = ProviderCredential::api_key(provider, key)?;
+    let _lock = storage::lock(home, provider).await?;
     storage::write(home, &credential)
+}
+
+pub async fn store_openrouter_api_key(home: &Path, key: &str) -> anyhow::Result<()> {
+    store_provider_api_key(home, ModelProvider::OpenRouter, key).await
 }
 
 /// Removes only this provider's persisted credential. Environment keys are not modified.
@@ -179,7 +271,8 @@ async fn load_with_refresh(
     let Some(credential) = read_provider_credential(home, provider)? else {
         return Ok(None);
     };
-    if provider == ModelProvider::OpenRouter {
+    // Only the Codex subscription token expires and refreshes; API keys are used as stored.
+    if provider != ModelProvider::OpenAiCodex {
         return Ok(Some(credential));
     }
     let should_refresh = |credential: &ProviderCredential| {

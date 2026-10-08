@@ -2318,6 +2318,14 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                         )
                         .await?;
                     println!("OpenRouter catalog refreshed: {count} models.");
+                    let count = xai_grok_shell::agent::builtin_providers::refresh_deepseek_models(
+                        &agent_config,
+                        true,
+                    )
+                    .await?;
+                    if count > 0 {
+                        println!("DeepSeek model list refreshed: {count} models.");
+                    }
                 }
                 return xai_grok_pager::models::list_available_models(&agent_config).await;
             }

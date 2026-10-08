@@ -536,7 +536,10 @@ async fn run_one_attempt(
 ) -> AttemptOutcome {
     let length_policy = request.length_policy;
     match client.api_backend() {
-        ApiBackend::ChatCompletions | ApiBackend::OpenRouter => {
+        ApiBackend::ChatCompletions
+        | ApiBackend::OpenRouter
+        | ApiBackend::DeepSeek
+        | ApiBackend::Glm => {
             let (raw, metadata) = match client.conversation_stream(request).await {
                 Ok(pair) => pair,
                 Err(e) => return AttemptOutcome::InitFailed { error: e },
