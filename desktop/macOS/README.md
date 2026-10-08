@@ -54,7 +54,7 @@ Run these commands from the repository root:
 make build-desktop
 open "desktop/macOS/dist/Crok Desktop.app"
 
-# Build a separate workspace-local test app with orange TESTING artwork:
+# Build a separate workspace-local test app with a TESTING-badged icon:
 make build-test-desktop
 open "target/test-builds/desktop/Crok Desktop Test.app"
 
@@ -70,9 +70,9 @@ build or install the CLI/TUI. They do not compile or install the desktop app.
 Use `make deploy-desktop DESKTOP_INSTALL_DIR=/Applications` to choose a different
 app destination, provided it is writable. `make build-test-desktop` keeps the
 packaged test app and its state under the repository's `target/test-builds/`
-directory. Its app has a separate bundle identity, state file, orange **TESTING**
-icon, and disabled global `crok` command switch, so it remains separate from the
-production desktop app.
+directory. Its app has a separate bundle identity, state file, an icon with an
+orange **TESTING** pill, and disabled global `crok` command switch, so it remains
+separate from the production desktop app.
 
 The test app also shows a performance monitor: a see-through black panel over the
 window with live numbers and one-minute charts for frame rate, main-thread lag
@@ -539,27 +539,41 @@ changing; with a state file named this way the browser keeps no cookies or site
 data on disk). The normal
 packaged app continues to use its embedded runtime and standard local state.
 
-## Vector app icon
+## App icon
 
-[`Resources/GrokMark.svg`](Resources/GrokMark.svg) is the editable vector source,
-reconstructed from the [Grok homepage](https://grok.com/) mark. No downloaded
-raster artwork or font glyph is used. The desktop icon follows Apple's macOS
-icon grid, like the other coding agents' icons: an 824 pt continuous-corner tile
-on the 1024 pt canvas, with a top-lit black gradient, a faint bezel, and the
-system's soft drop shadow, and the white mark at about half the tile. The test
-build uses an orange tile with a TESTING pill. The in-app symbol uses the same paths.
+The icon is the labubu artwork in two versions, one for each appearance:
+[`Resources/AppIcon-LightMode.jpg`](Resources/AppIcon-LightMode.jpg), the dark
+tile shown in light mode, and
+[`Resources/AppIcon-DarkMode.jpg`](Resources/AppIcon-DarkMode.jpg), the light
+tile shown in dark mode. Both follow Apple's macOS icon grid, like the other
+coding agents' icons: the artwork fills an 824 pt tile with continuous corners of
+radius 185.4 pt on the 1024 pt canvas (Claude's icon has the same outline), with a
+faint bezel and the system's soft drop shadow. The test build adds an orange
+TESTING pill below the face.
 
-The packaging script regenerates the icon before building. To regenerate it
+The bundle's icon, which Finder and the Dock show while the app is not running,
+is the light-mode one. While the app runs it sets the Dock icon from the window
+appearance: Crok Day shows the light-mode icon, the dark themes show the
+dark-mode one, and the auto theme follows the system as it switches between light
+and dark.
+
+[`Resources/GrokMark.svg`](Resources/GrokMark.svg) is the editable vector source
+of the in-app mark: the labubu head traced from the artwork, with its strokes
+thickened a little so the face stays legible at sidebar sizes. The terminal's
+braille logo and the sign-in page show the same head.
+
+The packaging script regenerates the icons before building. To regenerate them
 independently, run from the repository root:
 
 ```sh
-swift desktop/macOS/scripts/make-icon.swift desktop/macOS/Resources/AppIcon.icns
+swift desktop/macOS/scripts/make-icon.swift
 ```
 
-The generator creates the multi-resolution ICNS, a scalable `Resources/AppIcon.svg`,
-a PNG preview in `dist/`, and the native `GrokSymbol.swift` shape. Edit
-`GrokMark.svg` to change the geometry, then regenerate; avoid editing the generated
-Swift shape directly. Each required icon size is rendered from vector paths.
+The generator writes `Resources/AppIcon.icns` and `Resources/AppIconDark.icns` at
+every ICNS size, a side-by-side PNG preview in `dist/`, and the native
+`GrokSymbol.swift` shape. Replace a JPEG (square, at least 1024 px) to change an
+icon, or edit `GrokMark.svg` to change the in-app mark, then regenerate; avoid
+editing the generated Swift shape directly.
 
 ## Distribution
 

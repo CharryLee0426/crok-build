@@ -119,7 +119,7 @@ configuration.
 make build-desktop
 open "desktop/macOS/dist/Crok Desktop.app"
 
-# Build the separate orange test app inside this workspace:
+# Build the separate TESTING-badged test app inside this workspace:
 make build-test-desktop
 open "target/test-builds/desktop/Crok Desktop Test.app"
 
@@ -139,7 +139,7 @@ overrides the desktop install directory. It requires Swift 5.9+ and a macOS 14+
 SDK; build with Xcode 26+ for Liquid Glass on macOS 26.
 
 The test app uses the `dev.chenli.crok.desktop.test` bundle identifier, a
-workspace-local state file, an orange icon with a **TESTING** banner, and a
+workspace-local state file, an icon with an orange **TESTING** pill, and a
 build script guard that keeps it from changing the global `/usr/local/bin/crok`
 link. The app and disk image are ad hoc signed, not notarized, and have no
 automatic updater. See the [desktop guide](desktop/macOS/README.md) for
