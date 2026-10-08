@@ -2,29 +2,22 @@ import SwiftUI
 import AppKit
 
 /// The scrolling conversation: messages, reasoning, and tool calls, with the find bar above it
-/// and the turn timeline beside it.
+/// and the turn timeline beside it. The rows themselves are AppKit (see `TranscriptListView`).
 struct TranscriptView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var tools: TranscriptToolsModel
-    @State private var followOutput = true
-    /// Which messages are on screen: a long task shows its newest ones (see `TranscriptPage`).
-    @State private var window = TranscriptPage()
+    @StateObject private var follow = TranscriptFollowState()
     @State private var timeline = TranscriptTimelineMemo()
+    @State private var findBarHeight: CGFloat = 62
     @AppStorage("compactConversation") private var compactConversation = false
 
     var body: some View {
-        let messages = store.conversation?.messages ?? []
         HStack(spacing: 0) {
             // The transcript fills the room it is given, whatever is in it, so it is laid over a
             // view that does just that, and nothing around it asks it how large it would be.
-            // Asked directly, the scroll view measures its rows to answer: each time the stacks
-            // around it lay out, at the heights they try (none, any), and each time the lazy
-            // stack of rows estimates its height again, which lays those stacks out again. A
-            // hang of Crok Desktop 1.2.2 on macOS 26 was that going round without end
-            // (`LazySubviewPlacements`, then `LazyStack.measureEstimates` under the window's
-            // `GeometryReader`, in one transaction).
-            Color.clear.overlay { transcript(messages) }
+            Color.clear.overlay { transcript }
             if tools.showTimeline {
+                let messages = store.conversation?.messages ?? []
                 let ticks = timeline.ticks(conversation: store.state.selectedConversationID, revision: store.transcriptRevision(of: store.state.selectedConversationID),
                                            messages: messages, expanded: tools.expandedMessageIDs, compact: compactConversation)
                 if ticks.count >= 2 {
@@ -50,224 +43,46 @@ struct TranscriptView: View {
         }
     }
 
-    private func transcript(_ messages: [Message]) -> some View {
-        let streamingID = store.run.isRunning ? messages.last?.id : nil
-        let showTimestamps = tools.showTimestamps
-        let matchID = tools.currentFindMessageID
-        let focusID = tools.vimMode ? tools.vimFocusID : nil
-        let expanded = tools.expandedMessageIDs
-        let tools = self.tools
-        let count = messages.count
-        let start = window.start(count: count)
-        // A copy of the shown rows: views that kept the whole transcript would make each
-        // streamed update copy every message of a long task.
-        let shown = Array(messages[start...])
-        // A new task, a transcript replaced from its first message, or a window that moved on:
-        // the rows are laid out afresh rather than estimated around the ones that went away.
-        let layout = TranscriptLayoutID(conversation: store.state.selectedConversationID, first: messages.first?.id, page: window.identity(count: count))
-        return ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: compactConversation ? 10 : 23) {
-                    if start > 0 {
-                        let first = shown.first?.id
-                        TranscriptEarlierButton(hidden: start) {
-                            // Keep the reader where they are: the first shown message stays at the top.
-                            window.showEarlier(count: count)
-                            if let first { DispatchQueue.main.async { proxy.scrollTo(first, anchor: .top) } }
-                        }
-                    }
-                    ForEach(shown) { message in
-                        let foldable = message.kind == .thought || message.kind == .tool
-                        let stamped = showTimestamps && (message.kind == .user || message.kind == .assistant)
-                        MessageView(message: message, isStreaming: message.id == streamingID,
-                                    timestamp: stamped ? message.createdAt : nil,
-                                    highlight: message.id == matchID ? .match : message.id == focusID ? .focus : .none,
-                                    isExpanded: foldable ? expanded.contains(message.id) : nil,
-                                    onExpand: { id, open in tools.setExpanded(id, open) }).equatable()
-                    }
-                    if store.run.isRunning {
-                        HStack(spacing: 9) {
-                            ProgressView().controlSize(.mini)
-                            Text(store.run.approvals.isEmpty && store.run.questions.isEmpty ? store.run.phase + "…" : "Waiting for your response")
-                                .font(.system(size: 14)).foregroundStyle(Theme.muted)
-                        }.padding(.vertical, 5)
-                    }
-                    Color.clear.frame(height: 1).id("bottom")
-                }
-                .scrollTargetLayout()
-                .environment(\.openImage, store.openImageAction)
-                .frame(maxWidth: 800, alignment: .leading).padding(.horizontal, 36).padding(.top, 34).padding(.bottom, 15).frame(maxWidth: .infinity)
+    private var transcript: some View {
+        let id = store.state.selectedConversationID
+        let run = store.run
+        let conversation = store.conversation
+        let display = TranscriptDisplay(
+            conversation: id,
+            streamingID: run.isRunning ? conversation?.messages.last?.id : nil,
+            showTimestamps: tools.showTimestamps,
+            matchID: tools.currentFindMessageID,
+            focusID: tools.vimMode ? tools.vimFocusID : nil,
+            expanded: tools.expandedMessageIDs,
+            compact: compactConversation,
+            status: run.isRunning ? (run.approvals.isEmpty && run.questions.isEmpty ? run.phase + "…" : "Waiting for your response") : nil)
+        // A revision number is cheap to compare; the streaming text itself can be megabytes.
+        return ZStack(alignment: .top) {
+            // The rows run under the window's title bar and under the find bar, as far as the
+            // glass over them; the list keeps its rows clear of both when it rests at its top.
+            TranscriptList(store: store, tools: tools, follow: follow, display: display,
+                           revision: store.transcriptRevision(of: id), count: conversation?.messages.count ?? 0,
+                           scrollRequest: tools.scrollRequest, coveredTop: tools.findPresented ? findBarHeight : 0)
+                .ignoresSafeArea(.container, edges: .top)
+            if tools.findPresented {
+                TranscriptFindBar().onGeometryChange(for: CGFloat.self) { $0.size.height } action: { findBarHeight = $0 }
             }
-            .id(layout)
-            .defaultScrollAnchor(.bottom)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if tools.findPresented { TranscriptFindBar() }
-            }
-            // A revision number is cheap to compare; the streaming text itself can be megabytes.
-            .onChange(of: store.transcriptRevision(of: store.state.selectedConversationID)) { _, _ in
-                if followOutput { proxy.scrollTo("bottom", anchor: .bottom) }
-                tools.transcriptDidChange()
-            }
-            .onChange(of: store.state.selectedConversationID) { _, _ in
-                window = TranscriptPage()
-                followOutput = true
-                proxy.scrollTo("bottom", anchor: .bottom)
-                tools.conversationDidChange()
-            }
-            .onChange(of: tools.scrollRequest) { _, request in
-                guard let request else { return }
-                switch request.target {
-                case .bottom:
-                    followOutput = true
-                    proxy.scrollTo("bottom", anchor: .bottom)
-                case .message(let id):
-                    followOutput = false
-                    // Find, /jump, the timeline, and vim keys can reach messages above the window.
-                    let messages = store.conversation?.messages ?? []
-                    if let index = messages.firstIndex(where: { $0.id == id }), window.reveal(index, count: messages.count) {
-                        DispatchQueue.main.async { proxy.scrollTo(id, anchor: .top) }
-                    } else {
-                        proxy.scrollTo(id, anchor: .top)
-                    }
-                }
-            }
-            .onChange(of: followOutput) { _, following in
-                // Scrolled up, the reader's rows stay put as output arrives; back at the end, the
-                // window returns to the newest messages.
-                if !following { window.hold(count: count) }
-                else if window.heldStart != nil {
-                    window.follow(count: count)
-                    // Rows above the reader went away; stay at the end.
-                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                tools.recordFollowing(following, messageCount: count)
-            }
-            .modifier(PauseFollowingWhileScrolling(followOutput: $followOutput))
-            .modifier(TranscriptScrollObserver(start: start, ids: shown.map(\.id), tools: tools))
-            .modifier(RecoverBlankTranscript(watching: followOutput && !shown.isEmpty) {
-                tools.recordBlankRecovery(messageCount: count)
-                window.refresh()
-                DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
-            })
-            .overlay(alignment: .bottomTrailing) {
-                if store.run.isRunning {
-                    Button { followOutput.toggle(); if followOutput { proxy.scrollTo("bottom", anchor: .bottom) } } label: {
-                        Label(followOutput ? "Following" : "Follow output", systemImage: followOutput ? "arrow.down.to.line" : "arrow.down")
-                            .font(.system(size: 12)).padding(.horizontal, 10).padding(.vertical, 7).glassSurface(in: Capsule())
-                    }.buttonStyle(.plain).foregroundStyle(Theme.muted).padding(.trailing, 22)
-                }
-            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if run.isRunning { TranscriptFollowButton(state: follow) }
         }
     }
 }
 
-/// The part of a transcript that is on screen. A task that has run for hours holds thousands
-/// of messages, and SwiftUI walks every row of a list on each update, so only the newest are
-/// shown until the reader asks for earlier ones: at least `size`, and fewer than `size + step`.
-///
-/// While output is followed, the first row moves on `step` messages at a time, never one by one.
-/// Each row that leaves the top of a lazy stack makes SwiftUI estimate again the height of every
-/// row it has not laid out. A task that moved the window on with every message swung its
-/// content by tens of thousands of points, until the scroll view came to rest where no row was
-/// laid out and the conversation went blank under the Following button. When the window does
-/// move on, `identity` changes, and the rows are laid out afresh from the newest.
-///
-/// While the reader is scrolled up, the window holds its first message as new ones arrive;
-/// following the output again returns to the newest.
-struct TranscriptPage: Equatable {
-    static let size = 240
-    static let step = 120
-    static let page = 240
-    /// The first message shown, once held; nil shows the newest.
-    private(set) var heldStart: Int?
-    /// The rows' identity while held, so the rows the reader is looking at are kept.
-    private var heldIdentity: Identity?
-    /// Counts the times the rows were laid out afresh without the window moving on.
-    private var generation = 0
-
-    /// Which layout the rows belong to: a new identity lays them out afresh.
-    struct Identity: Hashable {
-        var start: Int
-        var generation: Int
-    }
-
-    /// Where the window starts while following: at least `size` of the newest, in steps of `step`.
-    static func followingStart(count: Int) -> Int {
-        max(0, count - size) / step * step
-    }
-
-    func start(count: Int) -> Int {
-        min(heldStart ?? Self.followingStart(count: count), max(0, count - 1))
-    }
-
-    func identity(count: Int) -> Identity {
-        heldIdentity ?? Identity(start: Self.followingStart(count: count), generation: generation)
-    }
-
-    /// Stops the window from moving on as messages arrive.
-    mutating func hold(count: Int) {
-        guard heldStart == nil else { return }
-        heldIdentity = identity(count: count)
-        heldStart = start(count: count)
-    }
-
-    /// Back to the newest messages. Rows above the reader go away, so the rest are laid out afresh.
-    mutating func follow(count: Int) {
-        guard let held = heldStart else { return }
-        if held != Self.followingStart(count: count) { generation += 1 }
-        heldStart = nil
-        heldIdentity = nil
-    }
-
-    /// Lays the rows out afresh while following, without moving the window.
-    mutating func refresh() {
-        if heldStart == nil { generation += 1 }
-    }
-
-    mutating func showEarlier(count: Int) {
-        let kept = identity(count: count)
-        heldStart = max(0, start(count: count) - Self.page)
-        heldIdentity = kept
-    }
-
-    /// Widens the window to include a message, with a little context above it. Returns whether
-    /// it had to, in which case the row exists only after the next update.
-    mutating func reveal(_ index: Int, count: Int) -> Bool {
-        guard index < start(count: count) else { return false }
-        let kept = identity(count: count)
-        heldStart = max(0, index - 20)
-        heldIdentity = kept
-        return true
-    }
-}
-
-/// Which rows the transcript's scroll view lays out; see `TranscriptPage`.
-private struct TranscriptLayoutID: Hashable {
-    var conversation: UUID?
-    var first: UUID?
-    var page: TranscriptPage.Identity
-}
-
-/// The row above a windowed transcript that brings back earlier messages.
-private struct TranscriptEarlierButton: View {
-    let hidden: Int
-    let action: () -> Void
+/// Over the transcript while a turn runs: whether new output is followed, and a click to change that.
+private struct TranscriptFollowButton: View {
+    @ObservedObject var state: TranscriptFollowState
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.up.circle")
-                Text("Show earlier messages")
-                Text("\(hidden.formatted()) hidden").foregroundStyle(Theme.muted.opacity(0.8))
-            }
-            .font(.system(size: 12)).foregroundStyle(Theme.muted)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(Theme.sidebar.opacity(0.6), in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
-        .help("Long tasks show their newest \(TranscriptPage.size) messages. Load \(TranscriptPage.page) more.")
+        Button { state.toggle() } label: {
+            Label(state.isFollowing ? "Following" : "Follow output", systemImage: state.isFollowing ? "arrow.down.to.line" : "arrow.down")
+                .font(.system(size: 12)).padding(.horizontal, 10).padding(.vertical, 7).glassSurface(in: Capsule())
+        }.buttonStyle(.plain).foregroundStyle(Theme.muted).padding(.trailing, 22)
     }
 }
 
@@ -418,17 +233,8 @@ private struct ThoughtView: View {
     @State private var localExpanded = false
     @State private var previewHeight: CGFloat = 0
 
-    /// While reasoning streams, the folded block shows its newest four lines.
-    static let previewLines = 4
-    /// Four lines of the 14 pt reasoning text (see `ReadOnlyTextView.Style.markdown`): each line
-    /// with its 3 pt line spacing, the paragraph gaps between them (reasoning is mostly short
-    /// paragraphs), and the text view's insets.
-    static let previewHeight: CGFloat = {
-        let font = NSFont.systemFont(ofSize: 14)
-        let line = ceil(NSLayoutManager().defaultLineHeight(for: font)) + 3
-        let paragraphGap = (font.pointSize * 0.6).rounded()
-        return CGFloat(previewLines) * line + CGFloat(previewLines - 1) * paragraphGap + 4
-    }()
+    /// While reasoning streams, the folded block shows its newest lines (see `ThoughtPreview`).
+    static let previewHeight = ThoughtPreview.height
     private static let cornerRadius: CGFloat = 12
 
     var body: some View {
@@ -530,97 +336,5 @@ private struct ToolCallView: View {
             }
         }
         return result
-    }
-}
-
-/// Stops following streamed output while the reader scrolls, and resumes it when they
-/// come to rest at the end of the transcript.
-private struct PauseFollowingWhileScrolling: ViewModifier {
-    @Binding var followOutput: Bool
-
-    func body(content: Content) -> some View {
-        if #available(macOS 15.0, *) {
-            content.onScrollPhaseChange { _, phase, context in
-                switch phase {
-                case .interacting: followOutput = false
-                case .idle:
-                    let geometry = context.geometry
-                    followOutput = geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 40
-                default: break
-                }
-            }
-        } else {
-            content
-        }
-    }
-}
-
-/// A safety net under `TranscriptPage`: while output is followed, a transcript that has rows
-/// but shows none of them for a moment is laid out afresh, at most every two seconds. Any
-/// sliver of a row counts as shown, so a reply taller than the window is not mistaken for blank.
-/// Needs macOS 15.
-private struct RecoverBlankTranscript: ViewModifier {
-    let watching: Bool
-    let recover: () -> Void
-    @State private var pending: Task<Void, Never>?
-    @State private var recoveredAt = Date.distantPast
-
-    func body(content: Content) -> some View {
-        if #available(macOS 15.0, *) {
-            content.onScrollTargetVisibilityChange(idType: UUID.self, threshold: 0.001) { ids in
-                pending?.cancel()
-                pending = nil
-                guard ids.isEmpty, watching else { return }
-                pending = Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 400_000_000)
-                    guard !Task.isCancelled, Date().timeIntervalSince(recoveredAt) > 2 else { return }
-                    recoveredAt = Date()
-                    recover()
-                }
-            }
-        } else {
-            content
-        }
-    }
-}
-
-/// Tells the transcript tools which rows are on screen (for /jump, vim keys, and the timeline)
-/// and, for /debug, where the transcript is scrolled. Needs macOS 15; earlier systems start
-/// /jump at the last turn and show no scroll metrics.
-private struct TranscriptScrollObserver: ViewModifier {
-    /// Where the shown rows begin in the transcript, and their IDs.
-    let start: Int
-    let ids: [UUID]
-    let tools: TranscriptToolsModel
-
-    func body(content: Content) -> some View {
-        if #available(macOS 15.0, *) {
-            content
-                .onScrollTargetVisibilityChange(idType: UUID.self, threshold: 0.02) { ids in
-                    let visible = Set(ids)
-                    let top = self.ids.firstIndex { visible.contains($0) }
-                    tools.visibleMessagesChanged(topIndex: top.map { start + $0 }, topID: top.map { self.ids[$0] })
-                }
-                .onScrollGeometryChange(for: TranscriptScrollSample.self) { geometry in
-                    TranscriptScrollSample(offsetY: geometry.contentOffset.y, contentHeight: geometry.contentSize.height, viewportHeight: geometry.containerSize.height)
-                } action: { _, sample in
-                    tools.recordScroll(sample)
-                }
-                .onScrollPhaseChange { _, phase in tools.recordScrollPhase(Self.name(phase)) }
-        } else {
-            content
-        }
-    }
-
-    @available(macOS 15.0, *)
-    private static func name(_ phase: ScrollPhase) -> String {
-        switch phase {
-        case .idle: return "idle"
-        case .tracking: return "tracking"
-        case .interacting: return "interacting"
-        case .decelerating: return "decelerating"
-        case .animating: return "animating"
-        @unknown default: return "other"
-        }
     }
 }

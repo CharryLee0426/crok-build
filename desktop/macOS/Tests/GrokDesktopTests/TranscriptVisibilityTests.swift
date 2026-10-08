@@ -2,11 +2,11 @@ import XCTest
 import SwiftUI
 @testable import GrokDesktop
 
-/// A task streams on past the transcript's window (see `TranscriptPage`), with rows of very
-/// different heights, while its window is drawn and while it is away (on another Space, behind a
-/// full-screen app). Crok Desktop 1.2.0 moved the window on with every message; after a few
-/// hundred messages the conversation went blank under the Following button and stayed blank
-/// for the rest of the turn. It must keep showing its newest messages.
+/// A task streams on for hundreds of messages, with rows of very different heights, while its
+/// window is drawn and while it is away (on another Space, behind a full-screen app). Crok
+/// Desktop 1.2.0, whose rows were a SwiftUI lazy stack, went blank under the Following button
+/// after a few hundred messages and stayed blank for the rest of the turn. It must keep showing
+/// its newest messages.
 ///
 /// The window here is never on screen: "shown" is a layout and a draw 30 times a second, as the
 /// display cycle of a visible window runs them, and "away" is none. Takes about a minute, so it
@@ -23,6 +23,8 @@ final class TranscriptVisibilityTests: XCTestCase {
     private var window: NSWindow!
 
     private var replay: String? { ProcessInfo.processInfo.environment["CROK_TRANSCRIPT_REPLAY"] }
+    /// Messages enough that most of them are far out of sight.
+    private static let longTask = 240
 
     override func setUp() async throws {
         guard ProcessInfo.processInfo.environment["CROK_DESKTOP_UI_TESTS"] != nil || replay != nil else {
@@ -101,9 +103,6 @@ final class TranscriptVisibilityTests: XCTestCase {
         for (a, b) in zip(lastRows, messages) where a.id == b.id && (a.text != b.text || a.detail != b.detail || a.status != b.status) {
             print("TRANSCRIPT-DIAGNOSE   changed: \(describe(a)) → \(describe(b))")
         }
-        let start = TranscriptPage.followingStart(count: messages.count)
-        let dropped = TranscriptPage.followingStart(count: lastRows.count) ..< start
-        for index in dropped where index < messages.count { print("TRANSCRIPT-DIAGNOSE   left the window: \(describe(messages[index]))") }
     }
 
     /// User and system CPU time of this process.
@@ -170,11 +169,11 @@ final class TranscriptVisibilityTests: XCTestCase {
         store.draft = prompt
         store.send()
         let deadline = Date().addingTimeInterval(20)
-        while !(store.run.isRunning && (store.conversation?.messages.count ?? 0) > TranscriptPage.size) && Date() < deadline {
+        while !(store.run.isRunning && (store.conversation?.messages.count ?? 0) > Self.longTask) && Date() < deadline {
             try await shown(0.1)
         }
-        XCTAssertGreaterThan(store.conversation?.messages.count ?? 0, TranscriptPage.size,
-                             "the task is longer than the window (phase \(store.run.phase), banner \(store.banner ?? "none"))")
+        XCTAssertGreaterThan(store.conversation?.messages.count ?? 0, Self.longTask,
+                             "the task is a long one (phase \(store.run.phase), banner \(store.banner ?? "none"))")
     }
 
     func testALongStreamingTaskKeepsShowingItsNewestMessages() async throws {
@@ -196,9 +195,9 @@ final class TranscriptVisibilityTests: XCTestCase {
         defer {
             let ordered = frameTimes.sorted()
             func percentile(_ p: Double) -> Double { ordered.isEmpty ? 0 : ordered[min(ordered.count - 1, Int((p / 100 * Double(ordered.count - 1)).rounded()))] }
-            print(String(format: "PERF transcript streaming: %d messages, %d frames, frame p50 %.1f p95 %.1f p99 %.1f max %.1f ms, over 16 ms %d, CPU %.1f s, blank frames %d, longest blank %d, recoveries %d",
+            print(String(format: "PERF transcript streaming: %d messages, %d frames, frame p50 %.1f p95 %.1f p99 %.1f max %.1f ms, over 16 ms %d, CPU %.1f s, blank frames %d, longest blank %d",
                          (store.conversation?.messages.count ?? 0) - messagesStart, ordered.count, percentile(50), percentile(95), percentile(99), ordered.last ?? 0,
-                         ordered.filter { $0 > 16 }.count, Self.cpuSeconds() - cpuStart, blankFrames, longestBlankRun, store.features.transcript.blankRecoveries))
+                         ordered.filter { $0 > 16 }.count, Self.cpuSeconds() - cpuStart, blankFrames, longestBlankRun))
         }
         let before = try look("before")
         XCTAssertNotNil(before.topVisible, "rows are on screen while streaming: \(before)")
@@ -214,7 +213,7 @@ final class TranscriptVisibilityTests: XCTestCase {
             try await shown(1.5)
             let after = try look("cycle\(cycle)")
             print("TRANSCRIPT-VISIBILITY cycle \(cycle): away \(awaySeconds)s, \(after.messages - left) messages arrived; \(after); "
-                  + "recoveries \(store.features.transcript.blankRecoveries), blank frames \(blankFrames) of \(frames), longest \(longestBlankRun)")
+                  + "blank frames \(blankFrames) of \(frames), longest \(longestBlankRun)")
             // A recording can end before the cycles do.
             guard store.run.isRunning else { print("TRANSCRIPT-VISIBILITY the turn ended at cycle \(cycle)"); break }
             try await shown(1)

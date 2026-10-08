@@ -138,6 +138,9 @@ final class TranscriptToolsModel: ObservableObject {
     private var scrollSerial = 0
     private var findGeneration = 0
     private var findRefresh: Task<Void, Never>?
+    /// The generation of the search that is running, and whether the transcript changed since it began.
+    private var findRunning: Int?
+    private var findOutdated = false
     private var historyRequest = UUID()
     private var documentRequest = UUID()
     private var keyMonitor: Any?
@@ -341,16 +344,26 @@ final class TranscriptToolsModel: ObservableObject {
     }
 
     private func runFind(resetCursor: Bool) {
+        // A search that follows the transcript waits for the one that is running. Started afresh
+        // on every change, none would finish while a long task streams: searching thousands of
+        // messages takes longer than the next change takes to arrive.
+        if !resetCursor, findRunning == findGeneration, findPresented, !findQuery.isEmpty { findOutdated = true; return }
         findGeneration += 1
         let generation = findGeneration, query = findQuery
+        findOutdated = false
         guard findPresented else { return }
         guard !query.isEmpty else { findMatches = []; findCursor = nil; findInvalid = false; findSearchedQuery = ""; return }
         let snapshot = messages
+        findRunning = generation
         Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) {
                 TranscriptSearch.run(query: query, documents: snapshot.map(TranscriptSearchDocument.make))
             }.value
-            self?.applyFind(result, query: query, generation: generation, resetCursor: resetCursor)
+            guard let self else { return }
+            if self.findRunning == generation { self.findRunning = nil }
+            self.applyFind(result, query: query, generation: generation, resetCursor: resetCursor)
+            // What changed while it ran is searched next.
+            if self.findOutdated, generation == self.findGeneration { self.runFind(resetCursor: false) }
         }
     }
 
@@ -760,14 +773,6 @@ final class TranscriptToolsModel: ObservableObject {
     func recordScrollPhase(_ phase: String) {
         if debugScroll { debugHUD.phase = phase }
         scrollLog?.record(["evt": "phase", "phase": phase, "following": isFollowingOutput])
-    }
-
-    /// How often a transcript that showed none of its rows was laid out afresh (see `TranscriptPage`).
-    private(set) var blankRecoveries = 0
-
-    func recordBlankRecovery(messageCount: Int) {
-        blankRecoveries += 1
-        scrollLog?.record(["evt": "blank_recovery", "messages": messageCount, "following": isFollowingOutput])
     }
 
     func recordFollowing(_ following: Bool, messageCount: Int) {

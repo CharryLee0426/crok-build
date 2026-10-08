@@ -242,10 +242,11 @@ responsive. While a reply or thinking streams, a last line that so far could onl
 a rule or a heading's underline (`* **`, `---`) waits for its next characters or its
 end, so a list whose items begin in bold no longer draws a rule before each one. `/timestamps`, `/timeline`, `/find` (⌘F), `/jump`, and `/vim-mode`
 add timestamps, a turn rail, search, a turn picker, and keyboard navigation.
-A task that has run for hours shows its newest 240 messages; **Show earlier
-messages** at the top loads more, and find, `/jump`, the timeline, and vim keys
-bring back whatever they point at. Streaming costs the same at round 3,000 as at
-round 1.
+A task that has run for hours shows all of its messages: the rows are an AppKit
+list that lays out and draws only what is in sight, so scrolling to the start,
+find, `/jump`, the timeline, and vim keys reach any of them, and streaming costs
+the same at round 3,000 as at round 1. Opening a reasoning or tool block keeps it
+where it was clicked while the rows after it slide.
 
 ### Sidebar
 
@@ -480,6 +481,34 @@ heights. With it, `CROK_DESKTOP_UI_TESTS=1 swift test --filter TranscriptVisibil
 streams a long task through an offscreen conversation for about a minute and fails
 if the transcript goes blank. Crok Desktop 1.2.0 did after a few hundred messages
 (`CROK_TRANSCRIPT_REPLAY=<file>` runs it on a recording instead).
+
+The conversation's rows are AppKit: `TranscriptListView` keeps a height for every
+message, lays out and makes views only for the rows near what is in sight, and
+decides itself what stays put when heights change, so no row is ever measured in
+a loop however long the task. `swift test --filter TranscriptListTests` checks it
+alone on a 15,000-message session (what has views, following, a reader's place
+kept through arriving output, resizes, and opened blocks, jumping to a message
+never laid out) and prints what opening, streaming, resizing, and scrolling
+through all of it cost; `CROK_DESKTOP_SNAPSHOT_DIR=<dir> swift test --filter TranscriptListSnapshot`
+draws every kind of row beside the SwiftUI row it replaced. `fixture:marathon:N:M`
+is the session those are sized for: reasoning that is a line, a paragraph, or
+pages long in turn, three commands running at once in every round with a few
+lines to hundreds of lines of output, and every fifth reply in every Markdown
+format. `CROK_DESKTOP_UI_TESTS=1 swift test --filter TranscriptMarathon` sends
+3,000 rounds of it through an offscreen conversation at once (`CROK_MARATHON_ROUNDS`
+changes that), then keeps it streaming while the window is dragged to other
+sizes, taken to a screen's size and back as full screen does, scrolled to the
+middle, searched, and returned to its end.
+
+Those windows are never on screen, and what draws them (`cacheDisplay`) shows
+neither the window's title bar nor Core Animation's masks and motion as the
+screen does. `CROK_DESKTOP_WINDOW_SHOTS=<folder> swift test --filter TranscriptWindow`
+opens the real main window instead, under the desktop where nobody sees it, and
+has the window server picture it: the rows clear of the title bar and the find
+bar, a long task kept at its end as the window and the side panel change, a
+block opening in place while the rows after it slide, and the fade at the top
+of reasoning that streams. The pictures are of the app's own window, so they
+need no screen-recording permission.
 
 A session that ended or hung the app can be replayed as it was sent, on the Mac
 where it did. `CROK_TRACE_HTML=<its /trace export> swift test --filter TraceSessionReplay`

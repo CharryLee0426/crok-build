@@ -332,7 +332,11 @@ enum TranscriptReducer {
     /// How far back a `tool_call` looks for a call it repeats before adding a new one.
     static let newCallLookback = 256
 
-    static func apply(_ update: [String: Any], to messages: inout [Message], date: Date? = nil) {
+    /// Applies a session update to a transcript. Returns the index of the message it changed or
+    /// added, so that what shows the transcript need not look at every message to find it; nil
+    /// when the update left the transcript as it was.
+    @discardableResult
+    static func apply(_ update: [String: Any], to messages: inout [Message], date: Date? = nil) -> Int? {
         let kind = update["sessionUpdate"] as? String ?? ""
         switch kind {
         case "agent_message_chunk", "agent_thought_chunk", "user_message_chunk":
@@ -342,14 +346,15 @@ enum TranscriptReducer {
             if let attachment {
                 if messages.last?.kind == role { messages[messages.count - 1].attachments = (messages[messages.count - 1].attachments ?? []) + [attachment] }
                 else { messages.append(Message(kind: role, text: "", createdAt: date, attachments: [attachment])) }
-                return
+                return messages.count - 1
             }
             let content = text(from: block)
-            guard !content.isEmpty else { return }
+            guard !content.isEmpty else { return nil }
             if messages.last?.kind == role { messages[messages.count - 1].text += content }
             else { messages.append(Message(kind: role, text: content, createdAt: date)) }
+            return messages.count - 1
         case "tool_call", "tool_call_update":
-            guard let id = update["toolCallId"] as? String else { return }
+            guard let id = update["toolCallId"] as? String else { return nil }
             let contents = update["content"] as? [[String: Any]] ?? []
             let detail = contents.compactMap { item -> String? in
                 if item["type"] as? String == "diff" {
@@ -373,11 +378,12 @@ enum TranscriptReducer {
                     || images.map(\.path) != messages[index].attachments?.map(\.path) {
                     messages[index].attachments = images
                 }
-            } else {
-                messages.append(Message(kind: .tool, text: update["title"] as? String ?? "Tool call", toolID: id,
-                                        status: update["status"] as? String ?? "pending", detail: detail, createdAt: date, attachments: images))
+                return index
             }
-        default: break
+            messages.append(Message(kind: .tool, text: update["title"] as? String ?? "Tool call", toolID: id,
+                                    status: update["status"] as? String ?? "pending", detail: detail, createdAt: date, attachments: images))
+            return messages.count - 1
+        default: return nil
         }
     }
 

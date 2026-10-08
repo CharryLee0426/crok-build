@@ -14,7 +14,9 @@ entry with `params` is a recorded record, sent with its own method and metadata)
 `fixture:long[:N[:M]]` streams one long agentic turn for performance tests: N rounds
 (default 3000) as fast as the client reads, then M rounds at a model's streaming pace (see
 `stream_long_task`); `fixture:mixed[:N[:M]]` is the same with rows of a real task's varied heights
-(see `mixed_round`). `fixture:replay` plays back a recorded session (a trace export or a
+(see `mixed_round`), and `fixture:marathon[:N[:M]]` with reasoning of three lengths, three commands
+running at once in every round, and replies in every Markdown format (see `marathon_round`).
+`fixture:replay` plays back a recorded session (a trace export or a
 session's updates.jsonl, named by CROK_FIXTURE_REPLAY) at its recorded pace, and with
 CROK_FIXTURE_REPLAY_BY_TURN every prompt plays back its next turn (see `replay_session`).
 The ordinary scenario streams Markdown, a plan, and a simulated tool result, and
@@ -201,6 +203,112 @@ class MockHarness:
             output = "\n".join(output for _ in range(30))
         return thought, title, output, reply
 
+    EVERY_FORMAT = r"""# Heading one
+## Heading two
+### Heading three
+#### Heading four
+
+A paragraph with **bold**, *italic*, ***both***, ~~strikethrough~~, `inline code`, a [link](https://example.com/docs "Docs"), a bare URL https://example.org/path_(x), a footnote[^1], and inline math $E = mc^2$ and $\frac{a_1}{b}$. Prices are $5 and $10, not math.
+A second line after a single newline.
+
+- First bullet
+- Second bullet with `code`
+  - Nested bullet
+    - Third level
+- [x] A finished task
+- [ ] An open task
+
+1. **Install** the dependencies
+2. **Configure** the project:
+   ```bash
+   export PATH="$HOME/bin:$PATH"
+   make build -j8
+   ```
+3. Verify:
+   $$
+   \sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+   $$
+
+| Option | Type | Default | Notes |
+|:-------|:----:|--------:|-------|
+| `timeout` | `Int` | 30 | seconds, see $t_{max}$ |
+| `retries` | `Int` | 3 | uses **exponential** backoff |
+| `mode` | `String` | "fast" | one of `fast`, `safe` |
+
+> A block quote with **bold** text
+> on two lines.
+
+> [!NOTE]
+> A note callout with a list:
+> - item one
+> - item two
+
+> [!WARNING]
+> A warning callout.
+
+```swift
+struct Row: Identifiable {
+    let id = UUID()
+    var height: CGFloat = 44  // estimated until measured
+    func top(after previous: Row) -> CGFloat { previous.height + 23 }
+}
+```
+
+```
+plain code without a language
+```
+
+---
+
+$$
+\int_{0}^{\infty} e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}
+$$
+
+<details><summary>Inline HTML</summary>stays visible</details>
+
+Final paragraph.
+
+[^1]: The footnote's text.
+"""
+
+    @staticmethod
+    def marathon_round(index, piece, partial=True):
+        """A round of `fixture:marathon`, as the session updates it sends: reasoning that is a
+        line, a paragraph, or pages long in turn; three commands that start together, print
+        while the others do, and finish out of order, with a few lines, a screen, or hundreds of
+        lines of output; and a reply that every fifth round holds every Markdown format a reply
+        can. Text streams in chunks of `piece` characters; without `partial` each command reports
+        its output once, when it finishes."""
+        thought, _, _, reply = MockHarness.long_round(index)
+        if index % 3 == 1:
+            thought = " ".join("Step {0} of round {1}: {2}".format(step + 1, index + 1, thought) for step in range(4))
+        elif index % 3 == 2:
+            thought = "\n\n".join("**Step {0}.** {1}\n\n- compare `module_{2}.rs` with the last run\n- note what changed in round {3}".format(
+                step + 1, thought, (index + step) % 11, index + 1) for step in range(18))
+        if index % 5 == 2:
+            reply = "Round {0} in full.\n\n".format(index + 1) + MockHarness.EVERY_FORMAT
+        updates = [{"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": thought[offset:offset + piece]}}
+                   for offset in range(0, len(thought), piece)]
+        lengths = [(3, 40, 600)[(index + command) % 3] for command in range(3)]
+        tools = ["marathon-tool-{}-{}".format(index, command) for command in range(3)]
+        def output(command, lines):
+            return "\n".join("test crate_{0}::case_{1:03} ... ok ({2} ms)".format((index + command) % 37, line, (index * 7 + line) % 90)
+                             for line in range(lines))
+        for command, tool in enumerate(tools):
+            updates.append({"sessionUpdate": "tool_call", "toolCallId": tool, "kind": "execute", "status": "in_progress",
+                            "title": "Run `cargo test -p crate_{}`".format((index + command) % 37), "rawInput": {"round": index}})
+        # They print by turns: each update carries what its command has printed so far.
+        for part in (1, 2, 3) if partial else ():
+            for command, tool in enumerate(tools):
+                updates.append({"sessionUpdate": "tool_call_update", "toolCallId": tool, "status": "in_progress",
+                                "content": [{"type": "content", "content": {"type": "text", "text": output(command, max(1, lengths[command] * part // 3))}}]})
+        for command in (1, 2, 0):
+            updates.append({"sessionUpdate": "tool_call_update", "toolCallId": tools[command], "status": "failed" if (index + command) % 17 == 0 else "completed",
+                            "content": [{"type": "content", "content": {"type": "text", "text": output(command, lengths[command])}}]})
+        updates += [{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply[offset:offset + piece]}}
+                    for offset in range(0, len(reply), piece)]
+        return updates
+
     @staticmethod
     def long_round(index):
         """One agent round of a long task: reasoning, a tool call with output, and a reply."""
@@ -216,7 +324,7 @@ class MockHarness:
                  "```rust\nfn round_{0}() -> usize {{ {0} }}\n```").format(index + 1, crate, index % 11)
         return thought, "Run `cargo test -p {}`".format(crate), output, reply
 
-    def stream_long_task(self, session_id, rounds, paced_rounds, stop, mixed=False):
+    def stream_long_task(self, session_id, rounds, paced_rounds, stop, mixed=False, marathon=False):
         """`fixture:long[:N[:M]]`: a long agentic turn. N rounds (3000 by default) stream as fast
         as the client reads them, or each followed by CROK_FIXTURE_ROUND_SECONDS; then M more
         rounds stream at a model's pace, one chunk every CROK_FIXTURE_CHUNK_SECONDS (0.02). Each
@@ -238,15 +346,19 @@ class MockHarness:
                     return False
                 self.update(session_id, update)
                 return not stop.is_set()
-            thought, title, output, reply = self.mixed_round(index) if mixed else self.long_round(index)
-            tool_id = "long-tool-{}".format(index)
-            updates = [{"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": thought[offset:offset + 24]}}
-                       for offset in range(0, len(thought), 24)]
-            updates.append({"sessionUpdate": "tool_call", "toolCallId": tool_id, "title": title, "kind": "execute", "status": "in_progress", "rawInput": {"round": index}})
-            updates.append({"sessionUpdate": "tool_call_update", "toolCallId": tool_id, "status": "completed",
-                            "content": [{"type": "content", "content": {"type": "text", "text": output}}]})
-            updates += [{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply[offset:offset + 24]}}
-                        for offset in range(0, len(reply), 24)]
+            if marathon:
+                # The rounds sent at once come in large pieces, so thousands of them arrive in seconds.
+                updates = self.marathon_round(index, 24 if paced else 4000, partial=paced)
+            else:
+                thought, title, output, reply = self.mixed_round(index) if mixed else self.long_round(index)
+                tool_id = "long-tool-{}".format(index)
+                updates = [{"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": thought[offset:offset + 24]}}
+                           for offset in range(0, len(thought), 24)]
+                updates.append({"sessionUpdate": "tool_call", "toolCallId": tool_id, "title": title, "kind": "execute", "status": "in_progress", "rawInput": {"round": index}})
+                updates.append({"sessionUpdate": "tool_call_update", "toolCallId": tool_id, "status": "completed",
+                                "content": [{"type": "content", "content": {"type": "text", "text": output}}]})
+                updates += [{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply[offset:offset + 24]}}
+                            for offset in range(0, len(reply), 24)]
             for update in updates:
                 if not send(update):
                     return False
@@ -520,10 +632,10 @@ class MockHarness:
                 finish("end_turn" if self.replay_session(session_id, stop, turn) else "cancelled")
                 return
             self.update(session_id, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "Preparing the offline desktop fixture."}})
-            long_run = re.search(r"fixture:(long|mixed)(?::(\d+))?(?::(\d+))?", prompt)
+            long_run = re.search(r"fixture:(long|mixed|marathon)(?::(\d+))?(?::(\d+))?", prompt)
             if long_run:
                 if self.stream_long_task(session_id, int(long_run.group(2) or 3000), int(long_run.group(3) or 0), stop,
-                                         mixed=long_run.group(1) == "mixed"):
+                                         mixed=long_run.group(1) == "mixed", marathon=long_run.group(1) == "marathon"):
                     finish("end_turn")
                 else:
                     finish("cancelled")

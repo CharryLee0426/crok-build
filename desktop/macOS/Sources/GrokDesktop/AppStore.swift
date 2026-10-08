@@ -128,6 +128,8 @@ final class AppStore: ObservableObject {
     private var pendingTranscript: [UUID: [[String: Any]]] = [:]
     private var transcriptFlush: Task<Void, Never>?
     private var transcriptRevisions: [UUID: Int] = [:]
+    /// Per transcript, the first message each of its latest revisions changed, oldest first (see `transcriptFirstChange`).
+    private var transcriptChanges: [UUID: [(revision: Int, index: Int)]] = [:]
     let menuState = MenuState()
     private var menuStateObserver: AnyCancellable?
     private var menuStateUpdateScheduled = false
@@ -443,6 +445,7 @@ final class AppStore: ObservableObject {
         drafts.removeValue(forKey: .conversation(id))
         runs.removeValue(forKey: id)
         transcriptRevisions.removeValue(forKey: id)
+        transcriptChanges.removeValue(forKey: id)
         unreadConversationIDs.remove(id)
     }
 
@@ -667,7 +670,7 @@ final class AppStore: ObservableObject {
                 staleTranscripts.remove(id)
                 if !lost, !TranscriptReducer.sameContent(state.conversations[index].messages, replayed) {
                     state.conversations[index].messages = replayed
-                    transcriptRevisions[id, default: 0] += 1
+                    transcriptChanged(id, from: 0)
                 }
             }
         } else {
@@ -796,9 +799,12 @@ final class AppStore: ObservableObject {
             var messages = state.conversations[i].messages
             state.conversations[i].messages = []
             let now = Date()
-            for update in updates { TranscriptReducer.apply(update, to: &messages, date: now) }
+            var first = Int.max
+            for update in updates {
+                if let index = TranscriptReducer.apply(update, to: &messages, date: now) { first = min(first, index) }
+            }
             state.conversations[i].messages = messages
-            transcriptRevisions[id, default: 0] += 1
+            transcriptChanged(id, from: first)
             changed = true
         }
         if pendingTranscript.isEmpty { transcriptFlush?.cancel(); transcriptFlush = nil }
@@ -807,6 +813,35 @@ final class AppStore: ObservableObject {
 
     /// Changes whenever the conversation's transcript does. Views compare this instead of text.
     func transcriptRevision(of id: UUID?) -> Int { id.flatMap { transcriptRevisions[$0] } ?? 0 }
+
+    /// A transcript has a new revision, in which the messages before `index` are as they were.
+    /// `Int.max` is a revision that changed no message.
+    private func transcriptChanged(_ id: UUID, from index: Int) {
+        let revision = transcriptRevisions[id, default: 0] + 1
+        transcriptRevisions[id] = revision
+        var changes = transcriptChanges[id] ?? []
+        if changes.count >= Self.trackedTranscriptChanges { changes.removeFirst(changes.count - Self.trackedTranscriptChanges + 1) }
+        changes.append((revision, index))
+        transcriptChanges[id] = changes
+    }
+
+    /// How many revisions back `transcriptFirstChange` can answer for.
+    private static let trackedTranscriptChanges = 128
+
+    /// The first message that differs from what a transcript held at `revision`: the messages
+    /// before it are as they were, so a view that showed that revision looks only from there on.
+    /// A streamed update changes the end of a task of thousands of messages, and comparing all of
+    /// them for every update is what such a task would otherwise cost. `Int.max` when none
+    /// changed; nil when the store no longer knows that far back, and any may have.
+    func transcriptFirstChange(of id: UUID?, since revision: Int) -> Int? {
+        guard let id else { return nil }
+        let current = transcriptRevisions[id] ?? 0
+        guard revision != current else { return Int.max }
+        guard revision < current, let changes = transcriptChanges[id], let oldest = changes.first, oldest.revision <= revision + 1 else { return nil }
+        var first = Int.max
+        for change in changes where change.revision > revision { first = min(first, change.index) }
+        return first
+    }
 
     var importing: Set<UUID> = []
     private func handleRequest(_ requestID: Any, method: String, params: [String: Any], id: UUID, client: ACPClient) {
@@ -1284,7 +1319,7 @@ final class AppStore: ObservableObject {
         messages.append(message)
         state.conversations[i].messages = messages
         state.conversations[i].updatedAt = Date(); save()
-        transcriptRevisions[id, default: 0] += 1
+        transcriptChanged(id, from: messages.count - 1)
     }
 }
 
