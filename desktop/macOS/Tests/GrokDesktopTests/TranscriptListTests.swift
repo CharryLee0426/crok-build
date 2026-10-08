@@ -114,6 +114,7 @@ final class TranscriptListTests: XCTestCase {
     private var display = TranscriptDisplay(conversation: UUID())
 
     override func tearDown() async throws {
+        window?.orderOut(nil)
         window?.contentView = nil
         window = nil
         list = nil
@@ -408,6 +409,73 @@ final class TranscriptListTests: XCTestCase {
         settle()
         XCTAssertEqual(try screenTop(of: id), before, accuracy: 0.5)
         XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: id)).height, folded)
+    }
+
+    // MARK: Clicks
+
+    /// The middle of a block's header, in the window.
+    private func headerCenter(of id: UUID, file: StaticString = #filePath, line: UInt = #line) throws -> NSPoint {
+        let row = try XCTUnwrap(list.rowView(for: id), "the row is in sight", file: file, line: line)
+        let header = try XCTUnwrap(row.subviews.first { $0 is TranscriptFoldHeader }, "the row has a header", file: file, line: line)
+        return header.convert(NSPoint(x: header.bounds.midX, y: header.bounds.midY), to: nil)
+    }
+
+    /// A click as the window gets it: the window finds the view under it, which gets the mouse going down and up.
+    /// A window takes clicks only on screen, so it is ordered in under the desktop, where nobody sees it.
+    private func click(at point: NSPoint) throws {
+        if !window.isVisible {
+            window.ignoresMouseEvents = true
+            window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) - 1)
+            window.orderFrontRegardless()
+        }
+        for (type, pressure) in [(NSEvent.EventType.leftMouseDown, Float(1)), (NSEvent.EventType.leftMouseUp, Float(0))] {
+            window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: pressure)))
+        }
+        settle()
+    }
+
+    func testClickingAHeaderOpensAndClosesItsBlock() throws {
+        // Reasoning that has finished, and commands that completed, are running, failed, and wait to run.
+        let messages = TranscriptListFixtures.showcase()
+        show(messages, size: NSSize(width: 900, height: 6_000))
+        let frameView = try XCTUnwrap(window.contentView?.superview)
+        for message in messages where message.kind == .thought || message.kind == .tool {
+            let id = message.id, folded = try XCTUnwrap(list.rowFrame(for: id)).height
+            let point = try headerCenter(of: id)
+            XCTAssertTrue(frameView.hitTest(point) is TranscriptFoldHeader, "a click on the header of “\(message.text.prefix(24))” reaches the header")
+            try click(at: point)
+            XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, true, "a click opens “\(message.text.prefix(24))”")
+            XCTAssertGreaterThan(try XCTUnwrap(list.rowFrame(for: id)).height, folded + 10)
+            try click(at: try headerCenter(of: id))
+            XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, false, "and another closes it")
+            XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: id)).height, folded)
+        }
+    }
+
+    func testReasoningOpensAndClosesByItsHeaderWhileItStreamsAndOnceItHasEnded() throws {
+        var messages = TranscriptListFixtures.longSession(rounds: 20)
+        show(messages)
+        messages.append(Message(kind: .thought, text: MarkdownTestDocuments.thinking(lines: 12)))
+        let id = try XCTUnwrap(messages.last?.id)
+        display.streamingID = id
+        display.status = "Thinking…"
+        apply(messages)
+        try click(at: try headerCenter(of: id))
+        XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, true, "while it streams, a click opens it")
+        // The transcript model gives the list back what was clicked open.
+        display.expanded = [id]
+        display.streamingID = nil
+        display.status = nil
+        apply(messages)
+        let open = try XCTUnwrap(list.rowFrame(for: id)).height
+        try click(at: try headerCenter(of: id))
+        XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, false, "once it has ended, a click closes it")
+        XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: id)).height, TranscriptFoldHeader.minHeight)
+        display.expanded = []
+        try click(at: try headerCenter(of: id))
+        XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, true, "and another opens it again")
+        XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: id)).height, open, accuracy: 0.5)
     }
 
     func testATranscriptThatWasReplacedShowsItsNewRows() throws {

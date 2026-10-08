@@ -185,6 +185,30 @@ final class TranscriptWindowTests: XCTestCase {
         try picture("7-opened-fully")
     }
 
+    func testAClickOnAHeaderOpensAndClosesItsBlock() throws {
+        let messages = TranscriptListFixtures.showcase()
+        _ = open([messages])
+        let list = try list
+        list.scrollView.contentView.scroll(to: NSPoint(x: 0, y: -10_000))
+        spin(0.4)
+        // Reasoning that has finished, and a command.
+        for id in [messages[1].id, messages[2].id] {
+            for opens in [true, false] {
+                let row = try XCTUnwrap(list.rowView(for: id), "the row is in sight")
+                let header = try XCTUnwrap(row.subviews.first { $0 is TranscriptFoldHeader })
+                let point = header.convert(NSPoint(x: header.bounds.midX, y: header.bounds.midY), to: nil)
+                for type in [NSEvent.EventType.leftMouseDown, NSEvent.EventType.leftMouseUp] {
+                    window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+                }
+                spin(0.4)
+                XCTAssertEqual(tools.isExpanded(id), opens, "the click \(opens ? "opened" : "closed") the block")
+                XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, opens, "and its row shows it")
+                if opens, id == messages[1].id { try picture("9-opened-by-a-click") }
+            }
+        }
+    }
+
     func testReasoningThatStreamsFadesAtItsTop() throws {
         var messages = Array(TranscriptListFixtures.showcase().prefix(1))
         messages.append(Message(kind: .thought, text: MarkdownTestDocuments.thinking(lines: 12)))

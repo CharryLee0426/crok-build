@@ -336,10 +336,10 @@ final class TranscriptFoldHeader: NSView {
     /// The pointer is no longer known to be over the header: the transcript scrolled under it.
     func forgetHover() { isHovered = false; isPressed = false }
 
-    // The title inside is part of the button.
+    // The title inside is part of the button. AppKit gives the point in the superview's coordinates, as the frame is.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let superview, !isHidden else { return nil }
-        return frame.contains(superview.convert(point, from: superview.superview)) ? self : nil
+        guard !isHidden else { return nil }
+        return frame.contains(point) ? self : nil
     }
 
     override func updateTrackingAreas() {
