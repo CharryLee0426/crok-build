@@ -49,7 +49,7 @@ struct WelcomeView: View {
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
             .help(project.path).accessibilityLabel("Project: \(project.name)")
         } else {
-            Button("Open a project") { store.addProject() }.buttonStyle(SubtleButtonStyle())
+            Button(L10n.t("open_a_project", "Open a project")) { store.addProject() }.buttonStyle(SubtleButtonStyle())
         }
     }
 }
@@ -115,9 +115,9 @@ struct WelcomeGreeting: View {
 
     static func text(at date: Date, calendar: Calendar = .current) -> String {
         switch calendar.component(.hour, from: date) {
-        case 5..<12: return "Good morning"
-        case 12..<17: return "Good afternoon"
-        case 17..<22: return "Good evening"
+        case 5..<12: return L10n.t("good_morning", "Good morning")
+        case 12..<17: return L10n.t("good_afternoon", "Good afternoon")
+        case 17..<22: return L10n.t("good_evening", "Good evening")
         default: return "Good night"
         }
     }

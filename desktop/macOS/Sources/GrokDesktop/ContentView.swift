@@ -69,8 +69,8 @@ struct ContentView: View {
             .overlay { TitleBarGlass() }
             .overlay(alignment: .topTrailing) { DebugOverlay() }
             .background { GlassBackdrop(role: .canvas).ignoresSafeArea() }
-            .navigationTitle(store.conversation?.title ?? "New task")
-            .navigationSubtitle(store.project?.name ?? "Your workspace")
+            .navigationTitle(store.conversation?.title ?? L10n.t("new_task", "New task"))
+            .navigationSubtitle(store.project?.name ?? L10n.t("your_workspace", "Your workspace"))
             .toolbar { workspaceToolbar }
             .toolbar(store.minimalMode ? .hidden : .automatic, for: .windowToolbar)
             .themedToolbarBackground()
