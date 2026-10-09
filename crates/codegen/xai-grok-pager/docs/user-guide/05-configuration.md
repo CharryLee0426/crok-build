@@ -88,6 +88,9 @@ follow_up_behavior = "queue"           # mid-turn follow-ups: "queue" (wait for 
                                        # next tool/model safe gap). See Keyboard Shortcuts → Mid-turn.
 screen_mode = "fullscreen"             # default render mode: "fullscreen" | "minimal"
                                        # (unset → fullscreen); set via /settings → Default screen mode
+ui_language = "auto"                   # interface language: "auto" | "en" | "zh-Hans" | "ja" |
+                                       # "es" | "fr" | "de" (unset/auto follows the process locale);
+                                       # shared with Crok Desktop via /settings → Interface language
 
 [features]
 telemetry = false                      # anonymous usage telemetry
