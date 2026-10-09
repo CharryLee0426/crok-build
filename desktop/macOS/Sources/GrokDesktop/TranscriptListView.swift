@@ -14,6 +14,8 @@ struct TranscriptDisplay: Equatable {
     var compact = false
     /// The line under the rows while a turn runs ("Working…"); nil when none does.
     var status: String?
+
+    var isTurnRunning: Bool { status != nil }
 }
 
 /// Whether the transcript follows new output, for the button over it.
@@ -210,6 +212,12 @@ final class TranscriptListView: NSView {
                 if let index = indexByID[id] { realized[id]?.configure(model(at: index)) }
             }
         }
+        if next.isTurnRunning != old.isTurnRunning {
+            // Unfinished tool calls start or stop showing that they are at work.
+            for (id, view) in realized where view.model.message.kind == .tool && !Self.isFinished(view.model.message) {
+                if let index = indexByID[id] { view.configure(model(at: index)) }
+            }
+        }
         if next.compact != old.compact || (next.status == nil) != (old.status == nil) { topsDirty = true }
         if let status = next.status { statusView.text = status }
 
@@ -334,8 +342,11 @@ final class TranscriptListView: NSView {
         let stamped = display.showTimestamps && (message.kind == .user || message.kind == .assistant)
         return TranscriptRowModel(message: message, isStreaming: message.id == display.streamingID, timestamp: stamped ? message.createdAt : nil,
                                   highlight: message.id == display.matchID ? .match : message.id == display.focusID ? .focus : .none,
-                                  isExpanded: foldable && display.expanded.contains(message.id))
+                                  isExpanded: foldable && display.expanded.contains(message.id),
+                                  isTurnRunning: message.kind == .tool && display.isTurnRunning)
     }
+
+    private static func isFinished(_ message: Message) -> Bool { message.status == "completed" || message.status == "failed" }
 
     private func append(_ message: Message) {
         let index = messages.count

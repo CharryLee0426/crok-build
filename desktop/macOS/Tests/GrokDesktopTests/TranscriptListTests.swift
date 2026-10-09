@@ -103,6 +103,23 @@ final class TranscriptListSnapshotTests: XCTestCase {
         try renderSwiftUI(messages, streaming: thought.id, width: 900, appearance: .aqua, name: "streaming-swiftui.png")
         try renderList(messages, expanded: [thought.id], streaming: thought.id, status: "Thinking…", width: 900, appearance: .darkAqua, name: "streaming-open-appkit.png")
     }
+
+    func testToolCallsInEachState() throws {
+        let base = TranscriptListFixtures.base
+        let thought = Message(kind: .thought, text: MarkdownTestDocuments.thinking(lines: 6), createdAt: base)
+        let messages = [
+            Message(kind: .tool, text: "Run `crok mcp doctor runpod 2>&1 | tail -30`", toolID: "done", status: "completed",
+                    detail: "runpod: reachable\nauth: oauth required", createdAt: base),
+            Message(kind: .tool, text: "Run `swift test --filter Snapshot`", toolID: "failed", status: "failed", detail: "error: 2 tests failed", createdAt: base),
+            Message(kind: .tool, text: "Run `npx -y skills list --global 2>&1 | grep -E '(runpod|flash)'`", toolID: "running", status: "in_progress", createdAt: base),
+            Message(kind: .tool, text: "Read `desktop/macOS/Package.swift`", toolID: "pending", status: "pending", createdAt: base),
+            thought,
+        ]
+        for (suffix, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            try renderList(messages, expanded: [messages[1].id], streaming: thought.id, status: "Working…", width: 900, appearance: appearance, name: "tools-running-\(suffix).png")
+            try renderList(Array(messages.prefix(4)), width: 900, appearance: appearance, name: "tools-stopped-\(suffix).png")
+        }
+    }
 }
 
 /// The AppKit transcript by itself: what it lays out, what stays put, and what a long task costs.
@@ -297,6 +314,38 @@ final class TranscriptListTests: XCTestCase {
         display.status = nil
         apply(messages)
         XCTAssertLessThanOrEqual(abs(distanceFromEnd), 1, "and when it has ended")
+    }
+
+    func testToolCallsShowWhetherTheyAreAtWork() throws {
+        var messages = Array(TranscriptListFixtures.longSession(rounds: 2))
+        messages.append(Message(kind: .tool, text: "Run `make test`", toolID: "running", status: "in_progress", detail: ""))
+        messages.append(Message(kind: .tool, text: "Read `Package.swift`", toolID: "waiting", status: "pending", detail: ""))
+        display.status = "Working…"
+        show(messages)
+        func tone(_ index: Int) throws -> TranscriptToolRow.Tone? {
+            try XCTUnwrap(list.rowView(for: messages[index].id) as? TranscriptToolRow, "the call has a row").tone
+        }
+        let running = messages.count - 2, waiting = messages.count - 1
+        XCTAssertEqual(try tone(running), .running, "an unfinished call spins while its turn runs")
+        XCTAssertEqual(try tone(waiting), .running)
+        let height = try XCTUnwrap(list.rowFrame(for: messages[running].id)).height
+
+        messages[running].status = "completed"
+        messages[waiting].status = "failed"
+        apply(messages)
+        XCTAssertEqual(try tone(running), .completed)
+        XCTAssertEqual(try tone(waiting), .failed)
+        XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: messages[running].id)).height, height, "finishing does not move what follows")
+
+        // A turn that ends with a call unfinished, as a stop does, leaves it still.
+        messages.append(Message(kind: .tool, text: "Run `sleep 60`", toolID: "stopped", status: "in_progress", detail: ""))
+        apply(messages)
+        let stopped = messages.count - 1
+        XCTAssertEqual(try tone(stopped), .running)
+        display.status = nil
+        apply(messages)
+        XCTAssertEqual(try tone(stopped), .idle)
+        XCTAssertEqual(try tone(running), .completed, "finished calls keep their colour after the turn")
     }
 
     func testReasoningStreamsFoldedThenOpen() throws {

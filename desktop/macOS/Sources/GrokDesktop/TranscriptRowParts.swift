@@ -146,9 +146,10 @@ final class TranscriptTextLabel: NSView {
     }
 }
 
-/// A rounded fill behind a row's content.
+/// A rounded fill behind a row's content, with an optional hairline just inside its edge.
 final class TranscriptFillView: NSView {
     var color: NSColor { didSet { needsDisplay = true } }
+    var stroke: NSColor? { didSet { needsDisplay = true } }
     var radius: CGFloat
 
     init(color: NSColor, radius: CGFloat) {
@@ -166,6 +167,11 @@ final class TranscriptFillView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         color.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        guard let stroke else { return }
+        stroke.setStroke()
+        let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: max(0, radius - 0.5), yRadius: max(0, radius - 0.5))
+        edge.lineWidth = 1
+        edge.stroke()
     }
 }
 
@@ -227,14 +233,30 @@ final class TranscriptMarkView: NSView {
     }
 }
 
-/// "Thinking" with its sparkle: muted, or in the thinking colours while the reasoning streams.
-/// A still gradient; a moving one would redraw every frame (see `ThinkingEffects`).
+/// "Thinking" with its sparkle: muted, or in the thinking colours while the reasoning streams, when
+/// the sparkle also turns. The text's gradient is still, as a moving one would redraw every frame;
+/// the sparkle turns in Core Animation (see `ThinkingEffects`).
 final class TranscriptThinkingTitle: NSView {
-    var isStreaming = false { didSet { if isStreaming != oldValue { needsDisplay = true } } }
+    var isStreaming = false {
+        didSet {
+            guard isStreaming != oldValue else { return }
+            needsDisplay = true
+            showSparkle()
+        }
+    }
 
     private static let font = NSFont.systemFont(ofSize: 13, weight: .medium)
-    private static let sparkle = TranscriptParts.symbol("sparkle", size: 13)
+    private static let sparkleImage = TranscriptParts.symbol("sparkle", size: 13)
+    private let sparkle = TranscriptThinkingTitle.sparkleImage.map(TurningSymbolView.init(image:))
     private var text: String { isStreaming ? "Thinking…" : "Thinking" }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        if let sparkle { addSubview(sparkle) }
+        showSparkle()
+    }
+
+    required init?(coder: NSCoder) { nil }
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
@@ -242,26 +264,32 @@ final class TranscriptThinkingTitle: NSView {
 
     var contentSize: NSSize {
         let textSize = (text as NSString).size(withAttributes: [.font: Self.font])
-        let image = Self.sparkle?.size ?? .zero
+        let image = Self.sparkleImage?.size ?? .zero
         return NSSize(width: ceil(image.width + 8 + textSize.width) + 1, height: ceil(max(image.height, textSize.height)))
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        guard let sparkle, let image = Self.sparkleImage else { return }
+        sparkle.frame = NSRect(x: 0, y: ((newSize.height - image.size.height) / 2).rounded(), width: image.size.width, height: image.size.height)
+    }
+
+    private func showSparkle() {
+        sparkle?.colors = isStreaming ? ThinkingPalette.nsColors : [Theme.palette.mutedNS]
+        sparkle?.turns = isStreaming
     }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         let attributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: NSColor.black]
         let size = (text as NSString).size(withAttributes: attributes)
-        var x: CGFloat = 0
-        if let image = Self.sparkle {
-            let rect = NSRect(x: 0, y: ((bounds.height - image.size.height) / 2).rounded(), width: image.size.width, height: image.size.height)
-            tinted(rect, in: context) { image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil) }
-            x = image.size.width + 8
-        }
+        let x = Self.sparkleImage.map { $0.size.width + 8 } ?? 0
         let rect = NSRect(x: x, y: ((bounds.height - size.height) / 2).rounded(), width: ceil(size.width), height: ceil(size.height))
         tinted(rect, in: context) { (text as NSString).draw(at: rect.origin, withAttributes: attributes) }
     }
 
     /// Draws a shape, then gives it its colour: the thinking colours across it while streaming, as
-    /// each of the SwiftUI title's two parts had, and the muted colour otherwise.
+    /// the SwiftUI title had, and the muted colour otherwise.
     private func tinted(_ rect: NSRect, in context: CGContext, shape: () -> Void) {
         context.beginTransparencyLayer(auxiliaryInfo: nil)
         shape()

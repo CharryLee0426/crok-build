@@ -127,12 +127,12 @@ final class TokenMeterTests: XCTestCase {
         XCTAssertEqual(TokenFormat.contextHelp(ContextUsage(used: 42_100, window: 272_000)), """
             Context window: 15% full
             42,100 of 272,000 tokens used, 229,900 free
-            Click to see how it is allocated · /context
+            Click to see how it is allocated
             """)
         XCTAssertEqual(TokenFormat.contextAccessibilityValue(ContextUsage(used: 42_100, window: 272_000)), "15% full, 42,100 of 272,000 tokens")
         // A model the catalog does not size, and a task that has not reported.
-        XCTAssertEqual(TokenFormat.contextHelp(ContextUsage(used: 42_100)), "Context window: 42,100 tokens used\nClick to see how it is allocated · /context")
-        XCTAssertEqual(TokenFormat.contextHelp(nil), "Context window: not measured yet\nClick to see how it is allocated · /context")
+        XCTAssertEqual(TokenFormat.contextHelp(ContextUsage(used: 42_100)), "Context window: 42,100 tokens used\nClick to see how it is allocated")
+        XCTAssertEqual(TokenFormat.contextHelp(nil), "Context window: not measured yet\nClick to see how it is allocated")
         XCTAssertEqual(TokenFormat.contextAccessibilityValue(nil), "Not measured yet")
         // A context can outgrow its window; nothing is free then.
         XCTAssertEqual(ContextUsage(used: 300, window: 200).fraction, 1.5)

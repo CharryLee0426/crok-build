@@ -124,8 +124,8 @@ struct ComposerView: View {
                         compactOptionsButton(iconOnly: geometry.size.width < 260)
                     } else {
                         modelPicker
-                        reasoningPicker(compact: geometry.size.width < 650)
-                        permissionPicker(compact: geometry.size.width < 650)
+                        reasoningPicker
+                        permissionPicker
                         modePicker
                     }
                     Spacer(minLength: 0)
@@ -377,9 +377,9 @@ struct ComposerView: View {
         }.frame(width: 400)
     }
 
-    private func reasoningPicker(compact: Bool) -> some View {
+    private var reasoningPicker: some View {
         Button { showReasoning.toggle() } label: {
-            ComposerControlLabel(title: compact ? reasoningName : "Thinking · \(reasoningName)", symbol: "brain")
+            ComposerControlLabel(title: reasoningName, symbol: "brain")
         }.buttonStyle(ComposerControlStyle()).fixedSize(horizontal: true, vertical: false)
             .disabled(optionsDisabled || store.run.reasoningOptions.isEmpty)
             .help(store.run.reasoningOptions.isEmpty ? "This model does not offer an adjustable thinking level." : "Choose how much the model thinks before answering.")
@@ -392,23 +392,16 @@ struct ComposerView: View {
             }
     }
 
-    /// Ask / Auto / Always approve. Changes apply to running tasks immediately.
-    private func permissionPicker(compact: Bool) -> some View {
+    /// Ask / Auto / Always approve, as its icon alone; the title is in its help. Changes apply to running tasks immediately.
+    private var permissionPicker: some View {
         let mode = features.permissionMode
-        let tint = mode.isAlwaysApprove ? ComposerPalette.warning : Theme.muted
         return Button { showPermissions.toggle() } label: {
-            HStack(spacing: 6) {
-                Image(systemName: mode.symbol).font(.system(size: 12)).foregroundStyle(tint).frame(width: 16).accessibilityHidden(true)
-                if !compact {
-                    Text(mode.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                        .foregroundStyle(mode.isAlwaysApprove ? ComposerPalette.warning : Theme.ink)
-                }
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.muted).accessibilityHidden(true)
-            }
-            .padding(.horizontal, 10).frame(height: 30).contentShape(Capsule())
-            .background(mode.isAlwaysApprove ? ComposerPalette.warning.opacity(0.12) : .clear, in: Capsule())
+            Image(systemName: mode.symbol).font(.system(size: 13))
+                .foregroundStyle(mode.isAlwaysApprove ? ComposerPalette.warning : Theme.muted)
+                .frame(width: 30, height: 30).contentShape(Circle())
+                .background(mode.isAlwaysApprove ? ComposerPalette.warning.opacity(0.14) : .clear, in: Circle())
         }
-        .buttonStyle(ComposerControlStyle()).fixedSize(horizontal: true, vertical: false)
+        .buttonStyle(ComposerControlStyle())
         .disabled(store.project == nil)
         .help("Permissions: \(mode.title). \(mode.detail)")
         .accessibilityLabel("Permissions: \(mode.title)")

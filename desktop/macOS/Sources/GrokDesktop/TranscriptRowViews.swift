@@ -11,6 +11,8 @@ struct TranscriptRowModel {
     var highlight: TranscriptRowHighlight = .none
     /// Whether a reasoning or tool block is open.
     var isExpanded = false
+    /// A turn is still going, so a tool call that has not finished is at work. Set for tool calls only.
+    var isTurnRunning = false
 
     /// The height of a row that is as tall whatever its width and its text, so it never needs
     /// laying out to be placed: a folded reasoning block that has finished, which is most of a long task.
@@ -440,11 +442,32 @@ final class TranscriptThoughtRow: TranscriptRowView {
 // MARK: - Tool call
 
 /// A tool call: its title and status, folded over what it printed; the images it returned stay
-/// in sight under it.
+/// in sight under it. While it runs, a spinner and a blue sweep like reasoning's; once it is done,
+/// a green card, or a red one when it failed.
 final class TranscriptToolRow: TranscriptRowView {
-    private let card = TranscriptFillView(color: Theme.palette.sidebarNS.fading(0.65), radius: 9)
+    private static let cornerRadius: CGFloat = 9
+    /// The icon and the spinner share a box this size, so the title stays put as the status changes.
+    private static let iconBox: CGFloat = 16
+
+    enum Tone: Equatable {
+        /// Not finished, but its turn has ended: stopped, or its result never arrived.
+        case idle
+        case running, completed, failed
+
+        init(_ model: TranscriptRowModel) {
+            switch model.message.status {
+            case "completed": self = .completed
+            case "failed": self = .failed
+            default: self = model.isTurnRunning ? .running : .idle
+            }
+        }
+    }
+
+    private let card = TranscriptFillView(color: Theme.palette.sidebarNS.fading(0.65), radius: TranscriptToolRow.cornerRadius)
     private let header = TranscriptFoldHeader()
     private let icon = NSImageView()
+    private var spinner: SpinnerLayerView?
+    private var liquid: ThinkingLayerView?
     private let title = TranscriptTextLabel()
     private let status = TranscriptParts.label(size: 12, color: Theme.palette.mutedNS)
     private var output: TranscriptTextBox?
@@ -453,6 +476,7 @@ final class TranscriptToolRow: TranscriptRowView {
     private var shownImages: [UUID] = []
     private var shownTitle = ""
     private var shownStatus: String?
+    private(set) var tone: Tone?
 
     override func build() {
         addSubview(card)
@@ -469,13 +493,12 @@ final class TranscriptToolRow: TranscriptRowView {
 
     override func show(_ model: TranscriptRowModel) {
         let message = model.message
-        if shownStatus != message.status || icon.image == nil {
+        if shownStatus != message.status || self.tone == nil {
             shownStatus = message.status
-            let failed = message.status == "failed"
-            icon.image = TranscriptParts.symbol(message.status == "completed" ? "checkmark.circle" : failed ? "xmark.circle" : "terminal", size: 14)
-            icon.contentTintColor = failed ? .systemRed : Theme.palette.mutedNS
             status.text = (message.status ?? "pending").replacingOccurrences(of: "_", with: " ")
         }
+        let tone = Tone(model)
+        if tone != self.tone { showTone(tone) }
         if shownTitle != message.text || title.attributedText == nil {
             shownTitle = message.text
             let text = TranscriptParts.toolTitle(message.text)
@@ -519,15 +542,58 @@ final class TranscriptToolRow: TranscriptRowView {
         }
     }
 
+    private func showTone(_ tone: Tone) {
+        self.tone = tone
+        let animated = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if tone == .running {
+            if spinner == nil {
+                let view = SpinnerLayerView(color: ExecutingPalette.tint)
+                header.addSubview(view)
+                spinner = view
+            }
+            if liquid == nil {
+                let view = ThinkingLayerView(kind: .card(cornerRadius: Self.cornerRadius), animated: animated, colors: ExecutingPalette.nsColors)
+                addSubview(view, positioned: .below, relativeTo: card)
+                liquid = view
+            }
+            liquid?.setAnimated(animated)
+        } else {
+            spinner?.removeFromSuperview(); spinner = nil
+            liquid?.removeFromSuperview(); liquid = nil
+        }
+        icon.isHidden = tone == .running
+        let palette = Theme.palette
+        switch tone {
+        case .idle, .running:
+            icon.image = TranscriptParts.symbol("terminal", size: 14)
+            icon.contentTintColor = palette.mutedNS
+            card.color = palette.sidebarNS.fading(0.65)
+            card.stroke = nil
+            status.color = tone == .running ? ExecutingPalette.tint : palette.mutedNS
+        case .completed:
+            icon.image = TranscriptParts.symbol("checkmark.circle.fill", size: 14)
+            icon.contentTintColor = palette.greenNS
+            card.color = palette.greenNS.fading(0.12)
+            card.stroke = palette.greenNS.fading(0.4)
+            status.color = palette.greenNS
+        case .failed:
+            icon.image = TranscriptParts.symbol("xmark.circle.fill", size: 14)
+            icon.contentTintColor = palette.redNS
+            card.color = palette.redNS.fading(0.12)
+            card.stroke = palette.redNS.fading(0.45)
+            status.color = palette.redNS
+        }
+    }
+
     override func forgetHover() { header.forgetHover() }
 
     override func layoutContent(width: CGFloat, place: Bool) -> CGFloat {
-        let iconSize = icon.image?.size ?? NSSize(width: 16, height: 16)
+        let iconBox = Self.iconBox
         let statusSize = status.size()
         // The icon, the title, and the status at the trailing edge, 8 pt apart and at least 8 pt between the last two.
-        let titleX = TranscriptFoldHeader.contentLeading + ceil(iconSize.width) + 8
+        let titleX = TranscriptFoldHeader.contentLeading + iconBox + 8
         let titleSize = title.size(fitting: max(20, width - TranscriptFoldHeader.contentTrailing - statusSize.width - 24 - titleX))
-        let headerHeight = max(TranscriptFoldHeader.minHeight, ceil(max(iconSize.height, titleSize.height, statusSize.height)) + 16)
+        let headerHeight = max(TranscriptFoldHeader.minHeight, ceil(max(iconBox, titleSize.height, statusSize.height)) + 16)
         var y = headerHeight
         var outputFrame = NSRect.zero, noOutputFrame = NSRect.zero, imagesFrame = NSRect.zero
         let hasImages = images != nil
@@ -550,7 +616,9 @@ final class TranscriptToolRow: TranscriptRowView {
         }
         guard place else { return y }
         header.frame = NSRect(x: 0, y: 0, width: width, height: headerHeight)
-        icon.frame = NSRect(x: TranscriptFoldHeader.contentLeading, y: ((headerHeight - iconSize.height) / 2).rounded(), width: ceil(iconSize.width), height: ceil(iconSize.height))
+        let iconFrame = NSRect(x: TranscriptFoldHeader.contentLeading, y: ((headerHeight - iconBox) / 2).rounded(), width: iconBox, height: iconBox)
+        icon.frame = iconFrame
+        spinner?.frame = iconFrame.insetBy(dx: 1.5, dy: 1.5)
         title.frame = NSRect(x: titleX, y: ((headerHeight - titleSize.height) / 2).rounded(), width: titleSize.width, height: titleSize.height)
         status.frame = NSRect(x: width - TranscriptFoldHeader.contentTrailing - statusSize.width, y: ((headerHeight - statusSize.height) / 2).rounded(),
                               width: statusSize.width, height: statusSize.height)
@@ -558,6 +626,7 @@ final class TranscriptToolRow: TranscriptRowView {
         noOutput?.frame = noOutputFrame
         images?.frame = imagesFrame
         card.frame = NSRect(x: 0, y: 0, width: width, height: y)
+        liquid?.frame = card.frame.insetBy(dx: -ThinkingLayerView.glowRoom, dy: -ThinkingLayerView.glowRoom)
         return y
     }
 }

@@ -199,7 +199,7 @@ enum TokenFormat {
         } else if let usage {
             lines = ["Context window: \(usage.used.formatted()) tokens used"]
         }
-        lines.append("Click to see how it is allocated · /context")
+        lines.append("Click to see how it is allocated")
         return lines.joined(separator: "\n")
     }
 
@@ -347,25 +347,32 @@ struct ComposerTokenStats: View {
     }
 }
 
+extension TokenMeterModel {
+    /// What a task's context ring shows. `catalogWindow`, the selected model's window, follows a
+    /// model switch before the harness reports again.
+    func contextUsage(_ id: UUID, catalogWindow: Int?) -> ContextUsage? {
+        guard var usage = contexts[id] else { return nil }
+        if let catalogWindow { usage.window = catalogWindow }
+        return usage
+    }
+}
+
 /// Left of the microphone: how full the task's context window is, as a ring that fills clockwise.
-/// Hover for the figures; a click opens Context (`/context`), which shows how the window is
-/// allocated and measures a task that has not reported since the app opened.
+/// Hover for the figures; a click opens a popover that shows how the window is allocated, and
+/// measures a task that has not reported since the app opened.
 struct ComposerContextRing: View {
     @EnvironmentObject var tokens: TokenMeterModel
     @EnvironmentObject var account: AccountFeatureModel
     let conversationID: UUID
-    /// The selected model's window, which follows a model switch before the harness reports again.
     let catalogWindow: Int?
-
-    private var usage: ContextUsage? {
-        guard var usage = tokens.contexts[conversationID] else { return nil }
-        if let catalogWindow { usage.window = catalogWindow }
-        return usage
-    }
+    @State private var showsDetails = false
 
     var body: some View {
-        let usage = self.usage
-        Button { account.openContext() } label: {
+        let usage = tokens.contextUsage(conversationID, catalogWindow: catalogWindow)
+        Button {
+            if !showsDetails { account.refreshContextBreakdown(conversationID: conversationID) }
+            showsDetails.toggle()
+        } label: {
             ring(usage?.fraction)
                 .frame(width: 15, height: 15)
                 .frame(width: 26, height: 30).contentShape(Capsule())
@@ -375,6 +382,14 @@ struct ComposerContextRing: View {
         .accessibilityLabel("Context window")
         .accessibilityValue(TokenFormat.contextAccessibilityValue(usage))
         .accessibilityHint("Shows how the context window is allocated")
+        // Popovers do not reliably carry the window's environment objects, so the models are handed over.
+        .popover(isPresented: $showsDetails, arrowEdge: .top) {
+            ContextWindowPopover(tokens: tokens, account: account, conversationID: conversationID, catalogWindow: catalogWindow) {
+                showsDetails = false
+                DispatchQueue.main.async { account.openContext() }
+            }
+        }
+        .onChange(of: conversationID) { _, _ in showsDetails = false }
     }
 
     /// Dashed while the share is unknown.
@@ -392,7 +407,7 @@ struct ComposerContextRing: View {
     }
 
     /// As the terminal's context meter: the warning colour from 75%, the error colour from 95%.
-    private static func tint(_ fraction: Double) -> Color {
+    static func tint(_ fraction: Double) -> Color {
         fraction >= 0.95 ? Theme.red : fraction >= 0.75 ? ComposerPalette.warning : Theme.ink.opacity(0.7)
     }
 }

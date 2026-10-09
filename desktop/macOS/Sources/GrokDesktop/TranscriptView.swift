@@ -292,6 +292,9 @@ private struct ToolCallView: View {
     var onExpand: (@MainActor (UUID, Bool) -> Void)?
     @State private var localExpanded = false
 
+    /// As the AppKit row's finished cards: green when the call completed, red when it failed.
+    private var outcome: Color? { message.status == "completed" ? Theme.green : message.status == "failed" ? Theme.red : nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             section
@@ -301,17 +304,18 @@ private struct ToolCallView: View {
                     .padding(.leading, 42).padding(.trailing, 14).padding(.bottom, 12)
             }
         }
-        .background(Theme.sidebar.opacity(0.65), in: RoundedRectangle(cornerRadius: 9))
+        .background(outcome.map { $0.opacity(0.12) } ?? Theme.sidebar.opacity(0.65), in: RoundedRectangle(cornerRadius: 9))
+        .overlay { if let outcome { RoundedRectangle(cornerRadius: 9).strokeBorder(outcome.opacity(message.status == "failed" ? 0.45 : 0.4), lineWidth: 1) } }
     }
 
     private var section: some View {
         FoldableSection(isExpanded: FoldState(id: message.id, expanded: expanded, onExpand: onExpand).binding($localExpanded)) {
             HStack(spacing: 8) {
-                Image(systemName: message.status == "completed" ? "checkmark.circle" : message.status == "failed" ? "xmark.circle" : "terminal")
-                    .foregroundStyle(message.status == "failed" ? .red : Theme.muted)
+                Image(systemName: message.status == "completed" ? "checkmark.circle.fill" : message.status == "failed" ? "xmark.circle.fill" : "terminal")
+                    .foregroundStyle(outcome ?? Theme.muted)
                 Text(Self.title(message.text)).lineLimit(2)
                 Spacer()
-                Text((message.status ?? "pending").replacingOccurrences(of: "_", with: " ")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text((message.status ?? "pending").replacingOccurrences(of: "_", with: " ")).font(.system(size: 12)).foregroundStyle(outcome ?? Theme.muted)
             }.font(.system(size: 14))
         } content: {
             Group {
