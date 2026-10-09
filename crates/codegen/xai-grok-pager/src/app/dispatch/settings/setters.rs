@@ -1,7 +1,7 @@
 //! Individual setting setters with persistence effects and toasts.
 
 use super::ui::{refresh_open_settings_modals, save_success_toast};
-use crate::app::actions::Effect;
+use crate::app::actions::{Effect, ModelChoice};
 use crate::app::app_view::{ActiveView, AppView};
 use crate::settings::PendingWrite;
 use agent_client_protocol as acp;
@@ -93,6 +93,38 @@ pub(super) fn set_hunk_tracker_mode_inner(app: &mut AppView, canonical: &str) {
 
 pub(super) fn set_screen_mode_inner(app: &mut AppView, canonical: &str) {
     app.current_ui.screen_mode = Some(canonical.to_string());
+}
+
+/// Mirror the canonical UI language into `app.current_ui` and apply it to the i18n subsystem.
+/// Called by the commit path AND by [`apply_setting_rollback`](super::ui::apply_setting_rollback).
+pub(super) fn set_ui_language_inner(app: &mut AppView, canonical: &str) {
+    app.current_ui.ui_language = Some(canonical.to_string());
+    xai_grok_i18n::set_locale(xai_grok_i18n::resolve_locale(Some(canonical)));
+}
+
+/// Set the interface language (`auto` | `en` | `zh-Hans` | `ja` | `es` | `fr` | `de`).
+/// SHELL-owned; persisted to `[ui].ui_language` via `Effect::PersistSetting`.
+/// Takes effect immediately on the next render frame.
+pub(in crate::app::dispatch) fn set_ui_language(app: &mut AppView, value: String) -> Vec<Effect> {
+    let canonical = crate::settings::canonical_ui_language(Some(&value));
+    let prev = crate::settings::canonical_ui_language(app.current_ui.ui_language.as_deref());
+    if prev == canonical && app.current_ui.ui_language.is_some() {
+        return vec![];
+    }
+    set_ui_language_inner(app, canonical);
+    refresh_open_settings_modals(app);
+    tracing::info!(target: "settings", key = "ui_language", value = canonical, "setting changed");
+    let display = if canonical == "auto" {
+        format!("System ({})", xai_grok_i18n::locale_code())
+    } else {
+        canonical.to_string()
+    };
+    app.show_toast(&format!("\u{2713} Interface language: {display}"));
+    vec![Effect::PersistSetting {
+        key: "ui_language",
+        value: crate::settings::SettingValue::Enum(canonical),
+        rollback_value: crate::settings::SettingValue::Enum(prev),
+    }]
 }
 
 /// Persist `[ui].screen_mode` (`fullscreen` | `minimal`). Restart-required.
@@ -1904,8 +1936,7 @@ pub(in crate::app::dispatch) fn set_default_model(
         effects.push(Effect::SwitchModel {
             agent_id: aid,
             session_id: sid,
-            model_id: new_id,
-            effort: None,
+            choice: ModelChoice::new(new_id),
             prev_model_id: prev_id.clone(),
         });
     } else if let Some(agent) = app.agents.get_mut(&aid) {

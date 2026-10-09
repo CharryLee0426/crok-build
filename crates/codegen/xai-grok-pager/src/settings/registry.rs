@@ -54,7 +54,17 @@ impl SettingCategory {
 
     /// Section-header label as rendered in the modal.
     pub fn label(&self) -> &'static str {
-        match self {
+        let id = match self {
+            Self::Appearance => "appearance",
+            Self::Mouse => "mouse",
+            Self::Editor => "editor",
+            Self::Agent => "agent",
+            Self::Privacy => "privacy",
+            Self::Models => "models",
+            Self::Session => "session",
+            Self::Advanced => "advanced",
+        };
+        xai_grok_i18n::category_label(id).unwrap_or(match self {
             Self::Appearance => "Appearance",
             Self::Mouse => "Mouse",
             Self::Editor => "Editor & Input",
@@ -63,7 +73,7 @@ impl SettingCategory {
             Self::Models => "Models",
             Self::Session => "Session",
             Self::Advanced => "Advanced",
-        }
+        })
     }
 }
 
@@ -196,6 +206,18 @@ pub struct SettingMeta {
     pub restart_required: bool,
     /// When `true`, the row is hidden in minimal mode (the setting still exists and applies to the full TUI).
     pub hidden_in_minimal: bool,
+}
+
+impl SettingMeta {
+    /// Localized label for user-visible rendering. Falls back to the static `label` when no translation is available.
+    pub fn display_label(&self) -> &'static str {
+        xai_grok_i18n::settings_label(self.key).unwrap_or(self.label)
+    }
+
+    /// Localized description for user-visible rendering. Falls back to the static `description` when no translation is available.
+    pub fn display_description(&self) -> &'static str {
+        xai_grok_i18n::settings_description(self.key).unwrap_or(self.description)
+    }
 }
 
 /// A typed value carried by `Action::Set*` payloads, modal preview state, and the rollback path on persist failure.
@@ -363,7 +385,7 @@ pub struct PagerLocalSnapshot {
     /// Mirrors `AppView::appearance.scrollback.scroll.respect_manual_folds` at snapshot time.
     pub respect_manual_folds: bool,
     /// Mirrors `AppView::auto_mode_gate` at snapshot time.
-    /// When false the permission-mode picker hides the "Auto" choice (matches the Shift+Tab cycle, which skips Auto when the feature gate is off).
+    /// When false the permission-mode picker hides the "Auto-review" choice (matches the Shift+Tab cycle, which skips it when the feature gate is off).
     pub auto_mode_gate: bool,
     /// `[toolset.ask_user_question].timeout_enabled` mirror (effective TOML merge, like `show_tips`).
     /// `None` means unset in TOML, so the default `true` applies.
@@ -443,6 +465,12 @@ pub fn canonical_hunk_tracker_mode(value: Option<&str>) -> &'static str {
     } else {
         "off"
     }
+}
+
+/// Canonicalize a raw UI language preference to one of the settings choices.
+/// Delegates to `xai_grok_i18n::canonical_ui_language`.
+pub fn canonical_ui_language(value: Option<&str>) -> &'static str {
+    xai_grok_i18n::canonical_ui_language(value)
 }
 
 /// `minimal` stays; everything else (including unset and the legacy `default`) becomes `fullscreen`.
@@ -561,6 +589,17 @@ fn build_search_haystack(m: &SettingMeta) -> String {
         s.push(' ');
         s.push_str(kw);
     }
+    // Append localized strings so searching in non-English languages works.
+    let display_label = m.display_label();
+    if display_label != m.label {
+        s.push(' ');
+        s.push_str(&display_label.to_lowercase());
+    }
+    let display_desc = m.display_description();
+    if display_desc != m.description {
+        s.push(' ');
+        s.push_str(&display_desc.to_lowercase());
+    }
     s
 }
 
@@ -667,6 +706,9 @@ pub fn current_value_for(
         ))),
         "screen_mode" => Some(SettingValue::Enum(canonical_screen_mode(
             ui.screen_mode.as_deref(),
+        ))),
+        "ui_language" => Some(SettingValue::Enum(canonical_ui_language(
+            ui.ui_language.as_deref(),
         ))),
         // SHELL: whether the Ctrl+Space or F8 chord is active; None means true
         "voice_keybind_enabled" => {
@@ -1213,6 +1255,18 @@ mod tests {
                         "screen_mode default drifts from UiConfig::default()",
                     );
                     assert_eq!(*default, "fullscreen");
+                }
+                ("ui_language", SettingKind::Enum { default, .. }) => {
+                    assert_eq!(
+                        ui.ui_language, None,
+                        "test assumes UiConfig::default().ui_language is None",
+                    );
+                    assert_eq!(
+                        *default,
+                        canonical_ui_language(ui.ui_language.as_deref()),
+                        "ui_language default drifts from UiConfig::default()",
+                    );
+                    assert_eq!(*default, "auto");
                 }
                 // render_mermaid: Option<String>; None reads as "auto"
                 ("render_mermaid", SettingKind::Enum { default, .. }) => {

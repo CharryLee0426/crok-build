@@ -15,8 +15,13 @@ use crate::views::modal_window::ModalWindowState;
 
 use xai_grok_shell::agent::config::UiConfig;
 
-/// Public display title of the modal, also used by `views/modal.rs::ActiveModal::message` so renames stay in one place.
+/// Public display title of the modal (English), also used by `views/modal.rs::ActiveModal::message` and tests so renames stay in one place.
 pub const MODAL_TITLE: &str = "Settings";
+
+/// Localized modal title; falls back to `MODAL_TITLE` ("Settings") when no translation is available.
+pub fn modal_title() -> &'static str {
+    xai_grok_i18n::t_or("common.settings", MODAL_TITLE)
+}
 
 /// Width of the `"─ "` leading decoration before the title in the modal's top border.
 /// Used to compute the breadcrumb hit-rect x offset.
@@ -1014,6 +1019,7 @@ pub(super) fn action_for_enum_commit(key: SettingKey, choice: &'static str) -> O
         },
         "hunk_tracker_mode" => Some(Action::SetHunkTrackerMode(choice.to_string())),
         "screen_mode" => Some(Action::SetScreenMode(choice.to_string())),
+        "ui_language" => Some(Action::SetUiLanguage(choice.to_string())),
         "voice_capture_mode" => Some(Action::SetVoiceCaptureMode(choice.to_string())),
         "voice_stt_language" => Some(Action::SetVoiceSttLanguage(choice.to_string())),
         "voice_stt_provider" => Some(Action::SetVoiceSttProvider(choice.to_string())),

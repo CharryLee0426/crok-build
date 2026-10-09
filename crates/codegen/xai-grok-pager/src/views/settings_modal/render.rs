@@ -5,9 +5,10 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
 use super::state::{
-    CONTENT_MIN_WIDTH, MAX_THOUGHTS_WIDTH_WIDENED_MARGIN, MODAL_TITLE, RowEntry,
+    CONTENT_MIN_WIDTH, MAX_THOUGHTS_WIDTH_WIDENED_MARGIN, RowEntry,
     STANDARD_MAX_WIDTH, SettingsModalState, SettingsMode, SettingsModeKind,
-    TITLE_LEADING_DECORATION_W, effective_enum_choices, group_children, mode_is_consent_chooser,
+    TITLE_LEADING_DECORATION_W, effective_enum_choices, group_children, modal_title,
+    mode_is_consent_chooser,
 };
 use crate::render::line_utils::truncate_str;
 use crate::settings::{
@@ -15,6 +16,7 @@ use crate::settings::{
     StringValidator, dynamic_enum_choices,
 };
 use crate::theme::Theme;
+use crate::views::modal_list::render_section_header;
 use crate::views::modal_window::{
     self, ModalContentArea, ModalSizing, ModalWindowConfig, Shortcut,
 };
@@ -49,7 +51,8 @@ pub fn render_settings_modal(
     let breadcrumb_owned: String;
     let title: &str = if let Some(o) = overlay {
         breadcrumb_owned = format!(
-            "{MODAL_TITLE} {} {}",
+            "{} {} {}",
+            modal_title(),
             crate::glyphs::chevron(),
             o.breadcrumb_suffix
         );
@@ -59,32 +62,32 @@ pub fn render_settings_modal(
             SettingsMode::PickingEnum { key, .. } => {
                 if let Some(meta) = state.registry.find(key) {
                     breadcrumb_owned =
-                        format!("{MODAL_TITLE} {} {}", crate::glyphs::chevron(), meta.label);
+                        format!("{} {} {}", modal_title(), crate::glyphs::chevron(), meta.display_label());
                     &breadcrumb_owned
                 } else {
-                    MODAL_TITLE
+                    modal_title()
                 }
             }
 
             SettingsMode::EditingString { key, .. } | SettingsMode::EditingInt { key, .. } => {
                 if let Some(meta) = state.registry.find(key) {
                     breadcrumb_owned =
-                        format!("{MODAL_TITLE} {} {}", crate::glyphs::chevron(), meta.label);
+                        format!("{} {} {}", modal_title(), crate::glyphs::chevron(), meta.display_label());
                     &breadcrumb_owned
                 } else {
-                    MODAL_TITLE
+                    modal_title()
                 }
             }
             SettingsMode::PickingGroup { key, .. } => {
                 if let Some(meta) = state.registry.find(key) {
                     breadcrumb_owned =
-                        format!("{MODAL_TITLE} {} {}", crate::glyphs::chevron(), meta.label);
+                        format!("{} {} {}", modal_title(), crate::glyphs::chevron(), meta.display_label());
                     &breadcrumb_owned
                 } else {
-                    MODAL_TITLE
+                    modal_title()
                 }
             }
-            _ => MODAL_TITLE,
+            _ => modal_title(),
         }
     };
 
@@ -594,21 +597,7 @@ pub(super) fn render_rows(
 
         match row {
             RowEntry::Header { category } => {
-                let label = category.label();
-                let header_style = Style::default()
-                    .fg(theme.gray)
-                    .bg(theme.bg_base)
-                    .add_modifier(Modifier::BOLD);
-                let sep_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
-                let title = format!(" {label} ");
-                let title_w = title.width();
-                let remaining = (area.width as usize).saturating_sub(title_w);
-                let sep: String = std::iter::repeat_n('\u{2500}', remaining).collect();
-                let line = Line::from(vec![
-                    Span::styled(title, header_style),
-                    Span::styled(sep, sep_style),
-                ]);
-                buf.set_line(area.x, y_cursor, &line, area.width);
+                render_section_header(buf, area.x, area.width, y_cursor, category.label(), theme);
                 y_cursor = y_cursor.saturating_add(1);
             }
             RowEntry::Setting {
@@ -647,9 +636,9 @@ pub(super) fn render_rows(
                             width: area.width,
                             height: desc_height.min(8),
                         };
-                        render_expanded_description(buf, desc_rect, meta.description, theme);
+                        render_expanded_description(buf, desc_rect, meta.display_description(), theme);
                         let consumed = wrapped_description_height(
-                            meta.description,
+                            meta.display_description(),
                             area.width,
                             desc_rect.height,
                         );
@@ -681,7 +670,7 @@ pub(super) fn render_rows(
                 let show_restart_pill_for_layout = meta.restart_required && is_expanded;
                 let layout_decision = row_layout(
                     area.width,
-                    meta.label,
+                    meta.display_label(),
                     &value_display,
                     show_restart_pill_for_layout,
                 );
@@ -805,7 +794,7 @@ fn compute_filtered_row_heights(state: &SettingsModalState, area_width: u16) -> 
                     let mut h: u16 = 1;
                     if state.expanded_keys.contains(key) {
                         h = h.saturating_add(wrapped_description_height(
-                            meta.description,
+                            meta.display_description(),
                             area_width,
                             8,
                         ));
@@ -821,7 +810,7 @@ fn compute_filtered_row_heights(state: &SettingsModalState, area_width: u16) -> 
                 let lock = state.row_lock(key);
                 let value_display = value_display(meta, &value, lock);
                 let show_restart_pill = meta.restart_required && is_expanded;
-                let layout = row_layout(area_width, meta.label, &value_display, show_restart_pill);
+                let layout = row_layout(area_width, meta.display_label(), &value_display, show_restart_pill);
                 let mut h: u16 = match layout {
                     RowLayout::OneLine => 1,
                     RowLayout::TwoLine | RowLayout::TwoLineWithLabelTruncation => 2,
@@ -1001,7 +990,7 @@ pub(super) fn render_picking_enum(
     }
 
     // Choosers need title + gap (2 rows) before the description renders
-    let header_rows = render_sub_pane_header(buf, area, theme, meta.label, meta.description, 2);
+    let header_rows = render_sub_pane_header(buf, area, theme, meta.display_label(), meta.display_description(), 2);
     if area.height <= header_rows {
         return;
     }
@@ -1293,8 +1282,8 @@ fn render_picking_group(
         buf,
         area,
         theme,
-        group_meta.label,
-        group_meta.description,
+        group_meta.display_label(),
+        group_meta.display_description(),
         2,
     );
     if area.height <= header_rows {
@@ -1379,10 +1368,10 @@ fn render_picking_group(
             .max(label_x);
         if value_x > label_x {
             let label_room = (value_x - label_x).saturating_sub(1) as usize;
-            let label_text: std::borrow::Cow<'_, str> = if child_meta.label.width() <= label_room {
-                std::borrow::Cow::Borrowed(child_meta.label)
+            let label_text: std::borrow::Cow<'_, str> = if child_meta.display_label().width() <= label_room {
+                std::borrow::Cow::Borrowed(child_meta.display_label())
             } else {
-                std::borrow::Cow::Owned(truncate_str(child_meta.label, label_room))
+                std::borrow::Cow::Owned(truncate_str(child_meta.display_label(), label_room))
             };
             let label_w = (label_text.width() as u16).min((value_x - label_x).saturating_sub(1));
             buf.set_span(
@@ -1586,8 +1575,8 @@ pub(super) fn render_editing_value(
             return;
         };
         // Snapshot meta fields to release registry borrow.
-        let label = meta.label;
-        let description = meta.description;
+        let label = meta.display_label();
+        let description = meta.display_description();
         render_int_stepper(
             buf,
             area,
@@ -1618,7 +1607,7 @@ pub(super) fn render_editing_value(
     };
 
     // Editors reserve title + gap + the input row (3 rows) before the description
-    let header_rows = render_sub_pane_header(buf, area, theme, meta.label, meta.description, 3);
+    let header_rows = render_sub_pane_header(buf, area, theme, meta.display_label(), meta.display_description(), 3);
     if area.height <= header_rows {
         return;
     }
@@ -2299,7 +2288,7 @@ pub(super) fn render_setting_row(
     );
 
     // Fall back to one-line if only 1 line was allocated.
-    let layout_decision = row_layout(area.width, meta.label, value_text, show_restart_pill);
+    let layout_decision = row_layout(area.width, meta.display_label(), value_text, show_restart_pill);
     let layout = if area.height < 2 {
         // Only 1 line is available: collapse to a one-line render and accept that the label might collide with the value column
         RowLayout::OneLine
@@ -2318,7 +2307,7 @@ pub(super) fn render_setting_row(
             let chevron_x = restart_x_line1.saturating_sub(ROW_CHEVRON_COL_W);
             let value_x = chevron_x.saturating_sub(value_w + 1);
 
-            let label_text = format!("{triangle} {}", meta.label);
+            let label_text = format!("{triangle} {}", meta.display_label());
             let label_w = label_text.width() as u16;
             let label_max_x = area.x.saturating_add(label_w);
             // Cap label end at value_x to never collide with the value column.
@@ -2385,11 +2374,11 @@ pub(super) fn render_setting_row(
                     if label_avail == 0 {
                         ""
                     } else {
-                        label_text_owned = truncate_str(meta.label, label_avail as usize);
+                        label_text_owned = truncate_str(meta.display_label(), label_avail as usize);
                         &label_text_owned
                     }
                 }
-                _ => meta.label,
+                _ => meta.display_label(),
             };
 
             let full_label_text = format!("{triangle} {label_text}");
@@ -2499,10 +2488,10 @@ fn render_setting_row_no_value(
         .add_modifier(Modifier::BOLD);
 
     let label_max_w = max_label_w;
-    let label_truncated: std::borrow::Cow<'_, str> = if meta.label.width() <= label_max_w as usize {
-        std::borrow::Cow::Borrowed(meta.label)
+    let label_truncated: std::borrow::Cow<'_, str> = if meta.display_label().width() <= label_max_w as usize {
+        std::borrow::Cow::Borrowed(meta.display_label())
     } else {
-        std::borrow::Cow::Owned(truncate_str(meta.label, label_max_w as usize))
+        std::borrow::Cow::Owned(truncate_str(meta.display_label(), label_max_w as usize))
     };
     let text = format!(" !   {label_truncated} (no read mapping)");
     let w = text.width() as u16;
@@ -2546,7 +2535,7 @@ fn render_setting_group_row(
 
     // Triangle prefix mirrors normal rows: "▾" expanded, "▸" collapsed (the group's description expands inline via Right/l like other rows)
     let triangle = if is_expanded { "\u{25BE}" } else { "\u{25B8}" };
-    let label_text = format!("{triangle} {}", meta.label);
+    let label_text = format!("{triangle} {}", meta.display_label());
     let label_cap = chevron_x.saturating_sub(area.x).saturating_sub(1);
     let label_w = (label_text.width() as u16).min(label_cap);
     if label_w > 0 {

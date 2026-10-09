@@ -13,11 +13,11 @@ use super::setters::{
     set_respect_manual_folds_inner, set_screen_mode_inner, set_scroll_lines_inner,
     set_scroll_mode_inner, set_scroll_speed_inner, set_show_thinking_blocks_inner,
     set_show_tips_inner, set_simple_mode_inner, set_theme_inner, set_timeline_inner,
-    set_timestamps, set_timestamps_inner, set_vim_mode_inner, set_voice_capture_mode_inner,
-    set_voice_keybind_enabled_inner, set_voice_stt_language_inner, set_voice_stt_model_inner,
-    set_voice_stt_provider_inner,
+    set_timestamps, set_timestamps_inner, set_ui_language_inner, set_vim_mode_inner,
+    set_voice_capture_mode_inner, set_voice_keybind_enabled_inner, set_voice_stt_language_inner,
+    set_voice_stt_model_inner, set_voice_stt_provider_inner,
 };
-use crate::app::actions::{Action, Effect};
+use crate::app::actions::{Action, Effect, ModelChoice};
 use crate::app::app_view::{ActiveView, AppView};
 use crate::app::dispatch::ctx::with_active_agent;
 use crate::app::dispatch::modes::{set_yolo_mode_inner, sync_active_auto_flag};
@@ -405,7 +405,7 @@ pub(in crate::app::dispatch) fn dispatch_confirm_reset_setting(
                     "reset skipped — setting already at default",
                 );
                 with_active_agent(app, |agent| {
-                    agent.show_toast(&format!("{}: already at default", meta.label));
+                    agent.show_toast(&format!("{}: already at default", meta.display_label()));
                 });
                 return vec![];
             }
@@ -798,6 +798,7 @@ pub(in crate::app::dispatch) fn action_for_reset(
             Some(Action::SetHunkTrackerMode((*s).to_string()))
         }
         ("screen_mode", SettingValue::Enum(s)) => Some(Action::SetScreenMode((*s).to_string())),
+        ("ui_language", SettingValue::Enum(s)) => Some(Action::SetUiLanguage((*s).to_string())),
         ("voice_keybind_enabled", SettingValue::Bool(b)) => {
             Some(Action::SetVoiceKeybindEnabled(*b))
         }
@@ -998,8 +999,7 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
                             companion_effects.push(Effect::SwitchModel {
                                 agent_id: aid,
                                 session_id: sid,
-                                model_id: id,
-                                effort: None,
+                                choice: ModelChoice::new(id),
                                 prev_model_id: None,
                             });
                         }
@@ -1079,6 +1079,9 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
         }
         ("screen_mode", SettingValue::Enum(s)) => {
             set_screen_mode_inner(app, crate::settings::canonical_screen_mode(Some(s)));
+        }
+        ("ui_language", SettingValue::Enum(s)) => {
+            set_ui_language_inner(app, crate::settings::canonical_ui_language(Some(s)));
         }
         ("voice_keybind_enabled", SettingValue::Bool(b)) => {
             set_voice_keybind_enabled_inner(app, *b)

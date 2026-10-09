@@ -87,7 +87,7 @@ const PERMISSION_MODE_CHOICES: &[EnumChoice] = &[
     },
     EnumChoice {
         canonical: "auto",
-        display: "Auto",
+        display: "Auto-review",
         description: "LLM classifier approves safe tools; dangerous actions may still prompt or deny.",
     },
     EnumChoice {
@@ -232,6 +232,44 @@ const TEXT_SELECTION_CHOICES: &[EnumChoice] = &[
         canonical: TextSelection::WordSelect.as_canonical(),
         display: "Word select (terminal-like)",
         description: "Double-click selects & copies a word, triple-click a paragraph; selection stays until dismissed.",
+    },
+];
+
+const UI_LANGUAGE_CHOICES: &[EnumChoice] = &[
+    EnumChoice {
+        canonical: "auto",
+        display: "System",
+        description: "Follow the process locale when supported.",
+    },
+    EnumChoice {
+        canonical: "en",
+        display: "English",
+        description: "English (default).",
+    },
+    EnumChoice {
+        canonical: "zh-Hans",
+        display: "简体中文",
+        description: "Simplified Chinese.",
+    },
+    EnumChoice {
+        canonical: "ja",
+        display: "日本語",
+        description: "Japanese.",
+    },
+    EnumChoice {
+        canonical: "es",
+        display: "Español",
+        description: "Spanish.",
+    },
+    EnumChoice {
+        canonical: "fr",
+        display: "Français",
+        description: "French.",
+    },
+    EnumChoice {
+        canonical: "de",
+        display: "Deutsch",
+        description: "German.",
     },
 ];
 
@@ -494,6 +532,21 @@ pub fn default_settings() -> Vec<SettingMeta> {
             ],
             kind: SettingKind::Bool {
                 default: ui_default.compact_mode,
+            },
+            restart_required: false,
+            hidden_in_minimal: false,
+        },
+        SettingMeta {
+            key: "ui_language",
+            category: SettingCategory::Appearance,
+            owner: SettingOwner::Shell,
+            label: "Interface language",
+            description: "Language for the terminal UI. System follows your locale when supported.",
+            keywords: &["language", "locale", "i18n", "translation", "chinese", "japanese", "spanish", "french", "german"],
+            kind: SettingKind::Enum {
+                default: "auto",
+                choices: UI_LANGUAGE_CHOICES,
+                supports_preview: false,
             },
             restart_required: false,
             hidden_in_minimal: false,
@@ -785,7 +838,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             label: "Permission mode",
             description: "Default uses the agent's built-in behavior; \
                           Ask prompts for each tool action; \
-                          Auto uses an LLM classifier for risky tools; \
+                          Auto-review uses an LLM classifier for risky tools; \
                           Always approve grants all permissions automatically.",
             keywords: &[
                 "permission",
@@ -795,6 +848,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
                 "always",
                 "ask",
                 "auto",
+                "review",
                 "classifier",
                 "tool",
                 "danger",
@@ -816,7 +870,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             label: "Remember tool approvals",
             description: "Show \"Always allow\" options in permission prompts so you can stop \
                           being re-asked about a specific command or tool. Applies in ask and \
-                          auto; Always-approve still skips all prompts. Restart required.",
+                          Auto-review; Always-approve still skips all prompts. Restart required.",
             keywords: &[
                 "permission",
                 "approve",
@@ -1187,9 +1241,9 @@ pub fn default_settings() -> Vec<SettingMeta> {
             category: SettingCategory::Privacy,
             owner: SettingOwner::Shell,
             label: "Coding data, retention, and training",
-            description: "Opt-in to provide SpaceXAI the ability to retain and train on \
+            description: "Opt-in to provide xAI the ability to retain and train on \
                           coding data, e.g., prompts, traces, & metrics, for training and \
-                          debugging purposes. We may still collect simple user metrics, \
+                          debugging purposes. xAI may still collect simple user metrics, \
                           e.g. how many times you use the product or a feature.",
             keywords: &[
                 "privacy",

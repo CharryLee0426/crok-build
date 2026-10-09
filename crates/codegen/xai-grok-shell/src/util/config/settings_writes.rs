@@ -465,6 +465,12 @@ pub async fn set_voice_stt_language(value: String) -> Result<()> {
     update_config(|cfg| cfg.ui.voice_stt_language = Some(value)).await
 }
 
+/// Persist `[ui].ui_language` via `update_config`.
+/// Value is `auto` | `en` | `zh-Hans` | `ja` | `es` | `fr` | `de`.
+pub async fn set_ui_language(value: String) -> Result<()> {
+    update_config(|cfg| cfg.ui.ui_language = Some(value)).await
+}
+
 /// Persist `[ui].voice_stt_provider` via `update_config`.
 /// Value is one of the canonical strings `openrouter` | `xai`.
 pub async fn set_voice_stt_provider(value: String) -> Result<()> {

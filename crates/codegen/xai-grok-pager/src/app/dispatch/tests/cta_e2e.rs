@@ -196,14 +196,14 @@ fn plugin_cta_default_name_only_official_mirror_selected() {
 #[test]
 fn plugin_cta_marketplace_override_selects_named_source() {
     let mut app = test_app_with_agent();
-    app.plugin_cta_marketplace = Some("SpaceX Marketplace".into());
+    app.plugin_cta_marketplace = Some("Acme Marketplace".into());
     let id = AgentId(0);
 
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![xai_hooks_plugins_types::MarketplaceScanResult {
-            source_name: "SpaceX Marketplace".into(),
+            source_name: "Acme Marketplace".into(),
             source_kind: "path".into(),
-            source_url_or_path: "/srv/spacex-marketplace".into(),
+            source_url_or_path: "/srv/acme-marketplace".into(),
             plugins: vec![
                 cta_entry("starlink", "not_installed"),
                 cta_entry("dragon", "installed"),
@@ -225,7 +225,7 @@ fn plugin_cta_marketplace_override_selects_named_source() {
     assert_eq!(names, vec!["starlink"]);
     assert_eq!(
         cta.source_url_or_path.as_deref(),
-        Some("/srv/spacex-marketplace"),
+        Some("/srv/acme-marketplace"),
         "named source counts as present"
     );
 }
@@ -233,7 +233,7 @@ fn plugin_cta_marketplace_override_selects_named_source() {
 #[test]
 fn plugin_cta_marketplace_duplicate_named_sources_first_wins() {
     let mut app = test_app_with_agent();
-    app.plugin_cta_marketplace = Some("SpaceX Marketplace".into());
+    app.plugin_cta_marketplace = Some("Acme Marketplace".into());
     let id = AgentId(0);
 
     // Two sources share the override name: candidates and install target must both come from the first
@@ -241,16 +241,16 @@ fn plugin_cta_marketplace_duplicate_named_sources_first_wins() {
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![
             xai_hooks_plugins_types::MarketplaceScanResult {
-                source_name: "SpaceX Marketplace".into(),
+                source_name: "Acme Marketplace".into(),
                 source_kind: "path".into(),
-                source_url_or_path: "/srv/spacex-marketplace".into(),
+                source_url_or_path: "/srv/acme-marketplace".into(),
                 plugins: vec![cta_entry("starlink", "not_installed")],
                 error: None,
             },
             xai_hooks_plugins_types::MarketplaceScanResult {
-                source_name: "SpaceX Marketplace".into(),
+                source_name: "Acme Marketplace".into(),
                 source_kind: "git".into(),
-                source_url_or_path: "https://github.com/impostor/spacex.git".into(),
+                source_url_or_path: "https://github.com/impostor/acme.git".into(),
                 plugins: vec![cta_entry("impostor", "not_installed")],
                 error: None,
             },
@@ -269,7 +269,7 @@ fn plugin_cta_marketplace_duplicate_named_sources_first_wins() {
     assert_eq!(names, vec!["starlink"]);
     assert_eq!(
         cta.source_url_or_path.as_deref(),
-        Some("/srv/spacex-marketplace")
+        Some("/srv/acme-marketplace")
     );
 }
 
@@ -278,22 +278,22 @@ fn plugin_cta_marketplace_override_install_targets_named_source() {
     use crate::app::agent_view::CtaPhase;
     let mut app = test_app_with_agent();
     app.plugin_cta_enabled = true;
-    app.plugin_cta_marketplace = Some("SpaceX Marketplace".into());
+    app.plugin_cta_marketplace = Some("Acme Marketplace".into());
     let id = AgentId(0);
     {
         let agent = app.agents.get_mut(&id).unwrap();
         agent.session.session_id = Some("sess-1".to_string().into());
         // Unique name so a real config's dismissed set can't suppress the match.
-        agent.prompt.set_text("try zzspacexcta now");
+        agent.prompt.set_text("try zzacmecta now");
     }
 
-    let mut entry = cta_entry("zzspacexcta", "not_installed");
-    entry.keywords = vec!["zzspacexcta".into()];
+    let mut entry = cta_entry("zzacmecta", "not_installed");
+    entry.keywords = vec!["zzacmecta".into()];
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![xai_hooks_plugins_types::MarketplaceScanResult {
-            source_name: "SpaceX Marketplace".into(),
+            source_name: "Acme Marketplace".into(),
             source_kind: "path".into(),
-            source_url_or_path: "/srv/spacex-marketplace".into(),
+            source_url_or_path: "/srv/acme-marketplace".into(),
             plugins: vec![entry],
             error: None,
         }],
@@ -309,7 +309,7 @@ fn plugin_cta_marketplace_override_install_targets_named_source() {
     let agent = app.agents.get_mut(&id).unwrap();
     assert!(matches!(
         &agent.plugin_cta.phase,
-        CtaPhase::Matched { name, .. } if name == "zzspacexcta"
+        CtaPhase::Matched { name, .. } if name == "zzacmecta"
     ));
     agent.connect_matched_plugin();
     assert_eq!(agent.pending_effects.len(), 1);
@@ -322,8 +322,8 @@ fn plugin_cta_marketplace_override_install_targets_named_source() {
             plugin_relative_path,
             ..
         } => {
-            assert_eq!(source_url_or_path, "/srv/spacex-marketplace");
-            assert_eq!(plugin_relative_path, "plugins/zzspacexcta");
+            assert_eq!(source_url_or_path, "/srv/acme-marketplace");
+            assert_eq!(plugin_relative_path, "plugins/zzacmecta");
         }
         other => panic!("expected InstallPluginFromCta, got {other:?}"),
     }
@@ -366,7 +366,7 @@ fn plugin_cta_marketplace_override_naming_official_selects_it() {
 #[test]
 fn plugin_cta_marketplace_override_excludes_official_source() {
     let mut app = test_app_with_agent();
-    app.plugin_cta_marketplace = Some("SpaceX Marketplace".into());
+    app.plugin_cta_marketplace = Some("Acme Marketplace".into());
     let id = AgentId(0);
 
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
@@ -379,9 +379,9 @@ fn plugin_cta_marketplace_override_excludes_official_source() {
                 error: None,
             },
             xai_hooks_plugins_types::MarketplaceScanResult {
-                source_name: "SpaceX Marketplace".into(),
+                source_name: "Acme Marketplace".into(),
                 source_kind: "path".into(),
-                source_url_or_path: "/srv/spacex-marketplace".into(),
+                source_url_or_path: "/srv/acme-marketplace".into(),
                 plugins: vec![cta_entry("starlink", "not_installed")],
                 error: None,
             },
@@ -407,7 +407,7 @@ fn plugin_cta_marketplace_override_absent_source_hides_cta() {
     use crate::app::agent_view::CtaPhase;
     let mut app = test_app_with_agent();
     app.plugin_cta_enabled = true;
-    app.plugin_cta_marketplace = Some("SpaceX Marketplace".into());
+    app.plugin_cta_marketplace = Some("Acme Marketplace".into());
     let id = AgentId(0);
     app.agents
         .get_mut(&id)
