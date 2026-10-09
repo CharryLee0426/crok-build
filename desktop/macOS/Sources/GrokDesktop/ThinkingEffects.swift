@@ -27,6 +27,19 @@ enum ThinkingPalette {
     }
 }
 
+/// A running tool call's colours: the same sweep as reasoning's, in blues, ending where it starts.
+enum ExecutingPalette {
+    static let nsColors: [NSColor] = [
+        NSColor(srgbRed: 0.20, green: 0.40, blue: 1.00, alpha: 1),
+        NSColor(srgbRed: 0.10, green: 0.62, blue: 1.00, alpha: 1),
+        NSColor(srgbRed: 0.28, green: 0.86, blue: 0.98, alpha: 1),
+        NSColor(srgbRed: 0.10, green: 0.62, blue: 1.00, alpha: 1),
+        NSColor(srgbRed: 0.20, green: 0.40, blue: 1.00, alpha: 1),
+    ]
+    /// The spinner and the status beside it.
+    static let tint = Theme.adaptiveNS(0x2868E8, 0x5FA8FF)
+}
+
 /// The thin indeterminate bar: a short colourful segment that runs to one end, turns, and runs back.
 struct ThinkingProgressBar: View {
     var height: CGFloat = 2
@@ -79,6 +92,7 @@ final class ThinkingLayerView: NSView {
 
     private let kind: Kind
     private var animated: Bool
+    private let colors: [NSColor]
     /// Each sweep is a gradient wider than what shows of it, sliding inside a clipping container.
     private var sweeps: [(gradient: CAGradientLayer, span: CGFloat, period: CFTimeInterval)] = []
     // Bar
@@ -91,9 +105,11 @@ final class ThinkingLayerView: NSView {
     private let glow = CALayer(), glowMask = CAShapeLayer()
     private var laidOut: CGSize = .zero
 
-    init(kind: Kind, animated: Bool) {
+    /// `colors` run from one end of the sweep to the other and should end as they begin.
+    init(kind: Kind, animated: Bool, colors: [NSColor] = ThinkingPalette.nsColors) {
         self.kind = kind
         self.animated = animated
+        self.colors = colors
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -102,7 +118,7 @@ final class ThinkingLayerView: NSView {
         switch kind {
         case .bar:
             layer.addSublayer(track)
-            segmentHolder.shadowColor = ThinkingPalette.nsColors[1].cgColor
+            segmentHolder.shadowColor = colors[min(1, colors.count - 1)].cgColor
             segmentHolder.shadowOpacity = 0.75
             segmentHolder.shadowRadius = 3
             segmentHolder.shadowOffset = .zero
@@ -225,7 +241,7 @@ final class ThinkingLayerView: NSView {
     }
 
     private func updateColors() {
-        let colors = ThinkingPalette.nsColors.map(\.cgColor)
+        let colors = self.colors.map(\.cgColor)
         for sweep in sweeps { sweep.gradient.colors = colors }
         effectiveAppearance.performAsCurrentDrawingAppearance {
             track.backgroundColor = Theme.palette.mutedNS.withAlphaComponent(0.14).cgColor
@@ -236,7 +252,6 @@ final class ThinkingLayerView: NSView {
         let gradient = CAGradientLayer()
         gradient.startPoint = CGPoint(x: 0, y: 0.5)
         gradient.endPoint = CGPoint(x: 1, y: 0.5)
-        gradient.colors = ThinkingPalette.nsColors.map(\.cgColor)
         return gradient
     }
 
@@ -250,5 +265,186 @@ final class ThinkingLayerView: NSView {
         animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         animation.isRemovedOnCompletion = false
         return animation
+    }
+}
+
+/// Endless turns about a layer's centre, clockwise on screen, for the effects that spin in place.
+/// Like the sweeps, the window server runs them and the app does no work per frame.
+private enum Turning {
+    /// For a sublayer of a view that is not flipped: AppKit lays such a view's layers out up the
+    /// screen, wherever the view is, so a negative angle turns clockwise. The layers' flags are
+    /// not settled yet when the view joins its window, so they cannot be asked.
+    static func animation(period: CFTimeInterval) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: "transform.rotation.z")
+        animation.fromValue = 0
+        animation.toValue = -2 * CGFloat.pi
+        animation.duration = period
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .linear)
+        animation.isRemovedOnCompletion = false
+        return animation
+    }
+
+    static var allowed: Bool { !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+}
+
+/// A short arc turning over a faint ring, in place of a tool call's status icon while it runs.
+/// With Reduce Motion it stands still.
+final class SpinnerLayerView: NSView {
+    private let track = CAShapeLayer()
+    private let arc = CAShapeLayer()
+    private let lineWidth: CGFloat
+    var color: NSColor { didSet { updateColors() } }
+
+    init(color: NSColor, lineWidth: CGFloat = 1.8) {
+        self.color = color
+        self.lineWidth = lineWidth
+        super.init(frame: .zero)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+        for shape in [track, arc] {
+            shape.fillColor = nil
+            shape.lineWidth = lineWidth
+            shape.lineCap = .round
+            layer?.addSublayer(shape)
+        }
+        arc.strokeEnd = 0.68
+        updateColors()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var isOpaque: Bool { false }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        guard changed else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let side = min(newSize.width, newSize.height)
+        let square = CGRect(x: 0, y: 0, width: side, height: side)
+        let path = CGPath(ellipseIn: square.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), transform: nil)
+        for shape in [track, arc] {
+            shape.bounds = square
+            shape.position = CGPoint(x: newSize.width / 2, y: newSize.height / 2)
+            shape.path = path
+        }
+        CATransaction.commit()
+        restart()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { restart() }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
+    private func restart() {
+        arc.removeAllAnimations()
+        guard window != nil, bounds.width > 1, Turning.allowed else { return }
+        arc.add(Turning.animation(period: 0.9), forKey: "turn")
+    }
+
+    private func updateColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            track.strokeColor = color.withAlphaComponent(0.2).cgColor
+            arc.strokeColor = color.cgColor
+        }
+    }
+}
+
+/// An SF Symbol filled with a colour, or with colours running across it, that can turn in place:
+/// the reasoning block's sparkle while the model thinks.
+final class TurningSymbolView: NSView {
+    private let turner = CALayer()
+    private let fill = CAGradientLayer()
+    private let shape = CALayer()
+    private let image: NSImage
+    /// One colour fills the symbol; more run across it, leading to trailing.
+    var colors: [NSColor] = [.secondaryLabelColor] { didSet { updateColors() } }
+    var turns = false { didSet { if turns != oldValue { restart() } } }
+    /// Seconds for one full turn.
+    var period: CFTimeInterval = 2.8
+
+    init(image: NSImage) {
+        self.image = image
+        super.init(frame: .zero)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+        fill.startPoint = CGPoint(x: 0, y: 0.5)
+        fill.endPoint = CGPoint(x: 1, y: 0.5)
+        shape.contentsGravity = .resizeAspect
+        fill.mask = shape
+        turner.addSublayer(fill)
+        layer?.addSublayer(turner)
+        updateColors()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var isOpaque: Bool { false }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        guard changed else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        turner.bounds = CGRect(origin: .zero, size: newSize)
+        turner.position = CGPoint(x: newSize.width / 2, y: newSize.height / 2)
+        fill.frame = turner.bounds
+        shape.frame = fill.bounds
+        CATransaction.commit()
+        updateContents()
+        restart()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        updateContents()
+        restart()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateContents()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
+    private func updateContents() {
+        let scale = window?.backingScaleFactor ?? 2
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shape.contentsScale = scale
+        shape.contents = image.layerContents(forContentsScale: scale)
+        CATransaction.commit()
+    }
+
+    private func restart() {
+        turner.removeAllAnimations()
+        guard turns, window != nil, bounds.width > 1, Turning.allowed else { return }
+        turner.add(Turning.animation(period: period), forKey: "turn")
+    }
+
+    private func updateColors() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let resolved = colors.map(\.cgColor)
+            fill.colors = resolved.count == 1 ? [resolved[0], resolved[0]] : resolved
+        }
+        CATransaction.commit()
     }
 }

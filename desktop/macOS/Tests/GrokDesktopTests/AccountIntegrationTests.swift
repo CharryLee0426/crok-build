@@ -170,6 +170,30 @@ fixture.run()
         XCTAssertTrue(fixture.params(for: "_x.ai/billing").isEmpty, "xAI billing is never requested")
     }
 
+    func testTheContextRingsPopoverMeasuresItsTaskInPlace() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try await startTask(fixture)
+        let store = fixture.store, account = fixture.account
+        let id = try XCTUnwrap(store.state.selectedConversationID)
+        let promptsBefore = fixture.prompts.count, tasksBefore = store.state.conversations.count
+        account.refreshContextBreakdown(conversationID: id)
+        XCTAssertEqual(account.contextBreakdowns[id]?.isLoading, true)
+        try await eventually { account.contextBreakdowns[id]?.isLoading == false }
+        let state = try XCTUnwrap(account.contextBreakdowns[id])
+        XCTAssertNil(state.error)
+        XCTAssertEqual(state.model, "fixture-grok-build")
+        let snapshot = try XCTUnwrap(state.snapshot)
+        XCTAssertEqual(snapshot.window.system, 9_000)
+        XCTAssertEqual(snapshot.window.messages, 18_000)
+        XCTAssertEqual(snapshot.window.overhead, 3_000)
+        XCTAssertEqual(store.features.tokens.contexts[id], ContextUsage(used: 30_000, window: 200_000), "the ring takes the measurement too")
+        XCTAssertNil(store.sheet, "the popover opens no sheet")
+        XCTAssertEqual(fixture.prompts.count, promptsBefore, "measuring sends no prompt")
+        XCTAssertEqual(store.state.conversations.count, tasksBefore, "and starts no task")
+        XCTAssertEqual(fixture.params(for: "_x.ai/session/info").last?["sessionId"] as? String, store.conversation?.sessionID)
+    }
+
     func testUsageWithoutATaskStartsNothing() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

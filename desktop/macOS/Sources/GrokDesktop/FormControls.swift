@@ -72,15 +72,15 @@ struct ComposerControlLabel: View {
     var symbol: String? = nil
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 6) {
             if let symbol {
-                Image(systemName: symbol).font(.system(size: 15)).foregroundStyle(Theme.muted)
-                    .frame(width: 18).accessibilityHidden(true)
+                Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    .frame(width: 16).accessibilityHidden(true)
             }
-            Text(title).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
-            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.muted)
+            Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.muted)
                 .accessibilityHidden(true)
-        }.padding(.horizontal, 11).frame(height: 40).contentShape(Capsule())
+        }.padding(.horizontal, 10).frame(height: 30).contentShape(Capsule())
     }
 }
 

@@ -333,16 +333,24 @@ struct FilesPanelView: View {
     private var header: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
-                Picker("Show", selection: $files.scope) {
-                    Text("All files").tag(FilesPanelModel.Scope.all)
-                    Text(store.workspace.changes.isEmpty ? "Changes" : "Changes \(store.workspace.changes.count)").tag(FilesPanelModel.Scope.changes)
+                // A segmented control never squeezes below its natural width, and the directory column
+                // can be narrower than the picker with its count: the count goes first, then the picker shrinks.
+                ViewThatFits(in: .horizontal) {
+                    scopePicker(showsCount: true, size: .regular)
+                    scopePicker(showsCount: false, size: .regular)
+                    scopePicker(showsCount: false, size: .small)
+                    scopePicker(showsCount: false, size: .mini)
                 }
-                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .layoutPriority(1)
                 Spacer(minLength: 4)
-                if files.loading { ProgressView().controlSize(.mini) }
-                IconButton(icon: "arrow.clockwise", help: "Reload files and changes", size: 26) {
-                    files.load(force: true)
-                    Task { await store.refreshWorkspace() }
+                // In the reload button's place, so the picker keeps its room while the files load.
+                if files.loading {
+                    ProgressView().controlSize(.mini).frame(width: 26, height: 26)
+                } else {
+                    IconButton(icon: "arrow.clockwise", help: "Reload files and changes", size: 26) {
+                        files.load(force: true)
+                        Task { await store.refreshWorkspace() }
+                    }
                 }
             }
             if files.scope == .all {
@@ -350,6 +358,14 @@ struct FilesPanelView: View {
             }
         }
         .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
+    }
+
+    private func scopePicker(showsCount: Bool, size: ControlSize) -> some View {
+        Picker("Show", selection: $files.scope) {
+            Text("All files").tag(FilesPanelModel.Scope.all)
+            Text(showsCount && !store.workspace.changes.isEmpty ? "Changes \(store.workspace.changes.count)" : "Changes").tag(FilesPanelModel.Scope.changes)
+        }
+        .pickerStyle(.segmented).labelsHidden().controlSize(size).fixedSize()
     }
 
     @ViewBuilder

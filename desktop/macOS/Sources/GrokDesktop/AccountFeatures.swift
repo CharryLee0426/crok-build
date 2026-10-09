@@ -9,6 +9,8 @@ final class AccountFeatureModel: ObservableObject {
     /// The usage sheet's tab. `/usage`, `/context`, and `/session-info` switch it in place when the sheet is open.
     @Published var usageTab: UsageTab = .usage
     @Published private(set) var usage = UsageSheetState()
+    /// The composer ring's popover, per task: the last breakdown stays shown while the next one loads.
+    @Published private(set) var contextBreakdowns: [UUID: ContextBreakdownState] = [:]
     @Published private(set) var releaseNotes = ReleaseNotesState()
     @Published private(set) var announcements: [GrokAnnouncement] = []
     @Published private(set) var hiddenAnnouncementKeys: Set<String> = []
@@ -129,17 +131,18 @@ final class AccountFeatureModel: ObservableObject {
             usage.context = .failed(message); usage.sessionInfo = .failed(message); usage.sessionUsage = .failed(message)
             return
         }
-        guard usageRequestID == requestID, case let (client, _, sessionID)? = session else { return }
-        async let info: Void = loadSessionInfo(requestID: requestID, client: client, sessionID: sessionID, title: title)
+        guard usageRequestID == requestID, case let (client, conversationID, sessionID)? = session else { return }
+        async let info: Void = loadSessionInfo(requestID: requestID, client: client, conversationID: conversationID, sessionID: sessionID, title: title)
         async let totals: Void = loadSessionUsage(requestID: requestID, client: client, sessionID: sessionID)
         _ = await (info, totals)
     }
 
-    private func loadSessionInfo(requestID: UUID, client: ACPClient, sessionID: String, title: String?) async {
+    private func loadSessionInfo(requestID: UUID, client: ACPClient, conversationID: UUID, sessionID: String, title: String?) async {
         do {
             let result = try ExtensionResponse.unwrap(try await client.request("_x.ai/session/info", params: ["sessionId": sessionID]))
             guard usageRequestID == requestID, let store else { return }
             let info = UsageSessionInfo(result)
+            store.features.tokens.noteContext(info.context, conversationID: conversationID)
             usage.context = .loaded(info.context)
             usage.contextModel = info.model ?? "unknown"
             usage.sessionInfo = .loaded(UsageFormatting.sessionInfoRows(
@@ -149,6 +152,29 @@ final class AccountFeatureModel: ObservableObject {
             guard usageRequestID == requestID else { return }
             let message = AccountErrorText.describe(error)
             usage.context = .failed(message); usage.sessionInfo = .failed(message)
+        }
+    }
+
+    /// Measures a task's context window for the composer ring's popover. It reaches the task's own
+    /// session, connecting it if needed, and never creates a task.
+    func refreshContextBreakdown(conversationID id: UUID) {
+        guard let store, contextBreakdowns[id]?.isLoading != true else { return }
+        var state = contextBreakdowns[id] ?? ContextBreakdownState()
+        state.isLoading = true
+        state.error = nil
+        contextBreakdowns[id] = state
+        Task {
+            do {
+                let (client, session) = try await store.session(for: id)
+                let result = try ExtensionResponse.unwrap(try await client.request("_x.ai/session/info", params: ["sessionId": session]))
+                let info = UsageSessionInfo(result)
+                store.features.tokens.noteContext(info.context, conversationID: id)
+                // A harness that sent no breakdown reports a zero window; the ring's own figures stand in.
+                contextBreakdowns[id] = ContextBreakdownState(snapshot: info.context.total > 0 ? info.context : nil, model: info.model)
+            } catch {
+                contextBreakdowns[id]?.isLoading = false
+                contextBreakdowns[id]?.error = AccountErrorText.describe(error)
+            }
         }
     }
 
@@ -449,14 +475,25 @@ final class AccountFeatureModel: ObservableObject {
 extension AccountFeatureModel {
     /// Puts panels into a given state without a harness, for snapshot tests.
     func showPreviewState(usage: UsageSheetState? = nil, releaseNotes: ReleaseNotesState? = nil,
-                          drafts: FeedbackDraftListState? = nil, announcements: [GrokAnnouncement]? = nil) {
+                          drafts: FeedbackDraftListState? = nil, announcements: [GrokAnnouncement]? = nil,
+                          contextBreakdown: (UUID, ContextBreakdownState)? = nil) {
         if let usage { self.usage = usage }
+        if let (id, state) = contextBreakdown { contextBreakdowns[id] = state }
         if let releaseNotes { self.releaseNotes = releaseNotes }
         if let drafts { feedbackDrafts = drafts }
         if let announcements { self.announcements = announcements; hiddenAnnouncementKeys = [] }
     }
 }
 #endif
+
+/// What the context ring's popover knows of a task's window.
+struct ContextBreakdownState: Equatable {
+    /// Nil until measured, or when the harness sent no breakdown.
+    var snapshot: UsageContextSnapshot?
+    var model: String?
+    var isLoading = false
+    var error: String?
+}
 
 /// The Session info tab's "Auth method" row.
 struct AccountAuthDescription: Equatable {

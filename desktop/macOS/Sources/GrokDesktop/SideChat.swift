@@ -8,7 +8,9 @@ final class SideChatModel: ObservableObject {
     weak var store: AppStore?
     @Published private(set) var threads: [UUID: [SideChatMessage]] = [:]
     @Published private(set) var pending: Set<UUID> = []
-    @Published var drafts: [UUID: String] = [:]
+    /// What was typed in each task's side chat, kept while another task's shows. Not published:
+    /// the field holds the text while it is typed (see `SideChatPaneView.keepDraft`).
+    var drafts: [UUID: String] = [:]
     /// Bumped to move keyboard focus to the side chat's field.
     @Published private(set) var focusRequest = 0
 
@@ -23,10 +25,12 @@ final class SideChatModel: ObservableObject {
 
     func requestFocus() { focusRequest += 1 }
 
-    /// Asks a side question about a task.
-    func ask(_ text: String, in id: UUID) {
+    /// Asks a side question about a task. Returns false when it was not asked: it was empty, or
+    /// the task's last question is still being answered.
+    @discardableResult
+    func ask(_ text: String, in id: UUID) -> Bool {
         let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let store, !question.isEmpty, store.task(id) != nil, !pending.contains(id) else { return }
+        guard let store, !question.isEmpty, store.task(id) != nil, !pending.contains(id) else { return false }
         let prompt = Self.prompt(question, after: thread(id))
         append(SideChatMessage(role: .question, text: question), to: id)
         drafts[id] = nil
@@ -45,6 +49,7 @@ final class SideChatModel: ObservableObject {
             }
             self?.pending.remove(id)
         }
+        return true
     }
 
     /// Asks the question a failure answered again.
@@ -101,13 +106,18 @@ extension AppStore {
 
 // MARK: - View
 
+/// The Side chat tab: the selected task's side chat, or what side chats are for without one.
 struct SideChatView: View {
-    @EnvironmentObject var store: AppStore
     @EnvironmentObject var sideChat: SideChatModel
+    /// The selected task. Given rather than read from the store, so that the tab is not evaluated
+    /// again for every chunk a running task streams.
+    let conversationID: UUID?
+    let taskTitle: String
 
     var body: some View {
-        if let id = store.state.selectedConversationID, let task = store.task(id) {
-            SideChatThread(conversationID: id, taskTitle: task.title).id(id)
+        if let id = conversationID {
+            SideChatPane(model: sideChat, conversationID: id, taskTitle: taskTitle, messages: sideChat.thread(id),
+                         isPending: sideChat.pending.contains(id), focusRequest: sideChat.focusRequest)
         } else {
             SidePanelEmptyState(symbol: "bubble.left.and.text.bubble.right", title: "No task selected",
                                 detail: "Side chats belong to a task. Open one to ask Crok a quick question without interrupting its work.")
@@ -115,130 +125,26 @@ struct SideChatView: View {
     }
 }
 
-private struct SideChatThread: View {
-    @EnvironmentObject var sideChat: SideChatModel
+/// The AppKit side chat in SwiftUI (see `SideChatPaneView`). It takes the room it is given, so
+/// SwiftUI neither measures its messages nor lays out what is typed.
+private struct SideChatPane: NSViewRepresentable {
+    let model: SideChatModel
     let conversationID: UUID
     let taskTitle: String
-    @FocusState private var focused: Bool
+    let messages: [SideChatMessage]
+    let isPending: Bool
+    let focusRequest: Int
 
-    private var messages: [SideChatMessage] { sideChat.thread(conversationID) }
-    private var isPending: Bool { sideChat.pending.contains(conversationID) }
-    private var draft: Binding<String> {
-        Binding(get: { sideChat.drafts[conversationID] ?? "" }, set: { sideChat.drafts[conversationID] = $0 })
+    func makeNSView(context: Context) -> SideChatPaneView { SideChatPaneView(model: model) }
+
+    func updateNSView(_ view: SideChatPaneView, context: Context) {
+        view.show(conversationID: conversationID, title: taskTitle, messages: messages, isPending: isPending, focusRequest: focusRequest)
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Text("About \u{201C}\(taskTitle)\u{201D}").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.muted)
-                    .lineLimit(1).truncationMode(.middle)
-                Spacer(minLength: 4)
-                if !messages.isEmpty {
-                    IconButton(icon: "trash", help: "Clear this side chat", size: 24) { sideChat.clear(conversationID) }
-                        .disabled(isPending)
-                }
-            }
-            .padding(.horizontal, 14).padding(.vertical, 6)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        if messages.isEmpty { intro }
-                        ForEach(messages) { message in
-                            SideChatBubble(message: message) { sideChat.retry(message, in: conversationID) }
-                        }
-                        if isPending {
-                            HStack(spacing: 8) {
-                                ProgressView().controlSize(.mini)
-                                Text("Crok is answering…").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                            }.padding(.leading, 2)
-                        }
-                        Color.clear.frame(height: 1).id("end")
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                }
-                .defaultScrollAnchor(.bottom)
-                .onChange(of: messages.count) { _, _ in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("end", anchor: .bottom) } }
-                .onChange(of: isPending) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            }
-            input.padding(10)
-        }
-        .onAppear { focused = true }
-        .onChange(of: sideChat.focusRequest) { _, _ in focused = true }
-    }
+    static func dismantleNSView(_ view: SideChatPaneView, coordinator: ()) { view.keepDraft() }
 
-    private var intro: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: "bubble.left.and.text.bubble.right").font(.system(size: 20, weight: .light)).foregroundStyle(Theme.accent)
-            Text("Ask on the side").font(.system(size: 14, weight: .semibold))
-            Text("Crok answers from this task's conversation without interrupting what it is doing. Nothing here changes the task.")
-                .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 12)
-    }
-
-    private var input: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("Ask a side question…", text: draft, axis: .vertical)
-                .textFieldStyle(.plain).font(.system(size: 13.5)).lineLimit(1...6)
-                .focused($focused)
-                .onSubmit(send)
-                .padding(.vertical, 5)
-                .accessibilityLabel("Side question")
-            Button(action: send) {
-                Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.canvas)
-                    .frame(width: 26, height: 26)
-                    .background(canSend ? Theme.ink : Theme.muted.opacity(0.35), in: Circle())
-            }
-            .buttonStyle(.plain).disabled(!canSend)
-            .help("Ask · ↵").accessibilityLabel("Ask side question")
-        }
-        .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 5)
-        .glassSurface(cornerRadius: 18)
-    }
-
-    private var canSend: Bool { !isPending && !(sideChat.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-    private func send() {
-        guard canSend else { return }
-        sideChat.ask(sideChat.drafts[conversationID] ?? "", in: conversationID)
-    }
-}
-
-private struct SideChatBubble: View {
-    let message: SideChatMessage
-    var onRetry: () -> Void
-
-    var body: some View {
-        switch message.role {
-        case .question:
-            HStack {
-                Spacer(minLength: 36)
-                Text(message.text).font(.system(size: 13.5)).textSelection(.enabled)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(Theme.sidebar, in: RoundedRectangle(cornerRadius: 13))
-            }
-        case .answer:
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    GrokMark(size: 15)
-                    Text("Crok").font(.system(size: 11.5, weight: .semibold))
-                    Spacer(minLength: 0)
-                    IconButton(icon: "doc.on.doc", help: "Copy answer", size: 22) {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(message.text, forType: .string)
-                    }
-                }
-                MarkdownReply(text: message.text, style: MarkdownStyle(fontSize: 13.5, blockSpacing: 9))
-            }
-        case .failure:
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle").foregroundStyle(Color.orange)
-                Text(message.text).font(.system(size: 12.5)).foregroundStyle(Theme.muted).textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 4)
-                Button("Retry", action: onRetry).buttonStyle(SubtleButtonStyle()).font(.system(size: 12, weight: .medium))
-            }
-            .padding(10).background(Theme.sidebar, in: RoundedRectangle(cornerRadius: 10))
-        }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: SideChatPaneView, context: Context) -> CGSize? {
+        let size = proposal.replacingUnspecifiedDimensions(by: CGSize(width: 320, height: 240))
+        return CGSize(width: size.width.isFinite ? size.width : 320, height: size.height.isFinite ? size.height : 240)
     }
 }

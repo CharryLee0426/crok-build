@@ -10,7 +10,7 @@ struct ConversationView: View {
     var body: some View {
         VStack(spacing: 0) {
             Group {
-                if store.conversation == nil { welcome.frame(maxHeight: .infinity) }
+                if store.conversation == nil { WelcomeView().frame(maxHeight: .infinity) }
                 else { TranscriptView() }
             }
             // Files dropped anywhere on the conversation attach to the prompt.
@@ -59,55 +59,6 @@ struct ConversationView: View {
         .task(id: "\(store.state.selectedProjectID?.uuidString ?? "")/\(store.state.selectedConversationID?.uuidString ?? "")") {
             await store.prepareSessionOptions()
         }
-    }
-
-    private var welcome: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            GrokMark(size: 47).padding(.bottom, 24)
-            Text("What will you build?").font(.system(size: 32, weight: .semibold)).tracking(-0.6)
-            if let project = store.project {
-                Menu {
-                    ForEach(store.state.projects) { item in
-                        Button { store.selectProject(item.id) } label: {
-                            if item.id == project.id { Label(item.name, systemImage: "checkmark") } else { Text(item.name) }
-                        }
-                    }
-                    Divider()
-                    Button("Open Another Folder…", systemImage: "folder.badge.plus") { store.addProject() }
-                } label: {
-                    HStack(spacing: 7) { Image(systemName: "folder"); Text(project.name); Image(systemName: "chevron.down").font(.system(size: 8)) }
-                        .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.muted).padding(.horizontal, 12).padding(.vertical, 8)
-                        .glassSurface(in: Capsule(), interactive: true).contentShape(Capsule())
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help(project.path).accessibilityLabel("Project: \(project.name)")
-                .padding(.top, 18)
-            } else {
-                Button("Open a project") { store.addProject() }.buttonStyle(SubtleButtonStyle()).padding(.top, 20)
-            }
-            Spacer().frame(height: 48)
-            HStack(spacing: 10) {
-                starter("Explore the codebase", subtitle: "Find your way around", icon: "square.stack.3d.up", prompt: "Explore this codebase. Explain its architecture, the main entry points, and how to run it.")
-                starter("Build something", subtitle: "Turn an idea into code", icon: "hammer", prompt: "I'd like to build a new feature in this project. First, inspect the codebase and ask me what I want to create.")
-                starter("Review changes", subtitle: "Get a second pair of eyes", icon: "checkmark.bubble", prompt: "Review the current uncommitted changes for bugs, regressions, and missing edge cases. Give concrete findings with file references.")
-            }.frame(maxWidth: 650)
-            Spacer()
-            Spacer().frame(height: 4)
-        }.padding(.horizontal, 32)
-    }
-
-    private func starter(_ title: String, subtitle: String, icon: String, prompt: String) -> some View {
-        Button { store.draft = prompt } label: {
-            VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: icon).font(.system(size: 16, weight: .light)).foregroundStyle(Theme.accent)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.system(size: 14, weight: .medium))
-                    Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(17)
-                .glassSurface(cornerRadius: 14, interactive: true).contentShape(RoundedRectangle(cornerRadius: 14))
-        }.buttonStyle(.plain).disabled(store.project == nil)
     }
 
     private func goalStatus(_ goal: GoalState) -> some View {

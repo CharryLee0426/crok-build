@@ -326,7 +326,7 @@ func writeIcon(artworkName: String, to destination: URL) throws -> CGImage {
     return preview
 }
 
-// The appearance each artwork is shown in, not its own colours: the dark tile is the light-mode icon.
+// Each artwork matches the appearance it is shown in: the light tile in light mode, the dark tile in dark mode.
 let lightPreview = try writeIcon(artworkName: "AppIcon-LightMode.jpg", to: lightDestination)
 let darkPreview = try writeIcon(artworkName: "AppIcon-DarkMode.jpg", to: darkDestination)
 

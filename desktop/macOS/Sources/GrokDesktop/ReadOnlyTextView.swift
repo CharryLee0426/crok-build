@@ -13,6 +13,8 @@ struct ReadOnlyTextView: NSViewRepresentable {
         case prose
         /// Primary 16 pt text, as for prompts.
         case body
+        /// Primary text in another size, as for side questions.
+        case plain(CGFloat)
         case monospaced
         /// Monospaced unified diff with coloured additions, removals, and hunk headers.
         case diff
@@ -385,6 +387,8 @@ struct ReadOnlyTextView: NSViewRepresentable {
             case .body:
                 paragraph.lineSpacing = 3
                 return [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+            case .plain(let size):
+                return [.font: NSFont.systemFont(ofSize: size), .foregroundColor: Theme.palette.inkNS, .paragraphStyle: paragraph]
             case .monospaced, .diff, .code:
                 paragraph.lineSpacing = style == .monospaced ? 2 : 3
                 return [.font: NSFont.monospacedSystemFont(ofSize: style == .diff ? 12 : 13, weight: .regular), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]

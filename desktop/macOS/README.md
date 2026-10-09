@@ -138,9 +138,13 @@ swift test --package-path desktop/macOS
    `crok logout <provider>` (or `crok logout` for every provider) in the side
    panel's Terminal. A key that comes from the environment has no menu; unset the
    variable instead.
-3. Start a task and send a prompt. Responses stream into the conversation, with
-   expandable thinking and tool output, plan progress, permission requests,
-   project trust decisions, and agent questions. Messages you send while Crok is
+3. Start a task and send a prompt. A new task greets you for the time of day and
+   rolls through starter prompts (explore the codebase, build something, review
+   changes); click one to put it in the composer. Responses stream into the
+   conversation, with expandable thinking and tool output, plan progress, permission requests,
+   project trust decisions, and agent questions. While the model thinks, the
+   thinking block's sparkle turns; a running tool call spins and sweeps in blue, and
+   turns green when it completes or red when it fails. Messages you send while Crok is
    working wait in a queue above the composer and are sent in order.
 4. Attach images, files, and folders from **+ › Add photos & files** (⌘U) or
    **+ › Add folder**, by dragging them onto the conversation or the prompt, or by
@@ -282,9 +286,17 @@ Move Up and Move Down on each row instead of dragging.
 
 Available model choices load before the first message and when reopening a task;
 the model picker searches both names and provider IDs. The composer displays the
-model, adjustable thinking level when supported, and conversation mode. Changes
+model, the thinking level when it is adjustable, the permission mode as its icon
+(hover for its name), and the conversation mode. Changes
 are acknowledged by the harness before sending is re-enabled, and model/thinking
-choices persist across relaunches. Settings includes the terminal's themes
+choices persist across relaunches. Left of the microphone, a ring fills as the
+task's context window does, turning amber from 75% and red from 95% as the
+terminal's meter does. Hover it for the tokens used and free, or click it for a
+popover with a larger ring divided into the system prompt, messages, and
+reasoning, a mark where auto-compact begins, and each part's tokens; **Usage
+details** there opens **Context** (`/context`). The ring is dashed
+until the task's session reports: a task reopened after a relaunch reports once it
+connects, or when the ring is clicked. Settings includes the terminal's themes
 (auto, Crok Night, Crok Day, Tokyo Night, Rosé Pine Moon, Oscura Midnight),
 permission mode, conversation display, and dictation. The interface uses system typography and native toolbar
 controls. Every window is glass: the desktop shows through, blurred, most clearly in the sidebar, and controls such as
@@ -322,10 +334,11 @@ both launch methods. See the [authentication guide](../../crates/codegen/xai-gro
 | Dictate | ⇧⌘D |
 | Keyboard shortcuts | ⌘/ |
 | Send message (or queue it while Crok works) | Return |
-| Insert a new line | Shift-Return |
+| Insert a new line | Shift-Return, Option-Return, or ⌃J |
 | Stop the current task | ⌘. |
 
-`/multiline` changes Return to insert a newline and ⌘Return to send. `/compact-mode`
+`/multiline` changes Return to insert a newline and ⌘Return to send. The side
+chat's field takes the same keys as the prompt. `/compact-mode`
 toggles a denser transcript layout. The full list, including the palette, theme
 picker, jump, and vim-style transcript keys, is in the Keyboard Shortcuts sheet.
 
@@ -507,6 +520,18 @@ changes that), then keeps it streaming while the window is dragged to other
 sizes, taken to a screen's size and back as full screen does, scrolled to the
 middle, searched, and returned to its end.
 
+The side panel's Side chat is AppKit the same way: `SideChatListView` measures each
+message once for a width and makes views only near what is in sight, a long pasted
+question shows in a box that scrolls and is measured from its start alone, and its
+field is the prompt's text view, so it takes the same keys (Return asks; Shift-Return,
+Option-Return, and ⌃J start a line). `swift test --filter SideChatTests` checks those
+keys, the field growing to six lines, each task keeping its draft, Retry and Clear,
+and a 600-message side chat, and prints what typing after a megabyte paste costs.
+`CROK_DESKTOP_UI_TESTS=1 swift test --filter SideChatWindowTests` pastes 200 KB into
+the field round after round in a real window, sends it with Return, and prints the
+longest main-thread stall while pasting, typing, being answered, and resizing; the
+SwiftUI side chat it replaced stalled for a quarter of a second at every keystroke.
+
 Those windows are never on screen, and what draws them (`cacheDisplay`) shows
 neither the window's title bar nor Core Animation's masks and motion as the
 screen does. `CROK_DESKTOP_WINDOW_SHOTS=<folder> swift test --filter TranscriptWindow`
@@ -515,7 +540,10 @@ has the window server picture it: the rows clear of the title bar and the find
 bar, a long task kept at its end as the window and the side panel change, a
 block opening in place while the rows after it slide, and the fade at the top
 of reasoning that streams. The pictures are of the app's own window, so they
-need no screen-recording permission.
+need no screen-recording permission. `--filter MotionWindow` pictures the same
+way what should move: a running tool call's spinner (clockwise) and blue sweep,
+the thinking sparkle, and the welcome page's starters, and that a finished call
+is still.
 
 A session that ended or hung the app can be replayed as it was sent, on the Mac
 where it did. `CROK_TRACE_HTML=<its /trace export> swift test --filter TraceSessionReplay`
@@ -543,9 +571,9 @@ packaged app continues to use its embedded runtime and standard local state.
 ## App icon
 
 The icon is the labubu artwork in two versions, one for each appearance:
-[`Resources/AppIcon-LightMode.jpg`](Resources/AppIcon-LightMode.jpg), the dark
+[`Resources/AppIcon-LightMode.jpg`](Resources/AppIcon-LightMode.jpg), the light
 tile shown in light mode, and
-[`Resources/AppIcon-DarkMode.jpg`](Resources/AppIcon-DarkMode.jpg), the light
+[`Resources/AppIcon-DarkMode.jpg`](Resources/AppIcon-DarkMode.jpg), the dark
 tile shown in dark mode. Both follow Apple's macOS icon grid, like the other
 coding agents' icons: the artwork fills an 824 pt tile with continuous corners of
 radius 185.4 pt on the 1024 pt canvas (Claude's icon has the same outline), with a

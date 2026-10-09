@@ -123,6 +123,22 @@ final class TokenMeterTests: XCTestCase {
                        "Token usage: 1,234,567 input tokens, 45,300 output tokens, 83% cache hit rate, 61 tokens per second. Show session usage")
     }
 
+    func testContextHelpSpellsTheWindowOut() {
+        XCTAssertEqual(TokenFormat.contextHelp(ContextUsage(used: 42_100, window: 272_000)), """
+            Context window: 15% full
+            42,100 of 272,000 tokens used, 229,900 free
+            Click to see how it is allocated
+            """)
+        XCTAssertEqual(TokenFormat.contextAccessibilityValue(ContextUsage(used: 42_100, window: 272_000)), "15% full, 42,100 of 272,000 tokens")
+        // A model the catalog does not size, and a task that has not reported.
+        XCTAssertEqual(TokenFormat.contextHelp(ContextUsage(used: 42_100)), "Context window: 42,100 tokens used\nClick to see how it is allocated")
+        XCTAssertEqual(TokenFormat.contextHelp(nil), "Context window: not measured yet\nClick to see how it is allocated")
+        XCTAssertEqual(TokenFormat.contextAccessibilityValue(nil), "Not measured yet")
+        // A context can outgrow its window; nothing is free then.
+        XCTAssertEqual(ContextUsage(used: 300, window: 200).fraction, 1.5)
+        XCTAssertTrue(TokenFormat.contextHelp(ContextUsage(used: 300, window: 200)).contains("300 of 200 tokens used, 0 free"))
+    }
+
     // MARK: Notifications
 
     private func makeStore() -> (AppStore, UUID) {
@@ -185,5 +201,37 @@ final class TokenMeterTests: XCTestCase {
         store.replaying.remove(id)
         _ = store.receiveFeatureNotification("x.ai/session/update", params: ["sessionId": "session-1", "update": ["sessionUpdate": "turn_completed", "prompt_id": "p1", "stop_reason": "cancelled"]], id: id)
         XCTAssertNil(tokens.meters[id]?.readout(turnRunning: true))
+    }
+
+    func testTheContextFigureFollowsUpdatesCompactionsAndContext() async throws {
+        let (store, id) = makeStore()
+        defer { store.shutdown() }
+        let tokens = store.features.tokens
+        // Every update carries the figure, chunks included, so it is published on the meter's interval.
+        _ = store.receiveFeatureNotification("session/update", params: [
+            "sessionId": "session-1", "_meta": ["totalTokens": 40_000, "promptId": "p1"],
+            "update": ["sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": "Working"]]], id: id)
+        XCTAssertNil(tokens.contexts[id])
+        try await Task.sleep(nanoseconds: TokenMeterModel.publishInterval * 3)
+        XCTAssertEqual(tokens.contexts[id], ContextUsage(used: 40_000))
+
+        // Context measures the window as well, and shows at once.
+        var measured = UsageContextSnapshot()
+        measured.used = 41_000
+        measured.total = 272_000
+        tokens.noteContext(measured, conversationID: id)
+        XCTAssertEqual(tokens.contexts[id], ContextUsage(used: 41_000, window: 272_000))
+        // A harness that sent no breakdown changes nothing.
+        tokens.noteContext(UsageContextSnapshot(), conversationID: id)
+        XCTAssertEqual(tokens.contexts[id], ContextUsage(used: 41_000, window: 272_000))
+
+        // A compaction reports nothing else, so its result shows at once.
+        _ = store.receiveFeatureNotification("x.ai/session_notification", params: [
+            "sessionId": "session-1", "update": ["sessionUpdate": "auto_compact_completed", "tokens_before": 41_000, "tokens_after": 9_000]], id: id)
+        XCTAssertEqual(tokens.contexts[id], ContextUsage(used: 9_000, window: 272_000))
+
+        // The next harness loads the same conversation, so the figure stays.
+        tokens.harnessDidStart(conversationID: id)
+        XCTAssertEqual(tokens.contexts[id], ContextUsage(used: 9_000, window: 272_000))
     }
 }

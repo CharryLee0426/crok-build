@@ -103,6 +103,23 @@ final class TranscriptListSnapshotTests: XCTestCase {
         try renderSwiftUI(messages, streaming: thought.id, width: 900, appearance: .aqua, name: "streaming-swiftui.png")
         try renderList(messages, expanded: [thought.id], streaming: thought.id, status: "Thinking…", width: 900, appearance: .darkAqua, name: "streaming-open-appkit.png")
     }
+
+    func testToolCallsInEachState() throws {
+        let base = TranscriptListFixtures.base
+        let thought = Message(kind: .thought, text: MarkdownTestDocuments.thinking(lines: 6), createdAt: base)
+        let messages = [
+            Message(kind: .tool, text: "Run `crok mcp doctor runpod 2>&1 | tail -30`", toolID: "done", status: "completed",
+                    detail: "runpod: reachable\nauth: oauth required", createdAt: base),
+            Message(kind: .tool, text: "Run `swift test --filter Snapshot`", toolID: "failed", status: "failed", detail: "error: 2 tests failed", createdAt: base),
+            Message(kind: .tool, text: "Run `npx -y skills list --global 2>&1 | grep -E '(runpod|flash)'`", toolID: "running", status: "in_progress", createdAt: base),
+            Message(kind: .tool, text: "Read `desktop/macOS/Package.swift`", toolID: "pending", status: "pending", createdAt: base),
+            thought,
+        ]
+        for (suffix, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            try renderList(messages, expanded: [messages[1].id], streaming: thought.id, status: "Working…", width: 900, appearance: appearance, name: "tools-running-\(suffix).png")
+            try renderList(Array(messages.prefix(4)), width: 900, appearance: appearance, name: "tools-stopped-\(suffix).png")
+        }
+    }
 }
 
 /// The AppKit transcript by itself: what it lays out, what stays put, and what a long task costs.
@@ -114,6 +131,7 @@ final class TranscriptListTests: XCTestCase {
     private var display = TranscriptDisplay(conversation: UUID())
 
     override func tearDown() async throws {
+        window?.orderOut(nil)
         window?.contentView = nil
         window = nil
         list = nil
@@ -298,6 +316,38 @@ final class TranscriptListTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(distanceFromEnd), 1, "and when it has ended")
     }
 
+    func testToolCallsShowWhetherTheyAreAtWork() throws {
+        var messages = Array(TranscriptListFixtures.longSession(rounds: 2))
+        messages.append(Message(kind: .tool, text: "Run `make test`", toolID: "running", status: "in_progress", detail: ""))
+        messages.append(Message(kind: .tool, text: "Read `Package.swift`", toolID: "waiting", status: "pending", detail: ""))
+        display.status = "Working…"
+        show(messages)
+        func tone(_ index: Int) throws -> TranscriptToolRow.Tone? {
+            try XCTUnwrap(list.rowView(for: messages[index].id) as? TranscriptToolRow, "the call has a row").tone
+        }
+        let running = messages.count - 2, waiting = messages.count - 1
+        XCTAssertEqual(try tone(running), .running, "an unfinished call spins while its turn runs")
+        XCTAssertEqual(try tone(waiting), .running)
+        let height = try XCTUnwrap(list.rowFrame(for: messages[running].id)).height
+
+        messages[running].status = "completed"
+        messages[waiting].status = "failed"
+        apply(messages)
+        XCTAssertEqual(try tone(running), .completed)
+        XCTAssertEqual(try tone(waiting), .failed)
+        XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: messages[running].id)).height, height, "finishing does not move what follows")
+
+        // A turn that ends with a call unfinished, as a stop does, leaves it still.
+        messages.append(Message(kind: .tool, text: "Run `sleep 60`", toolID: "stopped", status: "in_progress", detail: ""))
+        apply(messages)
+        let stopped = messages.count - 1
+        XCTAssertEqual(try tone(stopped), .running)
+        display.status = nil
+        apply(messages)
+        XCTAssertEqual(try tone(stopped), .idle)
+        XCTAssertEqual(try tone(running), .completed, "finished calls keep their colour after the turn")
+    }
+
     func testReasoningStreamsFoldedThenOpen() throws {
         var messages = Array(TranscriptListFixtures.longSession(rounds: 3))
         show(messages)
@@ -408,6 +458,73 @@ final class TranscriptListTests: XCTestCase {
         settle()
         XCTAssertEqual(try screenTop(of: id), before, accuracy: 0.5)
         XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: id)).height, folded)
+    }
+
+    // MARK: Clicks
+
+    /// The middle of a block's header, in the window.
+    private func headerCenter(of id: UUID, file: StaticString = #filePath, line: UInt = #line) throws -> NSPoint {
+        let row = try XCTUnwrap(list.rowView(for: id), "the row is in sight", file: file, line: line)
+        let header = try XCTUnwrap(row.subviews.first { $0 is TranscriptFoldHeader }, "the row has a header", file: file, line: line)
+        return header.convert(NSPoint(x: header.bounds.midX, y: header.bounds.midY), to: nil)
+    }
+
+    /// A click as the window gets it: the window finds the view under it, which gets the mouse going down and up.
+    /// A window takes clicks only on screen, so it is ordered in under the desktop, where nobody sees it.
+    private func click(at point: NSPoint) throws {
+        if !window.isVisible {
+            window.ignoresMouseEvents = true
+            window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) - 1)
+            window.orderFrontRegardless()
+        }
+        for (type, pressure) in [(NSEvent.EventType.leftMouseDown, Float(1)), (NSEvent.EventType.leftMouseUp, Float(0))] {
+            window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: pressure)))
+        }
+        settle()
+    }
+
+    func testClickingAHeaderOpensAndClosesItsBlock() throws {
+        // Reasoning that has finished, and commands that completed, are running, failed, and wait to run.
+        let messages = TranscriptListFixtures.showcase()
+        show(messages, size: NSSize(width: 900, height: 6_000))
+        let frameView = try XCTUnwrap(window.contentView?.superview)
+        for message in messages where message.kind == .thought || message.kind == .tool {
+            let id = message.id, folded = try XCTUnwrap(list.rowFrame(for: id)).height
+            let point = try headerCenter(of: id)
+            XCTAssertTrue(frameView.hitTest(point) is TranscriptFoldHeader, "a click on the header of “\(message.text.prefix(24))” reaches the header")
+            try click(at: point)
+            XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, true, "a click opens “\(message.text.prefix(24))”")
+            XCTAssertGreaterThan(try XCTUnwrap(list.rowFrame(for: id)).height, folded + 10)
+            try click(at: try headerCenter(of: id))
+            XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, false, "and another closes it")
+            XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: id)).height, folded)
+        }
+    }
+
+    func testReasoningOpensAndClosesByItsHeaderWhileItStreamsAndOnceItHasEnded() throws {
+        var messages = TranscriptListFixtures.longSession(rounds: 20)
+        show(messages)
+        messages.append(Message(kind: .thought, text: MarkdownTestDocuments.thinking(lines: 12)))
+        let id = try XCTUnwrap(messages.last?.id)
+        display.streamingID = id
+        display.status = "Thinking…"
+        apply(messages)
+        try click(at: try headerCenter(of: id))
+        XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, true, "while it streams, a click opens it")
+        // The transcript model gives the list back what was clicked open.
+        display.expanded = [id]
+        display.streamingID = nil
+        display.status = nil
+        apply(messages)
+        let open = try XCTUnwrap(list.rowFrame(for: id)).height
+        try click(at: try headerCenter(of: id))
+        XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, false, "once it has ended, a click closes it")
+        XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: id)).height, TranscriptFoldHeader.minHeight)
+        display.expanded = []
+        try click(at: try headerCenter(of: id))
+        XCTAssertEqual(list.rowView(for: id)?.model.isExpanded, true, "and another opens it again")
+        XCTAssertEqual(try XCTUnwrap(list.rowFrame(for: id)).height, open, accuracy: 0.5)
     }
 
     func testATranscriptThatWasReplacedShowsItsNewRows() throws {

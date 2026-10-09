@@ -79,6 +79,7 @@ struct ComposerView: View {
     private var selectedModelName: String {
         store.run.models.first { $0.id == store.run.modelID }?.name ?? (store.run.modelID.isEmpty ? "Choose model" : store.run.modelID)
     }
+    private var selectedModelWindow: Int? { store.run.models.first { $0.id == store.run.modelID }?.contextWindow }
     private var filteredModels: [ModelOption] {
         store.run.models.filter { modelSearch.isEmpty || $0.name.localizedCaseInsensitiveContains(modelSearch) || $0.id.localizedCaseInsensitiveContains(modelSearch) }
     }
@@ -123,14 +124,17 @@ struct ComposerView: View {
                         compactOptionsButton(iconOnly: geometry.size.width < 260)
                     } else {
                         modelPicker
-                        reasoningPicker(compact: geometry.size.width < 650)
-                        permissionPicker(compact: geometry.size.width < 650)
+                        reasoningPicker
+                        permissionPicker
                         modePicker
                     }
                     Spacer(minLength: 0)
                     if store.run.isConfiguring {
-                        ProgressView().controlSize(.small).frame(width: 20, height: 40)
+                        ProgressView().controlSize(.small).frame(width: 20, height: 30)
                             .help("Updating conversation settings…").accessibilityLabel("Updating conversation settings")
+                    }
+                    if store.project != nil, let id = store.state.selectedConversationID {
+                        ComposerContextRing(conversationID: id, catalogWindow: selectedModelWindow)
                     }
                     if voiceAvailable {
                         VoiceMicButton(voice: features.voice, shortcut: features.voiceShortcutEnabled ? ComposerFeatureModel.voiceShortcut : nil) {
@@ -139,7 +143,7 @@ struct ComposerView: View {
                     }
                     sendControls
                 }
-            }.frame(height: 40)
+            }.frame(height: 30)
         }.padding(padding).glassSurface(cornerRadius: 24)
             .overlay { if cardDropTargeted || editorDropTargeted { AttachmentDropOverlay(cornerRadius: 24) } }
             .onDrop(of: [.fileURL, .image], isTargeted: $cardDropTargeted) { providers in attachments.add(providers: providers) }
@@ -154,8 +158,11 @@ struct ComposerView: View {
                             .frame(height: min(300, max(80, CGFloat(slashCommands.count) * 65)))
                     }
                     .glassSurface(cornerRadius: 14)
-                    // Sits just above the card, however tall attachments make it.
-                    .alignmentGuide(.top) { dimensions in dimensions[.bottom] + 10 }
+                    // Sits just above the card, however tall attachments make it. An overlay ignores alignment
+                    // guides its content sets, so the menu rises from a frame of no height at the card's top.
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 10)
+                    .frame(height: 0, alignment: .bottom)
                 }
             }
     }
@@ -215,8 +222,8 @@ struct ComposerView: View {
     }
     private var toolsButton: some View {
         Button { showTools.toggle() } label: {
-            Image(systemName: "plus").font(.system(size: 22, weight: .medium))
-                .frame(width: 40, height: 40).contentShape(Circle())
+            Image(systemName: "plus").font(.system(size: 17, weight: .medium))
+                .frame(width: 30, height: 30).contentShape(Circle())
         }.buttonStyle(ComposerControlStyle()).help("Attach files, or use commands, skills, and tools")
             .accessibilityLabel("Add attachments, tools, and commands")
             .popover(isPresented: $showTools, arrowEdge: .top) {
@@ -276,8 +283,8 @@ struct ComposerView: View {
     private func compactOptionsButton(iconOnly: Bool) -> some View {
         Button { showCompactOptions.toggle() } label: {
             if iconOnly {
-                Image(systemName: "slider.horizontal.3").font(.system(size: 17))
-                    .frame(width: 40, height: 40).contentShape(Circle())
+                Image(systemName: "slider.horizontal.3").font(.system(size: 13))
+                    .frame(width: 30, height: 30).contentShape(Circle())
             } else {
                 ComposerControlLabel(title: selectedModelName, symbol: "slider.horizontal.3")
             }
@@ -370,9 +377,9 @@ struct ComposerView: View {
         }.frame(width: 400)
     }
 
-    private func reasoningPicker(compact: Bool) -> some View {
+    private var reasoningPicker: some View {
         Button { showReasoning.toggle() } label: {
-            ComposerControlLabel(title: compact ? reasoningName : "Thinking · \(reasoningName)", symbol: "brain")
+            ComposerControlLabel(title: reasoningName, symbol: "brain")
         }.buttonStyle(ComposerControlStyle()).fixedSize(horizontal: true, vertical: false)
             .disabled(optionsDisabled || store.run.reasoningOptions.isEmpty)
             .help(store.run.reasoningOptions.isEmpty ? "This model does not offer an adjustable thinking level." : "Choose how much the model thinks before answering.")
@@ -385,23 +392,16 @@ struct ComposerView: View {
             }
     }
 
-    /// Ask / Auto / Always approve. Changes apply to running tasks immediately.
-    private func permissionPicker(compact: Bool) -> some View {
+    /// Ask / Auto / Always approve, as its icon alone; the title is in its help. Changes apply to running tasks immediately.
+    private var permissionPicker: some View {
         let mode = features.permissionMode
-        let tint = mode.isAlwaysApprove ? ComposerPalette.warning : Theme.muted
         return Button { showPermissions.toggle() } label: {
-            HStack(spacing: 7) {
-                Image(systemName: mode.symbol).font(.system(size: 14)).foregroundStyle(tint).frame(width: 18).accessibilityHidden(true)
-                if !compact {
-                    Text(mode.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                        .foregroundStyle(mode.isAlwaysApprove ? ComposerPalette.warning : Theme.ink)
-                }
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.muted).accessibilityHidden(true)
-            }
-            .padding(.horizontal, 11).frame(height: 40).contentShape(Capsule())
-            .background(mode.isAlwaysApprove ? ComposerPalette.warning.opacity(0.12) : .clear, in: Capsule())
+            Image(systemName: mode.symbol).font(.system(size: 13))
+                .foregroundStyle(mode.isAlwaysApprove ? ComposerPalette.warning : Theme.muted)
+                .frame(width: 30, height: 30).contentShape(Circle())
+                .background(mode.isAlwaysApprove ? ComposerPalette.warning.opacity(0.14) : .clear, in: Circle())
         }
-        .buttonStyle(ComposerControlStyle()).fixedSize(horizontal: true, vertical: false)
+        .buttonStyle(ComposerControlStyle())
         .disabled(store.project == nil)
         .help("Permissions: \(mode.title). \(mode.detail)")
         .accessibilityLabel("Permissions: \(mode.title)")
@@ -466,8 +466,8 @@ struct ComposerView: View {
     private func circleButton(symbol: String, primary: Bool, enabled: Bool = true, help: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: primary ? 16 : 13, weight: .semibold)).foregroundStyle(primary ? Theme.canvas : Theme.ink)
-                .frame(width: primary ? 40 : 34, height: primary ? 40 : 34)
+                .font(.system(size: primary ? 12 : 10, weight: .semibold)).foregroundStyle(primary ? Theme.canvas : Theme.ink)
+                .frame(width: primary ? 30 : 26, height: primary ? 30 : 26)
                 .background(primary ? (enabled ? Theme.ink : Theme.muted.opacity(0.35)) : Theme.hover, in: Circle())
         }.buttonStyle(.plain).disabled(!enabled)
             .help(help)
@@ -613,6 +613,9 @@ final class SubmitTextView: NSTextView {
     var onPasteAttachments: ((NSPasteboard) -> Bool)?
     var onDropAttachments: ((NSPasteboard) -> Bool)?
     var onAttachmentDragChanged: ((Bool) -> Void)?
+    /// Takes the keyboard focus when the app asks for the prompt (`grokFocusComposer`). The side
+    /// chat's field is focused by its own requests instead.
+    var followsComposerFocus = true
     private var focusObserver: NSObjectProtocol?
     /// Drawn by the text view rather than SwiftUI so it hides as soon as an input method starts
     /// composing, before anything is committed to the draft.
@@ -620,12 +623,14 @@ final class SubmitTextView: NSTextView {
         didSet {
             guard placeholder != oldValue else { return }
             setAccessibilityPlaceholderValue(placeholder)
-            if string.isEmpty { needsDisplay = true }
+            if isEmpty { needsDisplay = true }
         }
     }
     private var placeholderShown = true
     /// Marked text counts as content, so the placeholder is gone while an input method composes.
-    var showsPlaceholder: Bool { string.isEmpty && !placeholder.isEmpty }
+    var showsPlaceholder: Bool { isEmpty && !placeholder.isEmpty }
+    /// Read from the storage's length: `string` copies all of the text, which a long paste makes a megabyte.
+    private var isEmpty: Bool { (textStorage?.length ?? 0) == 0 }
 
     override var string: String {
         didSet { refreshPlaceholder() }
@@ -653,7 +658,7 @@ final class SubmitTextView: NSTextView {
 
     /// TextKit redraws only the glyphs that changed, which would leave part of the placeholder behind.
     private func refreshPlaceholder() {
-        let shown = string.isEmpty
+        let shown = isEmpty
         guard shown != placeholderShown else { return }
         placeholderShown = shown
         needsDisplay = true
@@ -706,6 +711,8 @@ final class SubmitTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) }
+        focusObserver = nil
+        guard followsComposerFocus else { return }
         focusObserver = NotificationCenter.default.addObserver(forName: .grokFocusComposer, object: nil, queue: .main) { [weak self] _ in
             // Refocusing the focused editor would end a composition in progress.
             guard let self, self.window?.firstResponder !== self else { return }
@@ -715,8 +722,18 @@ final class SubmitTextView: NSTextView {
     deinit { if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) } }
     override func keyDown(with event: NSEvent) {
         if !hasMarkedText() && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty && onCommandKey?(event.keyCode) == true { return }
+        if !hasMarkedText() && Self.startsNewLine(event) { insertNewline(nil); return }
         let multiline = UserDefaults.standard.bool(forKey: "composerMultiline")
         if (event.keyCode == 36 || event.keyCode == 76) && !event.modifierFlags.contains(.shift) && (!multiline || event.modifierFlags.contains(.command)) && !hasMarkedText() { onSubmit?() }
         else { super.keyDown(with: event) }
+    }
+
+    /// ⌃J and ⌥↵ start a new line, as they do in the terminal's prompt. The text system binds ⌃J
+    /// to nothing, and the Return check after this one would send ⌥↵. ⇧↵ reaches the text view,
+    /// which inserts a newline.
+    static func startsNewLine(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if modifiers == .control { return event.charactersIgnoringModifiers?.lowercased() == "j" }
+        return modifiers == .option && (event.keyCode == 36 || event.keyCode == 76)
     }
 }

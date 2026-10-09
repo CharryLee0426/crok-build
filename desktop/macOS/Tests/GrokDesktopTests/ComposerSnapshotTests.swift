@@ -36,6 +36,10 @@ final class ComposerSnapshotTests: XCTestCase {
         store.runs[task.id] = run
         store.harnessMeta.initialize = ["voiceMode": true]
         store.workspace = GitWorkspaceSnapshot(branch: "feature/parser", changes: [])
+        var context = UsageContextSnapshot()
+        context.used = 61_000
+        context.total = 256_000
+        store.features.tokens.noteContext(context, conversationID: task.id)
         return (store, task.id)
     }
 
@@ -103,7 +107,12 @@ final class ComposerSnapshotTests: XCTestCase {
     }
 
     func testRenderNarrowComposer() throws {
-        let (store, _) = makeStore(running: true)
+        let (store, id) = makeStore(running: true)
+        // Nearly full, so the context ring warns.
+        var context = UsageContextSnapshot()
+        context.used = 220_000
+        context.total = 256_000
+        store.features.tokens.noteContext(context, conversationID: id)
         store.draft = "Queue this follow-up"
         try write(composerScene(store, width: 520, height: 220), size: CGSize(width: 520, height: 220), name: "narrow")
     }

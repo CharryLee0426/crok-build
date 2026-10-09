@@ -72,7 +72,9 @@ struct SidePanelView: View {
             Group {
                 switch store.sidePanelTab {
                 case .files: FilesPanelView()
-                case .sideChat: SideChatView()
+                case .sideChat:
+                    let task = store.state.selectedConversationID.flatMap(store.task)
+                    SideChatView(conversationID: task?.id, taskTitle: task?.title ?? "")
                 case .terminal: TerminalPanelView()
                 case .browser: BrowserPanelView()
                 }
