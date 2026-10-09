@@ -469,6 +469,14 @@ impl SessionEvent {
             SessionEvent::RequestFailed {
                 headline, detail, ..
             } => crate::app::error_display::banner_message(headline, detail),
+            SessionEvent::ReAuthRequired
+                if !xai_grok_config::Distribution::current()
+                    .allows(xai_grok_config::Capability::AccountLogin) =>
+            {
+                "Authentication failed: the model endpoint rejected this build's credential. \
+                 Check its key, then resend your message."
+                    .to_string()
+            }
             SessionEvent::ReAuthRequired => {
                 "Authentication required: your provider credentials were rejected or \
                  have expired. Run `crok login` for your provider (openai-codex, openrouter, \
@@ -1236,7 +1244,7 @@ mod tests {
                     outcome: PlanReviewOutcome::Approved,
                     permission: PermissionLabel::Auto,
                 },
-                "Plan approved · plan mode off · active permission mode: auto",
+                "Plan approved · plan mode off · active permission mode: auto-review",
             ),
             (
                 SessionEvent::PlanReviewClosed {

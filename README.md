@@ -156,6 +156,11 @@ Merge `upstream/main` into `charlie/dev`, then:
   the desktop's account, billing, and subscription screens.
 - Rebrand new user-visible strings from `grok` to `crok`. Only string
   literals, help text, and docs change; identifiers and crate names stay.
+  Code that upstream moves to another file loses its crok wording, so check
+  moved text too.
+- Keep the SpaceXAI name out of the text. Name xAI where a reader needs to
+  know who receives data, and leave the vendor unnamed elsewhere. `LICENSE`
+  keeps its copyright line.
 - Rebuild with `make build-test-tui` and `make build-test-desktop`.
 
 ## Documentation
@@ -202,8 +207,8 @@ swift test --package-path desktop/macOS   # desktop tests
 
 First-party code in this repository is licensed under the **Apache License,
 Version 2.0** — see [`LICENSE`](LICENSE). This fork's changes are offered under
-the same license. Grok and Grok Build are SpaceXAI's names; crok is not
-affiliated with or endorsed by SpaceXAI.
+the same license. The Grok and Grok Build names belong to their owner; crok is
+not affiliated with or endorsed by the upstream project.
 
 Third-party and vendored code remains under its original licenses. See:
 

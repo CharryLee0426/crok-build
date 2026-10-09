@@ -1,6 +1,6 @@
 # Crok Build User Guide
 
-Learn how to install, configure, and extend Crok Build, the terminal-based AI coding assistant from SpaceXAI.
+Learn how to install, configure, and extend Crok Build, a terminal-based AI coding assistant.
 
 ---
 

@@ -87,7 +87,7 @@ const PERMISSION_MODE_CHOICES: &[EnumChoice] = &[
     },
     EnumChoice {
         canonical: "auto",
-        display: "Auto",
+        display: "Auto-review",
         description: "LLM classifier approves safe tools; dangerous actions may still prompt or deny.",
     },
     EnumChoice {
@@ -785,7 +785,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             label: "Permission mode",
             description: "Default uses the agent's built-in behavior; \
                           Ask prompts for each tool action; \
-                          Auto uses an LLM classifier for risky tools; \
+                          Auto-review uses an LLM classifier for risky tools; \
                           Always approve grants all permissions automatically.",
             keywords: &[
                 "permission",
@@ -795,6 +795,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
                 "always",
                 "ask",
                 "auto",
+                "review",
                 "classifier",
                 "tool",
                 "danger",
@@ -816,7 +817,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             label: "Remember tool approvals",
             description: "Show \"Always allow\" options in permission prompts so you can stop \
                           being re-asked about a specific command or tool. Applies in ask and \
-                          auto; Always-approve still skips all prompts. Restart required.",
+                          Auto-review; Always-approve still skips all prompts. Restart required.",
             keywords: &[
                 "permission",
                 "approve",
@@ -1187,9 +1188,9 @@ pub fn default_settings() -> Vec<SettingMeta> {
             category: SettingCategory::Privacy,
             owner: SettingOwner::Shell,
             label: "Coding data, retention, and training",
-            description: "Opt-in to provide SpaceXAI the ability to retain and train on \
+            description: "Opt-in to provide xAI the ability to retain and train on \
                           coding data, e.g., prompts, traces, & metrics, for training and \
-                          debugging purposes. We may still collect simple user metrics, \
+                          debugging purposes. xAI may still collect simple user metrics, \
                           e.g. how many times you use the product or a feature.",
             keywords: &[
                 "privacy",
