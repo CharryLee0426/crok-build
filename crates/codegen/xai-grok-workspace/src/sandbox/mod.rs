@@ -80,7 +80,7 @@ mod network_tests;
 
 /// The model-visible refusal under `enforce` on a host with no backend.
 pub const ENFORCE_UNAVAILABLE_TEXT: &str = "the command sandbox is set to enforce but this host has no per-command sandbox backend; \
-     no shell command can run; ask the folder's owner to set `[sandbox] mode = \"observe\"` (or GROK_SANDBOX_MODE=observe) to run commands unsandboxed.";
+     no shell command can run; ask the folder's owner to set `[sandbox] mode = \"observe\"` (or CROK_SANDBOX_MODE=observe) to run commands unsandboxed.";
 
 /// The model-visible refusal under `enforce` while the folder's session directory is not safe;
 /// the reason follows in parentheses.

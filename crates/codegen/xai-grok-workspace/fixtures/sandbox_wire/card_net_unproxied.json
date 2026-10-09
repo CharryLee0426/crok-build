@@ -1,7 +1,7 @@
 {
   "tool_call_id": "tc-0192c1a0",
   "tool_name": "run_terminal_command",
-  "description": "Grok's command was blocked by the sandbox",
+  "description": "Crok's command was blocked by the sandbox",
   "scope": "write",
   "tool_approval_policy": "grants_allowed",
   "schema_version": 1,

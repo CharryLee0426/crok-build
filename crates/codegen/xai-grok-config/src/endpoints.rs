@@ -168,7 +168,7 @@ impl EndpointsConfig {
             tracing::warn!(
                 "Repointing the internal trace pipeline via OTEL_EXPORTER_OTLP_ENDPOINT / \
                  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is deprecated; use \
-                 GROK_INTERNAL_OTLP_TRACES_ENDPOINT instead — the standard OTEL_* vars will \
+                 CROK_INTERNAL_OTLP_TRACES_ENDPOINT instead — the standard OTEL_* vars will \
                  route the external OTEL stream only in a future release"
             );
             return legacy;

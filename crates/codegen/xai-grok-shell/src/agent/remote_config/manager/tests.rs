@@ -2716,7 +2716,7 @@ async fn failed_models_endpoint_fetch_blocks_prompts_with_the_endpoint_url() {
     );
     assert_eq!(
         Some(
-            "No models are available: `[features] remote_fetch = false` stops Grok from reading \
+            "No models are available: `[features] remote_fetch = false` stops Crok from reading \
              https://proxy.example.com/v1/models. Add a `[model.<id>]` table that names an endpoint id, \
              or turn remote_fetch on."
         ),

@@ -367,12 +367,12 @@ pub(crate) fn refusal_note(server_name: &str, refusal: ElicitationRefusal) -> St
         ElicitationRefusal::Withdrawn => {
             "the server stopped waiting before the user answered (it may have timed out)"
         }
-        ElicitationRefusal::Unshown => "grok could not show the request to the user",
+        ElicitationRefusal::Unshown => "crok could not show the request to the user",
     };
     let server_name =
         xai_grok_tools::util::truncate_str_with_marker(server_name, MAX_NOTE_SERVER_NAME_BYTES);
     format!(
-        "[grok] MCP server \"{server_name}\" asked the user for input while this call was running and {outcome}. \
+        "[crok] MCP server \"{server_name}\" asked the user for input while this call was running and {outcome}. \
          Do not assume the requested action was performed; tell the user and ask before retrying."
     )
 }

@@ -362,7 +362,7 @@ pub fn build_sandbox_violation_payload(
     );
     payload.insert(
         "description".to_owned(),
-        Value::from("Grok's command was blocked by the sandbox"),
+        Value::from("Crok's command was blocked by the sandbox"),
     );
     payload.insert("scope".to_owned(), Value::from("write"));
     payload.insert("tool_approval_policy".to_owned(), json!(ctx.policy));

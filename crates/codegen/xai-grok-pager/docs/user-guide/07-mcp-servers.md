@@ -341,7 +341,7 @@ enabled = true
 headers = { "Authorization" = "Bearer ${INTERNAL_MCP_TOKEN}" }
 ```
 
-When another process keeps a short-lived token in a file (a credential helper, a sidecar, or a cron job), point `bearer_token_file` at it. Grok reads the file on every request to the server and sends `Authorization: Bearer <contents>`, with surrounding whitespace trimmed, so a rotated token takes effect on the next request without restarting Grok or reconnecting the server:
+When another process keeps a short-lived token in a file (a credential helper, a sidecar, or a cron job), point `bearer_token_file` at it. Crok reads the file on every request to the server and sends `Authorization: Bearer <contents>`, with surrounding whitespace trimmed, so a rotated token takes effect on the next request without restarting Crok or reconnecting the server:
 
 ```toml
 [mcp_servers.internal-tools]

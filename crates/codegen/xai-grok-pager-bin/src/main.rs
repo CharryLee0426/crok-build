@@ -2766,7 +2766,7 @@ async fn run_update_command(
     }
     if CROK_BUILT_FROM_SOURCE {
         anyhow::bail!(
-            "crok is built from source and does not update itself. Rebuild it with `make deploy` in your grok-build checkout."
+            "crok is built from source and does not update itself. Rebuild it with `make deploy` in your crok-build checkout."
         );
     }
     if let Some(ref v) = version

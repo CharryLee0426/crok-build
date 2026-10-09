@@ -18,7 +18,7 @@ pub struct WorktreeArgs {
 }
 #[derive(Debug, Subcommand, Clone)]
 enum WorktreeCommand {
-    /// Create a worktree the way `grok -w` does, without starting a session
+    /// Create a worktree the way `crok -w` does, without starting a session
     Create {
         /// Worktree name; generated when omitted
         name: Option<String>,

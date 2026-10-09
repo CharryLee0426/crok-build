@@ -316,7 +316,7 @@ fn prompt_for_trust(key: &Path) -> bool {
     let _ = writeln!(
         err,
         "This folder contains repo-local config (MCP/LSP servers, hooks, permission rules) \
-         or project instructions/skills that Grok would otherwise apply automatically."
+         or project instructions/skills that Crok would otherwise apply automatically."
     );
     let _ = writeln!(err, "  Folder: {}", key.display());
     let _ = write!(

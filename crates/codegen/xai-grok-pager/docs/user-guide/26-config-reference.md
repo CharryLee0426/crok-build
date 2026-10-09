@@ -250,7 +250,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 
 | Key | Type / Values | Requirements | Managed | Details |
 | --- | --- | --- | --- | --- |
-| `file_acceleration.routes` | `string` | `yes` | `user` | Route override passed unparsed to the installed file accelerator; empty is unset. Also `GROK_FILE_ACCELERATION_ROUTES`. |
+| `file_acceleration.routes` | `string` | `yes` | `user` | Route override passed unparsed to the installed file accelerator; empty is unset. Also `CROK_FILE_ACCELERATION_ROUTES`. |
 
 ### `goal`
 

@@ -41,7 +41,7 @@ pub(crate) fn loopback_base_override() -> Option<String> {
         return Some(base.to_owned());
     }
     if !base.is_empty() {
-        tracing::warn!("GROK_CLI_BASE_URL ignored: only loopback bases are honored");
+        tracing::warn!("CROK_CLI_BASE_URL ignored: only loopback bases are honored");
     }
     None
 }

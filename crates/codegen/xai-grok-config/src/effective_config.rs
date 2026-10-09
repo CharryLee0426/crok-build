@@ -137,7 +137,7 @@ impl CampaignEnv {
                     .collect(),
             ),
             Err(e) => {
-                tracing::warn!(error = %e, "invalid GROK_CAMPAIGNS_OVERRIDE JSON; suppressing all campaigns");
+                tracing::warn!(error = %e, "invalid CROK_CAMPAIGNS_OVERRIDE JSON; suppressing all campaigns");
                 Some(Vec::new())
             }
         }

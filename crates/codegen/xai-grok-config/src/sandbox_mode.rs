@@ -328,7 +328,7 @@ impl ResolvedSandboxMode {
             requested = <&str>::from(self.mode),
             source = <&str>::from(self.source),
             "the rollout switch asks for enforce but this host has no sandbox backend: running \
-             off; a developer's own enforce (GROK_SANDBOX_MODE or workspaced.toml) would refuse \
+             off; a developer's own enforce (CROK_SANDBOX_MODE or workspaced.toml) would refuse \
              every command instead"
         );
         ResolvedSandboxMode {

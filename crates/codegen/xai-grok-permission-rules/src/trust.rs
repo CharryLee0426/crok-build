@@ -266,7 +266,7 @@ impl TrustStore {
             tracing::warn!(
                 path = %canonical.display(),
                 trusted,
-                "folder trust: no user grok home resolved; trust decision not recorded"
+                "folder trust: no user crok home resolved; trust decision not recorded"
             );
             return Ok(Recorded::Skipped);
         };
