@@ -48,6 +48,7 @@ enum KeyboardShortcutCatalog {
         Group(title: "Prompt", symbol: "text.cursor", entries: [
             Entry(action: "Send", keys: ["↵"]),
             Entry(action: "New line", keys: ["⇧", "↵"]),
+            Entry(action: "New line, as in the terminal", keys: ["⌃", "J"]),
             Entry(action: "Attach photos and files", keys: ["⌘", "U"]),
             Entry(action: "Paste a copied image or file", keys: ["⌘", "V"]),
             Entry(action: "Send, with /multiline on", keys: ["⌘", "↵"]),

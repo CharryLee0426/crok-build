@@ -620,6 +620,9 @@ final class SubmitTextView: NSTextView {
     var onPasteAttachments: ((NSPasteboard) -> Bool)?
     var onDropAttachments: ((NSPasteboard) -> Bool)?
     var onAttachmentDragChanged: ((Bool) -> Void)?
+    /// Takes the keyboard focus when the app asks for the prompt (`grokFocusComposer`). The side
+    /// chat's field is focused by its own requests instead.
+    var followsComposerFocus = true
     private var focusObserver: NSObjectProtocol?
     /// Drawn by the text view rather than SwiftUI so it hides as soon as an input method starts
     /// composing, before anything is committed to the draft.
@@ -627,12 +630,14 @@ final class SubmitTextView: NSTextView {
         didSet {
             guard placeholder != oldValue else { return }
             setAccessibilityPlaceholderValue(placeholder)
-            if string.isEmpty { needsDisplay = true }
+            if isEmpty { needsDisplay = true }
         }
     }
     private var placeholderShown = true
     /// Marked text counts as content, so the placeholder is gone while an input method composes.
-    var showsPlaceholder: Bool { string.isEmpty && !placeholder.isEmpty }
+    var showsPlaceholder: Bool { isEmpty && !placeholder.isEmpty }
+    /// Read from the storage's length: `string` copies all of the text, which a long paste makes a megabyte.
+    private var isEmpty: Bool { (textStorage?.length ?? 0) == 0 }
 
     override var string: String {
         didSet { refreshPlaceholder() }
@@ -660,7 +665,7 @@ final class SubmitTextView: NSTextView {
 
     /// TextKit redraws only the glyphs that changed, which would leave part of the placeholder behind.
     private func refreshPlaceholder() {
-        let shown = string.isEmpty
+        let shown = isEmpty
         guard shown != placeholderShown else { return }
         placeholderShown = shown
         needsDisplay = true
@@ -713,6 +718,8 @@ final class SubmitTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) }
+        focusObserver = nil
+        guard followsComposerFocus else { return }
         focusObserver = NotificationCenter.default.addObserver(forName: .grokFocusComposer, object: nil, queue: .main) { [weak self] _ in
             // Refocusing the focused editor would end a composition in progress.
             guard let self, self.window?.firstResponder !== self else { return }
@@ -722,8 +729,18 @@ final class SubmitTextView: NSTextView {
     deinit { if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) } }
     override func keyDown(with event: NSEvent) {
         if !hasMarkedText() && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty && onCommandKey?(event.keyCode) == true { return }
+        if !hasMarkedText() && Self.startsNewLine(event) { insertNewline(nil); return }
         let multiline = UserDefaults.standard.bool(forKey: "composerMultiline")
         if (event.keyCode == 36 || event.keyCode == 76) && !event.modifierFlags.contains(.shift) && (!multiline || event.modifierFlags.contains(.command)) && !hasMarkedText() { onSubmit?() }
         else { super.keyDown(with: event) }
+    }
+
+    /// ⌃J and ⌥↵ start a new line, as they do in the terminal's prompt. The text system binds ⌃J
+    /// to nothing, and the Return check after this one would send ⌥↵. ⇧↵ reaches the text view,
+    /// which inserts a newline.
+    static func startsNewLine(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if modifiers == .control { return event.charactersIgnoringModifiers?.lowercased() == "j" }
+        return modifiers == .option && (event.keyCode == 36 || event.keyCode == 76)
     }
 }

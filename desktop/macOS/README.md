@@ -327,10 +327,11 @@ both launch methods. See the [authentication guide](../../crates/codegen/xai-gro
 | Dictate | ⇧⌘D |
 | Keyboard shortcuts | ⌘/ |
 | Send message (or queue it while Crok works) | Return |
-| Insert a new line | Shift-Return |
+| Insert a new line | Shift-Return, Option-Return, or ⌃J |
 | Stop the current task | ⌘. |
 
-`/multiline` changes Return to insert a newline and ⌘Return to send. `/compact-mode`
+`/multiline` changes Return to insert a newline and ⌘Return to send. The side
+chat's field takes the same keys as the prompt. `/compact-mode`
 toggles a denser transcript layout. The full list, including the palette, theme
 picker, jump, and vim-style transcript keys, is in the Keyboard Shortcuts sheet.
 
@@ -511,6 +512,18 @@ format. `CROK_DESKTOP_UI_TESTS=1 swift test --filter TranscriptMarathon` sends
 changes that), then keeps it streaming while the window is dragged to other
 sizes, taken to a screen's size and back as full screen does, scrolled to the
 middle, searched, and returned to its end.
+
+The side panel's Side chat is AppKit the same way: `SideChatListView` measures each
+message once for a width and makes views only near what is in sight, a long pasted
+question shows in a box that scrolls and is measured from its start alone, and its
+field is the prompt's text view, so it takes the same keys (Return asks; Shift-Return,
+Option-Return, and ⌃J start a line). `swift test --filter SideChatTests` checks those
+keys, the field growing to six lines, each task keeping its draft, Retry and Clear,
+and a 600-message side chat, and prints what typing after a megabyte paste costs.
+`CROK_DESKTOP_UI_TESTS=1 swift test --filter SideChatWindowTests` pastes 200 KB into
+the field round after round in a real window, sends it with Return, and prints the
+longest main-thread stall while pasting, typing, being answered, and resizing; the
+SwiftUI side chat it replaced stalled for a quarter of a second at every keystroke.
 
 Those windows are never on screen, and what draws them (`cacheDisplay`) shows
 neither the window's title bar nor Core Animation's masks and motion as the
