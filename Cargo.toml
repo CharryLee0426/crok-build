@@ -38,6 +38,7 @@ members = [
     "crates/codegen/xai-grok-gboom",
     "crates/codegen/xai-grok-hooks",
     "crates/codegen/xai-grok-http",
+    "crates/codegen/xai-grok-i18n",
     "crates/codegen/xai-grok-image",
     "crates/codegen/xai-grok-login",
     "crates/codegen/xai-grok-markdown",
@@ -340,6 +341,7 @@ xai-grok-feedback = { path = "crates/codegen/xai-grok-feedback" }
 xai-grok-file-lock = { path = "crates/codegen/xai-grok-file-lock" }
 xai-grok-foreign-sessions = { path = "crates/codegen/xai-grok-foreign-sessions" }
 xai-grok-http = { path = "crates/codegen/xai-grok-http" }
+xai-grok-i18n = { path = "crates/codegen/xai-grok-i18n" }
 xai-grok-image = { path = "crates/codegen/xai-grok-image" }
 xai-grok-login = { path = "crates/codegen/xai-grok-login" }
 xai-grok-markdown = { path = "crates/codegen/xai-grok-markdown" }
