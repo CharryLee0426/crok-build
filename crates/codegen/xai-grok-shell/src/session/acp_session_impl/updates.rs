@@ -1005,24 +1005,14 @@ impl SessionActor {
             .ok()
             .filter(|ledger| ledger.totals.model_calls > 0)
             .map(|ledger| crate::extensions::notification::ResponseUsage::from(&ledger.totals));
-        let usage =
-            response
-                .usage
-                .as_ref()
-                .map(|u| crate::extensions::notification::ResponseUsage {
-                    input_tokens: u64::from(
-                        u.prompt_tokens
-                            .saturating_sub(u.cached_prompt_tokens)
-                            .saturating_sub(u.cache_creation_prompt_tokens),
-                    ),
-                    output_tokens: u64::from(u.completion_tokens),
-                    cache_read_input_tokens: u64::from(u.cached_prompt_tokens),
-                    cache_creation_input_tokens: u64::from(u.cache_creation_prompt_tokens),
-                    reasoning_tokens: u64::from(u.reasoning_tokens),
-                });
+        let usage = response
+            .usage
+            .as_ref()
+            .map(crate::extensions::notification::ResponseUsage::from);
         let signature = response
             .reasoning_items()
-            .find_map(|r| r.encrypted_content.clone());
+            .filter_map(|r| r.encrypted_content.clone())
+            .last();
         XaiSessionUpdate::ResponseCompleted {
             message_id: response.message_id.clone(),
             stop_reason: response.raw_stop_reason.clone(),
