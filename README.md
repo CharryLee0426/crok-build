@@ -156,6 +156,11 @@ Merge `upstream/main` into `charlie/dev`, then:
   the desktop's account, billing, and subscription screens.
 - Rebrand new user-visible strings from `grok` to `crok`. Only string
   literals, help text, and docs change; identifiers and crate names stay.
+  Code that upstream moves to another file loses its crok wording, so check
+  moved text too.
+- Keep the SpaceXAI name out of the text. Name xAI where a reader needs to
+  know who receives data, and leave the vendor unnamed elsewhere. `LICENSE`
+  keeps its copyright line.
 - Rebuild with `make build-test-tui` and `make build-test-desktop`.
 
 ## Documentation
