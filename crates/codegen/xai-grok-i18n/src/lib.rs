@@ -138,40 +138,47 @@ pub fn resolve_locale(pref: Option<&str>) -> Locale {
 
 // ── Translation helpers ────────────────────────────────────────────────────────
 
-/// Look up a message key in the current locale. Returns `""` on miss.
-pub fn t(key: &str) -> &'static str {
-    catalog::lookup(current_locale(), key).unwrap_or("")
+fn lookup_with_fallback(key: &str) -> Option<&'static str> {
+    let locale = current_locale();
+    catalog::lookup(locale, key).or_else(|| {
+        if locale == Locale::En {
+            None
+        } else {
+            catalog::lookup(Locale::En, key)
+        }
+    })
 }
 
-/// Look up a message key in the current locale. Returns `fallback` on miss.
+/// Look up a message key in the current locale, falling back to English, then `""`.
+pub fn t(key: &str) -> &'static str {
+    lookup_with_fallback(key).unwrap_or("")
+}
+
+/// Look up a message key in the current locale (then English). Returns `fallback` on miss.
 pub fn t_or<'a>(key: &str, fallback: &'a str) -> &'a str {
-    // We cannot return a 'static ref when the fallback is borrowed, so we
-    // return the static slice when found and the fallback when not.
-    if let Some(v) = catalog::lookup(current_locale(), key) {
-        v
-    } else {
-        fallback
-    }
+    lookup_with_fallback(key).unwrap_or(fallback)
 }
 
 // ── Settings convenience helpers ───────────────────────────────────────────────
 
-/// Look up `setting.{key}.label` in the current locale.
-pub fn settings_label(key: &str) -> &'static str {
+/// Look up `setting.{key}.label` in the current locale (English fallback).
+/// Returns `None` when the key is absent from the catalog.
+pub fn settings_label(key: &str) -> Option<&'static str> {
     let mut buf = String::with_capacity(8 + key.len() + 6);
     buf.push_str("setting.");
     buf.push_str(key);
     buf.push_str(".label");
-    catalog::lookup(current_locale(), &buf).unwrap_or("")
+    lookup_with_fallback(&buf)
 }
 
-/// Look up `setting.{key}.description` in the current locale.
-pub fn settings_description(key: &str) -> &'static str {
+/// Look up `setting.{key}.description` in the current locale (English fallback).
+/// Returns `None` when the key is absent from the catalog.
+pub fn settings_description(key: &str) -> Option<&'static str> {
     let mut buf = String::with_capacity(8 + key.len() + 12);
     buf.push_str("setting.");
     buf.push_str(key);
     buf.push_str(".description");
-    catalog::lookup(current_locale(), &buf).unwrap_or("")
+    lookup_with_fallback(&buf)
 }
 
 // ── Category labels ────────────────────────────────────────────────────────────
@@ -180,11 +187,11 @@ pub fn settings_description(key: &str) -> &'static str {
 ///
 /// Recognised ids: `appearance`, `mouse`, `editor`, `agent`, `privacy`,
 /// `models`, `session`, `advanced`.
-pub fn category_label(id: &str) -> &'static str {
+pub fn category_label(id: &str) -> Option<&'static str> {
     let mut buf = String::with_capacity(9 + id.len());
     buf.push_str("category.");
     buf.push_str(id);
-    catalog::lookup(current_locale(), &buf).unwrap_or("")
+    lookup_with_fallback(&buf)
 }
 
 // ── SUPPORTED_LOCALES ──────────────────────────────────────────────────────────
@@ -320,14 +327,14 @@ mod tests {
     #[test]
     fn settings_helpers() {
         set_locale(Locale::En);
-        assert_eq!(settings_label("ui_language"), "Interface language");
+        assert_eq!(settings_label("ui_language"), Some("Interface language"));
         assert_eq!(
             settings_description("ui_language"),
-            "Language for the terminal UI. System follows your locale when supported. Restart not required."
+            Some("Language for the terminal UI. System follows your locale when supported. Restart not required.")
         );
-        assert_eq!(settings_label("compact_mode"), "Compact mode");
-        assert_eq!(category_label("appearance"), "Appearance");
-        assert_eq!(category_label("advanced"), "Advanced");
+        assert_eq!(settings_label("compact_mode"), Some("Compact mode"));
+        assert_eq!(category_label("appearance"), Some("Appearance"));
+        assert_eq!(category_label("advanced"), Some("Advanced"));
         set_locale(Locale::En);
     }
 

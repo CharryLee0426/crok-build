@@ -94,6 +94,10 @@ pub struct UiConfig {
     /// `[voice].language` / default `en`. When set, overrides `[voice].language` for the session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice_stt_language: Option<String>,
+    /// Interface language for the TUI and desktop (`auto` | `en` | `zh-Hans` | `ja` | `es` | `fr` | `de`).
+    /// Written by the settings modal and Crok Desktop. Unset/`auto` follows the process/OS locale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_language: Option<String>,
     /// Speech-to-text service for voice dictation: `openrouter` (OpenRouter transcription models, the default) or `xai`
     /// (Grok streaming STT). Written by the settings modal and Grok Desktop; overrides `[voice].provider`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -282,6 +286,7 @@ impl Default for UiConfig {
             hunk_tracker_mode: None,
             voice_capture_mode: None,
             voice_stt_language: None,
+            ui_language: None,
             voice_stt_provider: None,
             voice_stt_model: None,
             voice_keybind_enabled: None,

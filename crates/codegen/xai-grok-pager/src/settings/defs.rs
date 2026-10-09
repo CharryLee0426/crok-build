@@ -235,6 +235,44 @@ const TEXT_SELECTION_CHOICES: &[EnumChoice] = &[
     },
 ];
 
+const UI_LANGUAGE_CHOICES: &[EnumChoice] = &[
+    EnumChoice {
+        canonical: "auto",
+        display: "System",
+        description: "Follow the process locale when supported.",
+    },
+    EnumChoice {
+        canonical: "en",
+        display: "English",
+        description: "English (default).",
+    },
+    EnumChoice {
+        canonical: "zh-Hans",
+        display: "简体中文",
+        description: "Simplified Chinese.",
+    },
+    EnumChoice {
+        canonical: "ja",
+        display: "日本語",
+        description: "Japanese.",
+    },
+    EnumChoice {
+        canonical: "es",
+        display: "Español",
+        description: "Spanish.",
+    },
+    EnumChoice {
+        canonical: "fr",
+        display: "Français",
+        description: "French.",
+    },
+    EnumChoice {
+        canonical: "de",
+        display: "Deutsch",
+        description: "German.",
+    },
+];
+
 // Hunk-tracker-mode catalog. SHELL-owned, persisted to `[ui].hunk_tracker_mode`.
 // `disabled` is accepted as an alias for `off` at parse time but not shown as a choice
 const HUNK_TRACKER_MODE_CHOICES: &[EnumChoice] = &[
@@ -494,6 +532,21 @@ pub fn default_settings() -> Vec<SettingMeta> {
             ],
             kind: SettingKind::Bool {
                 default: ui_default.compact_mode,
+            },
+            restart_required: false,
+            hidden_in_minimal: false,
+        },
+        SettingMeta {
+            key: "ui_language",
+            category: SettingCategory::Appearance,
+            owner: SettingOwner::Shell,
+            label: "Interface language",
+            description: "Language for the terminal UI. System follows your locale when supported.",
+            keywords: &["language", "locale", "i18n", "translation", "chinese", "japanese", "spanish", "french", "german"],
+            kind: SettingKind::Enum {
+                default: "auto",
+                choices: UI_LANGUAGE_CHOICES,
+                supports_preview: false,
             },
             restart_required: false,
             hidden_in_minimal: false,
