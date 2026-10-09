@@ -624,3 +624,29 @@ image to update, and the bundled `crok` command updates with it. `SIGN_IDENTITY`
 selects the signing identity for the app and the image, but the scripts do not
 enable the hardened runtime or notarize. The build targets the architecture of
 the build machine: a disk image built on Apple silicon runs only on Apple silicon.
+
+### Publishing a release
+
+A release is a GitHub release on this fork, tagged `desktop-v<version>` at the
+tip of `main` once [`VERSION`](VERSION) holds the new number.
+
+- Build two disk images from the tagged commit and attach both, with their
+  SHA-256 sums in `SHA256SUMS.txt`:
+  `Crok-Desktop-<version>-arm64-macOS26-SDK.dmg`, built against a macOS 26 SDK,
+  and `Crok-Desktop-<version>-arm64-macOS15-SDK.dmg`, built with `SDKROOT` set to
+  a macOS 15 SDK. Both builds write the same `dist` paths, so remove `.build`
+  between them and rename each image before the next build.
+- Check each app with
+  `otool -l "Crok Desktop.app/Contents/MacOS/GrokDesktop" | grep -A5 LC_BUILD_VERSION`.
+  macOS draws Liquid Glass only for a binary whose `sdk` is 26 or later, and the
+  notes must name the SDK that was used.
+- Write the release notes in English, then translate all of them into the app's
+  other interface languages: 简体中文, 日本語, Español, Français and Deutsch.
+  English comes first. Each translation follows in a collapsed `<details>` block
+  whose summary is the language's own name. Name menus and settings the way the
+  app and macOS show them in that language. Headings on a release page have no
+  anchors, so do not link from one section to another. The notes of
+  `desktop-v1.4.0` show the layout.
+- Create the release with
+  `gh release create desktop-v<version> -R CharryLee0426/crok-build`. Without
+  `-R`, `gh` resolves to the upstream repository.
