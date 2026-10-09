@@ -4,7 +4,7 @@ Crok is a personal fork of [xai-org/grok-build](https://github.com/xai-org/grok-
 maintained on the `charlie/dev` branch. It is not open to outside pull requests.
 
 Upstream Grok Build does not accept external pull requests or unsolicited
-patches either: SpaceXAI develops it internally and publishes the tree for
+patches either: it is developed internally and the tree is published for
 source transparency and local builds. Changes that belong upstream cannot be
 contributed through this fork.
 

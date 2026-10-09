@@ -202,8 +202,8 @@ swift test --package-path desktop/macOS   # desktop tests
 
 First-party code in this repository is licensed under the **Apache License,
 Version 2.0** — see [`LICENSE`](LICENSE). This fork's changes are offered under
-the same license. Grok and Grok Build are SpaceXAI's names; crok is not
-affiliated with or endorsed by SpaceXAI.
+the same license. The Grok and Grok Build names belong to their owner; crok is
+not affiliated with or endorsed by the upstream project.
 
 Third-party and vendored code remains under its original licenses. See:
 
