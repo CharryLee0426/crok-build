@@ -241,7 +241,7 @@ struct ThemeSheet: View {
         } footer: {
             Text("↑↓ Preview   ↵ Apply   esc Cancel").font(.system(size: 11)).foregroundStyle(Theme.muted)
             Spacer()
-            Button("Cancel", action: cancel)
+            Button(L10n.t("cancel", "Cancel"), action: cancel)
             Button("Apply", action: apply).keyboardShortcut(.defaultAction)
         }
         .onAppear { focused = true }
@@ -399,7 +399,7 @@ struct AppearanceSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Theme", systemImage: "paintpalette").font(.system(size: 15, weight: .semibold))
+            Label(L10n.t("theme", "Theme"), systemImage: "paintpalette").font(.system(size: 15, weight: .semibold))
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach([GrokTheme.auto] + GrokTheme.concrete) { theme in
                     ThemeSettingsCard(theme: theme, isActive: theme == extras.activeTheme) { extras.setTheme(theme) }
@@ -407,7 +407,7 @@ struct AppearanceSettingsSection: View {
             }
             Divider().padding(.vertical, 4)
             HStack(spacing: 12) {
-                Label("Transparency", systemImage: "circle.lefthalf.filled").font(.system(size: 13, weight: .medium))
+                Label(L10n.t("transparency", "Transparency"), systemImage: "circle.lefthalf.filled").font(.system(size: 13, weight: .medium))
                     .frame(width: 130, alignment: .leading)
                 Text("Solid").font(.system(size: 11)).foregroundStyle(Theme.muted)
                 Slider(value: $transparency, in: 0...1).controlSize(.small)

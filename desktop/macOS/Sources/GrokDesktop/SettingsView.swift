@@ -9,7 +9,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 GrokMark(size: 36)
-                Text("Settings").font(.system(size: 24, weight: .semibold))
+                Text(L10n.t("settings", "Settings")).font(.system(size: 24, weight: .semibold))
                 Spacer()
                 IconButton(icon: "xmark", help: "Close settings") { dismiss() }
             }
@@ -31,7 +31,7 @@ struct SettingsView: View {
 
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: "lock.shield")
-                Text("Most settings are shared with the Crok CLI. Tasks stay on this Mac.")
+                Text(L10n.t("most_settings_shared", "Most settings are shared with the Crok CLI. Tasks stay on this Mac."))
                     .lineSpacing(3)
             }
             .font(.system(size: 13)).foregroundStyle(Theme.muted)
@@ -39,7 +39,7 @@ struct SettingsView: View {
             HStack {
                 Text("Crok Desktop · \(DesktopVersion.current)").font(.system(size: 12)).foregroundStyle(Theme.muted)
                 Spacer()
-                Button("Done") { dismiss() }
+                Button(L10n.t("done", "Done")) { dismiss() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
@@ -75,7 +75,7 @@ struct AccountsSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Accounts", systemImage: "person.crop.circle")
+                Label(L10n.t("accounts", "Accounts"), systemImage: "person.crop.circle")
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()
                 IconButton(icon: "arrow.clockwise", help: "Refresh accounts") { accounts.refresh() }
@@ -149,7 +149,7 @@ struct AccountsSettingsSection: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if status.isConnected {
-                Label("Connected", systemImage: "checkmark.circle.fill")
+                Label(L10n.t("connected", "Connected"), systemImage: "checkmark.circle.fill")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Theme.green)
                     .fixedSize()
@@ -214,7 +214,7 @@ struct AccountsSettingsSection: View {
                     .disabled(store.loginRunning)
                     .onSubmit { saveKey(provider) }
                     .accessibilityLabel("\(provider.name) API key")
-                Button("Save") { saveKey(provider) }
+                Button(L10n.t("save", "Save")) { saveKey(provider) }
                     .buttonStyle(.borderedProminent)
                     .disabled(store.loginRunning || keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

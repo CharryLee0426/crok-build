@@ -10,7 +10,10 @@ struct GrokDesktopApp: App {
     @AppStorage("appearance") private var appearance = "system"
 
     /// The saved theme (shared with the terminal as `[ui].theme`) applies before any window draws.
-    init() { ExtrasFeatureModel.restoreSavedTheme() }
+    init() {
+        ExtrasFeatureModel.restoreSavedTheme()
+        L10n.configure(fromConfig: GrokConfig())
+    }
 
     var body: some Scene {
         Window(displayName, id: "main") {
@@ -54,41 +57,41 @@ private struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Task") { store.newTask() }.keyboardShortcut("n")
-            Button("Open Project…") { store.addProject() }.keyboardShortcut("o", modifiers: [.command, .shift])
+            Button(L10n.t("new_task", "New Task")) { store.newTask() }.keyboardShortcut("n")
+            Button(L10n.t("open_project", "Open Project…")) { store.addProject() }.keyboardShortcut("o", modifiers: [.command, .shift])
             Button("Attach Photos & Files…") { store.features.attachments.chooseFiles() }.keyboardShortcut("u").disabled(!menu.hasProject)
             Button("Attach Folder…") { store.features.attachments.chooseFolder() }.disabled(!menu.hasProject)
-            Button("Search Tasks") { store.showSearch.toggle() }.keyboardShortcut("k")
-            Button("Commands…") { store.showCommandPalette = true }.keyboardShortcut("p", modifiers: [.command, .shift])
+            Button(L10n.t("search_tasks", "Search Tasks")) { store.showSearch.toggle() }.keyboardShortcut("k")
+            Button(L10n.t("commands", "Commands…")) { store.showCommandPalette = true }.keyboardShortcut("p", modifiers: [.command, .shift])
         }
         // In place of the standard Close, which closes the main window and so quits the app.
         CommandGroup(replacing: .saveItem) {
-            Button("Close") { store.closeFrontmost() }.keyboardShortcut("w")
+            Button(L10n.t("close", "Close")) { store.closeFrontmost() }.keyboardShortcut("w")
         }
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { store.showSettings = true }.keyboardShortcut(",")
+            Button(L10n.t("settings_ellipsis", "Settings…")) { store.showSettings = true }.keyboardShortcut(",")
         }
         CommandMenu("Task") {
-            Button("Plan Mode") { store.executeCommand(name: "plan") }.keyboardShortcut("p", modifiers: [.command, .option]).disabled(menu.isRunning)
+            Button(L10n.t("plan_mode", "Plan Mode")) { store.executeCommand(name: "plan") }.keyboardShortcut("p", modifiers: [.command, .option]).disabled(menu.isRunning)
             Button("Goal…") { store.featurePanel = .goals }.disabled(!menu.hasProject)
             Button("Subagents…") { store.featurePanel = .agents }.disabled(!menu.hasProject)
             Divider()
-            Button("Stop") { store.cancel() }.keyboardShortcut(".").disabled(!menu.isRunning)
+            Button(L10n.t("stop", "Stop")) { store.cancel() }.keyboardShortcut(".").disabled(!menu.isRunning)
             Button("Import Harness Tasks") { store.syncHistory() }.disabled(!menu.hasProject || menu.isSyncing)
             Divider()
-            Button("Side Panel") { store.toggleSidePanel() }.keyboardShortcut("j")
-            Button("Files") { store.showSidePanel(.files) }.disabled(!menu.hasProject)
+            Button(L10n.t("side_panel", "Side Panel")) { store.toggleSidePanel() }.keyboardShortcut("j")
+            Button(L10n.t("files", "Files")) { store.showSidePanel(.files) }.disabled(!menu.hasProject)
             Button("Side Chat") { store.showSidePanel(.sideChat); store.features.sideChat.requestFocus() }
-            Button("Terminal") { store.openTerminal() }.keyboardShortcut("`", modifiers: .control).disabled(!menu.hasProject)
-            Button("Browser") { store.openBrowser() }.keyboardShortcut("b", modifiers: [.command, .option])
+            Button(L10n.t("terminal", "Terminal")) { store.openTerminal() }.keyboardShortcut("`", modifiers: .control).disabled(!menu.hasProject)
+            Button(L10n.t("browser", "Browser")) { store.openBrowser() }.keyboardShortcut("b", modifiers: [.command, .option])
             Button("Reveal Project in Finder") { store.revealProject() }.disabled(!menu.hasProject)
             Button("Git Graph") { store.features.gitGraph.open() }.keyboardShortcut("g", modifiers: [.command, .option]).disabled(!menu.hasProject)
         }
         CommandGroup(replacing: .help) {
             Button("Crok Build Guides") { store.executeCommand(name: "docs") }
-            Button("Tutorial") { store.executeCommand(name: "tutorial") }
+            Button(L10n.t("tutorial", "Tutorial")) { store.executeCommand(name: "tutorial") }
             Divider()
-            Button("Keyboard Shortcuts") { store.features.extras.openKeyboardShortcuts() }.keyboardShortcut("/")
+            Button(L10n.t("keyboard_shortcuts", "Keyboard Shortcuts")) { store.features.extras.openKeyboardShortcuts() }.keyboardShortcut("/")
             Divider()
             Button("Reveal Log File") { store.revealLog() }
         }
