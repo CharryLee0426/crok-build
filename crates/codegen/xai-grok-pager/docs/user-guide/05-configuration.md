@@ -90,7 +90,9 @@ screen_mode = "fullscreen"             # default render mode: "fullscreen" | "mi
                                        # (unset → fullscreen); set via /settings → Default screen mode
 ui_language = "auto"                   # interface language: "auto" | "en" | "zh-Hans" | "ja" |
                                        # "es" | "fr" | "de" (unset/auto follows the process locale);
-                                       # shared with Crok Desktop via /settings → Interface language
+                                       # shared with Crok Desktop via /settings → Interface language;
+                                       # a running terminal or desktop app follows a change made in
+                                       # the other within a few seconds
 
 [features]
 telemetry = false                      # anonymous usage telemetry

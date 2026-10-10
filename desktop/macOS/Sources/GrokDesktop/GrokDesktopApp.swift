@@ -9,10 +9,12 @@ struct GrokDesktopApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @AppStorage("appearance") private var appearance = "system"
 
-    /// The saved theme (shared with the terminal as `[ui].theme`) applies before any window draws.
+    /// The saved theme (shared with the terminal as `[ui].theme`) and language (`[ui].ui_language`)
+    /// apply before any window draws; the watcher then follows the terminal's later edits.
     init() {
         ExtrasFeatureModel.restoreSavedTheme()
-        L10n.configure(fromConfig: GrokConfig())
+        ConfigFileWatcher.apply(GrokConfig())
+        ConfigFileWatcher.shared.start(apply: ConfigFileWatcher.apply)
     }
 
     var body: some Scene {
@@ -54,6 +56,7 @@ struct GrokDesktopApp: App {
 private struct AppCommands: Commands {
     let store: AppStore
     @ObservedObject var menu: MenuState
+    @ObservedObject private var language = L10n.state
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {

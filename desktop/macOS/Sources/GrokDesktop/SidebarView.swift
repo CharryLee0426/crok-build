@@ -5,6 +5,7 @@ import SwiftUI
 /// folder, and pinned tasks can be dragged into the user's own order.
 struct SidebarView: View {
     @EnvironmentObject var store: AppStore
+    @ObservedObject private var language = L10n.state
     /// Folders and Recents show a few tasks until the reader asks for the rest.
     @State private var expandedLists: Set<String> = []
     private static let folderLimit = 5
@@ -20,13 +21,15 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 16)
             VStack(spacing: 1) {
-                SidebarNavigationRow(title: "New task", icon: "square.and.pencil", shortcut: "⌘N") { store.newTask() }
-                SidebarNavigationRow(title: "Search", icon: "magnifyingglass", shortcut: "⌘K", isActive: store.showSearch) { store.showSearch.toggle() }
-                SidebarNavigationRow(title: "Commands", icon: "command", shortcut: "⇧⌘P") { store.showCommandPalette = true }
-                SidebarNavigationRow(title: "Skills & tools", icon: "square.grid.2x2") { store.featurePanel = .skills }
+                SidebarNavigationRow(title: L10n.t("new_task_row", "New task"), icon: "square.and.pencil", shortcut: "⌘N") { store.newTask() }
+                SidebarNavigationRow(title: L10n.t("search", "Search"), icon: "magnifyingglass", shortcut: "⌘K", isActive: store.showSearch) { store.showSearch.toggle() }
+                SidebarNavigationRow(title: L10n.t("commands_row", "Commands"), icon: "command", shortcut: "⇧⌘P") { store.showCommandPalette = true }
+                SidebarNavigationRow(title: L10n.t("skills_tools", "Skills & tools"), icon: "square.grid.2x2") { store.featurePanel = .skills }
             }.padding(.horizontal, 10)
             if store.showSearch {
-                NativeSearchField(text: $store.search, placeholder: store.showArchived ? "Search archived tasks" : "Search all tasks", onEscape: { store.showSearch = false })
+                NativeSearchField(text: $store.search,
+                                  placeholder: store.showArchived ? L10n.t("search_archived_tasks", "Search archived tasks") : L10n.t("search_all_tasks", "Search all tasks"),
+                                  onEscape: { store.showSearch = false })
                     .frame(height: 36).padding(.horizontal, 12).padding(.top, 8)
             }
             // Relative times ("5m", "2h") advance without any task changing.
@@ -41,13 +44,14 @@ struct SidebarView: View {
                 }
             }
             VStack(spacing: 1) {
-                SidebarNavigationRow(title: store.showArchived ? "Back to projects" : "Archived", icon: store.showArchived ? "chevron.backward" : "archivebox",
+                SidebarNavigationRow(title: store.showArchived ? L10n.t("back_to_projects", "Back to projects") : L10n.t("archived", "Archived"),
+                                     icon: store.showArchived ? "chevron.backward" : "archivebox",
                                      isActive: store.showArchived) { store.showArchived.toggle() }
-                SidebarNavigationRow(title: "Settings", icon: "gearshape", shortcut: "⌘,") { store.showSettings = true }
+                SidebarNavigationRow(title: L10n.t("settings", "Settings"), icon: "gearshape", shortcut: "⌘,") { store.showSettings = true }
             }.padding(.horizontal, 10).padding(.vertical, 8)
                 .overlay(alignment: .top) { Theme.line.opacity(0.5).frame(height: 0.5) }
             if store.binaryPath.isEmpty {
-                Label("Crok engine unavailable", systemImage: "exclamationmark.triangle")
+                Label(L10n.t("engine_unavailable", "Crok engine unavailable"), systemImage: "exclamationmark.triangle")
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 20).padding(.bottom, 12)
                     .help("The bundled Crok runtime is missing. Reinstall Crok Desktop.")
@@ -61,13 +65,13 @@ struct SidebarView: View {
     private func workspace(now: Date) -> some View {
         let pinned = store.pinnedConversations.map(\.listing)
         if !pinned.isEmpty {
-            SidebarSectionHeader(title: "Pinned")
+            SidebarSectionHeader(title: L10n.t("pinned", "Pinned"))
                 .contextMenu { sortMenu(.pinned) }
             ReorderableStack(items: pinned, onMove: { store.moveTask($0, to: $1, in: .pinned) }) { task, handle in
                 taskRow(task, now: now, showsProject: true, indent: 8).modifier(handle)
             }
         }
-        SidebarSectionHeader(title: "Projects") {
+        SidebarSectionHeader(title: L10n.t("projects", "Projects")) {
             if store.syncing {
                 ProgressView().controlSize(.mini).frame(width: 24, height: 24).help("Importing harness tasks…")
             } else {
@@ -79,7 +83,7 @@ struct SidebarView: View {
         }
         if store.state.projects.isEmpty {
             Button { store.addProject() } label: {
-                Label("Open your first project", systemImage: "plus").font(.system(size: 13)).padding(.horizontal, 8).padding(.vertical, 7)
+                Label(L10n.t("open_first_project", "Open your first project"), systemImage: "plus").font(.system(size: 13)).padding(.horizontal, 8).padding(.vertical, 7)
             }.buttonStyle(.plain).foregroundStyle(Theme.muted)
         }
         // A folder moves by its header; its tasks move within it.
@@ -100,7 +104,7 @@ struct SidebarView: View {
                         taskRow($0, now: now, showsProject: false, indent: 30)
                     }
                     if tasks.isEmpty {
-                        Text("No tasks yet").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        Text(L10n.t("no_tasks_yet", "No tasks yet")).font(.system(size: 12)).foregroundStyle(Theme.muted)
                             .padding(.leading, 30).padding(.vertical, 5)
                     }
                 }
@@ -108,12 +112,12 @@ struct SidebarView: View {
         }
         let recents = store.recentConversations.map(\.listing)
         Fold(isExpanded: $store.recentsExpanded, spacing: 1) { toggle, isOpen in
-            SidebarSectionHeader(title: "Recents", count: recents.count, isExpanded: isOpen, onToggle: toggle)
+            SidebarSectionHeader(title: L10n.t("recents", "Recents"), count: recents.count, isExpanded: isOpen, onToggle: toggle)
                 .padding(.top, 6)
         } content: {
             VStack(alignment: .leading, spacing: 1) {
                 limited(recents, key: "recents", limit: Self.recentsLimit, indent: 8) { taskRow($0, now: now, showsProject: true, indent: 8) }
-                if recents.isEmpty { emptyNote("Your tasks will appear here.") }
+                if recents.isEmpty { emptyNote(L10n.t("tasks_appear_here", "Your tasks will appear here.")) }
             }
         }
     }
@@ -121,17 +125,17 @@ struct SidebarView: View {
     @ViewBuilder
     private func archived(now: Date) -> some View {
         let tasks = store.archivedConversations.map(\.listing)
-        SidebarSectionHeader(title: "Archived")
+        SidebarSectionHeader(title: L10n.t("archived", "Archived"))
         ForEach(tasks) { taskRow($0, now: now, showsProject: true, indent: 8) }
-        if tasks.isEmpty { emptyNote("Archived tasks will appear here.") }
+        if tasks.isEmpty { emptyNote(L10n.t("archived_appear_here", "Archived tasks will appear here.")) }
     }
 
     @ViewBuilder
     private func searchResults(now: Date) -> some View {
         let tasks = store.searchResults.map(\.listing)
-        SidebarSectionHeader(title: store.showArchived ? "Archived results" : "Results", count: tasks.count)
+        SidebarSectionHeader(title: store.showArchived ? L10n.t("archived_results", "Archived results") : L10n.t("results", "Results"), count: tasks.count)
         ForEach(tasks) { taskRow($0, now: now, showsProject: true, indent: 8) }
-        if tasks.isEmpty { emptyNote("No matching tasks.") }
+        if tasks.isEmpty { emptyNote(L10n.t("no_matching_tasks", "No matching tasks.")) }
     }
 
     /// The first few tasks of a list, and a button for the rest. A list with an order can be
@@ -152,7 +156,7 @@ struct SidebarView: View {
             Button {
                 FoldMotion.toggle { if showsAll { expandedLists.remove(key) } else { expandedLists.insert(key) } }
             } label: {
-                Text(showsAll ? "Show less" : "Show \(tasks.count - limit) more")
+                Text(showsAll ? L10n.t("show_less", "Show less") : L10n.t("show_n_more", "Show %d more", count: tasks.count - limit))
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
                     .padding(.leading, indent).padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -184,17 +188,18 @@ struct SidebarView: View {
 }
 
 enum RelativeTime {
-    /// Compact ages in the style of Codex: now, 5m, 3h, 2d, 3w, 4mo, 2y.
+    /// Compact ages in the style of Codex: now, 5m, 3h, 2d, 3w, 4mo, 2y, in the interface language
+    /// (6天, 1周, 1小时 in Chinese).
     static func short(_ date: Date, now: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         let minute = 60.0, hour = 3_600.0, day = 86_400.0
-        if seconds < minute { return "now" }
-        if seconds < hour { return "\(Int(seconds / minute))m" }
-        if seconds < day { return "\(Int(seconds / hour))h" }
-        if seconds < 7 * day { return "\(Int(seconds / day))d" }
-        if seconds < 30 * day { return "\(Int(seconds / (7 * day)))w" }
-        if seconds < 365 * day { return "\(max(1, Int(seconds / (30 * day))))mo" }
-        return "\(Int(seconds / (365 * day)))y"
+        if seconds < minute { return L10n.t("time_now", "now") }
+        if seconds < hour { return L10n.t("time_minutes", "%dm", count: Int(seconds / minute)) }
+        if seconds < day { return L10n.t("time_hours", "%dh", count: Int(seconds / hour)) }
+        if seconds < 7 * day { return L10n.t("time_days", "%dd", count: Int(seconds / day)) }
+        if seconds < 30 * day { return L10n.t("time_weeks", "%dw", count: Int(seconds / (7 * day))) }
+        if seconds < 365 * day { return L10n.t("time_months", "%dmo", count: max(1, Int(seconds / (30 * day)))) }
+        return L10n.t("time_years", "%dy", count: Int(seconds / (365 * day)))
     }
 }
 
@@ -367,6 +372,8 @@ private struct TaskSidebarRow: View, Equatable {
     let needsApproval: Bool
     let isUnread: Bool
     @State private var isHovered = false
+    /// The age label follows the interface language even though the row is otherwise equatable.
+    @ObservedObject private var language = L10n.state
 
     private var isBusy: Bool { isRunning || isConfiguring }
 

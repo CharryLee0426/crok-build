@@ -114,12 +114,7 @@ pub(in crate::app::dispatch) fn set_ui_language(app: &mut AppView, value: String
     set_ui_language_inner(app, canonical);
     refresh_open_settings_modals(app);
     tracing::info!(target: "settings", key = "ui_language", value = canonical, "setting changed");
-    let display = if canonical == "auto" {
-        format!("System ({})", xai_grok_i18n::locale_code())
-    } else {
-        canonical.to_string()
-    };
-    app.show_toast(&format!("\u{2713} Interface language: {display}"));
+    app.show_toast(&super::ui::ui_language_toast(canonical));
     vec![Effect::PersistSetting {
         key: "ui_language",
         value: crate::settings::SettingValue::Enum(canonical),

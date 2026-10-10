@@ -3,6 +3,7 @@ import AppKit
 
 struct SettingsView: View {
     @EnvironmentObject var store: AppStore
+    @ObservedObject private var language = L10n.state
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

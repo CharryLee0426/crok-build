@@ -104,18 +104,18 @@ enum ComposerPermissionMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .standard: return "Default"
-        case .ask: return "Ask"
-        case .auto: return "Auto"
-        case .alwaysApprove: return "Always approve"
+        case .standard: return L10n.t("mode_default", "Default")
+        case .ask: return L10n.t("mode_ask", "Ask")
+        case .auto: return L10n.t("mode_auto", "Auto")
+        case .alwaysApprove: return L10n.t("mode_always_approve", "Always approve")
         }
     }
     var detail: String {
         switch self {
-        case .standard: return "Use the agent's default (currently Ask)."
-        case .ask: return "Ask before tool actions."
-        case .auto: return "A classifier approves safe tools; risky actions still ask."
-        case .alwaysApprove: return "Every tool action runs without asking."
+        case .standard: return L10n.t("mode_default_detail", "Use the agent's default (currently Ask).")
+        case .ask: return L10n.t("mode_ask_detail", "Ask before tool actions.")
+        case .auto: return L10n.t("mode_auto_detail", "A classifier approves safe tools; risky actions still ask.")
+        case .alwaysApprove: return L10n.t("mode_always_approve_detail", "Every tool action runs without asking.")
         }
     }
     var symbol: String {
@@ -145,11 +145,11 @@ enum ComposerPermissionMode: String, CaseIterable, Identifiable {
     func confirmation(planMode: Bool) -> String {
         switch self {
         case .alwaysApprove:
-            return planMode ? "⚠ Always-approve ON: plan mode still blocks file edits until you exit plan mode"
-                : "⚠ Always-approve ON: all tool actions auto-run"
-        case .auto: return "✓ Permission mode: Auto (classifier)"
-        case .ask: return "✓ Permission mode: Ask"
-        case .standard: return "✓ Permission mode: Default"
+            return planMode ? L10n.t("toast_always_approve_plan", "⚠ Always-approve ON: plan mode still blocks file edits until you exit plan mode")
+                : L10n.t("toast_always_approve_on", "⚠ Always-approve ON: all tool actions auto-run")
+        case .auto: return L10n.t("toast_mode_auto", "✓ Permission mode: Auto (classifier)")
+        case .ask: return L10n.t("toast_mode_ask", "✓ Permission mode: Ask")
+        case .standard: return L10n.t("toast_mode_default", "✓ Permission mode: Default")
         }
     }
 
@@ -166,9 +166,9 @@ enum ComposerPermissionMode: String, CaseIterable, Identifiable {
 enum ComposerFollowUpBehavior: String, CaseIterable, Identifiable {
     case queue, steer
     var id: String { rawValue }
-    var title: String { self == .queue ? "Queue" : "Steer" }
+    var title: String { self == .queue ? L10n.t("followup_queue", "Queue") : L10n.t("followup_steer", "Steer") }
     var detail: String {
-        self == .queue ? "Send it after Crok finishes." : "Add it to the running turn."
+        self == .queue ? L10n.t("followup_queue_detail", "Send it after Crok finishes.") : L10n.t("followup_steer_detail", "Add it to the running turn.")
     }
 }
 

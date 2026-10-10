@@ -7,6 +7,7 @@ struct ComposerView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var features: ComposerFeatureModel
     @EnvironmentObject var attachments: PromptAttachmentsModel
+    @ObservedObject private var language = L10n.state
     /// A drag over the card, and one over the text view, which handles its own drops.
     @State private var cardDropTargeted = false
     @State private var editorDropTargeted = false
@@ -77,16 +78,18 @@ struct ComposerView: View {
     private var voiceAvailable: Bool { store.harnessMeta.voiceMode && store.project != nil }
     private var draftLineCount: Int { store.draft.reduce(1) { $1 == "\n" ? $0 + 1 : $0 } }
     private var selectedModelName: String {
-        store.run.models.first { $0.id == store.run.modelID }?.name ?? (store.run.modelID.isEmpty ? "Choose model" : store.run.modelID)
+        store.run.models.first { $0.id == store.run.modelID }?.name ?? (store.run.modelID.isEmpty ? L10n.t("choose_model", "Choose model") : store.run.modelID)
     }
     private var selectedModelWindow: Int? { store.run.models.first { $0.id == store.run.modelID }?.contextWindow }
     private var filteredModels: [ModelOption] {
         store.run.models.filter { modelSearch.isEmpty || $0.name.localizedCaseInsensitiveContains(modelSearch) || $0.id.localizedCaseInsensitiveContains(modelSearch) }
     }
     private var reasoningName: String {
-        if let option = store.run.reasoningOptions.first(where: { $0.id == store.run.reasoningID }) { return option.name }
-        if !store.run.reasoningID.isEmpty { return store.run.reasoningID == "xhigh" ? "Extra high" : store.run.reasoningID.capitalized }
-        return store.run.models.isEmpty || !store.run.reasoningOptions.isEmpty ? "Default" : "Not supported"
+        let id = store.run.reasoningID
+        if let option = store.run.reasoningOptions.first(where: { $0.id == id }) { return L10n.reasoningName(id: id, fallback: option.name) }
+        if !id.isEmpty { return L10n.reasoningName(id: id, fallback: id == "xhigh" ? "Extra high" : id.capitalized) }
+        return store.run.models.isEmpty || !store.run.reasoningOptions.isEmpty
+            ? L10n.t("effort_default", "Default") : L10n.t("effort_not_supported", "Not supported")
     }
 
     private var editorCard: some View {
@@ -169,9 +172,11 @@ struct ComposerView: View {
 
     private var placeholder: String {
         if store.run.isRunning && store.conversation != nil {
-            return features.followUpBehavior == .steer ? "Steer Crok while it works…" : "Queue a follow-up…"
+            return features.followUpBehavior == .steer
+                ? L10n.t("placeholder_steer", "Steer Crok while it works…") : L10n.t("placeholder_queue", "Queue a follow-up…")
         }
-        return store.conversation == nil ? "Ask Crok to build, fix, or explore anything…" : "Continue the conversation…"
+        return store.conversation == nil
+            ? L10n.t("placeholder_new", "Ask Crok to build, fix, or explore anything…") : L10n.t("placeholder_continue", "Continue the conversation…")
     }
 
     private var showSlashCommands: Bool {
@@ -228,16 +233,16 @@ struct ComposerView: View {
             .accessibilityLabel("Add attachments, tools, and commands")
             .popover(isPresented: $showTools, arrowEdge: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    toolAction("Add photos & files", symbol: "paperclip") { attachments.chooseFiles() }
+                    toolAction(L10n.t("add_photos_files", "Add photos & files"), symbol: "paperclip") { attachments.chooseFiles() }
                         .disabled(store.project == nil)
-                    toolAction("Add folder", symbol: "folder.badge.plus") { attachments.chooseFolder() }
+                    toolAction(L10n.t("add_folder", "Add folder"), symbol: "folder.badge.plus") { attachments.chooseFolder() }
                         .disabled(store.project == nil)
                     Divider().padding(.vertical, 5)
-                    Text("Tools & commands").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted).padding(12)
-                    toolAction("Commands", symbol: "command", shortcut: "⇧⌘P") { store.showCommandPalette = true }
+                    Text(L10n.t("tools_commands", "Tools & commands")).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted).padding(12)
+                    toolAction(L10n.t("commands_row", "Commands"), symbol: "command", shortcut: "⇧⌘P") { store.showCommandPalette = true }
                     Divider().padding(.vertical, 5)
-                    toolAction("Plan mode", symbol: "list.bullet.clipboard") { store.executeCommand(name: "plan") }
-                    toolAction("Goal", symbol: "scope") { store.featurePanel = .goals }
+                    toolAction(L10n.t("plan_mode_row", "Plan mode"), symbol: "list.bullet.clipboard") { store.executeCommand(name: "plan") }
+                    toolAction(L10n.t("goal", "Goal"), symbol: "scope") { store.featurePanel = .goals }
                     toolAction("MCP servers", symbol: "externaldrive.connected.to.line.below") { store.featurePanel = .mcps }
                     toolAction("Skills", symbol: "sparkles") { store.featurePanel = .skills }
                     toolAction("Subagents", symbol: "person.2") { store.featurePanel = .agents }
@@ -292,10 +297,10 @@ struct ComposerView: View {
             .help("Model, thinking level, permissions, and mode").accessibilityLabel("Conversation settings: \(selectedModelName), \(reasoningName), \(features.permissionMode.title)")
             .popover(isPresented: $showCompactOptions, arrowEdge: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Conversation settings").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted).padding(12)
-                    compactOptionRow("Model", value: selectedModelName, symbol: "cpu", panel: .models)
+                    Text(L10n.t("conversation_settings", "Conversation settings")).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted).padding(12)
+                    compactOptionRow(L10n.t("model", "Model"), value: selectedModelName, symbol: "cpu", panel: .models)
                         .disabled(optionsDisabled)
-                    compactOptionRow("Thinking", value: reasoningName, symbol: "brain", panel: .reasoning)
+                    compactOptionRow(L10n.t("thinking", "Thinking"), value: reasoningName, symbol: "brain", panel: .reasoning)
                         .disabled(optionsDisabled || store.run.reasoningOptions.isEmpty)
                     Divider().padding(.vertical, 5)
                     ComposerPermissionMenu(current: features.permissionMode, autoAvailable: features.autoModeAvailable, showsHeader: true) { mode in
@@ -385,7 +390,8 @@ struct ComposerView: View {
             .help(store.run.reasoningOptions.isEmpty ? "This model does not offer an adjustable thinking level." : "Choose how much the model thinks before answering.")
             .accessibilityLabel("Thinking level: \(reasoningName)")
             .popover(isPresented: $showReasoning, arrowEdge: .top) {
-                optionPopover("Thinking level", options: store.run.reasoningOptions, selected: store.run.reasoningID) { option in
+                optionPopover(L10n.t("thinking_level", "Thinking level"), options: store.run.reasoningOptions, selected: store.run.reasoningID,
+                              name: { L10n.reasoningName(id: $0.id, fallback: $0.name) }) { option in
                     showReasoning = false
                     store.setReasoning(option)
                 }
@@ -429,13 +435,15 @@ struct ComposerView: View {
         }
     }
 
-    private func optionPopover(_ title: String, options: [ModelOption], selected: String, choose: @escaping (ModelOption) -> Void) -> some View {
+    private func optionPopover(_ title: String, options: [ModelOption], selected: String,
+                               name: @escaping (ModelOption) -> String = { $0.name },
+                               choose: @escaping (ModelOption) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted).padding(12)
             ForEach(options) { option in
                 Button { choose(option) } label: {
                     HStack(spacing: 12) {
-                        Text(option.name).font(.system(size: 14))
+                        Text(name(option)).font(.system(size: 14))
                         Spacer()
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(Theme.accent).opacity(option.id == selected ? 1 : 0)
@@ -481,13 +489,14 @@ struct ComposerPermissionMenu: View {
     let autoAvailable: Bool
     var showsHeader = true
     let choose: (ComposerPermissionMode) -> Void
+    @ObservedObject private var language = L10n.state
 
     private var modes: [ComposerPermissionMode] { [.ask] + (autoAvailable || current == .auto ? [.auto] : []) + [.alwaysApprove] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if showsHeader {
-                Text("Permissions").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted)
+                Text(L10n.t("permissions", "Permissions")).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
             }
             ForEach(modes) { mode in
