@@ -6,6 +6,7 @@ import AppKit
 /// follow the room the conversation has, from a narrow column beside the side panel to full screen.
 struct WelcomeView: View {
     @EnvironmentObject var store: AppStore
+    @ObservedObject private var language = L10n.state
 
     var body: some View {
         GeometryReader { proxy in
@@ -40,7 +41,7 @@ struct WelcomeView: View {
                     }
                 }
                 Divider()
-                Button("Open Another Folder…", systemImage: "folder.badge.plus") { store.addProject() }
+                Button(L10n.t("open_another_folder", "Open Another Folder…"), systemImage: "folder.badge.plus") { store.addProject() }
             } label: {
                 HStack(spacing: 7) { Image(systemName: "folder"); Text(project.name); Image(systemName: "chevron.down").font(.system(size: 8)) }
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.muted).padding(.horizontal, 12).padding(.vertical, 8)
@@ -111,6 +112,7 @@ enum WelcomeHandwriting {
 struct WelcomeGreeting: View {
     let fontSize: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var language = L10n.state
     @State private var shown = false
 
     static func text(at date: Date, calendar: Calendar = .current) -> String {
@@ -118,7 +120,7 @@ struct WelcomeGreeting: View {
         case 5..<12: return L10n.t("good_morning", "Good morning")
         case 12..<17: return L10n.t("good_afternoon", "Good afternoon")
         case 17..<22: return L10n.t("good_evening", "Good evening")
-        default: return "Good night"
+        default: return L10n.t("good_night", "Good night")
         }
     }
 
@@ -142,19 +144,23 @@ struct WelcomeGreeting: View {
 
 /// A starter prompt on the welcome page.
 struct WelcomeStarter: Identifiable, Equatable {
-    var id: String { title }
+    /// Stable across languages, so the ticker keeps its place when the title changes.
+    let id: String
     let title: String
     let symbol: String
     let prompt: String
 
-    static let all = [
-        WelcomeStarter(title: "Explore the codebase", symbol: "square.stack.3d.up",
-                       prompt: "Explore this codebase. Explain its architecture, the main entry points, and how to run it."),
-        WelcomeStarter(title: "Build something", symbol: "hammer",
-                       prompt: "I'd like to build a new feature in this project. First, inspect the codebase and ask me what I want to create."),
-        WelcomeStarter(title: "Review changes", symbol: "checkmark.bubble",
-                       prompt: "Review the current uncommitted changes for bugs, regressions, and missing edge cases. Give concrete findings with file references."),
-    ]
+    /// The titles are in the interface language; the prompts stay in English for the model.
+    static var all: [WelcomeStarter] {
+        [
+            WelcomeStarter(id: "explore", title: L10n.t("starter_explore", "Explore the codebase"), symbol: "square.stack.3d.up",
+                           prompt: "Explore this codebase. Explain its architecture, the main entry points, and how to run it."),
+            WelcomeStarter(id: "build", title: L10n.t("starter_build", "Build something"), symbol: "hammer",
+                           prompt: "I'd like to build a new feature in this project. First, inspect the codebase and ask me what I want to create."),
+            WelcomeStarter(id: "review", title: L10n.t("starter_review", "Review changes"), symbol: "checkmark.bubble",
+                           prompt: "Review the current uncommitted changes for bugs, regressions, and missing edge cases. Give concrete findings with file references."),
+        ]
+    }
 }
 
 /// One starter at a time, each rolling up out of sight as the next rises in its place. Pointing at

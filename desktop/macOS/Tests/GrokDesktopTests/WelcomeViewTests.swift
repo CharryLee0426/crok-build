@@ -16,6 +16,17 @@ final class WelcomeViewTests: XCTestCase {
         return calendar
     }
 
+    override func setUp() {
+        super.setUp()
+        // The greeting and starters are in the interface language; these tests read the English ones.
+        L10n.setLanguage(.en)
+    }
+
+    override func tearDown() {
+        L10n.setLanguage(.auto)
+        super.tearDown()
+    }
+
     func testTheGreetingFollowsTheClock() {
         let expected: [(Int, Int, String)] = [
             (5, 0, "Good morning"), (11, 59, "Good morning"),
@@ -51,6 +62,16 @@ final class WelcomeViewTests: XCTestCase {
     func testTheStartersKeepTheirPrompts() {
         XCTAssertEqual(WelcomeStarter.all.map(\.title), ["Explore the codebase", "Build something", "Review changes"])
         XCTAssertTrue(WelcomeStarter.all.allSatisfy { !$0.prompt.isEmpty && NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) != nil })
+    }
+
+    func testTheStartersTranslateTheirTitlesButNotTheirPrompts() {
+        let english = WelcomeStarter.all
+        L10n.setLanguage(.zhHans)
+        let chinese = WelcomeStarter.all
+        XCTAssertEqual(chinese.map(\.title), ["探索代码库", "动手构建", "审查更改"])
+        XCTAssertEqual(chinese.map(\.prompt), english.map(\.prompt), "the model still gets the English prompt")
+        XCTAssertEqual(chinese.map(\.id), english.map(\.id), "the ticker keeps its place across a language change")
+        XCTAssertEqual(WelcomeGreeting.text(at: date(hour: 23), calendar: utc), "晚安")
     }
 
     func testTheScriptFacesShipWithMacOS() {

@@ -4,8 +4,11 @@ import SwiftUI
 /// shared with the terminal through `config.toml`.
 struct BehaviorSettingsSection: View {
     @EnvironmentObject var composer: ComposerFeatureModel
+    @ObservedObject private var language = L10n.state
     @AppStorage("composerMultiline") private var multiline = false
-    @State private var uiLanguage: AppLanguage = AppLanguage.parse(GrokConfig().string("ui_language", in: "ui"))
+    /// The picker's choice. It starts from the language in force (read from config.toml at launch
+    /// and kept current by `ConfigFileWatcher`) and follows a change made in the terminal.
+    @State private var uiLanguage: AppLanguage = L10n.language
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -51,9 +54,12 @@ struct BehaviorSettingsSection: View {
                     ForEach(AppLanguage.allCases) { lang in Text(lang.menuTitle).tag(lang) }
                 }
                 .labelsHidden().pickerStyle(.menu).fixedSize()
+                // The terminal changed `[ui].ui_language`: show its choice without writing it back.
+                .onReceive(language.$language) { lang in if uiLanguage != lang { uiLanguage = lang } }
                 .onChange(of: uiLanguage) { _, lang in
+                    guard lang != L10n.language else { return }
                     L10n.setLanguage(lang)
-                    let code = lang == .auto ? "auto" : lang.rawValue
+                    let code = lang.configValue
                     guard NSClassFromString("XCTestCase") == nil else { return }
                     let url = GrokPaths.configFile
                     Task {

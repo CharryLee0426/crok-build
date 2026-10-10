@@ -122,6 +122,8 @@ final class SidebarTests: XCTestCase {
     }
 
     func testRelativeTimesAreCompact() {
+        L10n.setLanguage(.en)
+        defer { L10n.setLanguage(.auto) }
         let now = Date()
         XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-20), now: now), "now")
         XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-5 * 60), now: now), "5m")
@@ -132,14 +134,33 @@ final class SidebarTests: XCTestCase {
         XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-800 * 86_400), now: now), "2y")
     }
 
+    func testRelativeTimesFollowTheInterfaceLanguage() {
+        L10n.setLanguage(.zhHans)
+        defer { L10n.setLanguage(.auto) }
+        let now = Date()
+        XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-20), now: now), "刚刚")
+        XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-60 * 60), now: now), "1小时")
+        XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-9 * 3_600), now: now), "9小时")
+        XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-6 * 86_400), now: now), "6天")
+        XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-8 * 86_400), now: now), "1周")
+        L10n.setLanguage(.ja)
+        XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-6 * 86_400), now: now), "6日")
+        L10n.setLanguage(.de)
+        XCTAssertEqual(RelativeTime.short(now.addingTimeInterval(-3 * 3_600), now: now), "3 Std")
+    }
+
     /// Writes PNGs of the sidebar when CROK_DESKTOP_SNAPSHOT_DIR is set, for visual review.
     func testRenderSidebarSnapshots() throws {
         guard let output = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
         let (store, _, _) = makeStore()
         store.state.selectedConversationID = store.state.conversations[2].id
         store.unreadConversationIDs = [store.state.conversations[1].id]
-        for (name, expanded, appearance) in [("sidebar-folded-light", false, NSAppearance.Name.aqua), ("sidebar-recents-dark", true, .darkAqua)] {
+        defer { L10n.setLanguage(.auto) }
+        for (name, expanded, appearance, language) in [("sidebar-folded-light", false, NSAppearance.Name.aqua, AppLanguage.en),
+                                                       ("sidebar-recents-dark", true, .darkAqua, .en),
+                                                       ("sidebar-recents-zh-Hans", true, .aqua, .zhHans)] {
             store.recentsExpanded = expanded
+            L10n.setLanguage(language)
             try SnapshotRenderer.write(SidebarView().environmentObject(store).frame(width: 280, height: 760),
                                        size: CGSize(width: 280, height: 760), appearance: appearance,
                                        to: URL(fileURLWithPath: output).appendingPathComponent(name + ".png"))

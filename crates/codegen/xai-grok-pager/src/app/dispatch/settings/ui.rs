@@ -32,6 +32,40 @@ pub(in crate::app::dispatch) fn save_success_toast(label: &str, on: bool) -> Str
     format!("\u{2713} {label}: {value}")
 }
 
+/// Apply an interface language that another process (Crok Desktop, an editor) wrote to
+/// `[ui].ui_language` in `config.toml`. Returns `true` when the setting changed and a redraw is due.
+/// Nothing is persisted: the value already came from disk.
+pub(crate) fn apply_external_ui_language(app: &mut AppView, canonical: &'static str) -> bool {
+    let prev = crate::settings::canonical_ui_language(app.current_ui.ui_language.as_deref());
+    if prev == canonical {
+        return false;
+    }
+    let prev_locale = xai_grok_i18n::current_locale();
+    set_ui_language_inner(app, canonical);
+    refresh_open_settings_modals(app);
+    tracing::info!(target: "settings", key = "ui_language", value = canonical, "setting changed on disk");
+    if xai_grok_i18n::current_locale() != prev_locale {
+        app.show_toast(&ui_language_toast(canonical));
+    }
+    true
+}
+
+/// "✓ Interface language: 简体中文", worded in the language just applied; `auto` also names the
+/// locale it resolved to.
+pub(crate) fn ui_language_toast(canonical: &str) -> String {
+    let label = xai_grok_i18n::settings_label("ui_language").unwrap_or("Interface language");
+    let key = format!("choice.ui_language.{canonical}");
+    let choice = xai_grok_i18n::t_or(&key, canonical);
+    if canonical == "auto" {
+        format!(
+            "\u{2713} {label}: {choice} ({})",
+            xai_grok_i18n::locale_code()
+        )
+    } else {
+        format!("\u{2713} {label}: {choice}")
+    }
+}
+
 /// Refresh every open settings modal's `ui_snapshot` and `pager_snapshot` so the next render reads the latest live state.
 /// The modal stores snapshots by value; without this, toggles would appear stuck.
 pub(crate) fn refresh_open_settings_modals(app: &mut AppView) {

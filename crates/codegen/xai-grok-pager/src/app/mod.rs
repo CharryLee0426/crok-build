@@ -48,6 +48,7 @@ mod status_line_policy;
 pub mod subagent;
 pub mod subscription;
 pub(crate) mod token_meter;
+pub(crate) mod ui_language_sync;
 pub(crate) mod voice_state;
 pub(crate) mod worktree_session;
 pub(crate) use dispatch::dashboard_stop_readiness;

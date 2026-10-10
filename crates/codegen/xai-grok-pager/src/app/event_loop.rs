@@ -1651,6 +1651,9 @@ pub(crate) async fn run(
     let mut dashboard_poll_at: Option<Instant> = Some(Instant::now());
     const RECAP_POLL_INTERVAL: Duration = Duration::from_secs(20);
     let mut recap_poll_at: Option<Instant> = Some(Instant::now() + RECAP_POLL_INTERVAL);
+    // Follows `[ui].ui_language` edits made by Crok Desktop (or by hand) while running.
+    let mut ui_language_sync = super::ui_language_sync::UiLanguageSync::start();
+    let mut ui_language_poll_at = Instant::now() + super::ui_language_sync::POLL_INTERVAL;
     let mut presenter = Presenter::new();
     let mut suspend_retry_after: Option<Instant> = None;
     let mut suspend_wait_reports = SuspendWaitReports::default();
@@ -2065,6 +2068,7 @@ pub(crate) async fn run(
                 None => std::future::pending().await,
             }
         };
+        let ui_language_poll = sleep_until(ui_language_poll_at);
         let load_barrier_tick = async {
             match session_load_barrier.next_wakeup() {
                 Some(deadline) => {
@@ -2518,6 +2522,16 @@ pub(crate) async fn run(
             }
 
             _ = load_barrier_tick => {}
+
+            // Another process changed `[ui].ui_language` in config.toml (Crok Desktop shares it).
+            _ = ui_language_poll => {
+                if let Some(canonical) = ui_language_sync.poll()
+                    && dispatch::apply_external_ui_language(&mut app, canonical)
+                {
+                    presenter.request(false);
+                }
+                ui_language_poll_at = Instant::now() + super::ui_language_sync::POLL_INTERVAL;
+            }
 
             // Hot-reload: config file changed (dev mode) or initial load.
             Ok(()) = config_watcher.changed() => {

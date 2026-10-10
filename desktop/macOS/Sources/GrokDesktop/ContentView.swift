@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var extras: ExtrasFeatureModel
+    @ObservedObject private var language = L10n.state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openWindow) private var openWindow
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -69,7 +70,7 @@ struct ContentView: View {
             .overlay { TitleBarGlass() }
             .overlay(alignment: .topTrailing) { DebugOverlay() }
             .background { GlassBackdrop(role: .canvas).ignoresSafeArea() }
-            .navigationTitle(store.conversation?.title ?? L10n.t("new_task", "New task"))
+            .navigationTitle(store.conversation?.title ?? L10n.t("new_task_row", "New task"))
             .navigationSubtitle(store.project?.name ?? L10n.t("your_workspace", "Your workspace"))
             .toolbar { workspaceToolbar }
             .toolbar(store.minimalMode ? .hidden : .automatic, for: .windowToolbar)
