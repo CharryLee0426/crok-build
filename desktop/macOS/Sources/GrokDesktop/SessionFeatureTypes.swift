@@ -235,13 +235,20 @@ struct HarnessSessionRow: Identifiable, Equatable {
             .replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func date(_ value: String?) -> Date? {
-        guard let value, !value.isEmpty else { return nil }
+    private static let fractionalDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: value) { return date }
+        return formatter
+    }()
+    private static let wholeSecondDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
+        return formatter
+    }()
+
+    static func date(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        return fractionalDateFormatter.date(from: value) ?? wholeSecondDateFormatter.date(from: value)
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

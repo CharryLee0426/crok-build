@@ -304,7 +304,7 @@ struct SkillsPanelView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        LazyVStack(alignment: .leading, spacing: 14) {
             if let discovery = extensions.skillsDiscovery { sources(discovery) }
             if !rows.isEmpty {
                 ExtensionFilterBar(filter: $filter, summary: "\(rows.filter { $0.enabled != false }.count) of \(rows.count) enabled")

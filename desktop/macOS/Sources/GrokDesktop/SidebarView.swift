@@ -5,6 +5,8 @@ import SwiftUI
 /// folder, and pinned tasks can be dragged into the user's own order.
 struct SidebarView: View {
     @EnvironmentObject var store: AppStore
+    /// Observed here, not through the store, so typing a search redraws only the sidebar.
+    @EnvironmentObject var sidebarSearch: SidebarSearch
     /// Folders and Recents show a few tasks until the reader asks for the rest.
     @State private var expandedLists: Set<String> = []
     private static let folderLimit = 5
@@ -26,7 +28,7 @@ struct SidebarView: View {
                 SidebarNavigationRow(title: "Skills & tools", icon: "square.grid.2x2") { store.featurePanel = .skills }
             }.padding(.horizontal, 10)
             if store.showSearch {
-                NativeSearchField(text: $store.search, placeholder: store.showArchived ? "Search archived tasks" : "Search all tasks", onEscape: { store.showSearch = false })
+                NativeSearchField(text: $sidebarSearch.text, placeholder: store.showArchived ? "Search archived tasks" : "Search all tasks", onEscape: { store.showSearch = false })
                     .frame(height: 36).padding(.horizontal, 12).padding(.top, 8)
             }
             // Relative times ("5m", "2h") advance without any task changing.

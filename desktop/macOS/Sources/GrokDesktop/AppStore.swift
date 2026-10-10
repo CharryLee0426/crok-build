@@ -11,12 +11,39 @@ final class MenuState: ObservableObject {
     @Published fileprivate(set) var isSyncing = false
 }
 
+/// The composer's text. Published apart from the store so a keystroke redraws the composer and
+/// its command menu, not every view that observes the store (the sidebar, the transcript, the panels).
+@MainActor
+final class ComposerDraft: ObservableObject {
+    @Published var text = ""
+}
+
+/// The sidebar's search text, published apart from the store for the same reason.
+@MainActor
+final class SidebarSearch: ObservableObject {
+    @Published var text = ""
+}
+
 @MainActor
 final class AppStore: ObservableObject {
     @Published var state = DesktopState()
     @Published var runs: [UUID: RunState] = [:]
-    @Published var draft = ""
-    @Published var search = ""
+    let composerDraft = ComposerDraft()
+    let sidebarSearch = SidebarSearch()
+    /// The composer's text. Reading it in a view's body needs `@EnvironmentObject var composerDraft`.
+    var draft: String {
+        get { composerDraft.text }
+        set { if composerDraft.text != newValue { composerDraft.text = newValue } }
+    }
+    /// The sidebar's search text. Reading it in a view's body needs `@EnvironmentObject var sidebarSearch`.
+    var search: String {
+        get { sidebarSearch.text }
+        set { if sidebarSearch.text != newValue { sidebarSearch.text = newValue } }
+    }
+    /// The command list ranked for the composer menu and the palette, kept while its inputs stand.
+    var commandIndexCache: (key: CommandIndexKey, index: CommandIndex)?
+    /// When the catalog was last fetched from a harness of its own, per project.
+    var commandCatalogRefreshedAt: [UUID: Date] = [:]
     @Published var showSearch = false
     @Published var showSettings = false
     @Published var showRename = false
@@ -508,6 +535,7 @@ final class AppStore: ObservableObject {
                 catalogRun.commandsLoaded = true
                 catalogRun.availableTools = commands["tools"] as? [String]
                 commandCatalogProjectID = project.id
+                commandCatalogRefreshedAt[project.id] = Date()
             } catch { /* Model selection still works with an older harness. */ }
             save()
         } catch {

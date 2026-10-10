@@ -36,6 +36,76 @@ struct SlashCommand: Identifiable, Equatable {
     }
 }
 
+/// What the ranked command list was built from. While these stand, the index is reused.
+struct CommandIndexKey: Equatable {
+    var commands: [SlashCommand]
+    var tools: [String]?
+    var hasAnnouncements: Bool
+}
+
+/// A command list prepared for ranking: the lowercased names, aliases and descriptions are
+/// made once, when the catalog changes, not for every command on every keystroke.
+struct CommandIndex {
+    struct Entry {
+        let command: SlashCommand
+        /// The lowercased name first, then the lowercased aliases.
+        let names: [String]
+        let description: String
+    }
+
+    let commands: [SlashCommand]
+    private let entries: [Entry]
+
+    init(_ commands: [SlashCommand]) {
+        self.commands = commands
+        entries = commands.map { command in
+            Entry(command: command, names: [command.name.lowercased()] + command.aliases.map { $0.lowercased() },
+                  description: command.description.lowercased())
+        }
+    }
+
+    static let empty = CommandIndex([])
+
+    /// The query as ranked: trimmed, lowercased, without the leading slash.
+    static func normalize(_ query: String) -> String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    /// Exact name or alias, then prefix, then substring, then a description mention, then the
+    /// query's characters in order within a name. Within a tier the catalog's order holds, so
+    /// the buckets replace a sort.
+    func matches(query: String) -> [SlashCommand] {
+        let query = Self.normalize(query)
+        guard !query.isEmpty else { return commands }
+        var buckets: [[SlashCommand]] = Array(repeating: [], count: 5)
+        for entry in entries {
+            guard let tier = Self.tier(entry, query: query) else { continue }
+            buckets[tier].append(entry.command)
+        }
+        return buckets.flatMap { $0 }
+    }
+
+    private static func tier(_ entry: Entry, query: String) -> Int? {
+        var prefix = false, substring = false
+        for name in entry.names {
+            if name == query { return 0 }
+            if !prefix, name.hasPrefix(query) { prefix = true }
+            else if !prefix, !substring, name.contains(query) { substring = true }
+        }
+        if prefix { return 1 }
+        if substring { return 2 }
+        if entry.description.contains(query) { return 3 }
+        for name in entry.names where isSubsequence(query, of: name) { return 4 }
+        return nil
+    }
+
+    private static func isSubsequence(_ query: String, of name: String) -> Bool {
+        var remaining = query.unicodeScalars[...]
+        for character in name.unicodeScalars where remaining.first == character { remaining = remaining.dropFirst() }
+        return remaining.isEmpty
+    }
+}
+
 enum FeaturePanel: String, CaseIterable, Identifiable {
     case mcps, skills, agents, agentDefinitions, goals, workflows, plugins, marketplace, hooks, memory, personas, plan, models, reasoning, history, transcript
     var id: String { rawValue }

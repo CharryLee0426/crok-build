@@ -825,8 +825,10 @@ impl PromptWidget {
         {
             return None;
         }
-        let slash = self.slash_state.snapshot();
-        if slash.active || slash.inline_ghost.is_some() {
+        if self
+            .slash_state
+            .with(|slash| slash.active || slash.inline_ghost.is_some())
+        {
             return None;
         }
         self.prompt_suggestion.ghost_for(self.text())
@@ -1204,10 +1206,9 @@ impl PromptWidget {
     /// Refresh the slash snapshot from the current text and cursor. This is the only way to update the
     /// slash snapshot: `AgentView` never touches `slash_controller` or `slash_state` directly.
     pub fn refresh_slash(&mut self, models: &crate::acp::model_state::ModelState) {
-        let was_in_args = {
-            let snap = self.slash_state.snapshot();
-            snap.open && !snap.cursor_in_command && !snap.matches.is_empty()
-        };
+        let was_in_args = self
+            .slash_state
+            .with(|snap| snap.open && !snap.cursor_in_command && !snap.matches.is_empty());
 
         // Element placeholder text (e.g. `[Image #1]`) in the buffer confuses the slash system: spaces inside placeholders break command parsing.
         // Build a clean text with all element content removed so the slash system only sees user-typed text
@@ -1221,8 +1222,9 @@ impl PromptWidget {
             remap_slash_snapshot_to_raw(snap, raw_text, &self.textarea);
         });
 
-        let snap = self.slash_state.snapshot();
-        let now_in_args = snap.open && !snap.cursor_in_command && !snap.matches.is_empty();
+        let now_in_args = self
+            .slash_state
+            .with(|snap| snap.open && !snap.cursor_in_command && !snap.matches.is_empty());
 
         if now_in_args {
             // Trigger preview for the auto-selected first suggestion when transitioning into args mode, or when the suggestion list changes
@@ -1315,9 +1317,14 @@ impl PromptWidget {
         self.slash_state.snapshot()
     }
 
+    /// The current slash snapshot in place, for a frame that only reads it.
+    pub fn slash_snapshot_ref(&self) -> std::cell::Ref<'_, crate::slash::SlashSnapshot> {
+        self.slash_state.borrow()
+    }
+
     /// Whether the slash dropdown is currently open.
     pub fn slash_open(&self) -> bool {
-        self.slash_state.snapshot().open
+        self.slash_state.is_open()
     }
 
     /// Close the slash dropdown.
@@ -3140,7 +3147,7 @@ impl PromptWidget {
         // Both use the same snapshot, so clone once
         // Capture flags for later ghost text suppression to avoid a second clone
         let (slash_active, slash_has_inline_ghost) = {
-            let snap = self.slash_state.snapshot();
+            let snap = self.slash_state.borrow();
 
             // Slash command-name highlight color
             // Minimal mode is monochrome, so recolor to primary text (no visible accent); typed `/commands` then match the rest of the input

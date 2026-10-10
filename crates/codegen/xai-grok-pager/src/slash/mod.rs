@@ -75,16 +75,12 @@ struct MenuKey {
 }
 
 impl MenuKey {
-    fn new(
-        group: MenuGroup,
-        row: &SuggestionRow,
-        canonical: &str,
-        mru: &mut mru::SlashMru,
-    ) -> Self {
+    /// `recency` is the command's MRU score; it is ignored for skills.
+    fn new(group: MenuGroup, row: &SuggestionRow, trigger: &CommandTrigger, recency: u64) -> Self {
         let (recency, name) = match group {
-            MenuGroup::Command => (mru.rank_score("", canonical), String::new()),
+            MenuGroup::Command => (recency, String::new()),
             // Nothing ranks skills, so alphabetical is the only order predictable enough to find one in.
-            _ => (0, row.display.to_lowercase()),
+            _ => (0, trigger.display_lower.clone()),
         };
 
         Self {
@@ -184,14 +180,12 @@ fn chars_eq_ignore_case(a: char, b: char) -> bool {
 
 /// Bare trigger key: suffix after `:` for a qualified skill, else the key.
 fn trigger_bare_name(trigger: &CommandTrigger) -> &str {
-    let key = trigger
-        .alias
-        .as_deref()
-        .unwrap_or(trigger.canonical.as_str());
-    match key.rsplit_once(':') {
-        Some((_, bare)) if !bare.is_empty() => bare,
-        _ => key,
-    }
+    registry::bare_name(
+        trigger
+            .alias
+            .as_deref()
+            .unwrap_or(trigger.canonical.as_str()),
+    )
 }
 
 fn trigger_exact_query(trigger: &CommandTrigger, query: &str) -> bool {
@@ -315,6 +309,22 @@ impl SlashState {
     /// Clone the current snapshot.
     pub fn snapshot(&self) -> SlashSnapshot {
         self.inner.borrow().clone()
+    }
+
+    /// Read the snapshot in place. Rendering and key handling read it several times per frame,
+    /// and a clone copies every suggestion row.
+    pub fn with<R>(&self, f: impl FnOnce(&SlashSnapshot) -> R) -> R {
+        f(&self.inner.borrow())
+    }
+
+    /// Borrow the snapshot in place; released when the guard drops.
+    pub fn borrow(&self) -> std::cell::Ref<'_, SlashSnapshot> {
+        self.inner.borrow()
+    }
+
+    /// Whether the dropdown is open, without cloning the rows.
+    pub fn is_open(&self) -> bool {
+        self.inner.borrow().open
     }
 
     /// Replace the entire snapshot.
@@ -972,150 +982,159 @@ impl SlashController {
     /// Generate command-level suggestions for a query.
     ///
     /// Filters out any command whose `visible(&AppCtx)` returns `false`.
+    ///
+    /// A keystroke over hundreds of skills must stay cheap: names are matched against haystacks
+    /// the registry prepared, rows are built only for the commands that will be listed, and the
+    /// recency store is read once for the whole menu.
     fn command_suggestions(&mut self, query: &str, models: &ModelState) -> Vec<SuggestionRow> {
-        let ctx = self.app_ctx(models);
+        let trimmed = query.trim();
+        // Reject double-slash sequences.
+        if !trimmed.is_empty() && trimmed.contains('/') {
+            return Vec::new();
+        }
         let hide_session = self.hide_session_scoped;
-        let visible_indices: HashSet<usize> = (0..self.registry.triggers().len())
-            .filter(|&i| {
-                let Some(trigger) = self.registry.triggers().get(i) else {
-                    return false;
-                };
-                self.registry
-                    .commands_by_index(trigger.command_index)
-                    .is_some_and(|cmd| command_offered(cmd.as_ref(), &ctx, hide_session))
-            })
-            .collect();
+        // Per trigger: whether its command is offered, and whether it takes arguments now. Both
+        // resolve under one `AppCtx` borrow of the controller, released before the matcher's.
+        let (visible, takes_args): (Vec<bool>, Vec<bool>) = {
+            let ctx = self.app_ctx(models);
+            self.registry
+                .triggers()
+                .iter()
+                .map(
+                    |trigger| match self.registry.commands_by_index(trigger.command_index) {
+                        Some(cmd) if command_offered(cmd.as_ref(), &ctx, hide_session) => {
+                            (true, cmd.takes_args_now(&ctx))
+                        }
+                        _ => (false, false),
+                    },
+                )
+                .unzip()
+        };
         let triggers = self.registry.triggers();
+        let is_visible = |i: usize| visible.get(i).copied().unwrap_or(false);
+        let takes = |i: usize| takes_args.get(i).copied().unwrap_or(false);
         // Badge only collisions where a visible skill and a visible non-skill share the same bare name
-        let mut skill_bares: HashSet<String> = HashSet::new();
-        let mut other_bares: HashSet<String> = HashSet::new();
-        for (_, trigger) in triggers
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| visible_indices.contains(i))
-        {
-            let bare = trigger_bare_name(trigger).to_lowercase();
+        let mut skill_bares: HashSet<&str> = HashSet::new();
+        let mut other_bares: HashSet<&str> = HashSet::new();
+        for (i, trigger) in triggers.iter().enumerate() {
+            if !is_visible(i) {
+                continue;
+            }
             if matches!(trigger.provenance, CommandProvenance::Skill { .. }) {
-                skill_bares.insert(bare);
+                skill_bares.insert(trigger.bare_lower.as_str());
             } else {
-                other_bares.insert(bare);
+                other_bares.insert(trigger.bare_lower.as_str());
             }
         }
-        let colliding_bares: HashSet<&str> = skill_bares
-            .intersection(&other_bares)
-            .map(String::as_str)
-            .collect();
         // Badge every visible trigger of a command that participates
         // That includes the canonical row when only an alias (e.g. `clear` for `/compact`) collides.
         let colliding_command_indices: HashSet<usize> = triggers
             .iter()
             .enumerate()
             .filter(|(i, t)| {
-                visible_indices.contains(i)
-                    && colliding_bares.contains(trigger_bare_name(t).to_lowercase().as_str())
+                is_visible(*i)
+                    && skill_bares.contains(t.bare_lower.as_str())
+                    && other_bares.contains(t.bare_lower.as_str())
             })
             .map(|(_, t)| t.command_index)
             .collect();
-        let trimmed = query.trim();
+
         if trimmed.is_empty() {
             // Show all unique commands (deduplicate by command_index).
             // No cap here; the dropdown renderer handles scrolling
             let mut seen = HashSet::new();
-            let mut rows = Vec::new();
-            // Retain canonicals so tags are set in a second pass, keeping the `takes_args_now` command callback outside any tag-map borrow
-            let mut canonicals: Vec<&str> = Vec::new();
-            let mut groups: Vec<MenuGroup> = Vec::new();
+            let mut listed: Vec<(usize, &CommandTrigger)> = Vec::new();
             for (i, trigger) in triggers.iter().enumerate() {
-                if !visible_indices.contains(&i) {
-                    continue;
-                }
-                if seen.insert(trigger.command_index) {
-                    let takes = self
-                        .registry
-                        .commands_by_index(trigger.command_index)
-                        .map(|cmd| cmd.takes_args_now(&ctx))
-                        .unwrap_or(false);
-                    rows.push(SuggestionRow::from_command(
-                        trigger,
-                        takes,
-                        colliding_command_indices.contains(&trigger.command_index),
-                    ));
-                    canonicals.push(trigger.canonical.as_str());
-                    groups.push(MenuGroup::of(&trigger.provenance));
+                if is_visible(i) && seen.insert(trigger.command_index) {
+                    listed.push((i, trigger));
                 }
             }
+            let mut rows: Vec<SuggestionRow> = listed
+                .iter()
+                .map(|&(i, trigger)| {
+                    SuggestionRow::from_command(
+                        trigger,
+                        takes(i),
+                        colliding_command_indices.contains(&trigger.command_index),
+                    )
+                })
+                .collect();
             // Tag from the data map in one scoped borrow; key off canonical (never the alias/display)
             {
                 let command_tags = self.command_tags.borrow();
-                for (row, canonical) in rows.iter_mut().zip(canonicals.iter()) {
-                    row.tag = command_tags.get(*canonical).cloned();
+                for (row, (_, trigger)) in rows.iter_mut().zip(listed.iter()) {
+                    row.tag = command_tags.get(trigger.canonical.as_str()).cloned();
                 }
             }
-
-            // One MRU borrow for the whole menu, not one per row.
-            let mut keyed: Vec<(MenuKey, SuggestionRow)> = {
-                let mut mru = self.mru.borrow_mut();
-                rows.into_iter()
-                    .zip(canonicals)
-                    .zip(groups)
-                    .map(|((row, canonical), group)| {
-                        (MenuKey::new(group, &row, canonical, &mut mru), row)
-                    })
-                    .collect()
-            };
+            let groups: Vec<MenuGroup> = listed
+                .iter()
+                .map(|(_, trigger)| MenuGroup::of(&trigger.provenance))
+                .collect();
+            // One MRU read for the whole menu, not one per row. Skills rank by name, not recency.
+            let recencies =
+                self.mru
+                    .borrow_mut()
+                    .rank_scores(
+                        listed
+                            .iter()
+                            .zip(groups.iter())
+                            .map(|((_, trigger), group)| match group {
+                                MenuGroup::Command => trigger.canonical.as_str(),
+                                _ => "",
+                            }),
+                    );
+            let mut keyed: Vec<(MenuKey, SuggestionRow)> = rows
+                .into_iter()
+                .zip(listed.iter())
+                .zip(groups)
+                .zip(recencies)
+                .map(|(((row, (_, trigger)), group), recency)| {
+                    (MenuKey::new(group, &row, trigger, recency), row)
+                })
+                .collect();
             // Stable sort, so rows with equal keys keep registry order.
             keyed.sort_by(|a, b| a.0.cmp(&b.0));
             return keyed.into_iter().map(|(_, row)| row).collect();
         }
 
-        // Reject double-slash sequences.
-        if trimmed.contains('/') {
-            return Vec::new();
-        }
-
         // Restrict the matcher to the visible subset so hidden commands never show up in fuzzy results
-        let visible_triggers: Vec<&CommandTrigger> = triggers
+        let visible_triggers: Vec<(usize, &CommandTrigger)> = triggers
             .iter()
             .enumerate()
-            .filter(|(i, _)| visible_indices.contains(i))
-            .map(|(_, t)| t)
+            .filter(|(i, _)| is_visible(*i))
             .collect();
-        let hits = self.matcher.rank(
+        let hits = self.matcher.rank_prepared(
             &visible_triggers,
             trimmed,
             visible_triggers.len(),
-            |trigger| trigger.match_text.as_str(),
+            |(_, trigger)| &trigger.match_utf32,
+            |(_, trigger)| trigger.match_text.as_str(),
         );
 
         // Dedup per command: higher score, else exact query, else canonical, else display.
         let mut best_per_command: HashMap<usize, (u32, usize)> = HashMap::new();
         for (visible_idx, score) in hits {
-            let Some(trigger) = visible_triggers.get(visible_idx).copied() else {
+            let Some(&(_, trigger)) = visible_triggers.get(visible_idx) else {
                 continue;
             };
             best_per_command
                 .entry(trigger.command_index)
                 .and_modify(|current| {
+                    let incumbent = visible_triggers.get(current.1).map(|&(_, t)| t);
                     let dominated = if score != current.0 {
                         score > current.0
                     } else {
                         let new_exact = trigger_exact_query(trigger, trimmed);
-                        let cur_exact = visible_triggers
-                            .get(current.1)
-                            .is_some_and(|t| trigger_exact_query(t, trimmed));
+                        let cur_exact = incumbent.is_some_and(|t| trigger_exact_query(t, trimmed));
                         if new_exact != cur_exact {
                             new_exact
                         } else {
                             let new_canonical = trigger.alias.is_none();
-                            let cur_canonical = visible_triggers
-                                .get(current.1)
-                                .is_some_and(|t| t.alias.is_none());
+                            let cur_canonical = incumbent.is_some_and(|t| t.alias.is_none());
                             if new_canonical != cur_canonical {
                                 new_canonical
                             } else {
-                                visible_triggers
-                                    .get(current.1)
-                                    .is_some_and(|t| trigger.display < t.display)
+                                incumbent.is_some_and(|t| trigger.display < t.display)
                             }
                         }
                     };
@@ -1126,75 +1145,60 @@ impl SlashController {
                 .or_insert((score, visible_idx));
         }
 
-        let mut deduped: Vec<(u32, usize)> = best_per_command.into_values().collect();
-        // Re-borrow after rank so takes_args_now can see AppCtx without overlapping the matcher mut borrow
-        let mut rows: Vec<SuggestionRow> = {
-            let ctx = self.app_ctx(models);
-            visible_triggers
-                .iter()
-                .map(|t| {
-                    let takes = self
-                        .registry
-                        .commands_by_index(t.command_index)
-                        .map(|cmd| cmd.takes_args_now(&ctx))
-                        .unwrap_or(false);
-                    SuggestionRow::from_command(
-                        t,
-                        takes,
-                        colliding_command_indices.contains(&t.command_index),
-                    )
-                })
-                .collect()
-        };
-        let sort_meta: Vec<(String, CommandSource)> = visible_triggers
-            .iter()
-            .map(|t| (t.canonical.clone(), t.source))
-            .collect();
-        // Tag each candidate from the data map (canonical key); one shared borrow, dropped before the scoring borrow below
-        {
-            let command_tags = self.command_tags.borrow();
-            for (row, (canonical, _)) in rows.iter_mut().zip(sort_meta.iter()) {
-                row.tag = command_tags.get(canonical.as_str()).cloned();
-            }
+        // Only the listed commands get rows, tags, recency scores and highlight indices.
+        struct Candidate<'t> {
+            score: u32,
+            trigger_index: usize,
+            trigger: &'t CommandTrigger,
+            owns_typed_name: bool,
+            recency: u64,
         }
-        // Resolve all recency scores under a single borrow (one keystroke means one borrow, not one per candidate)
-        let mru_scores: Vec<u64> = {
-            let mut m = self.mru.borrow_mut();
-            sort_meta
-                .iter()
-                .map(|(canonical, _)| m.rank_score(trimmed, canonical))
-                .collect()
-        };
-        let owns_typed_name: Vec<bool> = visible_triggers
-            .iter()
-            .map(|t| trigger_owns_typed_name(t, trimmed))
+        let mut candidates: Vec<Candidate<'_>> = best_per_command
+            .into_values()
+            .filter_map(|(score, visible_idx)| {
+                let &(trigger_index, trigger) = visible_triggers.get(visible_idx)?;
+                Some(Candidate {
+                    score,
+                    trigger_index,
+                    trigger,
+                    owns_typed_name: trigger_owns_typed_name(trigger, trimmed),
+                    recency: 0,
+                })
+            })
             .collect();
-        deduped.sort_by(|a, b| {
-            b.0.cmp(&a.0)
-                .then_with(|| owns_typed_name.get(b.1).cmp(&owns_typed_name.get(a.1)))
-                .then_with(|| mru_scores.get(b.1).cmp(&mru_scores.get(a.1)))
+        // Resolve all recency scores under a single borrow (one keystroke means one borrow, not one per candidate)
+        let recencies = self
+            .mru
+            .borrow_mut()
+            .rank_scores(candidates.iter().map(|c| c.trigger.canonical.as_str()));
+        for (candidate, recency) in candidates.iter_mut().zip(recencies) {
+            candidate.recency = recency;
+        }
+        candidates.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| b.owns_typed_name.cmp(&a.owns_typed_name))
+                .then_with(|| b.recency.cmp(&a.recency))
                 .then_with(|| {
-                    let a_builtin = sort_meta
-                        .get(a.1)
-                        .is_some_and(|m| m.1 == CommandSource::Builtin);
-                    let b_builtin = sort_meta
-                        .get(b.1)
-                        .is_some_and(|m| m.1 == CommandSource::Builtin);
+                    let a_builtin = a.trigger.source == CommandSource::Builtin;
+                    let b_builtin = b.trigger.source == CommandSource::Builtin;
                     b_builtin.cmp(&a_builtin)
                 })
-                .then_with(|| match (rows.get(a.1), rows.get(b.1)) {
-                    (Some(ra), Some(rb)) => ra.display.cmp(&rb.display),
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    (None, None) => std::cmp::Ordering::Equal,
-                })
+                .then_with(|| a.trigger.display.cmp(&b.trigger.display))
         });
-        deduped
+        let command_tags = self.command_tags.borrow();
+        candidates
             .into_iter()
-            .filter_map(|(_, idx)| {
-                let mut row = rows.get(idx)?.clone();
-                row.indices = self.matcher.indices(row.display.as_str());
-                Some(row)
+            .map(|candidate| {
+                let trigger = candidate.trigger;
+                let mut row = SuggestionRow::from_command(
+                    trigger,
+                    takes(candidate.trigger_index),
+                    colliding_command_indices.contains(&trigger.command_index),
+                );
+                row.tag = command_tags.get(trigger.canonical.as_str()).cloned();
+                row.indices = self.matcher.indices_prepared(&trigger.display_utf32);
+                row
             })
             .collect()
     }
@@ -2959,6 +2963,96 @@ mod tests {
                 .cloned()
                 .expect("skill meta is an object");
         agent_client_protocol::AvailableCommand::new(name.to_string(), String::new()).meta(meta)
+    }
+
+    /// A catalog the size of a heavy plugin setup: the bare menu lists everything, a query lists
+    /// only its hits, and both answer within a keystroke's budget.
+    #[test]
+    fn thousands_of_skills_filter_to_hits_within_a_keystroke() {
+        let mut ctrl = SlashController::with_builtins(std::path::PathBuf::from("."));
+        let skills: Vec<_> = (0..1500)
+            .map(|i| {
+                let mut skill = skill_cmd(&format!("plugin{}:skill-{i:04}", i % 40), "plugin");
+                skill.description = format!(
+                    "Skill number {i} does a thing that needs a description long enough to wrap"
+                );
+                skill
+            })
+            .collect();
+        ctrl.registry_mut().set_acp_commands(&skills);
+        let models = ModelState::default();
+
+        let started = std::time::Instant::now();
+        let all = ctrl.command_suggestions("", &models);
+        let bare_menu = started.elapsed();
+        assert!(
+            all.len() >= 1500,
+            "the bare menu lists every skill: {}",
+            all.len()
+        );
+
+        let started = std::time::Instant::now();
+        let hits = ctrl.command_suggestions("skill-14", &models);
+        let typed = started.elapsed();
+        let is_subsequence = |display: &str| {
+            let mut wanted = "skill-14".chars().peekable();
+            for c in display.chars() {
+                if wanted.peek() == Some(&c) {
+                    wanted.next();
+                }
+            }
+            wanted.peek().is_none()
+        };
+        assert!(
+            hits.iter().all(|row| is_subsequence(&row.display)),
+            "only fuzzy hits are listed: {:?}",
+            hits.iter().map(|r| &r.display).take(5).collect::<Vec<_>>()
+        );
+        assert!(
+            hits.first()
+                .is_some_and(|row| row.display.contains("skill-14")),
+            "a contiguous match ranks first: {:?}",
+            hits.first().map(|r| &r.display)
+        );
+        assert!(
+            hits.len() < 1500,
+            "a query narrows the list: {} rows",
+            hits.len()
+        );
+        assert!(
+            hits.iter().all(|row| !row.indices.is_empty()),
+            "every hit carries highlight indices"
+        );
+        // Generous for a debug build; a regression to per-keystroke conversion of every
+        // skill costs tens of milliseconds more than this on a laptop.
+        assert!(
+            bare_menu < std::time::Duration::from_millis(250),
+            "bare menu took {bare_menu:?}"
+        );
+        assert!(
+            typed < std::time::Duration::from_millis(250),
+            "typed query took {typed:?}"
+        );
+    }
+
+    /// Skills that collide with a builtin by bare name are badged, from the prepared lowercase
+    /// names rather than a lowercase pass per keystroke.
+    #[test]
+    fn collision_badges_survive_the_prepared_names() {
+        let mut ctrl = SlashController::with_builtins(std::path::PathBuf::from("."));
+        ctrl.registry_mut()
+            .set_acp_commands(&[skill_cmd("acme:Help", "plugin")]);
+        let models = ModelState::default();
+        let rows = ctrl.command_suggestions("help", &models);
+        let badged: Vec<&str> = rows
+            .iter()
+            .filter(|row| row.provenance.is_some())
+            .map(|row| row.display.as_str())
+            .collect();
+        assert!(
+            badged.contains(&"/help") && badged.contains(&"/acme:Help"),
+            "both sides of the collision are badged: {badged:?}"
+        );
     }
 
     /// Bundled skills sort above the other scopes, both alphabetized, and the whole skill block sits below the commands.

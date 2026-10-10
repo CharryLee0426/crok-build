@@ -184,6 +184,8 @@ extension View {
     @MainActor
     func desktopEnvironment(_ store: AppStore) -> some View {
         self.environmentObject(store)
+            .environmentObject(store.composerDraft)
+            .environmentObject(store.sidebarSearch)
             .environmentObject(store.features.account)
             .environmentObject(store.features.transcript)
             .environmentObject(store.features.composer)
