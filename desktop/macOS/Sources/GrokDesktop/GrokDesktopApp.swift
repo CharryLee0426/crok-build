@@ -68,6 +68,9 @@ private struct AppCommands: Commands {
         CommandGroup(replacing: .saveItem) {
             Button(L10n.t("close", "Close")) { store.closeFrontmost() }.keyboardShortcut("w")
         }
+        CommandGroup(after: .appInfo) {
+            Button(L10n.t("check_for_updates", "Check for Updates…")) { store.checkForUpdates() }
+        }
         CommandGroup(replacing: .appSettings) {
             Button(L10n.t("settings_ellipsis", "Settings…")) { store.showSettings = true }.keyboardShortcut(",")
         }

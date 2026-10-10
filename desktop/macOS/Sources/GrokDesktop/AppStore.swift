@@ -33,6 +33,8 @@ final class AppStore: ObservableObject {
     /// What the harness reported about itself and the signed-in account.
     @Published var harnessMeta = HarnessMeta()
     lazy var features = DesktopFeatures(store: self)
+    /// Check for Updates: the bundled `crok upgrade`, which replaces this app and its crok together.
+    lazy var softwareUpdate = SoftwareUpdateModel()
     /// The window the conversation is in, which ⌘W leaves open.
     weak var mainWindow: NSWindow?
     /// The side panel beside the conversation: files, side chat, and terminal.
@@ -1220,6 +1222,13 @@ final class AppStore: ObservableObject {
     var selectedSessionID: String? { state.selectedConversationID.flatMap(task)?.sessionID }
 
     /// Shows the unified log in Finder. `crok logs` reads the same file.
+    /// Crok Desktop › Check for Updates…: opens the Software Update sheet and checks again.
+    func checkForUpdates() {
+        showSettings = false
+        sheet = .softwareUpdate
+        if !softwareUpdate.isBusy { Task { await softwareUpdate.check() } }
+    }
+
     func revealLog() {
         DesktopLog.shared.flush()
         let file = DesktopLog.shared.file

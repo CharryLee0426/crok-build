@@ -2253,6 +2253,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "crok-upgrade"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "dunce",
+ "flate2",
+ "futures-util",
+ "libc",
+ "reqwest 0.12.24",
+ "ring",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
+ "tokio",
+ "xai-dirs",
+ "xai-grok-extra-ca",
+ "xai-grok-i18n",
+]
+
+[[package]]
 name = "crossbeam"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14355,6 +14379,7 @@ version = "1.0.45"
 dependencies = [
  "anyhow",
  "clap",
+ "crok-upgrade",
  "cryptify",
  "dunce",
  "libc",
@@ -14380,6 +14405,7 @@ dependencies = [
  "xai-grok-cloud-config",
  "xai-grok-config",
  "xai-grok-extra-ca",
+ "xai-grok-i18n",
  "xai-grok-login",
  "xai-grok-pager",
  "xai-grok-pager-minimal",

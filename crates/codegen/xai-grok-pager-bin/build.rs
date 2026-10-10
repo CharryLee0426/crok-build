@@ -28,6 +28,17 @@ fn main() {
         .or_else(|_| std::env::var("CARGO_PKG_VERSION"))
         .unwrap_or_else(|_| "0.0.0".to_string());
     println!("cargo:rustc-env=VERSION_WITH_COMMIT={version} ({commit})");
+    // The fork's release number, shared by this binary and Crok Desktop: VERSION at the repository
+    // root. `crok upgrade` compares it with the latest GitHub release. A tree without the file
+    // (an upstream checkout) gets 0.0.0, which every release is newer than.
+    let release_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../VERSION");
+    println!("cargo:rerun-if-changed={}", release_file.display());
+    let release_version = std::fs::read_to_string(&release_file)
+        .map(|text| text.trim().to_string())
+        .ok()
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| "0.0.0".to_string());
+    println!("cargo:rustc-env=CROK_RELEASE_VERSION={release_version}");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
     {

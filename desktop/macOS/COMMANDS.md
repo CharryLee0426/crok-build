@@ -364,7 +364,8 @@ terminal transport commands remain available in the side panel's **Terminal**.
 | `crok wrap` | Run another command in PTY with clipboard forwarding | `app/cli.rs` |
 | `crok export` | Export a session transcript as Markdown | `export_cmd.rs` |
 | `crok trace` | Export/upload trace; `view` opens viewer or exports HTML | `trace_cmd.rs` |
-| `crok update` | Check/install version; channel selection | `app/cli.rs` |
+| `crok upgrade` | Install the latest release of the fork (`--check` only reports; `--json` for the app) | `app/cli.rs`, `crok-upgrade` |
+| `crok update` | grok's updater; off in crok, points to `crok upgrade` | `app/cli.rs` |
 | `crok version`, `v` | Version information; `--json` | `app/cli.rs` |
 | `crok completions` | Generate shell completions | `app/cli.rs` |
 | `crok worktree` | `list` (`ls`), `show`, `rm`, `gc` (`prune`), `db rebuild/stats/path` | `worktree_cmd/mod.rs` |

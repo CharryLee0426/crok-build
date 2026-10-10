@@ -37,8 +37,12 @@ no official release: build it from this checkout.
   launch asks which provider to use. Vendor account sign-in is removed; use any
   model through OpenRouter or an OpenAI-compatible endpoint. See the
   [authentication guide](crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).
-- **No self-update.** Crok never installs an official release over itself.
-  `crok update` explains how to rebuild instead.
+- **Updates from this fork's releases.** `crok upgrade` installs the latest
+  [GitHub release](https://github.com/CharryLee0426/crok-build/releases) over
+  itself, or over the whole Crok Desktop when it is the app's bundled copy;
+  **Crok Desktop › Check for Updates…** does the same from the app. Releases are
+  signed, and the public key is built in (see [`release/README.md`](release/README.md)).
+  grok's own `crok update` is off: it would install the official grok.
 - **Trace viewers.** `crok trace` and the in-TUI `/trace` show an agent's turns,
   tool calls, and reasoning in the terminal or as a self-contained HTML page.
 - **Voice dictation** transcribes with OpenRouter models.

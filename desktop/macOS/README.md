@@ -29,6 +29,37 @@ replaces an installed file, and removes only its own link. If the app moves,
 Settings offers to repair the link. The terminal in the side panel runs the app's
 `crok` even with the switch off, unless another `crok` comes earlier in `PATH`.
 
+## Updates
+
+**Crok Desktop › Check for Updates…** (also at the bottom of Settings) looks for
+a newer [GitHub release](https://github.com/CharryLee0426/crok-build/releases)
+of this fork. **Install and Relaunch** downloads the disk image for this Mac,
+checks it, quits the app, swaps the new bundle into place and opens it again; if
+a task is running, the usual "Quit while Crok is working?" question appears, and
+the update installs whenever the app quits next. The bundled `crok` is part of the
+bundle, so the `crok` command in Terminal is updated at the same moment.
+
+The same updater is `crok upgrade` in a terminal (`crok upgrade --check` only
+reports). Run from the app's `crok`, it upgrades the app; run from a standalone
+`crok` (for example `~/.local/bin/crok` from `make deploy`), it replaces that
+binary with the release's. It asks you to quit Crok Desktop first rather than
+replacing a running app. A source build inside a checkout is refused; use
+`git pull` and `make deploy` there.
+
+What makes it safe without a server or a Developer ID: every release carries
+`SHA256SUMS.txt` signed with the maintainer's key (`ssh-keygen -Y sign`), and the
+public key is compiled into `crok`. The updater verifies that signature before it
+trusts anything in the release, checks each download against the signed
+manifest, and checks the new app's code signature with `codesign` before the
+swap. Nothing is modified in place: the new bundle is renamed in and the old one
+is removed (moved to the Trash under its version when macOS lets the updater
+reach the Trash, deleted otherwise). See
+[`release/README.md`](../../release/README.md) for the release side.
+
+On macOS 13 and later, a terminal that replaces an app in `/Applications` may
+need **App Management** permission (System Settings › Privacy & Security); macOS
+asks the first time. The app updating itself needs no permission.
+
 ## Build requirements
 
 - macOS 14 Sonoma or later.
@@ -92,9 +123,10 @@ folder. Release builds do not record.
 The packaging script embeds the release harness as `Contents/Resources/crok`,
 signs that executable, and then signs the app. It also bundles the `crok` command's
 launcher, [`Resources/crok-command.sh`](Resources/crok-command.sh), as
-`Contents/Resources/bin/crok`: it runs the embedded harness with its self-updater
-off, and answers `crok update` by pointing to a newer Crok Desktop. The app's
-version comes from [`VERSION`](VERSION). Rebuilding while the app runs is safe;
+`Contents/Resources/bin/crok`: it runs the embedded harness with grok's updater
+off, and answers `crok update` by pointing to `crok upgrade`. The app's
+version comes from the repository's [`VERSION`](../../VERSION), which the TUI
+embeds as well (see [Updates](#updates)). Rebuilding while the app runs is safe;
 the running copy and its tasks keep their executables. To reuse an existing
 harness and skip its Rust build:
 
@@ -619,8 +651,21 @@ volume name.
 
 The generated app and image are **ad hoc signed**, not Developer ID signed or
 notarized, so each Mac asks its user to approve the first launch (see
-[Install](#install)). There is no automatic updater; users install a newer disk
-image to update, and the bundled `crok` command updates with it. `SIGN_IDENTITY`
+[Install](#install)). Later versions arrive through **Check for Updates…** or
+`crok upgrade` (see [Updates](#updates)), which install a signed release without
+that question; the bundled `crok` command updates with the app. `SIGN_IDENTITY`
 selects the signing identity for the app and the image, but the scripts do not
 enable the hardened runtime or notarize. The build targets the architecture of
 the build machine: a disk image built on Apple silicon runs only on Apple silicon.
+
+### Publishing a release
+
+[`release/publish.sh`](../../release/publish.sh) builds both disk images and the
+standalone `crok` tarball from the repository's `VERSION`, writes and signs
+`SHA256SUMS.txt`, verifies the folder the way `crok upgrade` will, tags
+`desktop-v<version>`, and creates the GitHub release with the notes you pass.
+[`release/README.md`](../../release/README.md) describes the files, the key and
+the checks. Write the notes in English first, then translate all of them into the
+app's other interface languages, 简体中文, 日本語, Español, Français and Deutsch,
+each in a collapsed `<details>` block after the English; the notes of
+`desktop-v1.4.0` show the layout.
