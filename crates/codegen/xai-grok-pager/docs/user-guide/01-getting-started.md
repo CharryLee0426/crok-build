@@ -20,7 +20,7 @@ Put `~/.local/bin` on your `PATH`, then verify the installation:
 crok --version
 ```
 
-Crok never updates itself, because the official updater would install grok over it. To update, pull the checkout and run `make deploy` again; `crok update` says the same. On macOS, Crok Desktop bundles its own copy of `crok` and can link it into `/usr/local/bin`.
+`crok upgrade` installs the latest release of this fork from GitHub: over a standalone `crok`, or over the whole Crok Desktop when it is the app's bundled copy (the app's **Check for Updates…** does the same). A source build inside a checkout is not replaced; pull and run `make deploy` again there. grok's own `crok update` stays off, because it would install the official grok. On macOS, Crok Desktop bundles its own copy of `crok` and can link it into `/usr/local/bin`.
 
 Crok installs beside an official `grok` and keeps its state in `~/.crok`. To start with an existing grok's settings and sessions, run `make import-grok-config` once from the checkout.
 

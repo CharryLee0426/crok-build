@@ -38,6 +38,12 @@ struct SettingsView: View {
 
             HStack {
                 Text("Crok Desktop · \(DesktopVersion.current)").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                // The sheet replaces this one: the store closes Settings and opens Software Update.
+                Button(L10n.t("check_for_updates", "Check for Updates…")) {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { store.checkForUpdates() }
+                }
+                .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Theme.accent)
                 Spacer()
                 Button(L10n.t("done", "Done")) { dismiss() }
                     .buttonStyle(.borderedProminent)

@@ -74,6 +74,7 @@ fn process_identity(command: Option<&Command>, is_interactive: bool) -> Option<P
             | Command::Export(_)
             | Command::Trace(_)
             | Command::Update { .. }
+            | Command::Upgrade(_)
             | Command::Version { .. }
             | Command::Completions { .. }
             | Command::Worktree(_)
@@ -115,6 +116,7 @@ fn command_needs_pre_sandbox_policy_heal(command: Option<&Command>) -> bool {
             | Command::Export(_)
             | Command::Trace(_)
             | Command::Update { .. }
+            | Command::Upgrade(_)
             | Command::Version { .. }
             | Command::Completions { .. }
             | Command::DiskUsage(_)
@@ -2251,6 +2253,7 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                     let payload = serde_json::json!({
                         "currentVersion": env!("VERSION_WITH_COMMIT"),
                         "channel": xai_grok_update::channel_name().unwrap_or("unknown"),
+                        "release": env!("CROK_RELEASE_VERSION"),
                     });
                     println!("{}", serde_json::to_string(&payload)?);
                 } else {
@@ -2422,6 +2425,23 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                 )
                 .mode;
                 return xai_grok_pager::memory_cmd::run(memory_args, mode);
+            }
+            Command::Upgrade(upgrade) => {
+                // The TUI sets the locale from [ui].ui_language; a subcommand does the same.
+                let language = xai_grok_shell::config::load_effective_config()
+                    .ok()
+                    .and_then(|root| root.get("ui")?.get("ui_language")?.as_str().map(str::to_owned));
+                xai_grok_i18n::set_locale(xai_grok_i18n::resolve_locale(language.as_deref()));
+                return crok_upgrade::run(crok_upgrade::Options {
+                    check_only: upgrade.check,
+                    json: upgrade.json,
+                    force: upgrade.force,
+                    wait_for_pid: upgrade.wait_for_pid,
+                    relaunch: upgrade.relaunch,
+                    verify_dir: upgrade.verify_dir,
+                    current_release: env!("CROK_RELEASE_VERSION").to_string(),
+                })
+                .await;
             }
             Command::Update {
                 check,
@@ -2754,6 +2774,12 @@ async fn run_update_command(
     if json && !check {
         anyhow::bail!("--json requires --check");
     }
+    if CROK_BUILT_FROM_SOURCE {
+        anyhow::bail!(
+            "`crok update` is grok's updater and would install the official grok over this crok. \
+             Run `crok upgrade` to install the latest crok release, or rebuild a source build with `make deploy`."
+        );
+    }
     let mut update_config = base_update_config.clone();
     if check {
         if version.is_some() {
@@ -2763,11 +2789,6 @@ async fn run_update_command(
         let status = auto_update::check_update_status(&update_config).await;
         auto_update::print_update_status(&status, json)?;
         return Ok(());
-    }
-    if CROK_BUILT_FROM_SOURCE {
-        anyhow::bail!(
-            "crok is built from source and does not update itself. Rebuild it with `make deploy` in your crok-build checkout."
-        );
     }
     if let Some(ref v) = version
         && semver::Version::parse(v).is_err()

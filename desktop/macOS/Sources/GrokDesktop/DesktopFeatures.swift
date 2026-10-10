@@ -78,9 +78,11 @@ enum DesktopSheet: Identifiable, Equatable {
     case keyboardShortcuts
     case history
     case jump
+    case softwareUpdate
 
     var id: String {
         switch self {
+        case .softwareUpdate: return "software-update"
         case .usage(let tab): return "usage.\(tab.rawValue)"
         case .feedback: return "feedback"
         case .editPrompt: return "edit-prompt"
@@ -131,6 +133,7 @@ extension DesktopSheet {
         case .tasks: TasksSheet()
         case .workflowRuns: WorkflowRunsSheet()
         case .doctor(let arguments): DoctorSheet(arguments: arguments)
+        case .softwareUpdate: SoftwareUpdateSheetHost()
         case .remember(let text): RememberSheet(initialText: text)
         case .importClaude: ImportClaudeSheet()
         case .importChrome: ImportChromeSheet()
