@@ -1094,9 +1094,9 @@ impl AgentSession {
     }
 }
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    fn test_session() -> AgentSession {
+    pub(crate) fn test_session() -> AgentSession {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         AgentSession {
             id: AgentId(0),

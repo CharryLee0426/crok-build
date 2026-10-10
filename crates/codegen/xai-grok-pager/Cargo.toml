@@ -231,6 +231,10 @@ harness = false
 name = "resize"
 harness = false
 
+[[bench]]
+name = "slash_suggest"
+harness = false
+
 # Settings modal regression tests — keyboard/mouse dispatch + registry
 # contracts. Not gated by `--ignored`; runs on every `cargo test`.
 # Spawn-only pager tests live in `xai-grok-pager-pty-harness`.

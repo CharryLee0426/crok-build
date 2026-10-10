@@ -2899,7 +2899,7 @@ impl AgentView {
             use crate::views::slash_dropdown::{
                 desired_item_rows, render_dropdown as render_slash,
             };
-            let snap = self.prompt.slash_snapshot();
+            let snap = self.prompt.slash_snapshot_ref();
             let item_count = snap.matches.len();
             let items_width = dropdown_items_width(layout.prompt);
             let item_rows = desired_item_rows(&snap.matches, items_width);

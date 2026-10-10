@@ -51,8 +51,25 @@ struct DashboardEntry: Identifiable, Equatable {
         return isLive ? .idle : .inactive
     }
 
+    /// The last line of each task, kept between redraws: it is read out of the transcript and
+    /// parsed as Markdown, which a search keystroke over hundreds of tasks must not repeat.
     @MainActor
-    static func build(store: AppStore, boards: [UUID: SessionTaskBoard], deleting: Set<UUID>) -> [DashboardEntry] {
+    final class PreviewCache {
+        struct Stamp: Equatable { var updatedAt: Date; var messages: Int; var lastLength: Int; var approvals: Int; var questions: Int }
+        private var previews: [UUID: (stamp: Stamp, preview: String)] = [:]
+
+        func preview(task: Conversation, run: RunState?) -> String {
+            let stamp = Stamp(updatedAt: task.updatedAt, messages: task.messages.count, lastLength: task.messages.last?.text.utf8.count ?? 0,
+                              approvals: run?.approvals.count ?? 0, questions: run?.questions.count ?? 0)
+            if let cached = previews[task.id], cached.stamp == stamp { return cached.preview }
+            let preview = DashboardEntry.preview(task: task, run: run)
+            previews[task.id] = (stamp, preview)
+            return preview
+        }
+    }
+
+    @MainActor
+    static func build(store: AppStore, boards: [UUID: SessionTaskBoard], deleting: Set<UUID>, previews: PreviewCache? = nil) -> [DashboardEntry] {
         let projects = Dictionary(store.state.projects.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         return store.state.conversations.filter { !$0.isArchived }.map { task in
             let run = store.runs[task.id]
@@ -61,7 +78,7 @@ struct DashboardEntry: Identifiable, Equatable {
             let group = classify(run: run, isLive: isLive, isUnread: store.unreadConversationIDs.contains(task.id), hasLiveWork: board.hasLiveWork)
             return DashboardEntry(id: task.id, title: task.title, projectName: projects[task.projectID] ?? "",
                                   group: group, activity: activity(group: group, run: run, board: board),
-                                  preview: preview(task: task, run: run), updatedAt: task.updatedAt,
+                                  preview: previews?.preview(task: task, run: run) ?? preview(task: task, run: run), updatedAt: task.updatedAt,
                                   isSelected: store.state.selectedConversationID == task.id,
                                   isRunning: run?.isRunning == true, isDeleting: deleting.contains(task.id))
         }.sorted { lhs, rhs in
@@ -124,12 +141,16 @@ struct DashboardSheet: View {
     @State private var collapsed: Set<DashboardGroup> = [.inactive]
     @State private var showsAllInactive = false
     @State private var editor: DashboardEditor?
+    @State private var previews = DashboardEntry.PreviewCache()
 
     private static let inactiveLimit = 20
 
     var body: some View {
-        let entries = DashboardEntry.build(store: store, boards: sessions.boards, deleting: sessions.deleting)
-        let visible = search.isEmpty ? entries : entries.filter { "\($0.title) \($0.projectName) \($0.preview)".localizedCaseInsensitiveContains(search) }
+        let entries = DashboardEntry.build(store: store, boards: sessions.boards, deleting: sessions.deleting, previews: previews)
+        let visible = search.isEmpty ? entries : entries.filter {
+            $0.title.localizedCaseInsensitiveContains(search) || $0.projectName.localizedCaseInsensitiveContains(search)
+                || $0.preview.localizedCaseInsensitiveContains(search)
+        }
         DesktopPanel(title: "Dashboard", subtitle: "Switch between your tasks and see which need you.", width: 780, height: 660, onClose: close) {
             VStack(spacing: 0) {
                 HStack(spacing: 12) {

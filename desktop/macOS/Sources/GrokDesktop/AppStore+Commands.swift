@@ -2,19 +2,36 @@ import AppKit
 import Foundation
 
 extension AppStore {
-    var availableCommands: [SlashCommand] {
+    /// The desktop catalog with the harness's commands and skills merged in, ranked lazily by
+    /// `commandIndex`. The merge is rebuilt only when the harness list, the tools, or the
+    /// announcements change; the store publishes many times a second while output streams.
+    var availableCommands: [SlashCommand] { commandIndex.commands }
+
+    var commandIndex: CommandIndex {
+        let key = CommandIndexKey(commands: run.commands, tools: run.availableTools, hasAnnouncements: features.account.hasSessionAnnouncements)
+        if let cache = commandIndexCache, cache.key == key { return cache.index }
+        let index = CommandIndex(Self.mergeCommands(harness: key.commands, tools: key.tools, hasAnnouncements: key.hasAnnouncements))
+        commandIndexCache = (key, index)
+        return index
+    }
+
+    static func mergeCommands(harness: [SlashCommand], tools: [String]?, hasAnnouncements: Bool) -> [SlashCommand] {
         var commands = DesktopCommands.catalog.filter { command in
             guard !command.isHidden else { return false }
             // As in the terminal: /announcements only while there are some.
-            if command.name == "announcements" && !features.account.hasSessionAnnouncements { return false }
+            if command.name == "announcements" && !hasAnnouncements { return false }
             guard let tool = MediaCommand.requiredTool(command.name) else { return true }
-            return run.availableTools?.contains(tool) == true
+            return tools?.contains(tool) == true
         }
-        for command in run.commands {
-            if let index = commands.firstIndex(where: { $0.name == command.name }) {
+        var indices = Dictionary(commands.enumerated().map { ($1.name, $0) }, uniquingKeysWith: { first, _ in first })
+        for command in harness {
+            if let index = indices[command.name] {
                 // Keep native panels, but show the runtime's argument contract.
                 if commands[index].argumentHint == nil, command.name != "plugins" { commands[index].argumentHint = command.argumentHint }
-            } else { commands.append(command) }
+            } else {
+                indices[command.name] = commands.count
+                commands.append(command)
+            }
         }
         return commands
     }
@@ -75,10 +92,20 @@ extension AppStore {
         if let session = task(id)?.sessionID { params["sessionId"] = session }
         let response = try ExtensionResponse.unwrap(try await client.request("_x.ai/commands/list", params: params))
         guard clients[id] === client else { throw CancellationError() }
-        runs[id, default: RunState()].commands = SlashCommand.parse(response["commands"] as? [[String: Any]] ?? [])
-        runs[id]?.commandsLoaded = true
-        runs[id]?.availableTools = response["tools"] as? [String] ?? runs[id]?.availableTools
+        let commands = SlashCommand.parse(response["commands"] as? [[String: Any]] ?? [])
+        let tools = response["tools"] as? [String] ?? runs[id]?.availableTools
+        // One publish, and none when nothing changed: every publish redraws the whole window.
+        var run = runs[id, default: RunState()]
+        guard run.commands != commands || !run.commandsLoaded || run.availableTools != tools else { return }
+        run.commands = commands
+        run.commandsLoaded = true
+        run.availableTools = tools
+        runs[id] = run
     }
+
+    /// How long a catalog fetched by a harness of its own is trusted before the next `/` or
+    /// palette open fetches it again. Fetching means starting a harness process.
+    static let commandCatalogLifetime: TimeInterval = 30
 
     func refreshCommands() async {
         guard let project else { return }
@@ -86,6 +113,8 @@ extension AppStore {
             if let id = state.selectedConversationID, let client = clients[id], loaded.contains(id) {
                 try await loadCommands(client, id: id, project: project)
             } else {
+                if commandCatalogProjectID == project.id, catalogRun.commandsLoaded,
+                   let refreshed = commandCatalogRefreshedAt[project.id], Date().timeIntervalSince(refreshed) < Self.commandCatalogLifetime { return }
                 let client = ACPClient()
                 let clientID = UUID(); auxiliaryClients[clientID] = client
                 defer { client.stop(); auxiliaryClients.removeValue(forKey: clientID) }
@@ -94,10 +123,18 @@ extension AppStore {
                 try await authenticate(client, initial: initial)
                 let response = try ExtensionResponse.unwrap(try await client.request("_x.ai/commands/list", params: ["cwd": project.path]))
                 guard self.project?.id == project.id else { return }
-                catalogRun.commands = SlashCommand.parse(response["commands"] as? [[String: Any]] ?? [])
-                catalogRun.commandsLoaded = true
-                catalogRun.availableTools = response["tools"] as? [String]
+                commandCatalogRefreshedAt[project.id] = Date()
+                let commands = SlashCommand.parse(response["commands"] as? [[String: Any]] ?? [])
+                let tools = response["tools"] as? [String]
+                let unchanged = commandCatalogProjectID == project.id && catalogRun.commandsLoaded
+                    && catalogRun.commands == commands && catalogRun.availableTools == tools
                 commandCatalogProjectID = project.id
+                guard !unchanged else { return }
+                var catalog = catalogRun
+                catalog.commands = commands
+                catalog.commandsLoaded = true
+                catalog.availableTools = tools
+                catalogRun = catalog
             }
         } catch { banner = "Could not load commands: \(error.localizedDescription)" }
     }

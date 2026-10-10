@@ -57,7 +57,11 @@ struct FeatureBrowser: View {
     }
 
     private var rows: [FeatureRow] {
-        store.featureRows.filter { search.isEmpty || "\($0.title) \($0.subtitle) \($0.detail)".localizedCaseInsensitiveContains(search) }
+        guard !search.isEmpty else { return store.featureRows }
+        return store.featureRows.filter {
+            $0.title.localizedCaseInsensitiveContains(search) || $0.subtitle.localizedCaseInsensitiveContains(search)
+                || $0.detail.localizedCaseInsensitiveContains(search)
+        }
     }
     private var controlsDisabled: Bool { store.featureLoading || store.run.isConfiguring }
     private var isLoading: Bool { panel == .memory ? extensions.memory.loading : store.featureLoading }
@@ -85,7 +89,8 @@ struct FeatureBrowser: View {
                 MemoryPanelView(model: extensions.memory, filter: search).frame(height: 480)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    // Lazy: a browser with hundreds of skills lays out the rows it shows.
+                    LazyVStack(alignment: .leading, spacing: 16) {
                         if !panel.isLocal {
                             ForEach(store.run.approvals) { ApprovalCard(approval: $0) }
                             ForEach(store.run.questions) { QuestionCard(request: $0) }

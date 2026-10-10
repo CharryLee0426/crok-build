@@ -5,6 +5,8 @@ import AppKit
 /// queue, and send control.
 struct ComposerView: View {
     @EnvironmentObject var store: AppStore
+    /// Observed here, not through the store, so typing redraws only the composer.
+    @EnvironmentObject var composerDraft: ComposerDraft
     @EnvironmentObject var features: ComposerFeatureModel
     @EnvironmentObject var attachments: PromptAttachmentsModel
     /// A drag over the card, and one over the text view, which handles its own drops.
@@ -178,7 +180,7 @@ struct ComposerView: View {
         let value = store.draft
         return value.hasPrefix("/") && !value.dropFirst().contains(where: \.isWhitespace) && dismissedCommandDraft != value
     }
-    private var slashCommands: [SlashCommand] { DesktopCommands.matches(store.availableCommands, query: store.draft) }
+    private var slashCommands: [SlashCommand] { store.commandIndex.matches(query: store.draft) }
     private func submitDraft() {
         // Return while dictating keeps the words heard so far, stops, and sends. With OpenRouter the last
         // words are transcribed after the stop, so Return only stops; the next Return sends.

@@ -387,7 +387,27 @@ fn selectable_fallback<T>(map: &[Option<T>], preferred: usize) -> Option<usize> 
 /// ordered-chars subsequence match. That matched so loosely (e.g. "rc" hitting "rust-check") that
 /// spurious title rows drowned out the results users actually searched for.
 pub(crate) fn fuzzy_matches_session(name: &str, query: &str) -> bool {
-    query.is_empty() || name.to_lowercase().contains(query)
+    if query.is_empty() {
+        return true;
+    }
+    // The filter runs over every entry on every keystroke and every frame; it must not lowercase
+    // each name into a new string each time.
+    if name.is_ascii() && query.is_ascii() {
+        let needle = query.as_bytes();
+        return name
+            .as_bytes()
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle));
+    }
+    thread_local! {
+        static LOWERED: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+    }
+    LOWERED.with(|lowered| {
+        let mut lowered = lowered.borrow_mut();
+        lowered.clear();
+        lowered.extend(name.chars().flat_map(char::to_lowercase));
+        lowered.contains(query)
+    })
 }
 /// The query the picker's local fuzzy filter should apply on top of the current entries. The server
 /// matches message content as well as title, so the local fuzzy match is skipped: re-applying it
@@ -921,6 +941,20 @@ pub(crate) fn format_time_ago(dt: chrono::DateTime<chrono::Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_filter_ignores_case_for_ascii_and_other_scripts() {
+        assert!(fuzzy_matches_session("Fix the Login Bug", "login"));
+        assert!(fuzzy_matches_session("Fix the Login Bug", "the login"));
+        assert!(!fuzzy_matches_session("Fix the Login Bug", "logout"));
+        assert!(fuzzy_matches_session("", ""));
+        assert!(!fuzzy_matches_session("", "x"));
+        assert!(!fuzzy_matches_session("ab", "abc"));
+        assert!(fuzzy_matches_session("修复 登录 Bug", "登录"));
+        assert!(fuzzy_matches_session("Résumé the Session", "résumé"));
+        assert!(fuzzy_matches_session("Straße", "straße"));
+        assert!(!fuzzy_matches_session("修复 登录 Bug", "退出"));
+    }
     fn at<'a, T>(xs: &'a [T], i: usize) -> &'a T {
         match xs.get(i) {
             Some(v) => v,

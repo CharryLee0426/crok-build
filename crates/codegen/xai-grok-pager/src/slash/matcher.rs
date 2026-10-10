@@ -33,31 +33,31 @@ impl FuzzyMatcher {
     /// Rank items by fuzzy match score. Returns `(index, score)` pairs sorted by descending score, then ascending key
     /// text. At most `limit` results are returned. When `query` is empty, returns the first `limit` items with score 0
     /// (insertion order).
-    pub fn rank<T, F>(
+    pub fn rank<'a, T, F>(
         &mut self,
-        items: &[T],
+        items: &'a [T],
         query: &str,
         limit: usize,
         key_fn: F,
     ) -> Vec<(usize, u32)>
     where
-        F: FnMut(&T) -> &str,
+        F: FnMut(&'a T) -> &'a str,
     {
         self.rank_either(items, query, limit, key_fn, |_| "")
     }
 
     /// Rank by `key_a`, then `key_b` when `key_a` misses. Ties keep the `key_a` hit first.
-    pub fn rank_either<T, A, B>(
+    pub fn rank_either<'a, T, A, B>(
         &mut self,
-        items: &[T],
+        items: &'a [T],
         query: &str,
         limit: usize,
         mut key_a: A,
         mut key_b: B,
     ) -> Vec<(usize, u32)>
     where
-        A: FnMut(&T) -> &str,
-        B: FnMut(&T) -> &str,
+        A: FnMut(&'a T) -> &'a str,
+        B: FnMut(&'a T) -> &'a str,
     {
         if limit == 0 || items.is_empty() {
             return Vec::new();
@@ -69,10 +69,9 @@ impl FuzzyMatcher {
             return (0..capped).map(|idx| (idx, 0)).collect();
         }
 
-        self.pattern
-            .reparse(0, trimmed, CaseMatching::Smart, Normalization::Smart, false);
+        self.reparse(trimmed);
 
-        let mut hits: Vec<(usize, u32, u8, String)> = Vec::new();
+        let mut hits: Vec<(usize, u32, u8, &str)> = Vec::new();
         for (idx, item) in items.iter().enumerate() {
             let primary = key_a(item);
             let (score, fallback_rank) = if let Some(score) = self.score_prepared(primary) {
@@ -82,13 +81,61 @@ impl FuzzyMatcher {
             } else {
                 continue;
             };
-            hits.push((idx, score, fallback_rank, primary.to_owned()));
+            hits.push((idx, score, fallback_rank, primary));
         }
+        Self::finish(hits, limit)
+    }
 
+    /// [`Self::rank`] over haystacks converted ahead of time, so a keystroke over hundreds of
+    /// commands converts nothing. `text` is the same key as text, for the tiebreak.
+    pub fn rank_prepared<'a, T, K, S>(
+        &mut self,
+        items: &'a [T],
+        query: &str,
+        limit: usize,
+        mut key: K,
+        mut text: S,
+    ) -> Vec<(usize, u32)>
+    where
+        K: FnMut(&'a T) -> &'a Utf32String,
+        S: FnMut(&'a T) -> &'a str,
+    {
+        if limit == 0 || items.is_empty() {
+            return Vec::new();
+        }
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            let capped = items.len().min(limit);
+            return (0..capped).map(|idx| (idx, 0)).collect();
+        }
+        self.reparse(trimmed);
+        let mut hits: Vec<(usize, u32, u8, &str)> = Vec::new();
+        for (idx, item) in items.iter().enumerate() {
+            let haystack = key(item);
+            if haystack.slice(..).is_empty() {
+                continue;
+            }
+            if let Some(score) = self
+                .pattern
+                .score(std::slice::from_ref(haystack), &mut self.matcher)
+            {
+                hits.push((idx, score, 0, text(item)));
+            }
+        }
+        Self::finish(hits, limit)
+    }
+
+    fn reparse(&mut self, query: &str) {
+        self.pattern
+            .reparse(0, query, CaseMatching::Smart, Normalization::Smart, false);
+    }
+
+    /// Best score first, then the `key_a` hit, then the key text; cut to `limit`.
+    fn finish(mut hits: Vec<(usize, u32, u8, &str)>, limit: usize) -> Vec<(usize, u32)> {
         hits.sort_by(|a, b| {
             b.1.cmp(&a.1)
                 .then_with(|| a.2.cmp(&b.2))
-                .then_with(|| a.3.cmp(&b.3))
+                .then_with(|| a.3.cmp(b.3))
         });
         if hits.len() > limit {
             hits.truncate(limit);
@@ -111,13 +158,20 @@ impl FuzzyMatcher {
     ///
     /// Returns character positions in `text` that matched the pattern.
     pub fn indices(&mut self, text: &str) -> Vec<u32> {
-        let mut indices = Vec::new();
         if text.is_empty() {
+            return Vec::new();
+        }
+        self.indices_prepared(&Utf32String::from(text))
+    }
+
+    /// [`Self::indices`] over a haystack converted ahead of time.
+    pub fn indices_prepared(&mut self, text: &Utf32String) -> Vec<u32> {
+        let mut indices = Vec::new();
+        if text.slice(..).is_empty() {
             return indices;
         }
-        let s = Utf32String::from(text);
         let pattern = self.pattern.column_pattern(0);
-        pattern.indices(s.slice(..), &mut self.matcher, &mut indices);
+        pattern.indices(text.slice(..), &mut self.matcher, &mut indices);
         indices
     }
 

@@ -49,6 +49,14 @@ pub struct CommandTrigger {
     /// Display text for the dropdown (e.g., "/exit").
     pub display: String,
     pub match_text: String,
+    /// `match_text` as the fuzzy matcher reads it, converted once here rather than on every keystroke.
+    pub match_utf32: nucleo::Utf32String,
+    /// `display` as the fuzzy matcher reads it, for highlight indices.
+    pub display_utf32: nucleo::Utf32String,
+    /// `display` lowercased, the alphabetical key of a skill row in the bare `/` menu.
+    pub display_lower: String,
+    /// The bare name (after a `plugin:` prefix) lowercased, for the builtin-versus-skill collision badge.
+    pub bare_lower: String,
     /// Command description.
     pub description: String,
     /// Usage string.
@@ -73,10 +81,15 @@ impl CommandTrigger {
         source: CommandSource,
     ) -> Self {
         let key = alias.unwrap_or(canonical);
+        let display = format!("/{key}");
         Self {
             canonical: canonical.to_string(),
             alias: alias.map(|s| s.to_string()),
-            display: format!("/{key}"),
+            match_utf32: nucleo::Utf32String::from(key),
+            display_utf32: nucleo::Utf32String::from(display.as_str()),
+            display_lower: display.to_lowercase(),
+            bare_lower: bare_name(key).to_lowercase(),
+            display,
             match_text: key.to_string(),
             description: command.description().to_string(),
             usage: command.usage().to_string(),
@@ -99,8 +112,17 @@ impl CommandTrigger {
             return None;
         }
         let mut sibling = self.clone();
+        sibling.match_utf32 = nucleo::Utf32String::from(bare);
         sibling.match_text = bare.to_string();
         Some(sibling)
+    }
+}
+
+/// The name after a `plugin:` qualifier, or the whole key when there is none or the suffix is empty.
+pub(crate) fn bare_name(key: &str) -> &str {
+    match key.rsplit_once(':') {
+        Some((_, bare)) if !bare.is_empty() => bare,
+        _ => key,
     }
 }
 

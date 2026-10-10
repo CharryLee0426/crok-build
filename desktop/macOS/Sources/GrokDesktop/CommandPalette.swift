@@ -144,7 +144,7 @@ struct CommandPalette: View {
     }
 
     private var actions: [CommandPaletteAction] { CommandPaletteAction.matches(query) }
-    private var commands: [SlashCommand] { DesktopCommands.matches(store.availableCommands, query: query) }
+    private var commands: [SlashCommand] { store.commandIndex.matches(query: query) }
 
     var body: some View {
         let actions = self.actions, commands = self.commands
