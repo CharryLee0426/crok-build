@@ -149,7 +149,7 @@ struct PerformanceHUD: View {
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Performance monitor")
+        .accessibilityLabel(L10n.t("dev_monitor", "Performance monitor"))
     }
 
     private var header: some View {
@@ -496,37 +496,38 @@ enum PerformanceFormat {
 
 /// Test-build tools in Settings. Release builds do not show this section.
 struct DeveloperSettingsSection: View {
+    @ObservedObject private var language = L10n.state
     @AppStorage(PerformanceMonitorSettings.enabledKey) private var monitor = PerformanceMonitorSettings.enabledByDefault
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Developer", systemImage: "hammer").font(.system(size: 15, weight: .semibold))
+                Label(L10n.t("dev_section", "Developer"), systemImage: "hammer").font(.system(size: 15, weight: .semibold))
                 Spacer()
-                ExtensionBadge(text: "Test build", tone: .warning)
+                ExtensionBadge(text: L10n.t("dev_test_build", "Test build"), tone: .warning)
             }
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "gauge.with.dots.needle.67percent").font(.system(size: 17)).foregroundStyle(Theme.muted)
                     .frame(width: 34, height: 22).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Performance monitor").font(.system(size: 14, weight: .semibold))
-                    Text("A see-through panel over the window with live frame rate, main-thread lag, CPU, memory, child processes, and ACP traffic. Drag it anywhere; its chevron folds it to one line.")
+                    Text(L10n.t("dev_monitor", "Performance monitor")).font(.system(size: 14, weight: .semibold))
+                    Text(L10n.t("dev_monitor_detail", "A see-through panel over the window with live frame rate, main-thread lag, CPU, memory, child processes, and ACP traffic. Drag it anywhere; its chevron folds it to one line."))
                         .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Toggle("Performance monitor", isOn: $monitor).toggleStyle(.switch).labelsHidden().controlSize(.small)
+                Toggle(L10n.t("dev_monitor", "Performance monitor"), isOn: $monitor).toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
             .padding(.vertical, 4)
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "waveform.path.ecg").font(.system(size: 17)).foregroundStyle(Theme.muted)
                     .frame(width: 34, height: 22).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Hang reports").font(.system(size: 14, weight: .semibold))
-                    Text("When the app stops answering for three seconds, this build saves the window's state and every thread's call stack, even if you then force quit.")
+                    Text(L10n.t("dev_hang_reports", "Hang reports")).font(.system(size: 14, weight: .semibold))
+                    Text(L10n.t("dev_hang_reports_detail", "When the app stops answering for three seconds, this build saves the window's state and every thread's call stack, even if you then force quit."))
                         .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Button("Show in Finder") {
+                Button(L10n.t("show_in_finder", "Show in Finder")) {
                     let directory = HangRecorder.defaultDirectory
                     try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                     NSWorkspace.shared.open(directory)

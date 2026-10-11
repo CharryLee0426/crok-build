@@ -3,6 +3,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::tr;
 
 use super::state::{
     CONTENT_MIN_WIDTH, MAX_THOUGHTS_WIDTH_WIDENED_MARGIN, RowEntry,
@@ -329,22 +330,22 @@ fn build_reset_confirm_shortcuts() -> Vec<Shortcut<'static>> {
     use crate::views::modal::{RESET_CONFIRM_NO_ID, RESET_CONFIRM_YES_ID};
     vec![
         Shortcut {
-            label: "y reset",
+            label: tr("settings.hint.y_reset", "y reset"),
             clickable: true,
             id: RESET_CONFIRM_YES_ID,
         },
         Shortcut {
-            label: "n cancel",
+            label: tr("settings.hint.n_cancel", "n cancel"),
             clickable: true,
             id: RESET_CONFIRM_NO_ID,
         },
         Shortcut {
-            label: "Esc cancel",
+            label: tr("settings.hint.esc_cancel", "Esc cancel"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "F2 cancel",
+            label: tr("settings.hint.f2_cancel", "F2 cancel"),
             clickable: false,
             id: 0,
         },
@@ -429,10 +430,12 @@ pub(super) fn render_row_list_with_search_bar(
 }
 
 pub(super) fn render_docs_footer(buf: &mut Buffer, area: Rect, theme: &Theme) {
-    const LONG: &str =
-        "Tip · Ask Crok: \"change theme to grokday\" or \"what does compact mode do?\"";
-    const SHORT: &str = "Tip · Ask Crok to change a setting";
-    let text = modal_window::fit_tip_line(&[LONG, SHORT], area.width as usize);
+    let long = tr(
+        "settings.tip.long",
+        "Tip · Ask Crok: \"change theme to grokday\" or \"what does compact mode do?\"",
+    );
+    let short = tr("settings.tip.short", "Tip · Ask Crok to change a setting");
+    let text = modal_window::fit_tip_line(&[long, short], area.width as usize);
     modal_window::render_centered_tip_footer(buf, area, theme, text.as_ref());
 }
 
@@ -465,17 +468,16 @@ pub(super) fn render_rows(
     // Empty filter: show "No matches for <query>"
     if total_visible == 0 {
         if !state.query().is_empty() {
-            let prefix = "No matches for ";
-            let suffix_quote_w = 2u16; // surrounding "" chars
-            let available_for_query = (area.width as usize)
-                .saturating_sub(prefix.width())
-                .saturating_sub(suffix_quote_w as usize);
+            // The words and quotes around the query differ by language, so the room left for it is measured
+            let template = tr("settings.no_matches", "No matches for \"{query}\"");
+            let chrome_w = template.replace("{query}", "").width();
+            let available_for_query = (area.width as usize).saturating_sub(chrome_w);
             let q_disp = if state.query().width() <= available_for_query {
                 state.query().to_owned()
             } else {
                 truncate_str(state.query(), available_for_query)
             };
-            let msg = format!("{prefix}\"{q_disp}\"");
+            let msg = template.replace("{query}", &q_disp);
             let style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
             let msg_w = (msg.width() as u16).min(area.width);
             let cx = area.x + area.width.saturating_sub(msg_w) / 2;
@@ -972,11 +974,7 @@ pub(super) fn render_picking_enum(
         SettingKind::Enum { choices, .. } => {
             effective_enum_choices(setting_key, choices, &state.pager_snapshot)
                 .into_iter()
-                .map(|c| OwnedEnumChoice {
-                    canonical: c.canonical.to_string(),
-                    display: c.display.to_string(),
-                    description: c.description.to_string(),
-                })
+                .map(|c| c.localized(meta.key))
                 .collect()
         }
         SettingKind::DynamicEnum { source, .. } => {
@@ -1215,7 +1213,8 @@ pub(super) fn render_picking_enum(
         let overflow_y = y_cursor;
         if overflow_y < choices_y + max_choices_h as u16 && overflow_y < area.y + area.height {
             let overflow_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
-            let raw = format!("\u{2026} {more_count} more");
+            let raw = tr("settings.more_choices", "\u{2026} {count} more")
+                .replace("{count}", &more_count.to_string());
             let overflow_text: std::borrow::Cow<'_, str> = if raw.width() <= area.width as usize {
                 std::borrow::Cow::Owned(raw)
             } else {
@@ -1523,9 +1522,18 @@ fn int_step_footer_labels(min: i64, max: i64) -> (&'static str, &'static str) {
         (1, 5) => ("\u{2191}/\u{2193} +/-1", "\u{2190}/\u{2192} +/-5"),
         (5, 10) => ("\u{2191}/\u{2193} +/-5", "\u{2190}/\u{2192} +/-10"),
         // Defensive fallback if thresholds change without new static pairs.
-        (1, _) => ("\u{2191}/\u{2193} +/-1", "\u{2190}/\u{2192} step"),
-        (5, _) => ("\u{2191}/\u{2193} +/-5", "\u{2190}/\u{2192} step"),
-        _ => ("\u{2191}/\u{2193} step", "\u{2190}/\u{2192} step"),
+        (1, _) => (
+            "\u{2191}/\u{2193} +/-1",
+            tr("settings.hint.step_horizontal", "\u{2190}/\u{2192} step"),
+        ),
+        (5, _) => (
+            "\u{2191}/\u{2193} +/-5",
+            tr("settings.hint.step_horizontal", "\u{2190}/\u{2192} step"),
+        ),
+        _ => (
+            tr("settings.hint.step_vertical", "\u{2191}/\u{2193} step"),
+            tr("settings.hint.step_horizontal", "\u{2190}/\u{2192} step"),
+        ),
     }
 }
 
@@ -1653,9 +1661,13 @@ pub(super) fn render_editing_value(
     if buffer.is_empty() {
         let placeholder = match &meta.kind {
             SettingKind::String { validator, .. } => match validator {
-                StringValidator::KnownModel => "<empty: uses shell default>",
-                StringValidator::NonEmptyToken => "<type a value>",
-                StringValidator::Any => "<type a value>",
+                StringValidator::KnownModel => tr(
+                    "settings.placeholder.shell_default",
+                    "<empty: uses shell default>",
+                ),
+                StringValidator::NonEmptyToken | StringValidator::Any => {
+                    tr("settings.placeholder.type_value", "<type a value>")
+                }
             },
             _ => "",
         };
@@ -2007,7 +2019,8 @@ fn render_preview_block(
             .saturating_add(1);
         let area_end_y = area.y.saturating_add(area.height);
         if note_y < area_end_y {
-            let note_text = format!("note: clamped at {effective_width} cols");
+            let note_text = tr("settings.note.clamped", "note: clamped at {width} cols")
+                .replace("{width}", &effective_width.to_string());
             let note_text_truncated: std::borrow::Cow<'_, str> =
                 if note_text.width() <= area.width as usize {
                     std::borrow::Cow::Borrowed(note_text.as_str())
@@ -2035,7 +2048,7 @@ fn compute_settings_max_label_w(metas: &[SettingMeta], content_w: u16) -> u16 {
     let cap = MAX_LABEL_W.min(half);
     metas
         .iter()
-        .map(|m| m.label.width() as u16)
+        .map(|m| m.display_label().width() as u16)
         .max()
         .unwrap_or(0)
         .min(cap)
@@ -2044,11 +2057,11 @@ fn compute_settings_max_label_w(metas: &[SettingMeta], content_w: u16) -> u16 {
 /// Look up the user-friendly display string for an Enum canonical against the setting's own `EnumChoice` catalog.
 /// Falls back to the canonical verbatim if the lookup misses, mirroring `display_name_for_canonical`.
 /// A hand-edited corrupted config with an unknown canonical then still renders without an empty string.
-fn display_for_enum_canonical<'a>(kind: &'a SettingKind, canonical: &'a str) -> &'a str {
-    if let SettingKind::Enum { choices, .. } = kind {
+fn display_for_enum_canonical<'a>(meta: &'a SettingMeta, canonical: &'a str) -> &'a str {
+    if let SettingKind::Enum { choices, .. } = &meta.kind {
         for c in *choices {
             if c.canonical == canonical {
-                return c.display;
+                return c.display_label(meta.key);
             }
         }
     }
@@ -2093,9 +2106,17 @@ pub(super) const ROW_RIGHT_PAD_W: u16 = 1;
 const ROW_CHEVRON_W: u16 = 2;
 /// Chevron column width, reserved for all rows for alignment.
 pub(super) const ROW_CHEVRON_COL_W: u16 = ROW_CHEVRON_W;
-const ROW_RESTART_PILL_W: u16 = 10; // " · restart", used for layout budgeting only.
+/// " · restart", shown on an expanded row whose change needs a restart. Its width depends on the language.
+fn restart_pill() -> String {
+    format!(" \u{00B7} {}", tr("settings.pill.restart", "restart"))
+}
 /// Appended to the value column of a locked row (see `SettingsModalState::row_lock`).
-pub(super) const ROW_ADMIN_MANAGED_SUFFIX: &str = " \u{00B7} Admin Managed";
+pub(super) fn row_admin_managed_suffix() -> String {
+    format!(
+        " \u{00B7} {}",
+        tr("settings.pill.admin_managed", "Admin Managed")
+    )
+}
 /// Value column for ZDR-locked rows; replaces the opt-in/out value entirely.
 pub(super) const ROW_ZDR_VALUE: &str = "ZDR";
 
@@ -2109,19 +2130,19 @@ pub(super) fn value_display(
         return ROW_ZDR_VALUE.to_string();
     }
     let mut display = match value {
-        SettingValue::Bool(b) => if *b { "on" } else { "off" }.to_string(),
+        SettingValue::Bool(b) => crate::settings::bool_value_label(*b).to_string(),
         SettingValue::String(s) => {
             if s.is_empty() && matches!(meta.kind, SettingKind::DynamicEnum { .. }) {
-                "(no override)".to_string()
+                crate::settings::no_override_label().to_string()
             } else {
                 s.clone()
             }
         }
-        SettingValue::Enum(e) => display_for_enum_canonical(&meta.kind, e).to_string(),
+        SettingValue::Enum(e) => display_for_enum_canonical(meta, e).to_string(),
         SettingValue::Int(i) => i.to_string(),
     };
     if lock == Some(CodingDataSharingLock::TeamManaged) {
-        display.push_str(ROW_ADMIN_MANAGED_SUFFIX);
+        display.push_str(&row_admin_managed_suffix());
     }
     display
 }
@@ -2144,7 +2165,7 @@ pub(super) fn row_layout(
     show_restart_pill: bool,
 ) -> RowLayout {
     let restart_w = if show_restart_pill {
-        ROW_RESTART_PILL_W
+        restart_pill().width() as u16
     } else {
         0
     };
@@ -2268,7 +2289,8 @@ pub(super) fn render_setting_row(
 
     // Pill only while expanded: change-time feedback is the toast's job, and a collapsed non-default row would misread as "restart pending" forever
     let show_restart_pill = meta.restart_required && is_expanded;
-    let restart_pill_text = " \u{00B7} restart";
+    let restart_pill_text = restart_pill();
+    let restart_pill_text = restart_pill_text.as_str();
     let restart_w = if show_restart_pill {
         restart_pill_text.width() as u16
     } else {
@@ -2574,24 +2596,26 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
                 .focused_setting()
                 .is_some_and(|(key, _)| state.row_lock(key).is_some());
             let enter_label = match state.focused_setting() {
-                Some((_, meta)) if matches!(meta.kind, SettingKind::Bool { .. }) => "Enter toggle",
-                _ => "Enter edit",
+                Some((_, meta)) if matches!(meta.kind, SettingKind::Bool { .. }) => {
+                    tr("settings.hint.enter_toggle", "Enter toggle")
+                }
+                _ => tr("settings.hint.enter_edit", "Enter edit"),
             };
             let mut shortcuts = vec![
                 Shortcut {
-                    label: "\u{2191}/\u{2193}/j/k nav",
+                    label: tr("settings.hint.nav_jk", "\u{2191}/\u{2193}/j/k nav"),
                     clickable: false,
                     id: 0,
                 },
                 Shortcut {
-                    label: "g/G top/btm",
+                    label: tr("settings.hint.top_bottom", "g/G top/btm"),
                     clickable: false,
                     id: 0,
                 },
             ];
             if !locked {
                 shortcuts.push(Shortcut {
-                    label: "Space toggle",
+                    label: tr("settings.hint.space_toggle", "Space toggle"),
                     clickable: false,
                     id: 0,
                 });
@@ -2603,25 +2627,25 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
             }
             shortcuts.extend([
                 Shortcut {
-                    label: "\u{2192} expand",
+                    label: tr("settings.hint.expand", "\u{2192} expand"),
                     clickable: false,
                     id: 0,
                 },
                 Shortcut {
-                    label: "/ search",
+                    label: tr("settings.hint.search", "/ search"),
                     clickable: false,
                     id: 0,
                 },
             ]);
             if !locked {
                 shortcuts.push(Shortcut {
-                    label: "d reset",
+                    label: tr("settings.hint.d_reset", "d reset"),
                     clickable: false,
                     id: 0,
                 });
             }
             shortcuts.push(Shortcut {
-                label: "F2/Esc close",
+                label: tr("settings.hint.close", "F2/Esc close"),
                 clickable: false,
                 id: 0,
             });
@@ -2631,27 +2655,27 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
         }
         SettingsMode::FilterFocused => vec![
             Shortcut {
-                label: "type to filter",
+                label: tr("settings.hint.type_to_filter", "type to filter"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "\u{2191}/\u{2193} nav",
+                label: tr("settings.hint.nav", "\u{2191}/\u{2193} nav"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "Backspace edit",
+                label: tr("settings.hint.backspace_edit", "Backspace edit"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "Enter commit",
+                label: tr("settings.hint.enter_commit", "Enter commit"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "Esc clear",
+                label: tr("settings.hint.esc_clear", "Esc clear"),
                 clickable: false,
                 id: 0,
             },
@@ -2663,11 +2687,15 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
         } => {
             // Labels depend on whether the Enum supports live preview.
             let nav_label = if *sp {
-                "\u{2191}/\u{2193} try"
+                tr("settings.hint.try", "\u{2191}/\u{2193} try")
             } else {
-                "\u{2191}/\u{2193} nav"
+                tr("settings.hint.nav", "\u{2191}/\u{2193} nav")
             };
-            let esc_label = if *sp { "Esc revert" } else { "Esc cancel" };
+            let esc_label = if *sp {
+                tr("settings.hint.esc_revert", "Esc revert")
+            } else {
+                tr("settings.hint.esc_cancel", "Esc cancel")
+            };
             let consent = crate::settings::is_consent_chooser(key);
             let mut shortcuts = vec![
                 Shortcut {
@@ -2678,12 +2706,12 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
                 // A chooser picks one of the offered answers, so Enter "selects"
                 // The filter bar and the value editors, where Enter really does commit typed input, keep that wording
                 Shortcut {
-                    label: "Enter select",
+                    label: tr("settings.hint.enter_select", "Enter select"),
                     clickable: false,
                     id: 0,
                 },
                 Shortcut {
-                    label: "double-click select",
+                    label: tr("settings.hint.double_click_select", "double-click select"),
                     clickable: false,
                     id: 0,
                 },
@@ -2696,7 +2724,7 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
             // Consent choosers hide reset; the key is disabled there too, so this stays a description of what actually works on the pane
             if !consent {
                 shortcuts.push(Shortcut {
-                    label: "d reset",
+                    label: tr("settings.hint.d_reset", "d reset"),
                     clickable: false,
                     id: 0,
                 });
@@ -2718,17 +2746,17 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
                     id: 0,
                 },
                 Shortcut {
-                    label: "Enter commit",
+                    label: tr("settings.hint.enter_commit", "Enter commit"),
                     clickable: false,
                     id: 0,
                 },
                 Shortcut {
-                    label: "Esc cancel",
+                    label: tr("settings.hint.esc_cancel", "Esc cancel"),
                     clickable: false,
                     id: 0,
                 },
                 Shortcut {
-                    label: "d reset",
+                    label: tr("settings.hint.d_reset", "d reset"),
                     clickable: false,
                     id: 0,
                 },
@@ -2736,39 +2764,39 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
         }
         SettingsMode::EditingString { .. } => vec![
             Shortcut {
-                label: "type to edit",
+                label: tr("settings.hint.type_to_edit", "type to edit"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "\u{2190}/\u{2192} cursor",
+                label: tr("settings.hint.cursor", "\u{2190}/\u{2192} cursor"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "Enter commit",
+                label: tr("settings.hint.enter_commit", "Enter commit"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "Esc cancel",
+                label: tr("settings.hint.esc_cancel", "Esc cancel"),
                 clickable: false,
                 id: 0,
             },
         ],
         SettingsMode::PickingGroup { .. } => vec![
             Shortcut {
-                label: "\u{2191}/\u{2193}/j/k nav",
+                label: tr("settings.hint.nav_jk", "\u{2191}/\u{2193}/j/k nav"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "Space/Enter toggle",
+                label: tr("settings.hint.space_enter_toggle", "Space/Enter toggle"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "Esc back",
+                label: tr("settings.hint.esc_back", "Esc back"),
                 clickable: false,
                 id: 0,
             },

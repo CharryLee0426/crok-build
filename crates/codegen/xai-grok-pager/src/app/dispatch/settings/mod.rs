@@ -22,7 +22,13 @@ pub(in crate::app::dispatch) fn handle_setting_persisted(
         if let Some(dashboard) = app.dashboard.as_mut() {
             dashboard.set_preview_enabled(enabled, &mut app.agents);
         }
-        app.show_toast(&save_success_toast("Dashboard preview", enabled));
+        app.show_toast(&save_success_toast(
+            xai_grok_i18n::tr(
+                "settings.toast.label.dashboard_preview",
+                "Dashboard preview",
+            ),
+            enabled,
+        ));
     }
 }
 

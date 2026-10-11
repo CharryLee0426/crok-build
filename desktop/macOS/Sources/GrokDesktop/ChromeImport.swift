@@ -72,13 +72,15 @@ enum ChromeImportError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .authenticationCancelled: return "The import was cancelled."
-        case .notAuthenticated(let detail): return "macOS could not confirm it's you, so nothing was read from Chrome: \(detail)"
-        case .notInstalled: return "Google Chrome has no profiles on this Mac."
-        case .missing(let what): return "This Chrome profile has no \(what)."
+        case .authenticationCancelled: return L10n.t("import_error_cancelled", "The import was cancelled.")
+        case .notAuthenticated(let detail):
+            return L10n.t("import_error_not_authenticated", "macOS could not confirm it's you, so nothing was read from Chrome: {detail}", ["detail": detail])
+        case .notInstalled: return L10n.t("import_error_not_installed", "Google Chrome has no profiles on this Mac.")
+        case .missing(let what): return L10n.t("import_error_missing", "This Chrome profile has no {what}.", ["what": what])
         case .unreadable(let detail): return detail
-        case .keychainDenied: return "Chrome's cookies are encrypted with a key in your keychain. Allow access to “Chrome Safe Storage” to import them."
-        case .keychainUnavailable(let detail): return "Could not read Chrome's encryption key from the keychain: \(detail)"
+        case .keychainDenied: return L10n.t("import_error_keychain_denied", "Chrome's cookies are encrypted with a key in your keychain. Allow access to “Chrome Safe Storage” to import them.")
+        case .keychainUnavailable(let detail):
+            return L10n.t("import_error_keychain_unavailable", "Could not read Chrome's encryption key from the keychain: {detail}", ["detail": detail])
         }
     }
 }
@@ -163,7 +165,7 @@ enum ChromeData {
         guard FileManager.default.fileExists(atPath: source.path) else { return [] }
         guard let data = try? Data(contentsOf: source), let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let roots = document["roots"] as? [String: Any] else {
-            throw ChromeImportError.unreadable("Could not read Chrome's Bookmarks file.")
+            throw ChromeImportError.unreadable(L10n.t("import_error_bookmarks_file", "Could not read Chrome's Bookmarks file."))
         }
         var bookmarks: [ChromeBookmark] = []
         func walk(_ node: [String: Any], folder: String) {
@@ -255,7 +257,8 @@ enum ChromeData {
         do {
             try fileManager.copyItem(at: source, to: copy)
         } catch {
-            throw ChromeImportError.unreadable("Could not read Chrome's \(source.lastPathComponent) file: \(error.localizedDescription)")
+            throw ChromeImportError.unreadable(L10n.t("import_error_file", "Could not read Chrome's {file} file: {error}",
+                                                      ["file": source.lastPathComponent, "error": error.localizedDescription]))
         }
         for suffix in ["-journal", "-wal"] {
             let extra = URL(fileURLWithPath: source.path + suffix)
@@ -268,7 +271,8 @@ enum ChromeData {
         } catch let error as ChromeImportError {
             throw error
         } catch {
-            throw ChromeImportError.unreadable("Could not read Chrome's \(source.lastPathComponent) database: \(error.localizedDescription)")
+            throw ChromeImportError.unreadable(L10n.t("import_error_database", "Could not read Chrome's {file} database: {error}",
+                                                      ["file": source.lastPathComponent, "error": error.localizedDescription]))
         }
     }
 }
@@ -337,15 +341,15 @@ enum ChromeSafeStorage {
         switch status {
         case errSecSuccess:
             guard let data = item as? Data, let password = String(data: data, encoding: .utf8), !password.isEmpty else {
-                throw ChromeImportError.keychainUnavailable("the stored key is empty")
+                throw ChromeImportError.keychainUnavailable(L10n.t("import_error_key_empty", "the stored key is empty"))
             }
             return password
         case errSecUserCanceled, errSecAuthFailed, errSecInteractionNotAllowed:
             throw ChromeImportError.keychainDenied
         case errSecItemNotFound:
-            throw ChromeImportError.keychainUnavailable("Chrome has not stored one yet. Open Chrome once and try again.")
+            throw ChromeImportError.keychainUnavailable(L10n.t("import_error_key_absent", "Chrome has not stored one yet. Open Chrome once and try again."))
         default:
-            let detail = SecCopyErrorMessageString(status, nil) as String? ?? "error \(status)"
+            let detail = SecCopyErrorMessageString(status, nil) as String? ?? L10n.t("import_error_status", "error {code}", ["code": String(status)])
             throw ChromeImportError.keychainUnavailable(detail)
         }
     }

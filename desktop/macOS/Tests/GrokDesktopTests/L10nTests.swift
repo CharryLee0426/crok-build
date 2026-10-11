@@ -95,6 +95,135 @@ final class L10nTests: XCTestCase {
         }
     }
 
+    // MARK: Tables
+
+    /// No language lacks a key another has: a missing one would show English in the middle of that language.
+    func testEveryLanguageHasTheSameKeys() {
+        let english = L10n.keys(for: "en")
+        XCTAssertGreaterThan(english.count, 400)
+        for code in L10n.languageCodes where code != "en" {
+            let keys = L10n.keys(for: code)
+            XCTAssertEqual(english.subtracting(keys).sorted(), [], "\(code) lacks keys")
+            XCTAssertEqual(keys.subtracting(english).sorted(), [], "\(code) has keys English does not")
+        }
+    }
+
+    private func placeholders(_ text: String) -> [String] {
+        let pattern = try! NSRegularExpression(pattern: #"\{[a-z_]+\}|%d|%@"#)
+        return pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)).map { String(text[Range($0.range, in: text)!]) }.sorted()
+    }
+
+    /// A translation that drops or renames a placeholder would show `{name}` or lose the value.
+    func testTranslationsKeepThePlaceholders() {
+        for key in L10n.keys(for: "en") {
+            let english = L10n.text(key, in: "en") ?? ""
+            for code in L10n.languageCodes where code != "en" {
+                let text = L10n.text(key, in: code) ?? ""
+                XCTAssertFalse(text.trimmingCharacters(in: .whitespaces).isEmpty, "\(code) \(key) is empty")
+                XCTAssertEqual(placeholders(text), placeholders(english), "\(code) \(key)")
+            }
+        }
+    }
+
+    /// What a Swift string literal's source text says.
+    private func unescaped(_ literal: String) -> String {
+        var text = literal.replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\n", with: "\n")
+        let scalar = try! NSRegularExpression(pattern: #"\\u\{([0-9A-Fa-f]+)\}"#)
+        for match in scalar.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            let digits = String(text[Range(match.range(at: 1), in: text)!])
+            text.replaceSubrange(Range(match.range, in: text)!, with: String(UnicodeScalar(UInt32(digits, radix: 16)!)!))
+        }
+        return text.replacingOccurrences(of: "\\\\", with: "\\")
+    }
+
+    /// Every `L10n.t("key", "English")` in the app names a key the tables hold, with that English. The
+    /// English stays at the call site so the code reads on its own; this keeps the two copies the same,
+    /// and with `testEveryLanguageHasTheSameKeys` it means no call falls back to English in any language.
+    func testEveryCallSiteMatchesTheEnglishTable() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/GrokDesktop")
+        let call = try NSRegularExpression(pattern: #"L10n\.t\(\s*"((?:[^"\\]|\\.)*)",\s*"((?:[^"\\]|\\.)*)""#)
+        var seen = 0
+        for file in try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil) where file.pathExtension == "swift" {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for match in call.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                let key = unescaped(String(text[Range(match.range(at: 1), in: text)!]))
+                let english = unescaped(String(text[Range(match.range(at: 2), in: text)!]))
+                XCTAssertEqual(L10n.text(key, in: "en"), english, "\(file.lastPathComponent): \(key)")
+                seen += 1
+            }
+        }
+        XCTAssertGreaterThan(seen, 400, "the scan found too few calls to be reading the sources")
+    }
+
+    /// The lines under a setting's name are the part a reader most needs in their own language.
+    func testSettingsDescriptionsAreTranslated() {
+        let details = L10n.keys(for: "en").filter { $0.hasSuffix("_detail") || $0.hasSuffix("_subtitle") || $0.hasSuffix("_note") }
+        XCTAssertGreaterThan(details.count, 30)
+        for key in details {
+            let english = L10n.text(key, in: "en")
+            for code in L10n.languageCodes where code != "en" {
+                XCTAssertNotEqual(L10n.text(key, in: code), english, "\(code) still shows English for \(key)")
+            }
+        }
+    }
+
+    /// The strings from Settings and the side panel that were English in every language.
+    func testChineseCoversSettingsAndTheSidePanel() {
+        L10n.setLanguage(.zhHans)
+        // Settings
+        XCTAssertEqual(L10n.t("conversation", "Conversation"), "对话")
+        XCTAssertNotEqual(L10n.t("display_timestamps_detail", "Show when each message was sent."), "Show when each message was sent.")
+        XCTAssertNotEqual(L10n.t("browser_search_engine", "Search engine"), "Search engine")
+        XCTAssertNotEqual(L10n.t("browser_data", "Browsing data"), "Browsing data")
+        XCTAssertNotEqual(L10n.t("cli_section", "Command line"), "Command line")
+        XCTAssertNotEqual(L10n.t("accounts_sign_in", "Sign in"), "Sign in")
+        XCTAssertNotEqual(L10n.t("accounts_add_key", "Add Key…"), "Add Key…")
+        XCTAssertNotEqual(AccountProvider.codex.signedOutDetail, "Sign in with your browser")
+        XCTAssertFalse(AccountProvider.deepseek.signedOutDetail.contains("{site}"))
+        XCTAssertTrue(AccountProvider.deepseek.signedOutDetail.contains("platform.deepseek.com"))
+        XCTAssertEqual(AppLanguage.auto.menuTitle, L10n.t("language_system", "System"))
+        XCTAssertEqual(AppLanguage.zhHans.menuTitle, "简体中文", "a language is named in that language")
+        // The side panel
+        XCTAssertEqual(SidePanelTab.allCases.map(\.title), [L10n.t("files", "Files"), L10n.t("side_chat", "Side chat"), L10n.t("terminal", "Terminal"), L10n.t("browser", "Browser")])
+        XCTAssertFalse(SidePanelTab.allCases.map(\.title).contains { $0.allSatisfy(\.isASCII) }, "every tab is named in Chinese")
+        XCTAssertNotEqual(L10n.t("files_all", "All files"), "All files")
+        XCTAssertNotEqual(L10n.t("files_filter", "Filter files"), "Filter files")
+        XCTAssertNotEqual(FileStatusBadge.description("M"), "Modified")
+        XCTAssertNotEqual(FilePreviewFailure.folder.message, "This is a folder.")
+        L10n.setLanguage(.en)
+        XCTAssertEqual(SidePanelTab.sideChat.title, "Side chat")
+        XCTAssertEqual(FileStatusBadge.description("??"), "Untracked")
+    }
+
+    // MARK: Placeholders
+
+    func testFillPutsValuesWhereTheLanguageWantsThem() {
+        XCTAssertEqual(L10n.fill("Sign in to {name}", ["name": "OpenRouter"]), "Sign in to OpenRouter")
+        XCTAssertEqual(L10n.fill("{b} then {a}, {a} again", ["a": "1", "b": "2"]), "2 then 1, 1 again")
+        XCTAssertEqual(L10n.fill("{file}: {error}", ["file": "{error}.txt", "error": "gone"]), "{error}.txt: gone", "a value is not filled again")
+        XCTAssertEqual(L10n.fill("keeps {unknown} and a lone {", [:]), "keeps {unknown} and a lone {")
+        L10n.setLanguage(.en)
+        XCTAssertEqual(L10n.t("files_truncated", "Showing the first {count} files.", ["count": "5,000"]), "Showing the first 5,000 files.")
+    }
+
+    func testSplitGivesTheTextAroundAPlaceholder() {
+        let parts = L10n.split("Create a key at {site} · Saved", around: "site")
+        XCTAssertEqual(parts.before, "Create a key at ")
+        XCTAssertEqual(parts.after, " · Saved")
+        XCTAssertEqual(L10n.split("{command} command", around: "command").before, "")
+        XCTAssertEqual(L10n.split("no placeholder", around: "site").after, "")
+    }
+
+    func testLanguageNamesFollowTheInterfaceLanguage() {
+        L10n.setLanguage(.en)
+        XCTAssertEqual(L10n.languageName(code: "es", fallback: "Spanish"), "Spanish")
+        L10n.setLanguage(.zhHans)
+        XCTAssertEqual(L10n.languageName(code: "es", fallback: "Spanish"), "西班牙语")
+        L10n.setLanguage(.fr)
+        XCTAssertEqual(L10n.languageName(code: "ja", fallback: "Japanese"), "Japonais", "a list entry starts with a capital")
+    }
+
     // MARK: L10n.state
 
     func testStatePublishesOnlyWhenTheLanguageChanges() {

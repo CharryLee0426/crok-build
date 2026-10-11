@@ -159,6 +159,48 @@ pub fn t_or<'a>(key: &str, fallback: &'a str) -> &'a str {
     lookup_with_fallback(key).unwrap_or(fallback)
 }
 
+/// The current locale's text for `key`, while the catalog's English for it is still `en`.
+///
+/// The caller owns the English. A translation is a translation of one wording, so it stops applying when
+/// the caller's wording has moved on, or when the caller is a stand-in that only shares the key (a test's
+/// synthetic setting): `None` then, and the caller shows its own text.
+pub fn translation_of(key: &str, en: &str) -> Option<&'static str> {
+    translation_in(current_locale(), key, en)
+}
+
+fn translation_in(locale: Locale, key: &str, en: &str) -> Option<&'static str> {
+    let english = catalog::lookup(Locale::En, key)?;
+    if english != en {
+        return None;
+    }
+    match locale {
+        Locale::En => Some(english),
+        other => catalog::lookup(other, key),
+    }
+}
+
+/// Catalog text for `key` in the current locale. `en` is the English wording, repeated at the call
+/// site so the code reads on its own; it must match the catalog's English, which a test in each
+/// calling crate checks.
+pub fn tr(key: &str, en: &'static str) -> &'static str {
+    translation_of(key, en).unwrap_or(en)
+}
+
+/// Every supported locale, in catalog column order.
+pub const ALL_LOCALES: &[Locale] = &[
+    Locale::En,
+    Locale::ZhHans,
+    Locale::Ja,
+    Locale::Es,
+    Locale::Fr,
+    Locale::De,
+];
+
+/// Look up `key` in one locale with no fallback and no global state. For coverage checks.
+pub fn lookup_in(locale: Locale, key: &str) -> Option<&'static str> {
+    catalog::lookup(locale, key)
+}
+
 // ── Settings convenience helpers ───────────────────────────────────────────────
 
 /// Look up `setting.{key}.label` in the current locale (English fallback).
@@ -181,6 +223,16 @@ pub fn settings_description(key: &str) -> Option<&'static str> {
     lookup_with_fallback(&buf)
 }
 
+/// The translation of a setting's label `en` (see [`translation_of`]).
+pub fn settings_label_of(key: &str, en: &str) -> Option<&'static str> {
+    translation_of(&format!("setting.{key}.label"), en)
+}
+
+/// The translation of a setting's description `en` (see [`translation_of`]).
+pub fn settings_description_of(key: &str, en: &str) -> Option<&'static str> {
+    translation_of(&format!("setting.{key}.description"), en)
+}
+
 // ── Category labels ────────────────────────────────────────────────────────────
 
 /// Look up the display label for a settings category id.
@@ -192,6 +244,34 @@ pub fn category_label(id: &str) -> Option<&'static str> {
     buf.push_str("category.");
     buf.push_str(id);
     lookup_with_fallback(&buf)
+}
+
+// ── Enum choices ───────────────────────────────────────────────────────────────
+
+fn choice_key(group: &str, canonical: &str, suffix: &str) -> String {
+    let mut buf = String::with_capacity(8 + group.len() + canonical.len() + suffix.len());
+    buf.push_str("choice.");
+    buf.push_str(group);
+    buf.push('.');
+    buf.push_str(canonical);
+    buf.push_str(suffix);
+    buf
+}
+
+/// Look up `choice.{group}.{canonical}`: the name of one choice of an enum setting.
+/// `group` is the setting's key, or the key of the setting whose choices it shares.
+pub fn choice_label(group: &str, canonical: &str) -> Option<&'static str> {
+    lookup_with_fallback(&choice_key(group, canonical, ""))
+}
+
+/// The translation of a choice's name `en` (see [`translation_of`]).
+pub fn choice_label_of(group: &str, canonical: &str, en: &str) -> Option<&'static str> {
+    translation_of(&choice_key(group, canonical, ""), en)
+}
+
+/// The translation of `en`, the line under a choice in its picker (`choice.{group}.{canonical}.description`).
+pub fn choice_description_of(group: &str, canonical: &str, en: &str) -> Option<&'static str> {
+    translation_of(&choice_key(group, canonical, ".description"), en)
 }
 
 // ── SUPPORTED_LOCALES ──────────────────────────────────────────────────────────
@@ -330,12 +410,39 @@ mod tests {
         assert_eq!(settings_label("ui_language"), Some("Interface language"));
         assert_eq!(
             settings_description("ui_language"),
-            Some("Language for the terminal UI. System follows your locale when supported. Restart not required.")
+            Some("Language for the terminal UI. System follows your locale when supported.")
         );
         assert_eq!(settings_label("compact_mode"), Some("Compact mode"));
         assert_eq!(category_label("appearance"), Some("Appearance"));
         assert_eq!(category_label("advanced"), Some("Advanced"));
         set_locale(Locale::En);
+    }
+
+    #[test]
+    fn a_translation_applies_to_the_wording_it_translates() {
+        // The locale is an argument here: other tests change the process-wide one
+        let de = Locale::De;
+        assert_eq!(
+            translation_in(de, "common.cancel", "Cancel"),
+            Some("Abbrechen")
+        );
+        assert_eq!(
+            translation_in(Locale::En, "common.cancel", "Cancel"),
+            Some("Cancel")
+        );
+        // Another wording under the same key keeps its own text
+        assert_eq!(translation_in(de, "common.cancel", "Cancel it"), None);
+        assert_eq!(
+            translation_in(de, "setting.compact_mode.label", "Compact mode (synthetic)"),
+            None
+        );
+        assert_eq!(translation_in(de, "this.key.does.not.exist", "x"), None);
+        // Whatever the process-wide locale is now, an unknown wording comes back as it was given
+        assert_eq!(tr("common.cancel", "Cancel it"), "Cancel it");
+        assert_eq!(
+            settings_label_of("compact_mode", "Compact mode (synthetic)"),
+            None
+        );
     }
 
     #[test]

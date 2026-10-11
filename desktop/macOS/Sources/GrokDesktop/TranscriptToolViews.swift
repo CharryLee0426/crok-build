@@ -408,23 +408,24 @@ final class TranscriptFrameProbeView: NSView {
 
 /// Conversation display preferences in Settings.
 struct DisplaySettingsSection: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var tools: TranscriptToolsModel
     @AppStorage("compactConversation") private var compactConversation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Conversation", systemImage: "text.bubble").font(.system(size: 15, weight: .semibold))
+            Label(L10n.t("conversation", "Conversation"), systemImage: "text.bubble").font(.system(size: 15, weight: .semibold))
             VStack(spacing: 0) {
-                row("Timestamps", detail: "Show when each message was sent.", symbol: "clock",
+                row(L10n.t("display_timestamps", "Timestamps"), detail: L10n.t("display_timestamps_detail", "Show when each message was sent."), symbol: "clock",
                     isOn: Binding(get: { tools.showTimestamps }, set: { tools.setTimestamps($0) }))
                 Divider().padding(.leading, 46)
-                row("Turn timeline", detail: "A rail beside the conversation for jumping between turns.",
+                row(L10n.t("display_timeline", "Turn timeline"), detail: L10n.t("display_timeline_detail", "A rail beside the conversation for jumping between turns."),
                     symbol: "list.bullet.below.rectangle", isOn: Binding(get: { tools.showTimeline }, set: { tools.setTimeline($0) }))
                 Divider().padding(.leading, 46)
-                row("Vim-style keys", detail: "j and k move between messages; y copies. Press esc in an empty prompt to start.",
+                row(L10n.t("display_vim_keys", "Vim-style keys"), detail: L10n.t("display_vim_keys_detail", "j and k move between messages; y copies. Press esc in an empty prompt to start."),
                     symbol: "keyboard", isOn: Binding(get: { tools.vimMode }, set: { tools.setVimMode($0) }))
                 Divider().padding(.leading, 46)
-                row("Compact conversation", detail: "Less space between messages.", symbol: "rectangle.compress.vertical", isOn: $compactConversation)
+                row(L10n.t("display_compact", "Compact conversation"), detail: L10n.t("display_compact_detail", "Less space between messages."), symbol: "rectangle.compress.vertical", isOn: $compactConversation)
             }
         }
         .settingsCard()

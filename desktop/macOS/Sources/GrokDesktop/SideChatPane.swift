@@ -10,13 +10,15 @@ final class SideChatPaneView: NSView {
 
     private let model: SideChatModel
     private let title = NSTextField(labelWithString: "")
-    let clearButton = SideChatButton(style: .icon("trash", size: 24), help: "Clear this side chat")
+    let clearButton = SideChatButton(style: .icon("trash", size: 24), help: L10n.t("side_chat_clear", "Clear this side chat"))
     let list = SideChatListView()
     let composer = SideChatComposerView()
     private(set) var conversationID: UUID?
     private var messages: [SideChatMessage] = []
     private var isPending = false
     private var shownFocusRequest: Int?
+    /// The interface language the fixed texts and the rows are worded in.
+    private var shownLanguage = L10n.resolvedCode
 
     init(model: SideChatModel) {
         self.model = model
@@ -47,6 +49,7 @@ final class SideChatPaneView: NSView {
     /// Shows a task's side chat as it is now. Called whenever SwiftUI updates the tab; showing what
     /// is already shown does nothing.
     func show(conversationID id: UUID, title taskTitle: String, messages: [SideChatMessage], isPending: Bool, focusRequest: Int) {
+        if shownLanguage != L10n.resolvedCode { applyLanguage() }
         if id != conversationID {
             keepDraft()
             conversationID = id
@@ -54,7 +57,7 @@ final class SideChatPaneView: NSView {
             list.reset()
             composer.setText(model.drafts[id] ?? "")
         }
-        let label = "About \u{201C}\(taskTitle)\u{201D}"
+        let label = L10n.t("side_chat_about", "About \u{201C}{title}\u{201D}", ["title": taskTitle])
         if title.stringValue != label {
             title.stringValue = label
             title.toolTip = label
@@ -62,6 +65,15 @@ final class SideChatPaneView: NSView {
         apply(messages, isPending: isPending)
         if let shown = shownFocusRequest, shown != focusRequest { composer.focus() }
         shownFocusRequest = focusRequest
+    }
+
+    /// The interface language changed: the fixed texts are worded again, and the rows are made again in it.
+    private func applyLanguage() {
+        shownLanguage = L10n.resolvedCode
+        clearButton.setHelp(L10n.t("side_chat_clear", "Clear this side chat"))
+        composer.applyLanguage()
+        list.reset()
+        messages = []
     }
 
     /// Keeps what is typed as the task's draft, for when its side chat shows again.
@@ -151,7 +163,7 @@ final class SideChatComposerView: NSView, NSTextViewDelegate {
     let textView: SubmitTextView
     private let scroll = NSScrollView()
     private let glass = SideChatGlassView(cornerRadius: 18)
-    let sendButton = SideChatButton(style: .send, help: "Ask · ↵")
+    let sendButton = SideChatButton(style: .send, help: L10n.t("side_chat_ask", "Ask · ↵"))
     /// Its own, so that replacing the text cannot leave undo steps behind for text that is gone.
     private let undo = UndoManager()
     /// Return, or the send button.
@@ -189,8 +201,6 @@ final class SideChatComposerView: NSView, NSTextViewDelegate {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.placeholder = "Ask a side question…"
-        textView.setAccessibilityLabel("Side question")
         textView.onSubmit = { [weak self] in self?.onSend?() }
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
@@ -198,8 +208,8 @@ final class SideChatComposerView: NSView, NSTextViewDelegate {
         scroll.autohidesScrollers = true
         scroll.horizontalScrollElasticity = .none
         scroll.documentView = textView
-        sendButton.setAccessibilityLabel("Ask side question")
         sendButton.action = { [weak self] in self?.onSend?() }
+        applyLanguage()
         addSubview(glass)
         addSubview(scroll)
         addSubview(sendButton)
@@ -209,6 +219,15 @@ final class SideChatComposerView: NSView, NSTextViewDelegate {
     required init?(coder: NSCoder) { nil }
 
     override var isFlipped: Bool { true }
+
+    /// Words the placeholder, the send button's tip, and the spoken names in the interface language.
+    func applyLanguage() {
+        textView.placeholder = L10n.t("side_chat_placeholder", "Ask a side question…")
+        textView.setAccessibilityLabel(L10n.t("side_chat_question", "Side question"))
+        textView.needsDisplay = true
+        sendButton.setHelp(L10n.t("side_chat_ask", "Ask · ↵"))
+        sendButton.setAccessibilityLabel(L10n.t("side_chat_ask_label", "Ask side question"))
+    }
 
     /// What is typed, less what an input method is still composing.
     var question: String { textView.committedString }
@@ -355,10 +374,9 @@ final class SideChatButton: NSView {
     init(style: Style, help: String) {
         self.style = style
         super.init(frame: .zero)
-        toolTip = help
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityLabel(help)
+        setHelp(help)
         switch style {
         case .icon(let name, let size): symbol.image = TranscriptParts.symbol(name, size: (size * 0.47).rounded(), weight: .medium)
         case .send: symbol.image = TranscriptParts.symbol("arrow.up", size: 12, weight: .semibold)
@@ -369,6 +387,12 @@ final class SideChatButton: NSView {
             addSubview(symbol)
         }
         showState()
+    }
+
+    /// The tip and the spoken name, which follow the interface language.
+    func setHelp(_ help: String) {
+        toolTip = help
+        setAccessibilityLabel(help)
     }
 
     required init?(coder: NSCoder) { nil }

@@ -32,7 +32,7 @@ struct BehaviorSettingsSection: View {
                 }.labelsHidden().pickerStyle(.segmented).fixedSize()
             }
             Divider()
-            row(L10n.t("dictation_shortcut", "Dictation shortcut"), detail: "\(ComposerFeatureModel.voiceShortcut) starts and stops dictation.") {
+            row(L10n.t("dictation_shortcut", "Dictation shortcut"), detail: L10n.t("dictation_shortcut_detail", "{shortcut} starts and stops dictation.", ["shortcut": ComposerFeatureModel.voiceShortcut])) {
                 Toggle(L10n.t("dictation_shortcut", "Dictation shortcut"), isOn: Binding(get: { composer.voiceShortcutEnabled }, set: { composer.setVoiceShortcutEnabled($0) }))
                     .toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
@@ -41,10 +41,11 @@ struct BehaviorSettingsSection: View {
                 Picker(L10n.t("dictation_language", "Dictation language"), selection: Binding(get: { composer.voiceLanguage }, set: { composer.setVoiceLanguage($0) })) {
                     Text(L10n.t("automatic", "Automatic")).tag("auto")
                     Divider()
-                    ForEach(VoiceSTTSettings.languages, id: \.code) { Text($0.name).tag($0.code) }
+                    ForEach(VoiceSTTSettings.languages, id: \.code) { Text(L10n.languageName(code: $0.code, fallback: $0.name)).tag($0.code) }
                 }.labelsHidden().pickerStyle(.menu).fixedSize()
             }
-            row(L10n.t("dictation_model", "Dictation model"), detail: "Any OpenRouter transcription model. Pick one or type its ID and press Return. Without an OpenRouter sign-in, dictation runs on this Mac.") {
+            row(L10n.t("dictation_model", "Dictation model"),
+                detail: L10n.t("dictation_model_detail", "Any OpenRouter transcription model. Pick one or type its ID and press Return. Without an OpenRouter sign-in, dictation runs on this Mac.")) {
                 VoiceModelControl()
             }
             Divider()
@@ -78,16 +79,17 @@ struct BehaviorSettingsSection: View {
 
     /// The OpenRouter model ID with a menu of OpenRouter's transcription models (fetched live, with a built-in fallback).
     private struct VoiceModelControl: View {
+    @ObservedObject private var language = L10n.state
         @EnvironmentObject var composer: ComposerFeatureModel
         @State private var draft = ""
         @State private var catalog: [VoiceModelOption] = []
 
         var body: some View {
             HStack(spacing: 4) {
-                TextField("Model ID", text: $draft)
+                TextField(L10n.t("dictation_model_id", "Model ID"), text: $draft)
                     .textFieldStyle(.roundedBorder).frame(width: 250)
                     .onSubmit { composer.setVoiceModel(draft); draft = composer.voiceModel }
-                    .accessibilityLabel("Dictation model")
+                    .accessibilityLabel(L10n.t("dictation_model", "Dictation model"))
                 Menu {
                     ForEach(models) { model in
                         Button(model.id == composer.voiceModel ? "✓ \(model.name)" : model.name) {
@@ -97,7 +99,7 @@ struct BehaviorSettingsSection: View {
                     }
                 } label: { Image(systemName: "chevron.down") }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .help("Transcription models on OpenRouter")
+                    .help(L10n.t("dictation_models_help", "Transcription models on OpenRouter"))
             }
             .onAppear { draft = composer.voiceModel }
             .onChange(of: composer.voiceModel) { _, model in draft = model }

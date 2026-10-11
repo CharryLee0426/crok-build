@@ -79,14 +79,14 @@ final class ExtrasFeatureModel: ObservableObject {
         activeTheme = theme
         themePreferences.saveLocally(theme)
         show(theme, appearance: theme.appearance)
-        store?.banner = "✓ Theme: \(theme.displayName)"
+        store?.banner = L10n.t("theme_banner", "✓ Theme: {name}", ["name": theme.displayName])
         lastConfigTheme = theme.rawValue
         let url = themePreferences.configURL
         configWriter.async {
             do { try GrokThemePreferences.writeConfig(theme, to: url) }
             catch {
                 let message = error.localizedDescription
-                DispatchQueue.main.async { [weak self] in self?.store?.banner = "✓ Theme: \(theme.displayName) · not saved to config.toml: \(message)" }
+                DispatchQueue.main.async { [weak self] in self?.store?.banner = L10n.t("theme_banner_unsaved", "✓ Theme: {name} · not saved to config.toml: {error}", ["name": theme.displayName, "error": message]) }
             }
         }
     }
@@ -214,6 +214,7 @@ final class ExtrasFeatureModel: ObservableObject {
 /// The terminal's "Pick theme" list: moving the selection previews the theme live, Apply saves
 /// it, and Cancel (or Esc) puts the previous one back.
 struct ThemeSheet: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var extras: ExtrasFeatureModel
     @State private var selection: GrokTheme?
@@ -223,7 +224,9 @@ struct ThemeSheet: View {
     private static let rows: [GrokTheme] = [.auto] + GrokTheme.concrete
 
     var body: some View {
-        DesktopPanel(title: "Pick theme", subtitle: "Select a theme to preview it. Crok Build in the terminal shares this setting.", width: 620, onClose: cancel) {
+        DesktopPanel(title: L10n.t("theme_pick", "Pick theme"),
+                     subtitle: L10n.t("theme_pick_subtitle", "Select a theme to preview it. Crok Build in the terminal shares this setting."),
+                     width: 620, onClose: cancel) {
             VStack(spacing: 4) {
                 ForEach(Self.rows) { theme in
                     ThemePickerRow(theme: theme, isSelected: theme == current, isActive: theme == extras.activeTheme)
@@ -237,12 +240,12 @@ struct ThemeSheet: View {
             .onKeyPress(.upArrow) { move(-1); return .handled }
             .onKeyPress(.downArrow) { move(1); return .handled }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Themes")
+            .accessibilityLabel(L10n.t("themes", "Themes"))
         } footer: {
-            Text("↑↓ Preview   ↵ Apply   esc Cancel").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            Text(L10n.t("theme_pick_keys", "↑↓ Preview   ↵ Apply   esc Cancel")).font(.system(size: 11)).foregroundStyle(Theme.muted)
             Spacer()
             Button(L10n.t("cancel", "Cancel"), action: cancel)
-            Button("Apply", action: apply).keyboardShortcut(.defaultAction)
+            Button(L10n.t("apply", "Apply"), action: apply).keyboardShortcut(.defaultAction)
         }
         .onAppear { focused = true }
         .onDisappear { if !committed { extras.cancelThemePreview() } }
@@ -274,6 +277,7 @@ struct ThemeSheet: View {
 }
 
 private struct ThemePickerRow: View {
+    @ObservedObject private var language = L10n.state
     let theme: GrokTheme
     let isSelected: Bool
     let isActive: Bool
@@ -285,7 +289,7 @@ private struct ThemePickerRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(theme.pickerLabel).font(.system(size: 14, weight: .semibold))
-                    if isActive { Text("(active)").font(.system(size: 13)).foregroundStyle(Theme.muted) }
+                    if isActive { Text(L10n.t("theme_active_tag", "(active)")).font(.system(size: 13)).foregroundStyle(Theme.muted) }
                 }
                 Text(theme == .auto ? theme.summary : "\(theme.displayName) · \(theme.summary)")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
@@ -300,7 +304,7 @@ private struct ThemePickerRow: View {
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(theme.displayName)\(isActive ? ", active" : "")")
+        .accessibilityLabel(isActive ? L10n.t("theme_name_active", "{name}, active", ["name": theme.displayName]) : theme.displayName)
         .accessibilityValue(theme.summary)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -391,6 +395,7 @@ private struct ThemeSwatchCanvas: View {
 /// Theme preferences in Settings: the same themes as `/theme`, applied as soon as one is clicked,
 /// and how transparent the windows' glass is.
 struct AppearanceSettingsSection: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var extras: ExtrasFeatureModel
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @AppStorage(GlassPreference.key) private var transparency = GlassPreference.defaultLevel
@@ -409,15 +414,15 @@ struct AppearanceSettingsSection: View {
             HStack(spacing: 12) {
                 Label(L10n.t("transparency", "Transparency"), systemImage: "circle.lefthalf.filled").font(.system(size: 13, weight: .medium))
                     .frame(width: 130, alignment: .leading)
-                Text("Solid").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                Text(L10n.t("transparency_solid", "Solid")).font(.system(size: 11)).foregroundStyle(Theme.muted)
                 Slider(value: $transparency, in: 0...1).controlSize(.small)
-                    .accessibilityLabel("Window transparency")
-                    .accessibilityValue("\(Int((transparency * 100).rounded())) percent")
-                Text("Clear").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    .accessibilityLabel(L10n.t("transparency_window", "Window transparency"))
+                    .accessibilityValue(L10n.t("percent_value", "%d percent", count: Int((transparency * 100).rounded())))
+                Text(L10n.t("transparency_clear", "Clear")).font(.system(size: 11)).foregroundStyle(Theme.muted)
             }
             .disabled(reduceTransparency)
             if reduceTransparency {
-                Text("Windows stay solid while Reduce Transparency is on.")
+                Text(L10n.t("transparency_reduced", "Windows stay solid while Reduce Transparency is on."))
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -425,6 +430,7 @@ struct AppearanceSettingsSection: View {
 }
 
 private struct ThemeSettingsCard: View {
+    @ObservedObject private var language = L10n.state
     let theme: GrokTheme
     let isActive: Bool
     let action: () -> Void
@@ -436,7 +442,7 @@ private struct ThemeSettingsCard: View {
                 ThemeSwatch(theme: theme).frame(height: 64)
                     .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(isActive ? Theme.accent : .clear, lineWidth: 2))
                 HStack(spacing: 5) {
-                    Text(theme == .auto ? "Auto" : theme.displayName).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Text(theme.displayName).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     Spacer(minLength: 2)
                     if isActive { Image(systemName: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(Theme.accent) }
                 }
@@ -448,8 +454,8 @@ private struct ThemeSettingsCard: View {
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .help(theme.summary)
-        .accessibilityLabel("\(theme.displayName) theme")
-        .accessibilityValue(isActive ? "Active" : "")
+        .accessibilityLabel(L10n.t("theme_named", "{name} theme", ["name": theme.displayName]))
+        .accessibilityValue(isActive ? L10n.t("active", "Active") : "")
         .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 }

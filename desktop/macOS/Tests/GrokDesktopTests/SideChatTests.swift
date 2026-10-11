@@ -234,6 +234,38 @@ final class SideChatTests: XCTestCase {
 
     // MARK: The pane
 
+    /// Every text label under `view`, in view order.
+    private func labels(in view: NSView) -> [String] {
+        view.subviews.flatMap { ($0 as? TranscriptTextLabel).map { [$0.text] } ?? labels(in: $0) }
+    }
+
+    /// The pane is AppKit: nothing redraws it when the interface language changes. SwiftUI shows it
+    /// again, and it words its field, its buttons and its rows again.
+    func testThePaneIsWordedAgainInANewInterfaceLanguage() {
+        L10n.setLanguage(.en)
+        defer { L10n.setLanguage(.auto) }
+        let task = Conversation(projectID: UUID(), title: "Parser")
+        let (_, pane) = makePane([task])
+        XCTAssertEqual(pane.composer.textView.placeholder, "Ask a side question…")
+        XCTAssertEqual(pane.composer.sendButton.toolTip, "Ask · ↵")
+        XCTAssertEqual(pane.clearButton.toolTip, "Clear this side chat")
+        XCTAssertEqual(labels(in: pane.list).first, "Ask on the side")
+
+        L10n.setLanguage(.zhHans)
+        show(task.id, in: pane)
+        XCTAssertEqual(pane.composer.textView.placeholder, L10n.t("side_chat_placeholder", "Ask a side question…"))
+        XCTAssertNotEqual(pane.composer.textView.placeholder, "Ask a side question…")
+        XCTAssertEqual(pane.composer.sendButton.toolTip, L10n.t("side_chat_ask", "Ask · ↵"))
+        XCTAssertEqual(pane.clearButton.toolTip, L10n.t("side_chat_clear", "Clear this side chat"))
+        XCTAssertEqual(pane.list.rowCount, 1, "the intro is still the only row")
+        XCTAssertEqual(labels(in: pane.list).first, L10n.t("side_chat_intro_title", "Ask on the side"))
+        XCTAssertNotEqual(labels(in: pane.list).first, "Ask on the side")
+
+        L10n.setLanguage(.en)
+        show(task.id, in: pane)
+        XCTAssertEqual(labels(in: pane.list).first, "Ask on the side")
+    }
+
     func testAskingShowsTheQuestionAtTheEndAndEmptiesTheField() async throws {
         let task = Conversation(projectID: UUID(), title: "Parser")
         let (store, pane) = makePane([task])

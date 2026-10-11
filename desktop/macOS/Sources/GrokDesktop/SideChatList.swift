@@ -447,13 +447,13 @@ final class SideChatQuestionRow: SideChatRowView {
     override func show() {
         if Self.isLong(message.text) {
             let box = TranscriptTextBox(style: .plain(SideChatMetrics.fontSize), maxHeight: Self.longTextHeight, width: max(1, bounds.width - 60))
-            box.setAccessibilityLabel("Side question")
+            box.setAccessibilityLabel(L10n.t("side_chat_question", "Side question"))
             addSubview(box)
             box.update(text: message.text)
             self.box = box
         } else {
             let view = TranscriptSelectableText.make()
-            view.setAccessibilityLabel("Side question")
+            view.setAccessibilityLabel(L10n.t("side_chat_question", "Side question"))
             addSubview(view)
             view.show(message.text, font: .systemFont(ofSize: SideChatMetrics.fontSize), color: Theme.palette.inkNS)
             text = view
@@ -486,7 +486,7 @@ final class SideChatAnswerRow: SideChatRowView {
     private let message: SideChatMessage
     private let mark = TranscriptMarkView()
     private let name = TranscriptParts.label("Crok", size: 11.5, weight: .semibold, color: Theme.palette.inkNS)
-    private let copy = SideChatButton(style: .icon("doc.on.doc", size: 22), help: "Copy answer")
+    private let copy = SideChatButton(style: .icon("doc.on.doc", size: 22), help: L10n.t("side_chat_copy", "Copy answer"))
     private var reply: TranscriptTextBox?
 
     init(message: SideChatMessage, list: SideChatListView?) {
@@ -531,12 +531,12 @@ final class SideChatFailureRow: SideChatRowView {
     private let card = TranscriptFillView(color: Theme.palette.sidebarNS, radius: 10)
     private let icon = TranscriptParts.symbolView("exclamationmark.triangle", size: 13, color: .systemOrange)
     private let text = TranscriptSelectableText.make()
-    let retryButton = SideChatButton(style: .titled("Retry"), help: "Ask the question again")
+    let retryButton = SideChatButton(style: .titled(L10n.t("retry", "Retry")), help: L10n.t("side_chat_retry_help", "Ask the question again"))
 
     init(message: SideChatMessage, list: SideChatListView?) {
         self.message = message
         super.init(id: message.id, list: list)
-        retryButton.setAccessibilityLabel("Retry")
+        retryButton.setAccessibilityLabel(L10n.t("retry", "Retry"))
         retryButton.action = { [weak self] in
             guard let self else { return }
             self.list?.onRetry?(self.message)
@@ -572,7 +572,7 @@ final class SideChatFailureRow: SideChatRowView {
 /// "Crok is answering…" with a spinner, under the question being answered.
 final class SideChatPendingRow: SideChatRowView {
     private let spinner = NSProgressIndicator()
-    private let label = TranscriptParts.label("Crok is answering…", size: 12.5, color: Theme.palette.mutedNS)
+    private let label = TranscriptParts.label(L10n.t("side_chat_answering", "Crok is answering…"), size: 12.5, color: Theme.palette.mutedNS)
 
     override init(id: UUID, list: SideChatListView?) {
         super.init(id: id, list: list)
@@ -605,8 +605,8 @@ final class SideChatPendingRow: SideChatRowView {
 /// What a side chat is for, before its first question.
 final class SideChatIntroRow: SideChatRowView {
     private let icon = TranscriptParts.symbolView("bubble.left.and.text.bubble.right", size: 20, weight: .light, color: Theme.palette.accentNS)
-    private let title = TranscriptParts.label("Ask on the side", size: 14, weight: .semibold, color: Theme.palette.inkNS)
-    private let detail = TranscriptParts.label("Crok answers from this task's conversation without interrupting what it is doing. Nothing here changes the task.",
+    private let title = TranscriptParts.label(L10n.t("side_chat_intro_title", "Ask on the side"), size: 14, weight: .semibold, color: Theme.palette.inkNS)
+    private let detail = TranscriptParts.label(L10n.t("side_chat_intro_detail", "Crok answers from this task's conversation without interrupting what it is doing. Nothing here changes the task."),
                                                size: 12.5, color: Theme.palette.mutedNS)
 
     override init(id: UUID, list: SideChatListView?) {

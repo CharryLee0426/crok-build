@@ -12,7 +12,7 @@ struct SettingsView: View {
                 GrokMark(size: 36)
                 Text(L10n.t("settings", "Settings")).font(.system(size: 24, weight: .semibold))
                 Spacer()
-                IconButton(icon: "xmark", help: "Close settings") { dismiss() }
+                IconButton(icon: "xmark", help: L10n.t("close_settings", "Close settings")) { dismiss() }
             }
 
             ScrollView {
@@ -62,6 +62,7 @@ struct SettingsView: View {
 /// The model providers in Settings: browser sign-in for OpenRouter and OpenAI Codex, and a pasted
 /// API key for DeepSeek, the GLM Coding Plan and the Claude API. Sign-ins are shared with the CLI.
 struct AccountsSettingsSection: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @StateObject private var accounts: AccountStore
     @State private var signingIn: AccountProvider?
@@ -85,7 +86,7 @@ struct AccountsSettingsSection: View {
                 Label(L10n.t("accounts", "Accounts"), systemImage: "person.crop.circle")
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()
-                IconButton(icon: "arrow.clockwise", help: "Refresh accounts") { accounts.refresh() }
+                IconButton(icon: "arrow.clockwise", help: L10n.t("accounts_refresh", "Refresh accounts")) { accounts.refresh() }
             }
             VStack(spacing: 0) {
                 ForEach(AccountProvider.allCases) { provider in
@@ -97,10 +98,10 @@ struct AccountsSettingsSection: View {
             if store.loginRunning {
                 HStack(spacing: 9) {
                     ProgressView().controlSize(.small)
-                    Text(store.loginUsesKey ? "Checking the API key…" : "Complete sign-in in your browser…")
+                    Text(store.loginUsesKey ? L10n.t("accounts_checking_key", "Checking the API key…") : L10n.t("accounts_complete_sign_in", "Complete sign-in in your browser…"))
                         .font(.system(size: 13)).foregroundStyle(Theme.muted)
                     Spacer()
-                    Button("Cancel") { store.cancelLogin() }
+                    Button(L10n.t("cancel", "Cancel")) { store.cancelLogin() }
                 }
             } else if let failure = store.loginFailure {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
@@ -108,7 +109,7 @@ struct AccountsSettingsSection: View {
                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
             if !store.loginLog.isEmpty {
-                DisclosureGroup("Sign-in details") {
+                DisclosureGroup(L10n.t("accounts_sign_in_details", "Sign-in details")) {
                     ScrollView {
                         Text(store.loginLog)
                             .font(.system(size: 12, design: .monospaced))
@@ -135,6 +136,7 @@ struct AccountsSettingsSection: View {
             if let provider = keyEntry, accounts.status(for: provider).isConnected { closeKeyForm() }
         }
         .onChange(of: store.accountsChanged) { _, _ in accounts.refresh() }
+        .onChange(of: language.language) { _, _ in accounts.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in accounts.refresh() }
         .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in accounts.refresh() }
     }
@@ -152,7 +154,9 @@ struct AccountsSettingsSection: View {
                     Text(identity).font(.system(size: 14)).textSelection(.enabled)
                         .lineLimit(1).truncationMode(.middle).help(identity)
                 }
+                // A longer language's line wraps onto its second line instead of being cut short.
                 Text(status.detail).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if status.isConnected {
@@ -162,7 +166,7 @@ struct AccountsSettingsSection: View {
                     .fixedSize()
                 // A key from the environment is not Crok Desktop's to remove.
                 if let saved = status.savedAs {
-                    let title = provider.signsInWithKey ? "Remove Key" : "Sign Out"
+                    let title = provider.signsInWithKey ? L10n.t("accounts_remove_key", "Remove Key") : L10n.t("accounts_sign_out", "Sign Out")
                     Menu {
                         Button(title, role: .destructive) { store.logout(provider: saved) }
                     } label: {
@@ -171,19 +175,21 @@ struct AccountsSettingsSection: View {
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                     .foregroundStyle(Theme.muted)
                     .disabled(store.loginRunning)
-                    .help("\(title) for \(provider.name)")
-                    .accessibilityLabel("\(provider.name) account options")
+                    .help(L10n.t("accounts_action_for", "{action} for {name}", ["action": title, "name": provider.name]))
+                    .accessibilityLabel(L10n.t("accounts_options", "{name} account options", ["name": provider.name]))
                 }
             } else if provider.signsInWithKey {
-                Button(keyEntry == provider ? "Cancel" : "Add Key…") {
+                Button(keyEntry == provider ? L10n.t("cancel", "Cancel") : L10n.t("accounts_add_key", "Add Key…")) {
                     if keyEntry == provider { closeKeyForm() } else { openKeyForm(provider) }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
                 .disabled(store.loginRunning)
-                .accessibilityLabel(keyEntry == provider ? "Cancel adding a key for \(provider.name)" : "Add an API key for \(provider.name)")
+                .accessibilityLabel(keyEntry == provider
+                    ? L10n.t("accounts_cancel_adding_key", "Cancel adding a key for {name}", ["name": provider.name])
+                    : L10n.t("accounts_add_key_for", "Add an API key for {name}", ["name": provider.name]))
             } else {
-                Button(signingIn == provider && store.loginRunning ? "Signing in…" : "Sign in") {
+                Button(signingIn == provider && store.loginRunning ? L10n.t("accounts_signing_in", "Signing in…") : L10n.t("accounts_sign_in", "Sign in")) {
                     signingIn = provider
                     closeKeyForm()
                     if !accounts.signIn(provider: provider, loginRunning: store.loginRunning, perform: { store.login(provider: $0) }) {
@@ -193,7 +199,7 @@ struct AccountsSettingsSection: View {
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
                 .disabled(store.loginRunning)
-                .accessibilityLabel("Sign in to \(provider.name)")
+                .accessibilityLabel(L10n.t("accounts_sign_in_to", "Sign in to {name}", ["name": provider.name]))
             }
         }
         .padding(.vertical, 10)
@@ -206,8 +212,8 @@ struct AccountsSettingsSection: View {
         return VStack(alignment: .leading, spacing: 10) {
             if sources.count > 1 {
                 HStack(spacing: 10) {
-                    Text("Subscribed on").font(.system(size: 13)).foregroundStyle(Theme.muted)
-                    Picker("Subscribed on", selection: $keySourceID) {
+                    Text(L10n.t("accounts_subscribed_on", "Subscribed on")).font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    Picker(L10n.t("accounts_subscribed_on", "Subscribed on"), selection: $keySourceID) {
                         ForEach(sources) { Text("\($0.title) · \($0.site)").tag($0.id) }
                     }
                     .labelsHidden().pickerStyle(.segmented).fixedSize()
@@ -215,26 +221,31 @@ struct AccountsSettingsSection: View {
                 }
             }
             HStack(spacing: 8) {
-                SecureField("Paste your API key", text: $keyDraft)
+                SecureField(L10n.t("accounts_paste_key", "Paste your API key"), text: $keyDraft)
                     .textFieldStyle(.roundedBorder)
                     .focused($keyFieldFocused)
                     .disabled(store.loginRunning)
                     .onSubmit { saveKey(provider) }
-                    .accessibilityLabel("\(provider.name) API key")
+                    .accessibilityLabel(L10n.t("accounts_api_key_of", "{name} API key", ["name": provider.name]))
                 Button(L10n.t("save", "Save")) { saveKey(provider) }
                     .buttonStyle(.borderedProminent)
                     .disabled(store.loginRunning || keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             if let source, let page = URL(string: source.keyPage) {
-                HStack(spacing: 4) {
-                    Text("Create a key at")
-                    Link(source.site, destination: page).foregroundStyle(Theme.accent).underline()
-                    Text("· Saved on this Mac for Crok Desktop and the CLI.")
-                }
-                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text(keyPageNote(site: source.site, page: page))
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted).tint(Theme.accent)
             }
         }
         .padding(.leading, 46).padding(.bottom, 12)
+    }
+
+    /// "Create a key at z.ai · Saved on this Mac…", the site being a link to its key page.
+    private func keyPageNote(site: String, page: URL) -> AttributedString {
+        let parts = L10n.split(L10n.t("accounts_create_key_note", "Create a key at {site} · Saved on this Mac for Crok Desktop and the CLI."), around: "site")
+        var link = AttributedString(site)
+        link.link = page
+        link.underlineStyle = .single
+        return AttributedString(parts.before) + link + AttributedString(parts.after)
     }
 
     private func openKeyForm(_ provider: AccountProvider) {

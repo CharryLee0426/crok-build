@@ -103,7 +103,7 @@ final class BrowserPage: NSObject, ObservableObject, Identifiable {
         if !title.isEmpty { return title }
         if let host = url?.host, !host.isEmpty { return host }
         if let name = url?.lastPathComponent, !name.isEmpty { return name }
-        return "New Tab"
+        return L10n.t("browser_new_tab", "New Tab")
     }
 
     /// The start page shows until the tab has somewhere to go.
@@ -217,7 +217,7 @@ final class BrowserPage: NSObject, ObservableObject, Identifiable {
         if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled { return }
         if error.domain == "WebKitErrorDomain" && [102, 204].contains(error.code) { return }
         if let failing = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL { url = failing; browser?.pageChanged(self) }
-        failure = Failure(title: "This page didn't open", detail: error.localizedDescription)
+        failure = Failure(title: L10n.t("browser_failed_title", "This page didn't open"), detail: error.localizedDescription)
     }
 }
 
@@ -252,7 +252,7 @@ extension BrowserPage: WKNavigationDelegate {
         title = webView.title ?? ""
         // WebKit answers an address it will not load (a port reserved for mail, say) with an empty page and no error.
         if webView.url?.absoluteString == "about:blank", let asked = url, asked.absoluteString != "about:blank" {
-            failure = Failure(title: "This page didn't open", detail: "The browser does not load this address: its port is reserved for another kind of service.")
+            failure = Failure(title: L10n.t("browser_failed_title", "This page didn't open"), detail: L10n.t("browser_failed_port", "The browser does not load this address: its port is reserved for another kind of service."))
             return
         }
         failure = nil
@@ -267,7 +267,7 @@ extension BrowserPage: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(error) }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        failure = Failure(title: "This page stopped", detail: "Its web process quit. Reload to open the page again.")
+        failure = Failure(title: L10n.t("browser_stopped_title", "This page stopped"), detail: L10n.t("browser_stopped_detail", "Its web process quit. Reload to open the page again."))
     }
 }
 
@@ -281,16 +281,16 @@ extension BrowserPage: WKUIDelegate {
     func webViewDidClose(_ webView: WKWebView) { browser?.close(self) }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) async {
-        _ = await BrowserDialog.run(message: message, from: frame, in: webView, buttons: ["OK"])
+        _ = await BrowserDialog.run(message: message, from: frame, in: webView, buttons: [L10n.t("ok", "OK")])
     }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) async -> Bool {
-        await BrowserDialog.run(message: message, from: frame, in: webView, buttons: ["OK", "Cancel"]).confirmed
+        await BrowserDialog.run(message: message, from: frame, in: webView, buttons: [L10n.t("ok", "OK"), L10n.t("cancel", "Cancel")]).confirmed
     }
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
                  initiatedByFrame frame: WKFrameInfo) async -> String? {
-        let answer = await BrowserDialog.run(message: prompt, from: frame, in: webView, buttons: ["OK", "Cancel"], input: defaultText ?? "")
+        let answer = await BrowserDialog.run(message: prompt, from: frame, in: webView, buttons: [L10n.t("ok", "OK"), L10n.t("cancel", "Cancel")], input: defaultText ?? "")
         return answer.confirmed ? answer.text : nil
     }
 
@@ -363,7 +363,7 @@ enum BrowserDialog {
         guard let window = webView.window else { return Answer() }
         let alert = NSAlert()
         let host = frame.securityOrigin.host
-        alert.messageText = host.isEmpty ? "This page says" : "\(host) says"
+        alert.messageText = host.isEmpty ? L10n.t("browser_page_says", "This page says") : L10n.t("browser_host_says", "{host} says", ["host": host])
         alert.informativeText = String(message.prefix(2_000))
         buttons.forEach { alert.addButton(withTitle: $0) }
         var field: NSTextField?
@@ -706,9 +706,9 @@ final class BrowserModel: ObservableObject {
     /// Asks first: signing in again everywhere is not something to do by accident.
     func confirmClearBrowsingData() {
         let alert = NSAlert()
-        alert.messageText = "Clear the browser's data?"
-        alert.informativeText = "This removes its cookies, sign-ins, caches, and history. Bookmarks are kept. Chrome is not affected."
-        alert.addButton(withTitle: "Clear"); alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.t("browser_clear_title", "Clear the browser's data?")
+        alert.informativeText = L10n.t("browser_clear_message", "This removes its cookies, sign-ins, caches, and history. Bookmarks are kept. Chrome is not affected.")
+        alert.addButton(withTitle: L10n.t("browser_clear", "Clear")); alert.addButton(withTitle: L10n.t("cancel", "Cancel"))
         let clear = { [weak self] (response: NSApplication.ModalResponse) in
             guard response == .alertFirstButtonReturn, let self else { return }
             Task { await self.clearBrowsingData() }
@@ -759,11 +759,12 @@ final class BrowserModel: ObservableObject {
     }
 
     func downloaded(_ file: URL) {
-        store?.banner = "Downloaded \(file.lastPathComponent) to your Downloads folder."
+        store?.banner = L10n.t("browser_downloaded", "Downloaded {file} to your Downloads folder.", ["file": file.lastPathComponent])
     }
 
     func downloadFailed(_ file: URL?, error: Error) {
-        store?.banner = "Could not download \(file?.lastPathComponent ?? "the file"): \(error.localizedDescription)"
+        store?.banner = L10n.t("browser_download_failed", "Could not download {file}: {error}",
+                               ["file": file?.lastPathComponent ?? L10n.t("browser_the_file", "the file"), "error": error.localizedDescription])
     }
 
     // MARK: Bookmarks
@@ -813,6 +814,6 @@ final class BrowserModel: ObservableObject {
         await dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         await history.clear()
         recent = []
-        store?.banner = "Cleared the browser's cookies, site data, and history."
+        store?.banner = L10n.t("browser_cleared", "Cleared the browser's cookies, site data, and history.")
     }
 }

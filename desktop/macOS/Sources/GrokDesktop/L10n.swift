@@ -16,7 +16,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 
     var menuTitle: String {
         switch self {
-        case .auto:   return "System"
+        case .auto:   return L10n.t("language_system", "System")
         case .en:     return "English"
         case .zhHans: return "简体中文"
         case .ja:     return "日本語"
@@ -56,7 +56,14 @@ enum L10n {
     static let state = L10nState()
 
     /// Non-nil when the user has chosen a specific language (not .auto).
-    private static var overrideCode: String?
+    private static var overrideCode: String? {
+        get { overrideLock.lock(); defer { overrideLock.unlock() }; return storedOverride }
+        set { overrideLock.lock(); storedOverride = newValue; overrideLock.unlock() }
+    }
+    /// The Chrome import words what it could not read on the thread that reads it, so the choice is
+    /// read off the main thread too.
+    private static let overrideLock = NSLock()
+    private static var storedOverride: String?
 
     /// The chosen language (`.auto` follows this Mac).
     static var language: AppLanguage { state.language }
@@ -110,11 +117,58 @@ enum L10n {
         String(format: t(key, en), locale: nil, count)
     }
 
+    /// `t` for a string with named `{placeholders}`, such as "Sign in to {name}". Each language puts
+    /// them where its word order needs them.
+    static func t(_ key: String, _ en: String, _ values: [String: String]) -> String {
+        fill(t(key, en), values)
+    }
+
+    /// Replaces each `{name}` in `template` in one pass, so a value that itself contains braces is left alone.
+    static func fill(_ template: String, _ values: [String: String]) -> String {
+        guard template.contains("{") else { return template }
+        var result = ""
+        var rest = Substring(template)
+        while let open = rest.firstIndex(of: "{") {
+            result += rest[..<open]
+            rest = rest[open...]
+            guard let close = rest.firstIndex(of: "}") else { break }
+            let name = String(rest[rest.index(after: open)..<close])
+            result += values[name] ?? String(rest[open...close])
+            rest = rest[rest.index(after: close)...]
+        }
+        return result + rest
+    }
+
+    /// The text around one `{name}` placeholder, for a view that puts a control (a link, a styled word) in its place.
+    static func split(_ template: String, around name: String) -> (before: String, after: String) {
+        guard let range = template.range(of: "{\(name)}") else { return (template, "") }
+        return (String(template[..<range.lowerBound]), String(template[range.upperBound...]))
+    }
+
+    /// The keys one language's table holds. Tests compare the languages with it.
+    static func keys(for code: String) -> Set<String> { Set(tables[code]?.keys.map { $0 } ?? []) }
+
+    /// One language's own text for `key`, with no fallback to English.
+    static func text(_ key: String, in code: String) -> String? { tables[code]?[key] }
+
+    static let languageCodes = ["en", "zh-Hans", "ja", "es", "fr", "de"]
+
     /// The thinking level's name for a harness id (`low`, `high`, `xhigh`, …); the harness's own
     /// English name when the id is not a standard level.
     static func reasoningName(id: String, fallback: String) -> String {
         guard let en = reasoningNames[id] else { return fallback }
         return t("effort_\(id)", en)
+    }
+
+    /// "on" or "off", as a confirmation says what a switch is now.
+    static func onOff(_ on: Bool) -> String { on ? L10n.t("state_on", "on") : L10n.t("state_off", "off") }
+
+    /// A language's name in the interface language, as this Mac names it ("西班牙语", "Espagnol"); `fallback` is its English name.
+    static func languageName(code: String, fallback: String) -> String {
+        let interface = resolvedCode
+        guard interface != "en", let name = Locale(identifier: interface).localizedString(forLanguageCode: code), !name.isEmpty else { return fallback }
+        // Spanish and French write language names in lower case inside a sentence; a list entry starts with a capital.
+        return name.prefix(1).capitalized + name.dropFirst()
     }
 
     private static let reasoningNames = [
@@ -124,13 +178,15 @@ enum L10n {
 
     // MARK: - Translation tables
 
+    /// Each language's strings: the tables below, with the ones for Settings and the side panel
+    /// (`L10nPanelTables.swift`) added to them.
     private static let tables: [String: [String: String]] = [
-        "en": english,
-        "zh-Hans": chineseSimplified,
-        "ja": japanese,
-        "es": spanish,
-        "fr": french,
-        "de": german,
+        "en": english.merging(englishPanels) { own, _ in own },
+        "zh-Hans": chineseSimplified.merging(chineseSimplifiedPanels) { own, _ in own },
+        "ja": japanese.merging(japanesePanels) { own, _ in own },
+        "es": spanish.merging(spanishPanels) { own, _ in own },
+        "fr": french.merging(frenchPanels) { own, _ in own },
+        "de": german.merging(germanPanels) { own, _ in own },
     ]
 
     // MARK: English

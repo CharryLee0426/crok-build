@@ -467,7 +467,7 @@ final class ComposerFeatureModel: ObservableObject {
     /// `/auto`: Auto ↔ Ask. Always-approve counts as not auto, so `/auto` switches into Auto.
     func toggleAutoMode() {
         guard permissionMode == .auto || autoModeAvailable else {
-            store?.banner = "Auto permission mode is not available for this account."; return
+            store?.banner = L10n.t("permission_auto_unavailable", "Auto permission mode is not available for this account."); return
         }
         setPermissionMode(permissionMode == .auto ? .ask : .auto)
     }
@@ -501,7 +501,7 @@ final class ComposerFeatureModel: ObservableObject {
                 guard let self, self.permissionRequestID == requestID else { return }
                 self.permissionMode = previous.mode
                 self.permissionModeExplicit = previous.explicit
-                self.store?.banner = "Couldn't save the permission mode: \(error.localizedDescription)"
+                self.store?.banner = L10n.t("permission_save_failed", "Couldn't save the permission mode: {error}", ["error": error.localizedDescription])
             }
         }
     }
@@ -587,7 +587,7 @@ final class ComposerFeatureModel: ObservableObject {
     func setVoiceModel(_ model: String) {
         let model = VoiceSTTSettings.canonicalModel(model)
         guard !model.contains(where: \.isWhitespace) else {
-            store?.banner = "The dictation model must be an OpenRouter model ID such as openai/whisper-1."
+            store?.banner = L10n.t("dictation_model_invalid", "The dictation model must be an OpenRouter model ID such as openai/whisper-1.")
             return
         }
         guard model != voiceModel else { return }
@@ -599,7 +599,7 @@ final class ComposerFeatureModel: ObservableObject {
         guard let url = configURL else { return }
         Task { @MainActor [weak self] in
             do { try await Self.writeConfig(url) { try $0.set(key, to: value, in: "ui") } }
-            catch { self?.store?.banner = "Couldn't save the setting: \(error.localizedDescription)" }
+            catch { self?.store?.banner = L10n.t("setting_save_failed", "Couldn't save the setting: {error}", ["error": error.localizedDescription]) }
         }
     }
 

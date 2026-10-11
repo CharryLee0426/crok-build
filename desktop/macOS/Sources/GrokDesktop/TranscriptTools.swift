@@ -196,7 +196,7 @@ final class TranscriptToolsModel: ObservableObject {
             do { try GrokConfig.update(url: url) { try $0.set(key, to: .bool(value), in: "ui") } }
             catch {
                 let message = error.localizedDescription
-                Task { @MainActor in self?.store?.banner = "Could not save [ui].\(key): \(message)" }
+                Task { @MainActor in self?.store?.banner = L10n.t("banner_save_ui_failed", "Could not save [ui].{key}: {error}", ["key": key, "error": message]) }
             }
         }
     }
@@ -212,7 +212,7 @@ final class TranscriptToolsModel: ObservableObject {
         showTimestamps = enabled
         defaults.set(enabled, forKey: Keys.timestamps)
         persist("show_timestamps", enabled)
-        store?.banner = "✓ Timestamps: \(enabled ? "on" : "off")"
+        store?.banner = L10n.t("banner_timestamps", "✓ Timestamps: {state}", ["state": L10n.onOff(enabled)])
     }
 
     /// `/timeline`.
@@ -223,7 +223,7 @@ final class TranscriptToolsModel: ObservableObject {
         showTimeline = enabled
         defaults.set(enabled, forKey: Keys.timeline)
         persist("show_timeline", enabled)
-        store?.banner = "✓ Timeline sidebar: \(enabled ? "on" : "off")"
+        store?.banner = L10n.t("banner_timeline", "✓ Timeline sidebar: {state}", ["state": L10n.onOff(enabled)])
     }
 
     /// `/vim-mode`.
@@ -236,7 +236,7 @@ final class TranscriptToolsModel: ObservableObject {
         defaults.set(enabled, forKey: Keys.vimMode)
         persist("vim_mode", enabled)
         updateKeyMonitor()
-        store?.banner = "Vim mode: \(enabled ? "on" : "off")"
+        store?.banner = L10n.t("banner_vim_mode", "Vim mode: {state}", ["state": L10n.onOff(enabled)])
     }
 
     // MARK: - Scrolling and expansion

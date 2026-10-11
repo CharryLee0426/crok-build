@@ -686,6 +686,7 @@ fn rows_contain_categories_and_settings_through_pr_14() {
         vec![
             // Booleans.
             "compact_mode",
+            "ui_language",
             "screen_mode",
             "show_timestamps",
             "show_timeline",

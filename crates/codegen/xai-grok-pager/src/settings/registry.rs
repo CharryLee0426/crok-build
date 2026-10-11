@@ -88,6 +88,42 @@ pub struct EnumChoice {
     pub description: &'static str,
 }
 
+/// The catalog group a setting's choices are translated under: its own key, or the key of the setting whose choices it shares.
+pub(crate) fn choice_group(setting: SettingKey) -> &'static str {
+    match setting {
+        "auto_dark_theme" | "auto_light_theme" => "theme",
+        other => other,
+    }
+}
+
+impl EnumChoice {
+    /// Localized name for user-visible rendering. Falls back to the static `display` when no translation is available
+    /// (theme and product names are the same in every language and have none).
+    pub fn display_label(&self, setting: SettingKey) -> &'static str {
+        xai_grok_i18n::choice_label_of(choice_group(setting), self.canonical, self.display)
+            .unwrap_or(self.display)
+    }
+
+    /// Localized sub-text for user-visible rendering. Falls back to the static `description`.
+    pub fn display_description(&self, setting: SettingKey) -> &'static str {
+        xai_grok_i18n::choice_description_of(
+            choice_group(setting),
+            self.canonical,
+            self.description,
+        )
+        .unwrap_or(self.description)
+    }
+
+    /// The owned, localized form the chooser renders.
+    pub fn localized(&self, setting: SettingKey) -> OwnedEnumChoice {
+        OwnedEnumChoice {
+            canonical: self.canonical.to_string(),
+            display: self.display_label(setting).to_string(),
+            description: self.display_description(setting).to_string(),
+        }
+    }
+}
+
 /// Runtime-built enum choice for `SettingKind::DynamicEnum` settings whose choices come from a `PagerLocalSnapshot` at picker-open time.
 /// The fields are owned `String`s because the values come from runtime catalogs.
 #[derive(Debug, Clone)]
@@ -107,6 +143,20 @@ pub enum DynamicEnumSource {
     ActiveModelCatalog,
 }
 
+/// "on" / "off": a bool row's value, and the value in the toast after it changes.
+pub fn bool_value_label(on: bool) -> &'static str {
+    if on {
+        xai_grok_i18n::tr("settings.value.on", "on")
+    } else {
+        xai_grok_i18n::tr("settings.value.off", "off")
+    }
+}
+
+/// What a `DynamicEnum` setting shows while it has no value of its own.
+pub fn no_override_label() -> &'static str {
+    xai_grok_i18n::tr("settings.no_override", "(no override)")
+}
+
 /// Build the owned choice list for a `DynamicEnum` at picker-open time.
 /// `ActiveModelCatalog` prepends a "(no override)" choice with an empty canonical at index 0 for clearing the setting.
 pub fn dynamic_enum_choices(
@@ -118,8 +168,12 @@ pub fn dynamic_enum_choices(
             let mut out = Vec::with_capacity(snapshot.available_models.len() + 1);
             out.push(OwnedEnumChoice {
                 canonical: String::new(),
-                display: "(no override)".to_string(),
-                description: "Inherit the default model (no per-user override).".to_string(),
+                display: no_override_label().to_string(),
+                description: xai_grok_i18n::tr(
+                    "settings.no_override.description",
+                    "Inherit the default model (no per-user override).",
+                )
+                .to_string(),
             });
             for (name, _id) in &snapshot.available_models {
                 out.push(OwnedEnumChoice {
@@ -209,14 +263,16 @@ pub struct SettingMeta {
 }
 
 impl SettingMeta {
-    /// Localized label for user-visible rendering. Falls back to the static `label` when no translation is available.
+    /// Localized label for user-visible rendering. The static `label` is the English: its translation shows in the
+    /// other languages, and the label itself shows in English, or when the catalog translates another wording.
     pub fn display_label(&self) -> &'static str {
-        xai_grok_i18n::settings_label(self.key).unwrap_or(self.label)
+        xai_grok_i18n::settings_label_of(self.key, self.label).unwrap_or(self.label)
     }
 
-    /// Localized description for user-visible rendering. Falls back to the static `description` when no translation is available.
+    /// Localized description for user-visible rendering, by the same rule as [`display_label`](Self::display_label).
     pub fn display_description(&self) -> &'static str {
-        xai_grok_i18n::settings_description(self.key).unwrap_or(self.description)
+        xai_grok_i18n::settings_description_of(self.key, self.description)
+            .unwrap_or(self.description)
     }
 }
 
@@ -339,8 +395,12 @@ pub enum CodingDataSharingLock {
 impl CodingDataSharingLock {
     pub fn reason(self) -> &'static str {
         match self {
-            Self::Zdr => "Your team has Zero Data Retention.",
-            Self::TeamManaged => "Managed by your team admin.",
+            Self::Zdr => {
+                xai_grok_i18n::tr("settings.lock.zdr", "Your team has Zero Data Retention.")
+            }
+            Self::TeamManaged => {
+                xai_grok_i18n::tr("settings.lock.team_managed", "Managed by your team admin.")
+            }
         }
     }
 }

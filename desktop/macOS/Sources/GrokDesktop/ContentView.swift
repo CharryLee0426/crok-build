@@ -51,7 +51,7 @@ struct ContentView: View {
                         Image(systemName: "info.circle")
                         Text(banner).textSelection(.enabled)
                         Spacer(minLength: 4)
-                        IconButton(icon: "xmark", help: "Dismiss") { store.banner = nil }
+                        IconButton(icon: "xmark", help: L10n.t("dismiss", "Dismiss")) { store.banner = nil }
                     }
                     .font(.system(size: 13))
                     .padding(.horizontal, 24).padding(.vertical, 10)
@@ -103,14 +103,14 @@ struct ContentView: View {
         ToolbarItemGroup(placement: .primaryAction) {
             if let project = store.project {
                 Button { store.revealProject() } label: {
-                    Label { Text("Reveal in Finder") } icon: { Image(nsImage: FinderIcon.image).renderingMode(.original) }
+                    Label { Text(L10n.t("reveal_in_finder", "Reveal in Finder")) } icon: { Image(nsImage: FinderIcon.image).renderingMode(.original) }
                 }
-                .help("Reveal \(project.name) in Finder")
+                .help(L10n.t("reveal_named_in_finder", "Reveal {name} in Finder", ["name": project.name]))
                 Button {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { store.showInspector.toggle() }
                 } label: {
-                    Label("Side panel", systemImage: "sidebar.right")
-                }.help(store.showInspector ? "Hide side panel · ⌘J" : "Show files, side chat, terminal, and browser · ⌘J")
+                    Label(L10n.t("side_panel_label", "Side panel"), systemImage: "sidebar.right")
+                }.help(store.showInspector ? L10n.t("side_panel_hide", "Hide side panel · ⌘J") : L10n.t("side_panel_show", "Show files, side chat, terminal, and browser · ⌘J"))
             }
         }
     }
@@ -128,21 +128,22 @@ enum FinderIcon {
 }
 
 struct RenameTaskSheet: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @State private var title = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Rename task").font(.system(size: 20, weight: .semibold))
-                Text("The new title appears in the sidebar and the window title.").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Text(L10n.t("rename_task", "Rename task")).font(.system(size: 20, weight: .semibold))
+                Text(L10n.t("rename_task_detail", "The new title appears in the sidebar and the window title.")).font(.system(size: 13)).foregroundStyle(Theme.muted)
             }
-            DesktopTextField("Task title", text: $title, symbol: "pencil")
+            DesktopTextField(L10n.t("rename_task_field", "Task title"), text: $title, symbol: "pencil")
                 .onSubmit(rename)
             HStack {
                 Spacer()
-                Button("Cancel") { store.showRename = false }.keyboardShortcut(.cancelAction)
-                Button("Rename", action: rename).keyboardShortcut(.defaultAction)
+                Button(L10n.t("cancel", "Cancel")) { store.showRename = false }.keyboardShortcut(.cancelAction)
+                Button(L10n.t("rename", "Rename"), action: rename).keyboardShortcut(.defaultAction)
                     .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }.buttonStyle(SubtleButtonStyle()).font(.system(size: 13, weight: .medium))
         }

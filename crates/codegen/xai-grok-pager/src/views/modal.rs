@@ -707,8 +707,10 @@ impl ActiveModal {
             ActiveModal::DocViewer { title, .. } => title.as_str(),
             ActiveModal::ShortcutsHelp { .. } => "Keyboard Shortcuts",
             ActiveModal::MemoryBrowser { .. } => "Memory",
-            ActiveModal::Settings { .. } => crate::views::settings_modal::MODAL_TITLE,
-            ActiveModal::ResetSettingsConfirm { .. } => "Reset setting?",
+            ActiveModal::Settings { .. } => crate::views::settings_modal::modal_title(),
+            ActiveModal::ResetSettingsConfirm { .. } => {
+                xai_grok_i18n::tr("settings.reset.title", "Reset setting?")
+            }
             ActiveModal::RememberNoteReview { .. } => "Memory Note",
             ActiveModal::UsageInfo { .. } => "Usage",
             ActiveModal::Trace { .. } => "Trace",
@@ -729,11 +731,14 @@ pub fn reset_confirm_prompt(modal: &ActiveModal) -> Option<String> {
     };
     let meta = settings_state.registry.find(key)?;
     let default = crate::settings::default_value_for(meta);
-    Some(format!(
-        "Reset '{}' to default ({})?",
-        meta.label,
-        format_default_for_prompt(&meta.kind, &default),
-    ))
+    Some(
+        xai_grok_i18n::tr(
+            "settings.reset.prompt",
+            "Reset '{label}' to default ({value})?",
+        )
+        .replace("{label}", meta.display_label())
+        .replace("{value}", &format_default_for_prompt(meta, &default)),
+    )
 }
 /// Abbreviated title breadcrumb for the reset-confirm dialog, e.g. "Reset 'Compact mode'".
 pub fn reset_confirm_breadcrumb(modal: &ActiveModal) -> Option<String> {
@@ -746,22 +751,24 @@ pub fn reset_confirm_breadcrumb(modal: &ActiveModal) -> Option<String> {
         return None;
     };
     let meta = settings_state.registry.find(key)?;
-    Some(format!("Reset '{}'", meta.label))
+    Some(
+        xai_grok_i18n::tr("settings.reset.breadcrumb", "Reset '{label}'")
+            .replace("{label}", meta.display_label()),
+    )
 }
 /// Format a `SettingValue` for the prompt's `(<default>)` display.
 fn format_default_for_prompt(
-    kind: &crate::settings::SettingKind,
+    meta: &crate::settings::SettingMeta,
     value: &crate::settings::SettingValue,
 ) -> String {
     use crate::settings::{SettingKind, SettingValue};
     match value {
-        SettingValue::Bool(true) => "on".to_owned(),
-        SettingValue::Bool(false) => "off".to_owned(),
+        SettingValue::Bool(on) => crate::settings::bool_value_label(*on).to_owned(),
         SettingValue::Enum(canonical) => {
-            if let SettingKind::Enum { choices, .. } = kind {
+            if let SettingKind::Enum { choices, .. } = &meta.kind {
                 for c in *choices {
                     if c.canonical == *canonical {
-                        return c.display.to_owned();
+                        return c.display_label(meta.key).to_owned();
                     }
                 }
             }

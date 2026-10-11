@@ -39,7 +39,7 @@ enum GrokTheme: String, CaseIterable, Identifiable {
     /// (which has no entry for Oscura Midnight and falls back to its config name).
     var displayName: String {
         switch self {
-        case .auto: return "Auto"
+        case .auto: return L10n.t("theme_auto", "Auto")
         case .groknight: return "Crok Night"
         case .grokday: return "Crok Day"
         case .tokyonight: return "Tokyo Night"
@@ -49,16 +49,16 @@ enum GrokTheme: String, CaseIterable, Identifiable {
     }
 
     /// The picker row label, as in the terminal's "Pick theme" list.
-    var pickerLabel: String { self == .auto ? "auto (follow system)" : rawValue }
+    var pickerLabel: String { self == .auto ? L10n.t("theme_auto_picker", "auto (follow system)") : rawValue }
 
     var summary: String {
         switch self {
-        case .auto: return "Crok Desktop's own look, light or dark with your Mac. The terminal stays dark."
-        case .groknight: return "Neutral dark base with a magenta accent. The terminal's default."
-        case .grokday: return "Light theme with deepened accents for bright rooms."
-        case .tokyonight: return "Dark, blue-tinted backgrounds from the Tokyo Night palette."
-        case .rosepineMoon: return "Muted dark palette with mauve accents, from the Rosé Pine family."
-        case .oscuraMidnight: return "Deep near-black base with purple accents."
+        case .auto: return L10n.t("theme_summary_auto", "Crok Desktop's own look, light or dark with your Mac. The terminal stays dark.")
+        case .groknight: return L10n.t("theme_summary_groknight", "Neutral dark base with a magenta accent. The terminal's default.")
+        case .grokday: return L10n.t("theme_summary_grokday", "Light theme with deepened accents for bright rooms.")
+        case .tokyonight: return L10n.t("theme_summary_tokyonight", "Dark, blue-tinted backgrounds from the Tokyo Night palette.")
+        case .rosepineMoon: return L10n.t("theme_summary_rosepine_moon", "Muted dark palette with mauve accents, from the Rosé Pine family.")
+        case .oscuraMidnight: return L10n.t("theme_summary_oscura_midnight", "Deep near-black base with purple accents.")
         }
     }
 

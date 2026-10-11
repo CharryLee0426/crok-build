@@ -1313,7 +1313,7 @@ final class AppStore: ObservableObject {
         guard !loginRunning else { return }
         loginFailure = nil
         guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
-            loginLog = "The bundled Crok runtime is missing. Reinstall Crok Desktop."; loginFailure = loginLog; return
+            loginLog = L10n.t("accounts_runtime_missing", "The bundled Crok runtime is missing. Reinstall Crok Desktop."); loginFailure = loginLog; return
         }
         let process = Process(); process.executableURL = URL(fileURLWithPath: binaryPath)
         process.currentDirectoryURL = URL(fileURLWithPath: project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path, isDirectory: true)
@@ -1371,7 +1371,7 @@ final class AppStore: ObservableObject {
     static func loginFailureText(_ log: String) -> String {
         let line = log.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty } ?? ""
         let text = line.hasPrefix("Error: ") ? String(line.dropFirst(7)) : line
-        return text.isEmpty ? "Sign-in did not finish." : text
+        return text.isEmpty ? L10n.t("accounts_sign_in_unfinished", "Sign-in did not finish.") : text
     }
     /// Removes one saved sign-in with `crok logout <provider>`. Keys set in the environment are not touched.
     func logout(provider: String) {
