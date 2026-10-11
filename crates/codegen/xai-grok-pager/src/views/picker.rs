@@ -168,7 +168,11 @@ pub fn compute_scroll_offset(
     }
 }
 
-const SEARCH_BAR_LABEL: &str = " search: ";
+/// The prompt before the query in a search bar, in the interface language.
+fn search_bar_label() -> &'static str {
+    xai_grok_i18n::tr("picker.search_label", " search: ")
+}
+
 const SEARCH_BAR_TRAILING_GAP: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,7 +193,8 @@ impl SearchBarLayout {
 }
 
 pub fn search_bar_layout(width: u16, trailing_width: u16) -> SearchBarLayout {
-    let label_width = (SEARCH_BAR_LABEL.len() as u16).min(width);
+    // Columns, not bytes: the prompt is not ASCII in every language
+    let label_width = (search_bar_label().width() as u16).min(width);
     let available_input = width - label_width;
     let trailing_reserved = if trailing_width > 0
         && available_input
@@ -234,7 +239,7 @@ pub fn render_search_bar(
         y,
         width,
         theme,
-        SEARCH_BAR_LABEL,
+        search_bar_label(),
         query,
         active,
         show_hint,
@@ -262,7 +267,7 @@ pub fn render_search_bar_with_viewport(
         y,
         layout.render_width,
         theme,
-        SEARCH_BAR_LABEL,
+        search_bar_label(),
         query,
         active,
         show_hint,
@@ -305,7 +310,7 @@ pub(crate) fn render_line_editor_search_bar(
         y,
         width,
         theme,
-        SEARCH_BAR_LABEL,
+        search_bar_label(),
         editor,
         active,
         show_hint,
@@ -353,7 +358,7 @@ fn render_line_editor_search_bar_with_label(
     show_hint: bool,
     bg: Option<ratatui::style::Color>,
 ) {
-    let input_width = width.saturating_sub(label.len() as u16) as usize;
+    let input_width = width.saturating_sub(label.width() as u16) as usize;
     let viewport = editor.viewport(input_width);
     render_search_bar_with_label_viewport(
         buf,
@@ -430,7 +435,7 @@ fn render_search_bar_with_label_viewport(
     let always_active = !active && !show_hint;
 
     if active || !query.is_empty() || always_active {
-        let label_w = label.len() as u16;
+        let label_w = label.width() as u16;
         buf.set_line(
             x,
             y,
@@ -509,7 +514,7 @@ fn render_search_bar_with_label_viewport(
             x,
             y,
             &Line::from(Span::styled(
-                " / to search",
+                xai_grok_i18n::tr("picker.search_hint", " / to search"),
                 bg_style(Style::default().fg(theme.gray_dim)),
             )),
             width,
@@ -3296,7 +3301,7 @@ mod tests {
         let theme = Theme::current();
         for counter in ["no matches", "bad pattern", "12/34"] {
             let counter_width = counter.width() as u16;
-            let width = SEARCH_BAR_LABEL.len() as u16 + counter_width + SEARCH_BAR_TRAILING_GAP;
+            let width = search_bar_label().width() as u16 + counter_width + SEARCH_BAR_TRAILING_GAP;
             let layout = search_bar_layout(width, counter_width);
             assert_eq!(
                 layout.trailing_width(),
