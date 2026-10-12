@@ -477,7 +477,7 @@ enum L10n {
         "followup_steer_detail": "加入正在进行的回合。",
         // Transcript notices
         "cache_miss_model": "提示缓存：模型与上一次请求相比有变化。",
-        "cache_miss_system": "提示缓存：系统提示词与上一次请求相比有变化。",
+        "cache_miss_system": "提示缓存：系统提示与上一次请求相比有变化。",
         "cache_miss_tools": "提示缓存：工具列表与上一次请求相比有变化。",
         "cache_miss_messages": "提示缓存：较早的消息与上一次请求相比有变化。",
         "cache_miss_tokens": "{change}变化之后约有 {tokens} 个输入 token 未从缓存读取。",
@@ -917,10 +917,10 @@ enum L10n {
         "followup_queue_detail": "Envoyé quand Crok a terminé.",
         "followup_steer_detail": "Ajouté au tour en cours.",
         // Transcript notices
-        "cache_miss_model": "Cache de prompts : le modèle a changé depuis la requête précédente.",
-        "cache_miss_system": "Cache de prompts : le prompt système a changé depuis la requête précédente.",
-        "cache_miss_tools": "Cache de prompts : la liste des outils a changé depuis la requête précédente.",
-        "cache_miss_messages": "Cache de prompts : des messages antérieurs ont changé depuis la requête précédente.",
+        "cache_miss_model": "Cache des invites : le modèle a changé depuis la requête précédente.",
+        "cache_miss_system": "Cache des invites : l'invite système a changé depuis la requête précédente.",
+        "cache_miss_tools": "Cache des invites : la liste des outils a changé depuis la requête précédente.",
+        "cache_miss_messages": "Cache des invites : des messages antérieurs ont changé depuis la requête précédente.",
         "cache_miss_tokens": "{change} Environ {tokens} tokens d'entrée situés après le changement n'ont pas été lus depuis le cache.",
     ]
 
@@ -1065,7 +1065,7 @@ enum L10n {
         "followup_steer_detail": "Wird dem laufenden Zug hinzugefügt.",
         // Transcript notices
         "cache_miss_model": "Prompt-Cache: Das Modell hat sich seit der vorherigen Anfrage geändert.",
-        "cache_miss_system": "Prompt-Cache: Der System-Prompt hat sich seit der vorherigen Anfrage geändert.",
+        "cache_miss_system": "Prompt-Cache: Der Systemprompt hat sich seit der vorherigen Anfrage geändert.",
         "cache_miss_tools": "Prompt-Cache: Die Tool-Liste hat sich seit der vorherigen Anfrage geändert.",
         "cache_miss_messages": "Prompt-Cache: Frühere Nachrichten haben sich seit der vorherigen Anfrage geändert.",
         "cache_miss_tokens": "{change} Etwa {tokens} Eingabe-Tokens nach der Änderung wurden nicht aus dem Cache gelesen.",
