@@ -8,6 +8,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 use crate::render::line_utils::truncate_line;
 use crate::theme::Theme;
@@ -29,7 +30,7 @@ const MORE_INDENT: &str = "   ";
 /// starts in. The header spends three columns on its chevron and the queue pane
 /// already insets its own content by two, so the dock adds the last one.
 const QUEUE_BODY_INDENT: u16 = 1;
-const STOP_LABEL: &str = "[stop]";
+const STOP_LABEL: &str = tlm("[stop]");
 
 /// Seeded at startup and on `x.ai/settings/update` from Feature::Dock.
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -97,11 +98,11 @@ impl Section {
 
     fn label(self) -> &'static str {
         match self {
-            Section::Workflows => "Workflows",
-            Section::Subagents => "Subagents",
-            Section::Tasks => "Tasks",
-            Section::Watchers => "Watchers",
-            Section::Queued => "Queued",
+            Section::Workflows => tl("Workflows"),
+            Section::Subagents => tl("Subagents"),
+            Section::Tasks => tl("Tasks"),
+            Section::Watchers => tl("Watchers"),
+            Section::Queued => tl("Queued"),
         }
     }
 
@@ -112,7 +113,7 @@ impl Section {
             | Section::Subagents
             | Section::Tasks
             | Section::Watchers
-            | Section::Queued => STOP_LABEL,
+            | Section::Queued => tl(STOP_LABEL),
         }
     }
 }
@@ -325,8 +326,9 @@ pub fn render(buf: &mut Buffer, area: Rect, theme: &Theme, data: &DockData) {
                 let indent_len = MORE_INDENT.len().min(area.width.saturating_sub(1) as usize);
                 let line = Line::from(Span::styled(
                     format!(
-                        "{}{arrow} show {hidden} more",
-                        MORE_INDENT.get(..indent_len).unwrap_or(MORE_INDENT)
+                        "{}{arrow} {}",
+                        MORE_INDENT.get(..indent_len).unwrap_or(MORE_INDENT),
+                        tlf("show {count} more", &[("count", &hidden)])
                     ),
                     Style::default().fg(theme.gray),
                 ));

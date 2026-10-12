@@ -11,6 +11,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
+use xai_grok_i18n::{tl, tlf};
 
 use crate::views::drag_select::{
     TextDrag, TextEndpoint, endpoint_at, endpoint_at_clamped, paint_text_drag, text_for_drag,
@@ -46,9 +47,9 @@ impl UsageInfoTab {
 
     pub fn label(self) -> &'static str {
         match self {
-            UsageInfoTab::ContextUsage => "Context usage",
-            UsageInfoTab::UsageLimit => "Usage limit",
-            UsageInfoTab::SessionInfo => "Session info",
+            UsageInfoTab::ContextUsage => tl("Context usage"),
+            UsageInfoTab::UsageLimit => tl("Usage limit"),
+            UsageInfoTab::SessionInfo => tl("Session info"),
         }
     }
 
@@ -230,7 +231,7 @@ impl UsageInfoModalState {
         Some(
             fields
                 .iter()
-                .map(|f| format!("{}: {}", f.label, f.value))
+                .map(|f| format!("{}: {}", tl(f.label), f.value))
                 .collect::<Vec<_>>()
                 .join("\n"),
         )
@@ -547,19 +548,19 @@ pub fn render_usage_modal(
 
     let mut shortcuts: Vec<Shortcut> = vec![
         Shortcut {
-            label: "Tab switch",
+            label: tl("Tab switch"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "\u{2191}/\u{2193} scroll",
+            label: tl("↑/↓ scroll"),
             clickable: false,
             id: 0,
         },
     ];
     if state.ctx.session_id.is_some() {
         shortcuts.push(Shortcut {
-            label: "c copy session ID",
+            label: tl("c copy session ID"),
             clickable: true,
             id: COPY_SESSION_ID_SHORTCUT,
         });
@@ -568,13 +569,13 @@ pub fn render_usage_modal(
         && state.session_fields.as_ref().is_some_and(|f| !f.is_empty())
     {
         shortcuts.push(Shortcut {
-            label: "y copy all",
+            label: tl("y copy all"),
             clickable: true,
             id: COPY_ALL_SESSION_INFO_SHORTCUT,
         });
     }
     shortcuts.push(Shortcut {
-        label: "Esc close",
+        label: tl("Esc close"),
         clickable: false,
         id: 0,
     });
@@ -738,16 +739,16 @@ fn context_tab_lines(state: &UsageInfoModalState, theme: &Theme, width: u16) -> 
     if let Some(error) = &state.context_error {
         return vec![muted_line(
             theme,
-            format!("Couldn't load context usage: {error}"),
+            tlf("Couldn't load context usage: {error}", &[("error", &error)]),
         )];
     }
     if let Some(block) = &state.context {
         return block.lines_for_width(theme, width);
     }
     if state.ctx.session_id.is_none() {
-        return vec![muted_line(theme, "No active session.")];
+        return vec![muted_line(theme, tl("No active session."))];
     }
-    vec![muted_line(theme, "Loading context usage\u{2026}")]
+    vec![muted_line(theme, tl("Loading context usage…"))]
 }
 
 /// Account allowance followed by this session's token/cost totals.
@@ -761,17 +762,26 @@ fn usage_limit_lines(
     if state.ctx.chat_kind {
         // Gateway chat sessions have no Build coding credits to show.
     } else if !state.ctx.usage_visible {
-        lines.push(muted_line(theme, "Usage limits are managed by your team."));
+        lines.push(muted_line(
+            theme,
+            tl("Usage limits are managed by your team."),
+        ));
     } else if let Some(url) = &state.ctx.billing_redirect_url {
-        lines.push(plain(theme, format!("Please check your usage on {url}")));
+        lines.push(plain(
+            theme,
+            tlf("Please check your usage on {url}", &[("url", &url)]),
+        ));
     } else if let Some(bal) = balance {
         lines.extend(allowance_lines(state, bal, theme));
     } else if let Some(error) = &state.billing_error {
-        lines.push(muted_line(theme, format!("Couldn't load usage: {error}")));
+        lines.push(muted_line(
+            theme,
+            tlf("Couldn't load usage: {error}", &[("error", &error)]),
+        ));
     } else if state.billing_loading {
-        lines.push(muted_line(theme, "Loading usage\u{2026}"));
+        lines.push(muted_line(theme, tl("Loading usage…")));
     } else {
-        lines.push(muted_line(theme, "No billing data available."));
+        lines.push(muted_line(theme, tl("No billing data available.")));
     }
 
     if let Some(usage_text) = &state.session_usage_text {
@@ -789,7 +799,7 @@ fn usage_limit_lines(
         if !lines.is_empty() {
             lines.push(Line::default());
         }
-        lines.push(muted_line(theme, "Loading session usage\u{2026}"));
+        lines.push(muted_line(theme, tl("Loading session usage…")));
     }
     lines
 }
@@ -829,7 +839,10 @@ fn allowance_lines(
     ]));
 
     if let Some(reset) = &bal.period_end_display {
-        lines.push(muted_line(theme, format!("Resets: {reset}")));
+        lines.push(muted_line(
+            theme,
+            tlf("Resets: {date}", &[("date", &reset)]),
+        ));
     }
 
     // Prepaid credits (stored as negative cents, an accounting convention)
@@ -837,7 +850,10 @@ fn allowance_lines(
         lines.push(Line::default());
         lines.push(plain(
             theme,
-            format!("Credits: ${:.2}", prepaid as f64 / 100.0),
+            tlf(
+                "Credits: {amount}",
+                &[("amount", &format!("${:.2}", prepaid as f64 / 100.0))],
+            ),
         ));
     }
 
@@ -846,10 +862,19 @@ fn allowance_lines(
         let used = bal.on_demand_used_cents.unwrap_or(0).abs() as f64 / 100.0;
         let cap = bal.on_demand_cap_cents.unwrap_or(0).abs() as f64 / 100.0;
         lines.push(Line::default());
-        lines.push(Line::styled("Pay as you go: Enabled", header_style(theme)));
+        lines.push(Line::styled(
+            tl("Pay as you go: Enabled"),
+            header_style(theme),
+        ));
         lines.push(muted_line(
             theme,
-            format!("Usage: ${used:.2} / ${cap:.2} per month"),
+            tlf(
+                "Usage: {used} / {cap} per month",
+                &[
+                    ("used", &format!("${used:.2}")),
+                    ("cap", &format!("${cap:.2}")),
+                ],
+            ),
         ));
     }
     lines
@@ -859,20 +884,20 @@ fn session_info_content(state: &UsageInfoModalState, theme: &Theme) -> TabConten
     if let Some(error) = &state.session_error {
         return TabContent::from_lines(vec![muted_line(
             theme,
-            format!("Couldn't load session info: {error}"),
+            tlf("Couldn't load session info: {error}", &[("error", &error)]),
         )]);
     }
     let Some(fields) = state.session_fields.as_ref().filter(|f| !f.is_empty()) else {
         if state.ctx.session_id.is_none() {
-            return TabContent::from_lines(vec![muted_line(theme, "No active session.")]);
+            return TabContent::from_lines(vec![muted_line(theme, tl("No active session."))]);
         }
-        return TabContent::from_lines(vec![muted_line(theme, "Loading session info\u{2026}")]);
+        return TabContent::from_lines(vec![muted_line(theme, tl("Loading session info…"))]);
     };
 
     let mut lines = vec![Line::from(vec![
-        Span::styled("Session info", header_style(theme)),
+        Span::styled(tl("Session info"), header_style(theme)),
         Span::styled(
-            "   click or drag to copy",
+            format!("   {}", tl("click or drag to copy")),
             Style::default().fg(theme.gray_dim),
         ),
     ])];
@@ -880,6 +905,8 @@ fn session_info_content(state: &UsageInfoModalState, theme: &Theme) -> TabConten
     let mut prev_compact = false;
     for field in fields {
         let compact = field.compact;
+        // The rows are kept while the modal is open and hold English labels; read them in the interface language here
+        let label = tl(field.label);
         if !(compact && prev_compact) {
             lines.push(Line::default());
         }
@@ -892,18 +919,15 @@ fn session_info_content(state: &UsageInfoModalState, theme: &Theme) -> TabConten
                 theme.muted()
             };
             lines.push(Line::from(vec![
-                Span::styled(format!("{}: ", field.label), label_style),
+                Span::styled(format!("{label}: "), label_style),
                 Span::styled(field.value.clone(), copy_value_style(theme, hovered)),
             ]));
             copy_targets.push(CopyTarget {
                 line_idx: value_idx,
-                value: format!("{}: {}", field.label, field.value),
+                value: format!("{label}: {}", field.value),
             });
         } else {
-            lines.push(Line::from(Span::styled(
-                format!("{}:", field.label),
-                theme.muted(),
-            )));
+            lines.push(Line::from(Span::styled(format!("{label}:"), theme.muted())));
             let value_idx = lines.len();
             let hovered = state.hovered_copy_line == Some(value_idx);
             lines.push(Line::from(Span::styled(

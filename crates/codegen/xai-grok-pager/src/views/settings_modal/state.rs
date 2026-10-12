@@ -288,7 +288,7 @@ impl SettingsModalState {
     /// The expanded-row text: a lock reason replaces the description.
     pub fn detail_text(&self, key: SettingKey, meta: &SettingMeta) -> &'static str {
         self.row_lock(key)
-            .map_or(meta.description, CodingDataSharingLock::reason)
+            .map_or(meta.display_description(), CodingDataSharingLock::reason)
     }
 
     /// The currently-focused setting row, if any.
@@ -632,11 +632,7 @@ impl SettingsModalState {
                     *supports_preview,
                     effective_enum_choices(key, choices, &self.pager_snapshot)
                         .into_iter()
-                        .map(|c| OwnedEnumChoice {
-                            canonical: c.canonical.to_string(),
-                            display: c.display.to_string(),
-                            description: c.description.to_string(),
-                        })
+                        .map(|c| c.localized(meta.key))
                         .collect(),
                 ),
                 SettingKind::DynamicEnum {
@@ -1099,9 +1095,15 @@ pub(super) fn validate_string(
         StringValidator::Any => None,
         StringValidator::NonEmptyToken => {
             if buffer.is_empty() {
-                Some("Value cannot be empty".to_string())
+                Some(xai_grok_i18n::tr("settings.error.empty", "Value cannot be empty").to_string())
             } else if buffer.chars().any(|c| c.is_whitespace()) {
-                Some("Value cannot contain whitespace".to_string())
+                Some(
+                    xai_grok_i18n::tr(
+                        "settings.error.whitespace",
+                        "Value cannot contain whitespace",
+                    )
+                    .to_string(),
+                )
             } else {
                 None
             }
@@ -1113,7 +1115,13 @@ pub(super) fn validate_string(
             }
             // Reject if the model catalog hasn't loaded yet.
             if available_models.is_empty() {
-                return Some("Model catalog still loading, try again".to_string());
+                return Some(
+                    xai_grok_i18n::tr(
+                        "settings.error.catalog_loading",
+                        "Model catalog still loading, try again",
+                    )
+                    .to_string(),
+                );
             }
             let matched = available_models
                 .iter()
@@ -1121,7 +1129,10 @@ pub(super) fn validate_string(
             if matched {
                 None
             } else {
-                Some(format!("Unknown model: \"{buffer}\""))
+                Some(
+                    xai_grok_i18n::tr("settings.error.unknown_model", "Unknown model: \"{model}\"")
+                        .replace("{model}", buffer),
+                )
             }
         }
     }

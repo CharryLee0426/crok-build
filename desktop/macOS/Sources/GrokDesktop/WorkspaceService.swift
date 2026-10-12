@@ -11,6 +11,9 @@ struct GitFileChange: Identifiable, Equatable, Sendable {
 }
 
 struct GitWorkspaceSnapshot: Equatable, Sendable {
+    /// The `branch` of a project outside Git. Views translate it; the data keeps the one spelling.
+    static let noRepository = "No repository"
+
     let branch: String
     let changes: [GitFileChange]
     let rootPath: String?
@@ -150,7 +153,7 @@ struct WorkspaceService: Sendable {
     private static func inspectSynchronously(path: String) -> GitWorkspaceSnapshot {
         let rootResult = repositoryRoot(at: path)
         guard rootResult.code == 0 else {
-            return GitWorkspaceSnapshot(branch: "No repository", changes: [], error: rootResult.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            return GitWorkspaceSnapshot(branch: GitWorkspaceSnapshot.noRepository, changes: [], error: rootResult.text.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         let root = rootResult.text.trimmingCharacters(in: .newlines)
         let symbolicBranch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], at: root)

@@ -293,8 +293,22 @@ impl SessionActor {
                 input_tokens,
                 cache_read_input_tokens,
                 cache_creation_input_tokens,
+                cache_miss,
                 ..
             } => {
+                if let Some(miss) = cache_miss {
+                    xai_grok_telemetry::unified_log::warn(
+                        "shell.turn.prompt_cache_miss",
+                        Some(self.session_info.id.0.as_ref()),
+                        Some(serde_json::json!({
+                            "changed": miss.changed.as_ref(),
+                            "missed_input_tokens": miss.missed_input_tokens,
+                            "cache_read_input_tokens": cache_read_input_tokens,
+                            "cache_creation_input_tokens": cache_creation_input_tokens,
+                            "model": model,
+                        })),
+                    );
+                }
                 // Ride the buffered chunk rail (the same FIFO `event_tx` as `send_update`) so this lands ahead of the response's first agent chunk
                 // That lets partial framing in headless mode emit the real `message_start` id and input usage in order
                 self.send_buffered_xai_update(XaiSessionUpdate::ResponseStarted {
@@ -303,6 +317,7 @@ impl SessionActor {
                     input_tokens,
                     cache_read_input_tokens,
                     cache_creation_input_tokens,
+                    cache_miss,
                 })
                 .await;
             }

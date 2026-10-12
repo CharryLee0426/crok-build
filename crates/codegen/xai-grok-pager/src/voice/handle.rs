@@ -2,17 +2,18 @@
 
 use std::ops::Range;
 
+use xai_grok_i18n::{tlf, tlm};
 use xai_grok_voice::{TaggedVoiceEvent, VoiceEvent};
 
 use crate::app::app_view::{AppView, VoiceTarget};
 use crate::views::prompt_widget::PromptWidget;
 
 /// Esc on a stopped or uploading clip: nothing else on screen shows what the key did.
-pub(crate) const RECORDING_DISCARDED_TOAST: &str = "Voice: recording discarded";
+pub(crate) const RECORDING_DISCARDED_TOAST: &str = tlm("Voice: recording discarded");
 pub(crate) const TRANSCRIPTION_TIMED_OUT_TOAST: &str =
-    "Voice: transcription timed out; recording discarded";
+    tlm("Voice: transcription timed out; recording discarded");
 pub(crate) const TRANSCRIPTION_TIMED_OUT_KEPT_TOAST: &str =
-    "Voice: transcription timed out; the words shown so far were kept";
+    tlm("Voice: transcription timed out; the words shown so far were kept");
 
 /// Whether a draft counts as blank for voice insertion: an empty or whitespace-only draft is
 /// replaced wholesale rather than dictated into. Shared by the insert, submit-merge, and ghost
@@ -243,7 +244,7 @@ pub fn handle_voice_event(app: &mut AppView, event: VoiceEvent) -> bool {
             true
         }
         VoiceEvent::Notice { message } => {
-            app.show_toast(&format!("Voice: {message}"));
+            app.show_toast(&tlf("Voice: {message}", &[("message", &message)]));
             true
         }
         VoiceEvent::UtteranceFinal { text } => {
@@ -265,7 +266,7 @@ pub fn handle_voice_event(app: &mut AppView, event: VoiceEvent) -> bool {
                 let _ = commit_interim_into_prompt(app);
             }
             app.voice_reset();
-            app.show_toast(&format!("Voice: {message}"));
+            app.show_toast(&tlf("Voice: {message}", &[("message", &message)]));
             // The hint holds long fix steps, so it goes to the agent or peek scrollback; a toast is one line, and dashboard dispatch has no scrollback
             if let Some(hint) = hint
                 && let Some(VoiceTarget::Agent(id) | VoiceTarget::DashboardPeekReply(id)) = target
@@ -273,8 +274,9 @@ pub fn handle_voice_event(app: &mut AppView, event: VoiceEvent) -> bool {
             {
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                        "Voice: {message}. {hint}"
+                    .push_block(crate::scrollback::block::RenderBlock::system(tlf(
+                        "Voice: {message}. {hint}",
+                        &[("message", &message), ("hint", &hint)],
                     )));
             }
             true

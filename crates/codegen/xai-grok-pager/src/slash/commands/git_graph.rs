@@ -7,6 +7,7 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::slash::{ModeSupport, Remedy};
+use xai_grok_i18n::tlm;
 
 /// Open the commit graph for the current session's repository.
 pub struct GitGraphCommand;
@@ -15,10 +16,10 @@ impl SlashCommand for GitGraphCommand {
     slash_meta! {
         name: "git-graph",
         aliases: ["graph", "gitgraph"],
-        description: "Browse the commit graph: branches, merges, and history",
+        description: tlm("Browse the commit graph: branches, merges, and history"),
         usage: "/git-graph",
         mode_support: ModeSupport::FullscreenOnly(Remedy::SwitchMode {
-            why: "the git graph needs the full screen",
+            why: tlm("the git graph needs the full screen"),
         }),
     }
 

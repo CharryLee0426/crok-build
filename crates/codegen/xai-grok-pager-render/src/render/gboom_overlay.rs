@@ -7,8 +7,10 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Widget};
+use unicode_width::UnicodeWidthStr;
 
 use xai_grok_gboom::GboomHud;
+use xai_grok_i18n::tl;
 
 use crate::render::safe_buf::SafeBuf;
 
@@ -84,11 +86,14 @@ fn render_hud_bar(buf: &mut Buffer, popup_rect: Rect, hud: &GboomHud, dim_fg: Co
         Color::Rgb(r, g, b)
     };
     let stats = format!(
-        " HP {:<3} \u{00b7} KILLS {}/{} ",
-        hud.hp, hud.kills, hud.total
+        " HP {:<3} \u{00b7} {} {}/{} ",
+        hud.hp,
+        tl("KILLS"),
+        hud.kills,
+        hud.total
     );
-    // `chars().count()` not `len()`: the separator is multi-byte UTF-8 but every char here is a single display cell
-    let stats_w = (stats.chars().count() as u16).min(inner_width as u16);
+    // Display width, not `len()`: the separator is multi-byte UTF-8 and a translated label can be double-width
+    let stats_w = (stats.width() as u16).min(inner_width as u16);
     let line = Line::from(vec![Span::styled(
         stats,
         Style::default()
@@ -99,11 +104,16 @@ fn render_hud_bar(buf: &mut Buffer, popup_rect: Rect, hud: &GboomHud, dim_fg: Co
     buf.set_line_safe(popup_rect.x + 1, bar_y, &line, stats_w);
 
     let hint = if hud.playing {
-        " WASD/\u{2190}\u{2192} move \u{00b7} SPACE fire \u{00b7} ESC quit "
+        format!(
+            " WASD/\u{2190}\u{2192} {} \u{00b7} SPACE {} \u{00b7} ESC {} ",
+            tl("move"),
+            tl("fire"),
+            tl("quit")
+        )
     } else {
-        " ESC quit "
+        format!(" ESC {} ", tl("quit"))
     };
-    let hint_w = hint.chars().count() as u16;
+    let hint_w = hint.width() as u16;
     if (stats_w + hint_w) as usize <= inner_width {
         let hx = popup_rect.x + 1 + inner_width as u16 - hint_w;
         buf.set_span_safe(

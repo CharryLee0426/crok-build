@@ -1,6 +1,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
+use xai_grok_i18n::{tl, tlf, tlm};
 
 use crate::render::SafeBuf;
 use crate::theme::Theme;
@@ -50,6 +51,17 @@ pub struct WorkflowRunSnapshot {
     pub received_at: std::time::Instant,
     pub pause_message: Option<String>,
     pub result_summary: Option<String>,
+}
+
+/// A run's status as shown: the id the harness sends (`user_paused`) with spaces for its underscores.
+/// The catalog names each known status under `workflow.status.<id>`, since words like "active" and
+/// "complete" mean something else on other screens; a status it does not know shows as sent.
+pub(crate) fn status_words(status: &str) -> String {
+    let words = status.replace('_', " ");
+    match xai_grok_i18n::translation_of(&format!("workflow.status.{status}"), &words) {
+        Some(shown) => shown.to_string(),
+        None => words,
+    }
 }
 
 impl WorkflowRunSnapshot {
@@ -105,17 +117,16 @@ impl WorkflowRunSnapshot {
                 .filter(|p| !p.is_empty());
             let agents = match self.active_agent_count() {
                 0 => None,
-                1 => Some("1 agent".to_owned()),
-                n => Some(format!("{n} agents")),
+                n => Some(agent_count(n)),
             };
             match (phase, agents) {
                 (Some(p), Some(a)) => format!("{p} · {a}"),
                 (Some(p), None) => p.to_owned(),
                 (None, Some(a)) => a,
-                (None, None) => "running".to_owned(),
+                (None, None) => tl("running").to_owned(),
             }
         } else {
-            self.status.replace('_', " ")
+            status_words(&self.status)
         }
     }
 
@@ -200,66 +211,66 @@ pub fn footer_shortcuts(
     let mut s = Vec::new();
     if in_detail {
         s.push(Shortcut {
-            label: "↑↓ phase · enter agent",
+            label: tl("↑↓ phase · enter agent"),
             clickable: false,
             id: 0,
         });
         if has_run_list {
             s.push(Shortcut {
-                label: "←/tab runs",
+                label: tl("←/tab runs"),
                 clickable: true,
                 id: shortcut_ids::RUNS,
             });
         }
         if run.is_some_and(WorkflowRunSnapshot::can_pause) {
             s.push(Shortcut {
-                label: "p pause",
+                label: tl("p pause"),
                 clickable: true,
                 id: shortcut_ids::PAUSE,
             });
         }
         if run.is_some_and(WorkflowRunSnapshot::can_resume) {
             s.push(Shortcut {
-                label: "r resume",
+                label: tl("r resume"),
                 clickable: true,
                 id: shortcut_ids::RESUME,
             });
         }
         if run.is_some_and(WorkflowRunSnapshot::can_stop) {
             s.push(Shortcut {
-                label: "x stop",
+                label: tl("x stop"),
                 clickable: true,
                 id: shortcut_ids::STOP,
             });
         }
         if run.is_some_and(WorkflowRunSnapshot::can_save) {
             s.push(Shortcut {
-                label: "s save",
+                label: tl("s save"),
                 clickable: true,
                 id: shortcut_ids::SAVE,
             });
         }
     } else {
         s.push(Shortcut {
-            label: "↑↓ select",
+            label: tl("↑↓ select"),
             clickable: false,
             id: 0,
         });
         s.push(Shortcut {
-            label: "enter open",
+            label: tl("enter open"),
             clickable: true,
             id: shortcut_ids::OPEN,
         });
         if run.is_some_and(WorkflowRunSnapshot::can_stop) {
             s.push(Shortcut {
-                label: "x stop",
+                label: tl("x stop"),
                 clickable: true,
                 id: shortcut_ids::STOP,
             });
         }
     }
     s.push(Shortcut {
-        label: "esc close",
+        label: tl("esc close"),
         clickable: false,
         id: 0,
     });
@@ -478,7 +489,8 @@ pub fn phase_rail(run: &WorkflowRunSnapshot) -> Vec<(String, String)> {
         phases.push((current.to_owned(), state.to_owned()));
     }
     if phases.is_empty() {
-        phases.push(("All agents".to_owned(), "active".to_owned()));
+        // The title doubles as the rail entry's identity (selection, click hits), so it stays English here; it is translated where it is drawn
+        phases.push((tlm("All agents").to_owned(), "active".to_owned()));
     }
     phases
 }
@@ -528,11 +540,11 @@ fn agent_glyph_and_style(state: &str, theme: &Theme) -> (&'static str, Style) {
     }
 }
 
-fn plural(n: usize, noun: &str) -> String {
+fn agent_count(n: usize) -> String {
     if n == 1 {
-        format!("{n} {noun}")
+        tlf("{count} agent", &[("count", &n)])
     } else {
-        format!("{n} {noun}s")
+        tlf("{count} agents", &[("count", &n)])
     }
 }
 
@@ -564,7 +576,7 @@ pub fn render_workflows(
     let (shortcuts, sizing) = modal_config(in_detail, has_run_list, selected_run);
     let config = ModalWindowConfig {
         // "Workflow Runs", not "Workflows": that name belongs to the extensions-modal catalog tab
-        title: "Workflow Runs",
+        title: tl("Workflow Runs"),
         tabs: None,
         shortcuts: &shortcuts,
         sizing,
@@ -593,7 +605,7 @@ fn render_list(
             buf,
             inner.x + 1,
             y + 1,
-            "No workflow runs in this session yet.",
+            tl("No workflow runs in this session yet."),
             Style::default().fg(theme.gray_bright),
             inner.right(),
         );
@@ -601,7 +613,7 @@ fn render_list(
             buf,
             inner.x + 1,
             y + 3,
-            "Start one with /deep-research <query> or ask for a workflow.",
+            tl("Start one with /deep-research <query> or ask for a workflow."),
             Style::default().fg(theme.gray),
             inner.right(),
         );
@@ -623,14 +635,18 @@ fn render_list(
         }
         let (glyph, glyph_style) = status_glyph_and_style(&run.status, theme);
         let done_phases = run.phases.iter().filter(|(_, s)| s == "done").count();
+        let total_phases = run.phases.len();
         let phase_part = if run.phases.is_empty() {
             run.status.clone()
+        } else if total_phases == 1 {
+            tlf(
+                "{done}/{total} phase",
+                &[("done", &done_phases), ("total", &total_phases)],
+            )
         } else {
-            format!(
-                "{}/{} phase{}",
-                done_phases,
-                run.phases.len(),
-                if run.phases.len() == 1 { "" } else { "s" }
+            tlf(
+                "{done}/{total} phases",
+                &[("done", &done_phases), ("total", &total_phases)],
             )
         };
         let meta = format!("{phase_part} · {}", format_elapsed(run.live_elapsed_ms()));
@@ -639,7 +655,7 @@ fn render_list(
             strip_control(&run.name),
             strip_control(&run.objective)
         );
-        let badge = format!("{glyph} {}", run.status.replace('_', " "));
+        let badge = format!("{glyph} {}", status_words(&run.status));
         let row = PickerRow {
             label: &label,
             right_label: &meta,
@@ -696,13 +712,19 @@ fn render_detail(
     } else {
         format!("{glyph} ")
     };
-    let meta = format!(
-        "{}/{} agent{} · {}",
-        run.done_agents(),
-        run.agents.len(),
-        if run.agents.len() == 1 { "" } else { "s" },
-        format_elapsed(run.live_elapsed_ms()),
-    );
+    let (done_agents, total_agents) = (run.done_agents(), run.agents.len());
+    let agents_part = if total_agents == 1 {
+        tlf(
+            "{done}/{total} agent",
+            &[("done", &done_agents), ("total", &total_agents)],
+        )
+    } else {
+        tlf(
+            "{done}/{total} agents",
+            &[("done", &done_agents), ("total", &total_agents)],
+        )
+    };
+    let meta = format!("{agents_part} · {}", format_elapsed(run.live_elapsed_ms()));
     let meta_w = unicode_width::UnicodeWidthStr::width(meta.as_str()) as u16;
     let meta_x = inner.right().saturating_sub(meta_w + 1);
 
@@ -749,27 +771,28 @@ fn render_detail(
     let mut body_y = inner.y + 3;
     let status_line = if run.status == "budget_limited" {
         let body = if run.agents_used >= 1_024 {
-            "budget limited: maximum agent budget reached; start a new run".to_string()
+            tl("budget limited: maximum agent budget reached; start a new run").to_string()
         } else if let Some(pause) = run.pause_message.as_deref().filter(|s| !s.is_empty()) {
             format!(
-                "budget limited: bare resume disabled; raise agent budget via agent/tool. {}",
+                "{} {}",
+                tl("budget limited: bare resume disabled; raise agent budget via agent/tool."),
                 strip_control(pause)
             )
         } else {
-            format!(
-                "budget limited: bare resume disabled; raise agent budget above {} via agent/tool",
-                run.agents_used
+            tlf(
+                "budget limited: bare resume disabled; raise agent budget above {count} via agent/tool",
+                &[("count", &run.agents_used)],
             )
         };
         Some((body, Style::default().fg(theme.warning)))
     } else if let Some(pause) = run.pause_message.as_deref() {
         Some((
-            format!("{}: {}", run.status.replace('_', " "), strip_control(pause)),
+            format!("{}: {}", status_words(&run.status), strip_control(pause)),
             Style::default().fg(theme.warning),
         ))
     } else if run.status == "failed" {
         Some((
-            "failed: see scrollback for details; r resumes from the journal".to_string(),
+            tl("failed: see scrollback for details; r resumes from the journal").to_string(),
             Style::default().fg(theme.accent_error),
         ))
     } else {
@@ -796,9 +819,18 @@ fn render_detail(
     if rail_cap == 0 {
         return;
     }
+    // Without declared phases the rail holds one stand-in entry ("All agents"): a label, unlike real phase titles, which are the workflow's own text
+    let all_agents_phase = run.phases.is_empty() && run.current_phase.is_none();
+    let shown_phase_title = |title: &str| -> String {
+        if all_agents_phase {
+            tl(title).to_owned()
+        } else {
+            title.to_owned()
+        }
+    };
     let wanted_rail_w = rail
         .iter()
-        .map(|(t, _)| unicode_width::UnicodeWidthStr::width(t.as_str()) as u16)
+        .map(|(t, _)| unicode_width::UnicodeWidthStr::width(shown_phase_title(t).as_str()) as u16)
         .max()
         .unwrap_or(8)
         .saturating_add(12);
@@ -832,7 +864,7 @@ fn render_detail(
         buf,
         rail_area.x,
         body_y,
-        "Phases",
+        tl("Phases"),
         Style::default().fg(theme.text_secondary),
         rail_area.right(),
     );
@@ -847,7 +879,6 @@ fn render_detail(
         .get(state.selected_phase)
         .map(|(title, _)| title.clone())
         .unwrap_or_default();
-    let all_agents_phase = run.phases.is_empty() && run.current_phase.is_none();
     state.ensure_phase_visible(usize::from(rail_inner.height), rail.len());
     for (idx, (title, phase_state)) in rail.iter().enumerate().skip(state.phase_viewport) {
         let y = rail_inner.y + (idx - state.phase_viewport) as u16;
@@ -921,7 +952,10 @@ fn render_detail(
             buf,
             rail_inner.x + 4,
             y,
-            &truncate_to_width(title, count_x.saturating_sub(rail_inner.x + 5) as usize),
+            &truncate_to_width(
+                &shown_phase_title(title),
+                count_x.saturating_sub(rail_inner.x + 5) as usize,
+            ),
             title_style,
             count_x,
         );
@@ -960,15 +994,15 @@ fn render_detail(
     let roster_title = if state.roster_scroll > 0 {
         format!(
             "{} · {} · ↑{}",
-            selected_phase_title,
-            plural(roster_agents.len(), "agent"),
+            shown_phase_title(&selected_phase_title),
+            agent_count(roster_agents.len()),
             state.roster_scroll,
         )
     } else {
         format!(
             "{} · {}",
-            selected_phase_title,
-            plural(roster_agents.len(), "agent")
+            shown_phase_title(&selected_phase_title),
+            agent_count(roster_agents.len())
         )
     };
     span_at(
@@ -985,7 +1019,7 @@ fn render_detail(
             buf,
             roster_inner.x,
             roster_inner.y,
-            "No agents in this phase yet.",
+            tl("No agents in this phase yet."),
             Style::default().fg(theme.gray_dim),
             roster_inner.right(),
         );
@@ -1021,10 +1055,12 @@ fn render_detail(
                 .context_tokens
                 .zip(status.context_window_tokens.filter(|&window| window > 0))
         }) {
-            meta_parts.push(format!(
-                "{} / {} context",
-                format_tokens_compact(i64::try_from(context_tokens).unwrap_or(i64::MAX)),
-                format_tokens_compact(i64::try_from(context_window_tokens).unwrap_or(i64::MAX)),
+            let used = format_tokens_compact(i64::try_from(context_tokens).unwrap_or(i64::MAX));
+            let window =
+                format_tokens_compact(i64::try_from(context_window_tokens).unwrap_or(i64::MAX));
+            meta_parts.push(tlf(
+                "{used} / {window} context",
+                &[("used", &used), ("window", &window)],
             ));
         }
         if elapsed_ms > 0 {

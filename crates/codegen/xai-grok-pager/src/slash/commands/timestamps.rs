@@ -4,15 +4,16 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 pub struct TimestampsCommand;
 
 impl SlashCommand for TimestampsCommand {
     slash_meta! {
         name: "timestamps",
-        description: "Toggle message timestamps on/off",
+        description: tlm("Toggle message timestamps on/off"),
         usage: "/timestamps",
-        arg_placeholder: "on/off",
+        arg_placeholder: tlm("on/off"),
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, _args: &str) -> CommandResult {

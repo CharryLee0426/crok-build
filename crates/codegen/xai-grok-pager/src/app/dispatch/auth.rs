@@ -11,6 +11,7 @@ use crate::app::app_view::{ActiveView, AppView, AuthMode, AuthState};
 use crate::scrollback::block::RenderBlock;
 use crate::scrollback::blocks::SessionEvent;
 use xai_grok_config::Capability;
+use xai_grok_i18n::{tl, tlf};
 
 /// `/logout`: ask the shell to clear auth, then return to the login screen.
 pub(super) fn dispatch_logout(app: &mut AppView) -> Vec<Effect> {
@@ -341,7 +342,7 @@ pub(super) fn handle_auth_complete(
                 // The user couldn't have queued another prompt during the auth detour, so a plain front-enqueue and drain is safe
                 if let Some(prompt) = agent.reauth_stashed_prompt.take() {
                     agent.scrollback.push_block(RenderBlock::system(
-                        "Re-authenticated. Retrying\u{2026}".to_string(),
+                        tl("Re-authenticated. Retrying\u{2026}").to_string(),
                     ));
                     agent.session.enqueue_in_flight_prompt_front(prompt);
                     let drain = maybe_drain_queue(agent, &mut app.pending_image_notices);
@@ -454,9 +455,10 @@ pub(super) fn handle_mcp_auth_trigger_done(
                     modal.mcp_setup = Some(form);
                 } else {
                     modal.modal_message =
-                        Some(crate::views::extensions_modal::ModalMessage::Error(
-                            format!("{server_name}: setup schema is not supported in this UI"),
-                        ));
+                        Some(crate::views::extensions_modal::ModalMessage::Error(tlf(
+                            "{server}: setup schema is not supported in this UI",
+                            &[("server", &server_name)],
+                        )));
                 }
                 return vec![];
             }
@@ -464,9 +466,12 @@ pub(super) fn handle_mcp_auth_trigger_done(
                 let msg = if e.starts_with("To authenticate") {
                     format!("{server_name}: {e}")
                 } else if e.contains(&server_name) {
-                    format!("Auth failed: {e}")
+                    tlf("Auth failed: {error}", &[("error", &e)])
                 } else {
-                    format!("{server_name} auth failed: {e}")
+                    tlf(
+                        "{server} auth failed: {error}",
+                        &[("server", &server_name), ("error", &e)],
+                    )
                 };
                 modal.modal_message =
                     Some(crate::views::extensions_modal::ModalMessage::Error(msg));
@@ -505,20 +510,25 @@ pub(super) fn handle_mcp_setup_submit_done(
         if let Err(e) = result {
             modal.pending_action = None;
             modal.pending_entry_index = None;
-            modal.modal_message = Some(crate::views::extensions_modal::ModalMessage::Error(
-                format!("{server_name} setup failed: {e}"),
-            ));
+            modal.modal_message = Some(crate::views::extensions_modal::ModalMessage::Error(tlf(
+                "{server} setup failed: {error}",
+                &[("server", &server_name), ("error", &e)],
+            )));
             return vec![];
         }
-        modal.pending_action = Some(format!("Authenticating {server_name}..."));
+        modal.pending_action = Some(tlf(
+            "Authenticating {server}...",
+            &[("server", &server_name)],
+        ));
         modal.pending_entry_index = None;
     }
     let Some(session_id) = agent.session.session_id.clone() else {
         if let Some(ref mut modal) = agent.extensions_modal {
             modal.pending_action = None;
-            modal.modal_message = Some(crate::views::extensions_modal::ModalMessage::Error(
-                format!("{server_name}: no active session for authentication"),
-            ));
+            modal.modal_message = Some(crate::views::extensions_modal::ModalMessage::Error(tlf(
+                "{server}: no active session for authentication",
+                &[("server", &server_name)],
+            )));
         }
         return vec![];
     };

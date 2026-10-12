@@ -1885,6 +1885,16 @@ impl SamplingClient {
 
         if let Some(options) = self.defaults.anthropic {
             crate::provider_compat::prepare_anthropic_request(&mut request.inner, options);
+            // A chain whose request went without the object has no response the next one could name.
+            if !crate::provider_compat::attach_cache_diagnostics(
+                &mut request.inner,
+                options,
+                request.cache_chain.as_ref(),
+            ) {
+                request.cache_chain = None;
+            }
+        } else {
+            request.cache_chain = None;
         }
 
         Ok(())
@@ -1961,9 +1971,9 @@ impl SamplingClient {
 
             let mut message = user_facing_api_error_message(status, bytes.as_ref());
             if self.defaults.anthropic.is_some()
-                && crate::provider_compat::note_anthropic_error(status, &message)
+                && let Some(note) = crate::provider_compat::note_anthropic_error(status, &message)
             {
-                message.push_str(" Crok has stopped sending that beta; send the message again.");
+                message.push_str(note);
             }
             tracing::warn!(
                 status = %status,
@@ -1992,6 +2002,14 @@ impl SamplingClient {
                 );
                 SamplingError::Serialization(e)
             })?;
+        if let Some(chain) = &request.cache_chain {
+            chain.advance(&response_obj.id);
+            // Nothing streams here, so the log is the only place the answer goes.
+            crate::provider_compat::note_cache_diagnostics(
+                response_obj.diagnostics.as_ref(),
+                u64::from(response_obj.usage.cache_read_input_tokens),
+            );
+        }
         Ok(response_obj)
     }
 
@@ -2104,9 +2122,9 @@ impl SamplingClient {
             let bytes = response.bytes().await?;
             let mut message = user_facing_api_error_message(status, bytes.as_ref());
             if self.defaults.anthropic.is_some()
-                && crate::provider_compat::note_anthropic_error(status, &message)
+                && let Some(note) = crate::provider_compat::note_anthropic_error(status, &message)
             {
-                message.push_str(" Crok has stopped sending that beta; send the message again.");
+                message.push_str(note);
             }
             span_timing.span().record(ERROR, message.as_str());
             tracing::error!(
@@ -2144,11 +2162,12 @@ impl SamplingClient {
         });
 
         let event_stream = byte_stream.eventsource();
+        let cache_chain = request.cache_chain.take();
 
         // Map SSE events into MessageStreamEvent.
         // Uses `scan` so transport errors terminate the stream after the first error (same pattern as `chat_completion_stream`)
         let events = event_stream
-            .scan(false, |had_transport_error, event_res| {
+            .scan(false, move |had_transport_error, event_res| {
                 if *had_transport_error {
                     return std::future::ready(None);
                 }
@@ -2169,18 +2188,25 @@ impl SamplingClient {
                         if let Some(stream_error) = try_parse_stream_error(data) {
                             Some(Err(stream_error))
                         } else {
-                            Some(
-                                serde_json::from_str::<messages::MessageStreamEvent>(data).map_err(
-                                    |e| {
-                                        tracing::error!(
-                                            error = %e,
-                                            raw_data = %data,
-                                            "Failed to deserialize MessageStreamEvent from stream"
-                                        );
-                                        SamplingError::Serialization(e)
-                                    },
-                                ),
-                            )
+                            let parsed = serde_json::from_str::<messages::MessageStreamEvent>(data)
+                                .map_err(|e| {
+                                    tracing::error!(
+                                        error = %e,
+                                        raw_data = %data,
+                                        "Failed to deserialize MessageStreamEvent from stream"
+                                    );
+                                    SamplingError::Serialization(e)
+                                });
+                            // The response has its id from here on, whether or not the stream then
+                            // finishes: the API already holds this request for the next one to name.
+                            if let (
+                                Some(chain),
+                                Ok(messages::MessageStreamEvent::MessageStart { message }),
+                            ) = (&cache_chain, &parsed)
+                            {
+                                chain.advance(&message.id);
+                            }
+                            Some(parsed)
                         }
                     }
                     Err(e) => {
@@ -2365,6 +2391,7 @@ impl SamplingClient {
         wrapper.x_grok_transient_retry = x_grok_transient_retry;
         wrapper.x_grok_agent_id = x_grok_agent_id;
         wrapper.traceparent = request.traceparent;
+        wrapper.cache_chain = request.cache_chain;
 
         if let Some(trace) = trace {
             wrapper.trace = Some(trace);
@@ -2397,6 +2424,7 @@ impl SamplingClient {
         wrapper.x_grok_turn_idx = x_grok_turn_idx;
         wrapper.x_grok_transient_retry = x_grok_transient_retry;
         wrapper.x_grok_agent_id = x_grok_agent_id;
+        wrapper.cache_chain = request.cache_chain;
 
         if let Some(trace) = trace {
             wrapper.trace = Some(trace);

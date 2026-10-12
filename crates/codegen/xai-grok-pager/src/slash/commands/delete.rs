@@ -2,20 +2,21 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 pub struct DeleteCommand;
 
 impl SlashCommand for DeleteCommand {
     slash_meta! {
         name: "delete",
-        description: "Delete this session",
+        description: tlm("Delete this session"),
         usage: "/delete",
         session_scoped: true,
     }
 
     fn run(&self, ctx: &mut CommandExecCtx, _args: &str) -> CommandResult {
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session to delete".into());
+            return CommandResult::Error(tl("No active session to delete").into());
         }
         CommandResult::Action(Action::DeleteCurrentSession)
     }

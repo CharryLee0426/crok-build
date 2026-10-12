@@ -34,6 +34,20 @@ pub struct MessagesRequest {
     pub output_config: Option<OutputConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
+    /// Sending the object is the opt-in, so it is only set for Anthropic's own endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<DiagnosticsParam>,
+}
+
+/// Asks the API to compare this request with an earlier one and say where the two first differ,
+/// which is where the earlier one's prompt cache stops being read.
+/// See https://platform.claude.com/docs/en/build-with-claude/cache-diagnostics.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiagnosticsParam {
+    /// The `id` of the response to the request this one continues.
+    /// `null` on a conversation's first request, and still sent: the API keeps something to compare
+    /// the next request with only for requests that carry the object.
+    pub previous_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +259,14 @@ pub struct MessagesResponse {
     /// A `thinking_dropped` entry means an earlier part of the conversation differs from what produced that block.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub input_transformations: Vec<InputTransformation>,
+    /// The answer to the request's `diagnostics`. `None` when the request did not ask, had no earlier
+    /// request to name, or matched the earlier one up to where that one ended.
+    #[serde(
+        default,
+        deserialize_with = "cache_diagnostics_or_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub diagnostics: Option<CacheDiagnostics>,
 }
 
 /// All fields optional so a new entry shape never fails the `message_start` parse.
@@ -256,6 +278,70 @@ pub struct InputTransformation {
     pub path: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
+}
+
+/// What the API found when it compared a request with the one named in its `diagnostics`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CacheDiagnostics {
+    /// `None` when the comparison was still running as the response began: nothing is known either way.
+    #[serde(default)]
+    pub cache_miss_reason: Option<CacheMissReason>,
+}
+
+/// The first place a request differs from the one before it. Later differences are not reported.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CacheMissReason {
+    #[serde(rename = "type")]
+    pub r#type: CacheMissKind,
+    /// About how many input tokens came after the difference. Estimated from byte lengths, so it is
+    /// a size, not a billed amount. Only the `*_changed` kinds carry it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_missed_input_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CacheMissKind {
+    ModelChanged,
+    SystemChanged,
+    ToolsChanged,
+    /// An earlier message was altered, reordered or removed, where the conversation should only grow.
+    MessagesChanged,
+    /// The API holds nothing for the earlier request (too old, or sent without `diagnostics`).
+    /// It says nothing about whether this request changed.
+    PreviousMessageNotFound,
+    /// No comparison was produced: another parameter that shapes the prompt differs (thinking,
+    /// `output_config`, `tool_choice`, the beta headers), or the difference lies too deep in a long conversation.
+    Unavailable,
+    /// Catch-all so a kind added later is kept as its wire string instead of being dropped.
+    /// Must stay the LAST variant: serde tries the tagged variants above first.
+    #[serde(untagged)]
+    Unknown(String),
+}
+
+impl CacheMissKind {
+    /// The verbatim wire string. `Unknown` yields its inner string unchanged.
+    pub fn wire_str(&self) -> &str {
+        match self {
+            Self::ModelChanged => "model_changed",
+            Self::SystemChanged => "system_changed",
+            Self::ToolsChanged => "tools_changed",
+            Self::MessagesChanged => "messages_changed",
+            Self::PreviousMessageNotFound => "previous_message_not_found",
+            Self::Unavailable => "unavailable",
+            Self::Unknown(kind) => kind,
+        }
+    }
+}
+
+/// The API promises that diagnostics never fail a request, and the same holds on this side: an
+/// answer in a shape this build does not know reads as no answer instead of failing the response it rides on.
+fn cache_diagnostics_or_none<'de, D>(deserializer: D) -> Result<Option<CacheDiagnostics>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -535,6 +621,93 @@ mod tests {
             Some(&serde_json::json!("redacted_thinking"))
         );
         assert_eq!(json.get("data"), Some(&serde_json::json!("abc")));
+    }
+
+    /// The first request of a conversation has no earlier response to name and must still send the
+    /// object, with an explicit `null`: leaving the key out would not opt the request in.
+    #[test]
+    fn diagnostics_param_keeps_an_explicit_null() {
+        let request = |diagnostics| {
+            serde_json::to_value(MessagesRequest {
+                diagnostics,
+                ..Default::default()
+            })
+            .unwrap()
+        };
+        assert!(request(None).get("diagnostics").is_none());
+        assert_eq!(
+            request(Some(DiagnosticsParam::default())).get("diagnostics"),
+            Some(&serde_json::json!({"previous_message_id": null}))
+        );
+        assert_eq!(
+            request(Some(DiagnosticsParam {
+                previous_message_id: Some("msg_01".into())
+            }))
+            .get("diagnostics"),
+            Some(&serde_json::json!({"previous_message_id": "msg_01"}))
+        );
+    }
+
+    /// The three values the API documents for a response's `diagnostics`, and a shape it does not:
+    /// that one reads as no answer, because failing the parse would fail the response it rides on.
+    #[test]
+    fn response_diagnostics_parse_in_every_documented_shape() {
+        let parse = |diagnostics: &str| -> Option<CacheDiagnostics> {
+            let event: MessageStreamEvent = serde_json::from_str(&format!(
+                r#"{{"type":"message_start","message":{{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"m","stop_reason":null,"usage":{{"input_tokens":1,"output_tokens":0}}{diagnostics}}}}}"#
+            ))
+            .unwrap_or_else(|e| panic!("message_start must parse with `{diagnostics}`: {e}"));
+            match event {
+                MessageStreamEvent::MessageStart { message } => message.diagnostics,
+                other => panic!("expected MessageStart, got {other:?}"),
+            }
+        };
+        assert_eq!(parse(""), None);
+        assert_eq!(parse(r#","diagnostics":null"#), None);
+        assert_eq!(
+            parse(r#","diagnostics":{"cache_miss_reason":null}"#),
+            Some(CacheDiagnostics {
+                cache_miss_reason: None
+            })
+        );
+        assert_eq!(
+            parse(
+                r#","diagnostics":{"cache_miss_reason":{"type":"system_changed","cache_missed_input_tokens":41850}}"#
+            ),
+            Some(CacheDiagnostics {
+                cache_miss_reason: Some(CacheMissReason {
+                    r#type: CacheMissKind::SystemChanged,
+                    cache_missed_input_tokens: Some(41850),
+                })
+            })
+        );
+        for (wire, kind) in [
+            ("model_changed", CacheMissKind::ModelChanged),
+            ("tools_changed", CacheMissKind::ToolsChanged),
+            ("messages_changed", CacheMissKind::MessagesChanged),
+            (
+                "previous_message_not_found",
+                CacheMissKind::PreviousMessageNotFound,
+            ),
+            ("unavailable", CacheMissKind::Unavailable),
+            (
+                "a_kind_added_later",
+                CacheMissKind::Unknown("a_kind_added_later".into()),
+            ),
+        ] {
+            let parsed = parse(&format!(
+                r#","diagnostics":{{"cache_miss_reason":{{"type":"{wire}","future_key":1}}}}"#
+            ));
+            let reason = parsed.and_then(|d| d.cache_miss_reason).expect(wire);
+            assert_eq!(reason.r#type, kind);
+            assert_eq!(reason.r#type.wire_str(), wire);
+            assert_eq!(reason.cache_missed_input_tokens, None);
+        }
+        assert_eq!(parse(r#","diagnostics":"soon""#), None);
+        assert_eq!(
+            parse(r#","diagnostics":{"cache_miss_reason":{"type":7}}"#),
+            None
+        );
     }
 
     #[test]

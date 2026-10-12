@@ -30,6 +30,7 @@ use std::path::Path;
 use agent_client_protocol as acp;
 use tokio::task::JoinSet;
 use xai_acp_lib::{AcpAgentTx, acp_send};
+use xai_grok_i18n::{tl, tlf, tlm};
 use xai_grok_telemetry::startup::{self, StartupPhase};
 use actions::{
     ClipboardPasteTarget, Effect, SubagentKillOutcome, SwitchModelError, TaskResult,
@@ -281,7 +282,7 @@ pub(crate) fn execute(
                                 .mcp_servers(mcp_servers),
                             meta,
                             &tx,
-                            "Session creation",
+                            tlm("Session creation"),
                         )
                         .await;
                     let create_elapsed_ms = create_start.elapsed().as_millis() as u64;
@@ -459,7 +460,7 @@ pub(crate) fn execute(
                                 .mcp_servers(mcp_servers),
                             meta,
                             &tx,
-                            "Worktree session creation",
+                            tlm("Worktree session creation"),
                         )
                         .await;
                     match result {
@@ -482,7 +483,7 @@ pub(crate) fn execute(
                             TaskResult::WorktreeSessionFailed {
                                 agent_id,
                                 error: sanitize_user_error(
-                                    &format!("couldn't create session in worktree: {e}"),
+                                    &tlf("couldn't create session in worktree: {error}", &[("error", &e)]),
                                 ),
                                 orphaned_worktree_root: Some(worktree_root),
                                 timed_out: e.timed_out(),
@@ -513,7 +514,7 @@ pub(crate) fn execute(
                                 .mcp_servers(mcp_servers)
                                 .meta(meta),
                             &tx,
-                            "Session loading",
+                            tlm("Session loading"),
                         )
                         .await;
                     let load_elapsed_ms = load_started.elapsed().as_millis() as u64;
@@ -934,7 +935,7 @@ pub(crate) fn execute(
                         }
                         Err(error) => {
                             TaskResult::WorkspaceSnapshotFailed {
-                                error: format!("workspace loader task failed: {error}"),
+                                error: tlf("workspace loader task failed: {error}", &[("error", &error)]),
                                 retryable: false,
                             }
                         }
@@ -1116,7 +1117,7 @@ pub(crate) fn execute(
                     else {
                         return TaskResult::SessionRestoreFailed {
                             agent_id,
-                            error: "Failed to load configuration.".into(),
+                            error: tl("Failed to load configuration.").into(),
                         };
                     };
                     let _ = auth_manager.auth().await;
@@ -1128,49 +1129,46 @@ pub(crate) fn execute(
                             Box::new(move |event| {
                                 let msg = match (event.phase, event.step) {
                                     (RestorePhase::Download, PhaseStep::Start) => {
-                                        Some("Downloading session archives...".to_string())
+                                        Some(tl("Downloading session archives...").to_string())
                                     }
                                     (RestorePhase::Download, PhaseStep::End) => {
                                         Some(
-                                            format!(
-                                "Downloads finished ({}).",
-                                format_restore_elapsed(event.elapsed),
-                            ),
+                                            tlf(
+                                                "Downloads finished ({time}).",
+                                                &[("time", &format_restore_elapsed(event.elapsed))],
+                                            ),
                                         )
                                     }
                                     (RestorePhase::Codebase, PhaseStep::Start) => {
-                                        Some("Restoring code...".to_string())
+                                        Some(tl("Restoring code...").to_string())
                                     }
                                     (RestorePhase::Codebase, PhaseStep::End) => {
                                         event
                                             .detail
                                             .as_ref()
-                                            .map(|detail| format!("Code restored ({detail})."))
+                                            .map(|detail| tlf("Code restored ({detail}).", &[("detail", &detail)]))
                                     }
                                     (RestorePhase::Memory, PhaseStep::Start) => {
-                                        Some("Restoring memory...".to_string())
+                                        Some(tl("Restoring memory...").to_string())
                                     }
                                     (RestorePhase::SessionState, PhaseStep::Start) => {
-                                        Some("Restoring session state...".to_string())
+                                        Some(tl("Restoring session state...").to_string())
                                     }
                                     (RestorePhase::SessionState, PhaseStep::End) => {
                                         event
                                             .detail
                                             .as_ref()
-                                            .map(|detail| format!("Session state restored ({detail})."))
+                                            .map(|detail| tlf("Session state restored ({detail}).", &[("detail", &detail)]))
                                     }
                                     (RestorePhase::Finalize, _) => {
-                                        let status = if event.incomplete {
-                                            "Restore incomplete"
+                                        let elapsed = crate::views::dock::fmt_elapsed(
+                                            event.elapsed.as_secs(),
+                                        );
+                                        Some(if event.incomplete {
+                                            tlf("Restore incomplete ({time}).", &[("time", &elapsed)])
                                         } else {
-                                            "Restore complete"
-                                        };
-                                        Some(
-                                            format!(
-                                    "{status} ({}).",
-                                    crate::views::dock::fmt_elapsed(event.elapsed.as_secs())
-                                ),
-                                        )
+                                            tlf("Restore complete ({time}).", &[("time", &elapsed)])
+                                        })
                                     }
                                     _ => None,
                                 };
@@ -1236,7 +1234,7 @@ pub(crate) fn execute(
                             crate::trace_view::tui::load_session(&source).map(Box::new)
                         })
                         .await
-                        .unwrap_or_else(|error| Err(format!("Reading the trace stopped: {error}")));
+                        .unwrap_or_else(|error| Err(tlf("Reading the trace stopped: {error}", &[("error", &error)])));
                     TaskResult::TraceLoaded {
                         agent_id,
                         dir,
@@ -1251,7 +1249,7 @@ pub(crate) fn execute(
                     let response = tokio::task::spawn_blocking(move || crate::git_graph::run(request))
                         .await
                         .unwrap_or_else(|error| {
-                            failed.fail(format!("Reading the repository stopped: {error}"))
+                            failed.fail(tlf("Reading the repository stopped: {error}", &[("error", &error)]))
                         });
                     TaskResult::GitGraph { agent_id, response }
                 });
@@ -2471,14 +2469,15 @@ pub(crate) fn execute(
                                 crate::views::mcps_modal::McpsListResponse,
                             >(inner.clone())
                                 .map(crate::views::mcps_modal::convert_list_response)
-                                .map_err(|_| "couldn't load server list".to_string())
+                                .map_err(|_| tl("couldn't load server list").to_string())
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "couldn't load server list: {e}"
-                    ),
+                                    &tlf(
+                                        "couldn't load server list: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -2528,7 +2527,7 @@ pub(crate) fn execute(
                                         >(value)
                                             .ok()
                                     })
-                                    .ok_or_else(|| "setup required".to_string());
+                                    .ok_or_else(|| tl("setup required").to_string());
                                 setup
                                     .map(
                                         crate::app::actions::McpAuthTriggerOutcome::SetupRequired,
@@ -2538,13 +2537,13 @@ pub(crate) fn execute(
                                     .and_then(|r| r.get("error"))
                                     .and_then(|e| e.as_str())
                                     .map(|s| s.to_string())
-                                    .unwrap_or_else(|| format!("auth status: {status}"));
+                                    .unwrap_or_else(|| tlf("auth status: {status}", &[("status", &status)]));
                                 Err(detail)
                             }
                         }
                         Err(e) => {
                             Err(
-                                sanitize_user_error(&format!("authentication failed: {e}")),
+                                sanitize_user_error(&tlf("authentication failed: {error}", &[("error", &e)])),
                             )
                         }
                     };
@@ -2588,11 +2587,11 @@ pub(crate) fn execute(
                                     .and_then(|r| r.get("error"))
                                     .and_then(|e| e.as_str())
                                     .map(|s| s.to_string())
-                                    .unwrap_or_else(|| "setup failed".to_string());
+                                    .unwrap_or_else(|| tl("setup failed").to_string());
                                 Err(detail)
                             }
                         }
-                        Err(e) => Err(sanitize_user_error(&format!("setup failed: {e}"))),
+                        Err(e) => Err(sanitize_user_error(&tlf("setup failed: {error}", &[("error", &e)]))),
                     };
                     TaskResult::McpSetupSubmitDone {
                         agent_id,
@@ -2624,11 +2623,11 @@ pub(crate) fn execute(
                             serde_json::from_value::<
                                 xai_hooks_plugins_types::HooksListResponse,
                             >(inner.clone())
-                                .map_err(|_| "couldn't load hooks".to_string())
+                                .map_err(|_| tl("couldn't load hooks").to_string())
                         }
                         Err(e) => {
                             Err(
-                                sanitize_user_error(&format!("couldn't load hooks: {e}")),
+                                sanitize_user_error(&tlf("couldn't load hooks: {error}", &[("error", &e)])),
                             )
                         }
                     };
@@ -2661,11 +2660,11 @@ pub(crate) fn execute(
                             serde_json::from_value::<
                                 xai_hooks_plugins_types::PluginsListResponse,
                             >(inner.clone())
-                                .map_err(|_| "couldn't load plugins".to_string())
+                                .map_err(|_| tl("couldn't load plugins").to_string())
                         }
                         Err(e) => {
                             Err(
-                                sanitize_user_error(&format!("couldn't load plugins: {e}")),
+                                sanitize_user_error(&tlf("couldn't load plugins: {error}", &[("error", &e)])),
                             )
                         }
                     };
@@ -2694,13 +2693,14 @@ pub(crate) fn execute(
                     let result = match acp_send(req, &tx).await {
                         Ok(resp) => {
                             serde_json::from_str::<MemoryListing>(resp.0.get())
-                                .map_err(|_| "Couldn't read the shell's reply.".to_string())
+                                .map_err(|_| tl("Couldn't read the shell's reply.").to_string())
                         }
                         Err(e) => {
                             Err(
-                                sanitize_user_error(&format!(
-                        "Couldn't load memory: {e}"
-                    )),
+                                sanitize_user_error(&tlf(
+                                    "Couldn't load memory: {error}",
+                                    &[("error", &e)],
+                                )),
                             )
                         }
                     };
@@ -2730,14 +2730,15 @@ pub(crate) fn execute(
                     let result = match acp_send(req, &tx).await {
                         Ok(resp) => {
                             serde_json::from_str::<MemoryToggleResponse>(resp.0.get())
-                                .map_err(|_| "Couldn't read the shell's reply.".to_string())
+                                .map_err(|_| tl("Couldn't read the shell's reply.").to_string())
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "Couldn't change memory state: {e}"
-                    ),
+                                    &tlf(
+                                        "Couldn't change memory state: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -2803,14 +2804,15 @@ pub(crate) fn execute(
                     let result = match acp_send(req, &tx).await {
                         Ok(resp) => {
                             serde_json::from_str::<MemoryForgetResponse>(resp.0.get())
-                                .map_err(|_| "Couldn't read the shell's reply.".to_string())
+                                .map_err(|_| tl("Couldn't read the shell's reply.").to_string())
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "Couldn't delete the note: {e}"
-                    ),
+                                    &tlf(
+                                        "Couldn't delete the note: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -2846,14 +2848,15 @@ pub(crate) fn execute(
                             serde_json::from_value::<
                                 xai_hooks_plugins_types::ActionOutcome,
                             >(inner.clone())
-                                .map_err(|_| "couldn't complete hooks action".to_string())
+                                .map_err(|_| tl("couldn't complete hooks action").to_string())
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "couldn't complete hooks action: {e}"
-                    ),
+                                    &tlf(
+                                        "couldn't complete hooks action: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -2888,14 +2891,15 @@ pub(crate) fn execute(
                             serde_json::from_value::<
                                 xai_hooks_plugins_types::ActionOutcome,
                             >(inner.clone())
-                                .map_err(|_| "couldn't complete plugins action".to_string())
+                                .map_err(|_| tl("couldn't complete plugins action").to_string())
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "couldn't complete plugins action: {e}"
-                    ),
+                                    &tlf(
+                                        "couldn't complete plugins action: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -2929,14 +2933,15 @@ pub(crate) fn execute(
                             serde_json::from_value::<
                                 xai_hooks_plugins_types::MarketplaceListResponse,
                             >(inner.clone())
-                                .map_err(|_| "couldn't load marketplace".to_string())
+                                .map_err(|_| tl("couldn't load marketplace").to_string())
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "couldn't load marketplace: {e}"
-                    ),
+                                    &tlf(
+                                        "couldn't load marketplace: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -3012,12 +3017,12 @@ pub(crate) fn execute(
                             parse_reply(resp.0.get())
                                 .map_err(|error| {
                                     tracing::warn!(%error, "skills list reply did not parse");
-                                    "couldn't load skills".to_string()
+                                    tl("couldn't load skills").to_string()
                                 })
                         }
                         Err(e) => {
                             Err(
-                                sanitize_user_error(&format!("couldn't load skills: {e}")),
+                                sanitize_user_error(&tlf("couldn't load skills: {error}", &[("error", &e)])),
                             )
                         }
                     };
@@ -3052,14 +3057,15 @@ pub(crate) fn execute(
                             serde_json::from_value::<
                                 Vec<crate::views::extensions_modal::WorkflowInfo>,
                             >(inner.get("workflows").cloned().unwrap_or_default())
-                                .map_err(|_| "couldn't load workflows".to_string())
+                                .map_err(|_| tl("couldn't load workflows").to_string())
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "couldn't load workflows: {e}"
-                    ),
+                                    &tlf(
+                                        "couldn't load workflows: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -3093,7 +3099,7 @@ pub(crate) fn execute(
                                 )
                                 .map_err(|error| {
                                     tracing::warn!(%error, "skills toggle reply did not parse");
-                                    "couldn't toggle skill".to_string()
+                                    tl("couldn't toggle skill").to_string()
                                 });
                             if parsed.is_ok() {
                                 let refresh = acp::ExtRequest::new(
@@ -3108,7 +3114,7 @@ pub(crate) fn execute(
                         }
                         Err(e) => {
                             Err(
-                                sanitize_user_error(&format!("couldn't toggle skill: {e}")),
+                                sanitize_user_error(&tlf("couldn't toggle skill: {error}", &[("error", &e)])),
                             )
                         }
                     };
@@ -3264,15 +3270,16 @@ pub(crate) fn execute(
                             >(inner.clone())
                                 .map_err(|e| {
                                     tracing::debug!("failed to parse marketplace action response: {e}");
-                                    "couldn't complete marketplace action".to_string()
+                                    tl("couldn't complete marketplace action").to_string()
                                 })
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "couldn't complete marketplace action: {e}"
-                    ),
+                                    &tlf(
+                                        "couldn't complete marketplace action: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -3323,15 +3330,16 @@ pub(crate) fn execute(
                             >(inner.clone())
                                 .map_err(|e| {
                                     tracing::debug!("failed to parse marketplace action response: {e}");
-                                    "couldn't complete marketplace action".to_string()
+                                    tl("couldn't complete marketplace action").to_string()
                                 })
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "couldn't complete marketplace action: {e}"
-                    ),
+                                    &tlf(
+                                        "couldn't complete marketplace action: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -3367,14 +3375,15 @@ pub(crate) fn execute(
                             serde_json::from_value::<
                                 xai_hooks_plugins_types::ActionOutcome,
                             >(inner.clone())
-                                .map_err(|_| "couldn't complete plugins action".to_string())
+                                .map_err(|_| tl("couldn't complete plugins action").to_string())
                         }
                         Err(e) => {
                             Err(
                                 sanitize_user_error(
-                                    &format!(
-                        "couldn't complete plugins action: {e}"
-                    ),
+                                    &tlf(
+                                        "couldn't complete plugins action: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             )
                         }
@@ -3470,7 +3479,7 @@ pub(crate) fn execute(
                         Ok(_) => Ok(()),
                         Err(e) => {
                             Err(
-                                sanitize_user_error(&format!("couldn't delete server: {e}")),
+                                sanitize_user_error(&tlf("couldn't delete server: {error}", &[("error", &e)])),
                             )
                         }
                     };
@@ -3532,7 +3541,7 @@ pub(crate) fn execute(
                         Ok(_) => Ok(()),
                         Err(e) => {
                             Err(
-                                sanitize_user_error(&format!("couldn't toggle tool: {e}")),
+                                sanitize_user_error(&tlf("couldn't toggle tool: {error}", &[("error", &e)])),
                             )
                         }
                     };
@@ -3567,7 +3576,7 @@ pub(crate) fn execute(
                                 let msg = err
                                     .as_str()
                                     .map(String::from)
-                                    .unwrap_or_else(|| "unknown error".to_string());
+                                    .unwrap_or_else(|| tl("unknown error").to_string());
                                 return TaskResult::ShareSessionFailed {
                                     agent_id,
                                     error: msg,
@@ -3586,7 +3595,7 @@ pub(crate) fn execute(
                                 Err(_) => {
                                     TaskResult::ShareSessionFailed {
                                         agent_id,
-                                        error: "couldn't share session".to_string(),
+                                        error: tl("couldn't share session").to_string(),
                                     }
                                 }
                             }
@@ -3595,7 +3604,7 @@ pub(crate) fn execute(
                             TaskResult::ShareSessionFailed {
                                 agent_id,
                                 error: sanitize_user_error(
-                                    &format!("couldn't share session: {e}"),
+                                    &tlf("couldn't share session: {error}", &[("error", &e)]),
                                 ),
                             }
                         }
@@ -3784,7 +3793,7 @@ pub(crate) fn execute(
                                 source,
                                 session_id,
                                 error: sanitize_user_error(
-                                    &format!("couldn't delete session: {e}"),
+                                    &tlf("couldn't delete session: {error}", &[("error", &e)]),
                                 ),
                             }
                         }
@@ -3812,7 +3821,7 @@ pub(crate) fn execute(
                                 Err(e) => {
                                     return TaskResult::CodingDataSharingFailed {
                                         agent_id,
-                                        error: format!("malformed response: {e}"),
+                                        error: tlf("malformed response: {error}", &[("error", &e)]),
                                         seq,
                                     };
                                 }
@@ -3971,9 +3980,10 @@ pub(crate) fn execute(
                                 feedback_text,
                                 image_count,
                                 error: sanitize_user_error(
-                                    &format!(
-                                "couldn't serialize feedback: {e}"
-                            ),
+                                    &tlf(
+                                        "couldn't serialize feedback: {error}",
+                                        &[("error", &e)],
+                                    ),
                                 ),
                             };
                         }
@@ -4024,9 +4034,10 @@ pub(crate) fn execute(
                                                 feedback_text,
                                                 image_count,
                                                 error: sanitize_user_error(
-                                                    &format!(
-                                "couldn't decode feedback response: {error}"
-                            ),
+                                                    &tlf(
+                                                        "couldn't decode feedback response: {error}",
+                                                        &[("error", &error)],
+                                                    ),
                                                 ),
                                             }
                                         }
@@ -4052,7 +4063,7 @@ pub(crate) fn execute(
                                         feedback_text,
                                         image_count,
                                         error: sanitize_user_error(
-                                            &format!("couldn't send feedback: {e}"),
+                                            &tlf("couldn't send feedback: {error}", &[("error", &e)]),
                                         ),
                                     }
                                 }
@@ -4086,9 +4097,10 @@ pub(crate) fn execute(
                                         generation,
                                         result: Err(
                                             sanitize_user_error(
-                                                &format!(
-                                        "couldn't serialize feedback draft list: {error}"
-                                    ),
+                                                &tlf(
+                                                    "couldn't serialize feedback draft list: {error}",
+                                                    &[("error", &error)],
+                                                ),
                                             ),
                                         ),
                                     };
@@ -4119,7 +4131,7 @@ pub(crate) fn execute(
                                         })
                                 }
                                 Err(_elapsed) => {
-                                    Err("feedback draft list timed out".to_string())
+                                    Err(tl("feedback draft list timed out").to_string())
                                 }
                             };
                             TaskResult::FeedbackDraftListComplete {
@@ -4145,9 +4157,10 @@ pub(crate) fn execute(
                                         load,
                                         result: Err(
                                             sanitize_user_error(
-                                                &format!(
-                                        "couldn't serialize feedback draft get: {error}"
-                                    ),
+                                                &tlf(
+                                                    "couldn't serialize feedback draft get: {error}",
+                                                    &[("error", &error)],
+                                                ),
                                             ),
                                         ),
                                     };
@@ -4178,7 +4191,7 @@ pub(crate) fn execute(
                                         })
                                 }
                                 Err(_elapsed) => {
-                                    Err("feedback draft load timed out".to_string())
+                                    Err(tl("feedback draft load timed out").to_string())
                                 }
                             };
                             TaskResult::FeedbackDraftLoadComplete {
@@ -4203,9 +4216,10 @@ pub(crate) fn execute(
                                         delete,
                                         result: Err(
                                             sanitize_user_error(
-                                                &format!(
-                                        "couldn't serialize feedback draft delete: {error}"
-                                    ),
+                                                &tlf(
+                                                    "couldn't serialize feedback draft delete: {error}",
+                                                    &[("error", &error)],
+                                                ),
                                             ),
                                         ),
                                     };
@@ -4226,7 +4240,7 @@ pub(crate) fn execute(
                                         .map_err(|error| sanitize_user_error(&error.to_string()))
                                 }
                                 Err(_elapsed) => {
-                                    Err("feedback draft delete timed out".to_string())
+                                    Err(tl("feedback draft delete timed out").to_string())
                                 }
                             };
                             TaskResult::FeedbackDraftDeleteComplete {
@@ -4318,9 +4332,10 @@ pub(crate) fn execute(
                                 submission_id,
                                 error: Some(
                                     sanitize_user_error(
-                                        &format!(
-                                "couldn't serialize trace upload: {e}"
-                            ),
+                                        &tlf(
+                                            "couldn't serialize trace upload: {error}",
+                                            &[("error", &e)],
+                                        ),
                                     ),
                                 ),
                             };
@@ -4356,7 +4371,7 @@ pub(crate) fn execute(
                             TaskResult::FeedbackTraceUploaded {
                                 agent_id,
                                 submission_id,
-                                error: Some("trace upload timed out".to_string()),
+                                error: Some(tl("trace upload timed out").to_string()),
                             }
                         }
                     }
@@ -4432,7 +4447,7 @@ pub(crate) fn execute(
                             storage.save_remember_note(&text)
                         })
                         .await
-                        .map_err(|e| format!("task join error: {e}"))
+                        .map_err(|e| tlf("task join error: {error}", &[("error", &e)]))
                         .and_then(|r| r.map_err(|e| format!("{e}")));
                     TaskResult::MemoryNoteSaved {
                         agent_id,
@@ -4515,7 +4530,7 @@ pub(crate) fn execute(
                                 .get("result")
                                 .and_then(|r| r.get("answer"))
                                 .and_then(|a| a.as_str())
-                                .unwrap_or("No response")
+                                .unwrap_or(tl("No response"))
                                 .to_string();
                             TaskResult::BtwResponse {
                                 agent_id,
@@ -4733,7 +4748,7 @@ pub(crate) fn execute(
                                 Err(e) => {
                                     TaskResult::RewindExecuteFailed {
                                         agent_id,
-                                        error: format!("invalid response: {e}"),
+                                        error: tlf("invalid response: {error}", &[("error", &e)]),
                                     }
                                 }
                             }
@@ -4863,7 +4878,7 @@ pub(crate) fn execute(
                                 let msg = err.trim_matches('"').to_string();
                                 return TaskResult::ForkSessionFailed {
                                     agent_id,
-                                    error: sanitize_user_error(&format!("fork failed: {msg}")),
+                                    error: sanitize_user_error(&tlf("fork failed: {error}", &[("error", &msg)])),
                                 };
                             }
                             match crate::app::session_startup::fork_response_new_session_id(
@@ -4880,7 +4895,7 @@ pub(crate) fn execute(
                                 None => {
                                     TaskResult::ForkSessionFailed {
                                         agent_id,
-                                        error: "fork response missing newSessionId".into(),
+                                        error: tl("fork response missing newSessionId").into(),
                                     }
                                 }
                             }
@@ -4888,7 +4903,7 @@ pub(crate) fn execute(
                         Err(e) => {
                             TaskResult::ForkSessionFailed {
                                 agent_id,
-                                error: sanitize_user_error(&format!("fork failed: {e}")),
+                                error: sanitize_user_error(&tlf("fork failed: {error}", &[("error", &e)])),
                             }
                         }
                     }
@@ -4972,7 +4987,7 @@ pub(crate) fn execute(
                         Err(e) => {
                             return TaskResult::BillingError {
                                 agent_id,
-                                error: format!("Parse error: {e}"),
+                                error: tlf("Parse error: {error}", &[("error", &e)]),
                                 silent,
                                 nonce,
                             };
@@ -5061,7 +5076,7 @@ pub(crate) fn execute(
                         Ok(billing) => billing,
                         Err(e) => {
                             return TaskResult::AppBillingError {
-                                error: format!("Parse error: {e}"),
+                                error: tlf("Parse error: {error}", &[("error", &e)]),
                                 nonce,
                             };
                         }
@@ -5211,19 +5226,19 @@ async fn fetch_session_info(
     );
     let resp = acp_send(request, tx)
         .await
-        .map_err(|e| sanitize_user_error(&format!("couldn't fetch session info: {e}")))?;
+        .map_err(|e| sanitize_user_error(&tlf("couldn't fetch session info: {error}", &[("error", &e)])))?;
     let envelope: ExtMethodResult<SessionInfoResponse> = serde_json::from_str(
             resp.0.get(),
         )
         .map_err(|e| {
             tracing::debug!("typed session info deser failed: {e}");
-            "invalid session info response".to_string()
+            tl("invalid session info response").to_string()
         })?;
     if let Some(err) = envelope.error {
         let msg = err.as_str().map(String::from).unwrap_or_else(|| err.to_string());
         return Err(msg);
     }
-    envelope.result.ok_or_else(|| "session info response missing result".to_string())
+    envelope.result.ok_or_else(|| tl("session info response missing result").to_string())
 }
 /// Fetch [`PromptUsage`] via `x.ai/session/usage` (bare response, no envelope).
 async fn fetch_session_usage(
@@ -5246,14 +5261,14 @@ async fn fetch_session_usage(
         )
         .map_err(|e| {
             tracing::debug!("session usage deser failed: {e}");
-            "invalid session usage response".to_string()
+            tl("invalid session usage response").to_string()
         })?;
     Ok(parsed.usage)
 }
 /// An agent that predates an extension answers `method_not_found`
 fn unsupported_or_sanitized(e: acp::Error) -> String {
     if i32::from(e.code) == i32::from(acp::Error::method_not_found().code) {
-        "not supported by this agent version".to_string()
+        tl("not supported by this agent version").to_string()
     } else {
         sanitize_user_error(&e.to_string())
     }
@@ -5263,11 +5278,7 @@ async fn session_rename_rpc(
     tx: &AcpAgentTx,
     request: actions::RenameSessionRequest,
 ) -> Result<(), String> {
-    let verb = if request.reset_to_auto {
-        "reset session title"
-    } else {
-        "rename session"
-    };
+    let reset_to_auto = request.reset_to_auto;
     let ext = acp::ExtRequest::new(
         "x.ai/session/rename",
         serde_json::value::to_raw_value(&request)
@@ -5287,7 +5298,11 @@ async fn session_rename_rpc(
             }
             Ok(())
         }
-        Err(e) => Err(sanitize_user_error(&format!("couldn't {verb}: {e}"))),
+        Err(e) => Err(sanitize_user_error(&if reset_to_auto {
+            tlf("couldn't reset session title: {error}", &[("error", &e)])
+        } else {
+            tlf("couldn't rename session: {error}", &[("error", &e)])
+        })),
     }
 }
 /// Session title from local persistence: loads only this session's summary, never the all-sessions list.
@@ -5335,18 +5350,18 @@ fn session_info_fields(
             });
     };
     if let Some(t) = title {
-        push("Title", t.to_string(), false);
+        push(tlm("Title"), t.to_string(), false);
     }
     push(
-        "Shell version",
+        tlm("Shell version"),
         xai_grok_version::display_version(xai_grok_update::channel_label()),
         false,
     );
-    push("Session ID", info.session_id.to_string(), false);
+    push(tlm("Session ID"), info.session_id.to_string(), false);
     if let Some(id) = info.data.conversation_id.as_deref().filter(|id| !id.is_empty()) {
-        push("Conversation ID", id.to_string(), false);
+        push(tlm("Conversation ID"), id.to_string(), false);
     }
-    push("Working directory", info.cwd.to_string(), false);
+    push(tlm("Working directory"), info.cwd.to_string(), false);
     let model = info.data.model.as_deref().unwrap_or("unknown");
     let model_display = xai_grok_shell::session::model_display_name(
         info.data.model_display_name.as_deref(),
@@ -5354,23 +5369,26 @@ fn session_info_fields(
         info.data.resolved_model_id.as_deref(),
         show_resolved_model,
     );
-    push("Model", model_display.to_string(), true);
+    push(tlm("Model"), model_display.to_string(), true);
     if info.data.show_model_fingerprint
         && let Some(fp) = info.data.model_fingerprint.as_deref()
     {
-        push("Model Hash", fp.to_string(), true);
+        push(tlm("Model Hash"), fp.to_string(), true);
     }
     if let Some(b) = info.data.api_backend.as_deref() {
-        push("API Backend", b.to_string(), true);
+        push(tlm("API Backend"), b.to_string(), true);
     }
     if let Some(profile) = xai_grok_sandbox::profile_name() {
-        push("Sandbox", profile.to_string(), true);
+        push(tlm("Sandbox"), profile.to_string(), true);
     }
-    push("Turn", info.data.turn_index.to_string(), true);
+    push(tlm("Turn"), info.data.turn_index.to_string(), true);
     let ctx = &info.data.context;
     push(
-        "Context",
-        format!("{} / {} tokens ({}%)", ctx.used, ctx.total, ctx.usage_pct),
+        tlm("Context"),
+        tlf(
+            "{used} / {total} tokens ({percent}%)",
+            &[("used", &ctx.used), ("total", &ctx.total), ("percent", &ctx.usage_pct)],
+        ),
         true,
     );
     fields
@@ -5389,7 +5407,7 @@ fn format_session_info(
     let mut out = String::new();
     for field in session_info_fields(info, title, show_resolved_model) {
         out.push_str("  ");
-        out.push_str(field.label);
+        out.push_str(tl(field.label));
         out.push_str(": ");
         out.push_str(&field.value);
         out.push('\n');
@@ -5406,9 +5424,9 @@ fn format_session_info(
 /// provider (OpenRouter / OpenAI Codex) or `[model.*]` credentials.
 fn format_auth_lines(is_api_key_auth: bool, _api_key_env_set: bool) -> String {
     if is_api_key_auth {
-        return String::from("  Auth method: Provider credentials\n");
+        return format!("  {}\n", tl("Auth method: Provider credentials"));
     }
-    String::from("  Auth method: Not signed in\n")
+    format!("  {}\n", tl("Auth method: Not signed in"))
 }
 /// Session replay then restyles the echo exactly like the composer highlighted it at submit time.
 /// This producer never combines them with a `displayText` override, and the tracker ignores them when one is present.
@@ -5493,7 +5511,7 @@ fn parse_rewind_points_response(agent_id: AgentId, body: &str) -> TaskResult {
     let response = worktree_session::ext_result(body)
         .and_then(|result| {
             serde_json::from_value::<crate::views::rewind::RewindPointsResponse>(result)
-                .map_err(|e| format!("invalid response: {e}"))
+                .map_err(|e| tlf("invalid response: {error}", &[("error", &e)]))
         });
     match response {
         Ok(r) => {
@@ -5635,12 +5653,13 @@ fn btw_cap_omission_notice(omitted_by_cap: usize, attached: usize) -> Option<Str
     }
     Some(
         if omitted_by_cap == attached {
-            "Attached images were not included (over the 50MB side-question limit)"
+            tl("Attached images were not included (over the 50MB side-question limit)")
                 .to_string()
         } else {
-            format!(
-            "{omitted_by_cap} attached image(s) were not included (over the 50MB side-question limit)"
-        )
+            tlf(
+                "{count} attached image(s) were not included (over the 50MB side-question limit)",
+                &[("count", &omitted_by_cap)],
+            )
         },
     )
 }
@@ -5701,7 +5720,7 @@ pub(crate) fn spawn_ordered_interjects(
                     return TaskResult::InterjectFailed {
                         agent_id,
                         error: sanitize_user_error(
-                            &format!("couldn't send interjection: {detail}"),
+                            &tlf("couldn't send interjection: {error}", &[("error", &detail)]),
                         ),
                         remaining: leftover,
                     };

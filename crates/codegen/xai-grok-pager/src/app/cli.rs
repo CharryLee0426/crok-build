@@ -143,6 +143,9 @@ See ~/.crok/README.md for more information.
         #[arg(long, hide = true)]
         auto: bool,
     },
+    /// Upgrade crok to the latest release of the fork. When this crok comes with Crok Desktop,
+    /// the whole app is upgraded and the crok command with it.
+    Upgrade(UpgradeArgs),
     /// Print version information
     #[command(visible_alias = "v")]
     Version {
@@ -173,6 +176,29 @@ See ~/.crok/README.md for more information.
     /// Disabled when `[dashboard].enabled = false` in `~/.crok/config.toml` or when the `CROK_AGENT_DASHBOARD=0` env var is set.
     Dashboard,
 }
+/// Arguments for `crok upgrade`.
+#[derive(Debug, clap::Args, Clone, Default)]
+pub struct UpgradeArgs {
+    /// Report whether a newer release exists without installing it.
+    #[arg(long)]
+    pub check: bool,
+    /// One JSON object per line on stdout (what Crok Desktop reads).
+    #[arg(long)]
+    pub json: bool,
+    /// Install the latest release even when this build is not older.
+    #[arg(long)]
+    pub force: bool,
+    /// Internal: wait for this process (Crok Desktop) to quit before the app bundle is replaced.
+    #[arg(long, hide = true, value_name = "PID")]
+    pub wait_for_pid: Option<u32>,
+    /// Internal: open Crok Desktop again after the bundle is replaced.
+    #[arg(long, hide = true)]
+    pub relaunch: bool,
+    /// Check a release folder's SHA256SUMS.txt and signature with the built-in key, before publishing.
+    #[arg(long, hide = true, value_name = "DIR")]
+    pub verify_dir: Option<std::path::PathBuf>,
+}
+
 /// Arguments for the `wrap` subcommand: the command to run, then its args.
 #[derive(Debug, clap::Args, Clone)]
 pub struct WrapArgs {

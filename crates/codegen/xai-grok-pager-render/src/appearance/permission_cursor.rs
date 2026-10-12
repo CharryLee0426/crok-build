@@ -10,6 +10,7 @@
 use std::cell::Cell;
 
 use agent_client_protocol as acp;
+use xai_grok_i18n::tlm;
 use xai_grok_workspace::permission::is_enable_always_approve_option;
 
 /// Persisted as `[ui].default_selected_permission`. Steers only the first prompt; later prompts stick to the last-used kind.
@@ -42,10 +43,10 @@ impl DefaultSelectedPermission {
     /// The global allow-everything row belongs to `AlwaysAllowAllSessions`.
     pub const fn display(self) -> &'static str {
         match self {
-            Self::AlwaysAllowAllSessions => "Always allow on all sessions",
-            Self::AllowOnce => "Allow once",
-            Self::AllowCommandAlways => "Always allow this command",
-            Self::Reject => "Reject",
+            Self::AlwaysAllowAllSessions => tlm("Always allow on all sessions"),
+            Self::AllowOnce => tlm("Allow once"),
+            Self::AllowCommandAlways => tlm("Always allow this command"),
+            Self::Reject => tlm("Reject"),
         }
     }
 

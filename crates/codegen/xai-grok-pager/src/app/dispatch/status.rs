@@ -12,10 +12,11 @@ use crate::app::app_view::{ActiveView, AppView, PendingCodingDataWrite};
 use crate::notifications::{NotificationEvent, NotificationEventKind};
 use crate::scrollback::block::RenderBlock;
 use crate::settings::CodingDataSharingLock;
+use xai_grok_i18n::{tl, tlf};
 
 /// Temporary kill switch: client share links are disabled.
 pub(super) fn dispatch_share_session(app: &mut AppView) -> Vec<Effect> {
-    app.show_toast("Session sharing is temporarily disabled");
+    app.show_toast(tl("Session sharing is temporarily disabled"));
     vec![]
 }
 
@@ -238,11 +239,11 @@ pub(super) fn set_coding_data_sharing(
 ) -> Vec<Effect> {
     match app.coding_data_sharing_lock() {
         Some(CodingDataSharingLock::Zdr) => {
-            app.show_toast("\u{2717} Cannot change: Zero Data Retention enabled");
+            app.show_toast(tl("\u{2717} Cannot change: Zero Data Retention enabled"));
             return vec![];
         }
         Some(CodingDataSharingLock::TeamManaged) => {
-            app.show_toast("\u{2717} Data sharing is controlled by your team admin");
+            app.show_toast(tl("\u{2717} Data sharing is controlled by your team admin"));
             return vec![];
         }
         None => {}
@@ -292,7 +293,10 @@ pub(super) fn set_coding_data_sharing(
 /// The toast for a setting that could not be written to `config.toml`.
 pub(super) fn toast_persist_failure(app: &mut AppView, key: &str, error: &str) {
     let scrubbed = scrub_error_for_toast(error);
-    app.show_toast(&format!("\u{2717} Could not save {key}: {scrubbed}"));
+    app.show_toast(&tlf(
+        "\u{2717} Could not save {key}: {error}",
+        &[("key", &key), ("error", &scrubbed)],
+    ));
 }
 
 /// Scrub an untrusted error string for toast display.
@@ -303,7 +307,7 @@ pub(super) fn scrub_error_for_toast(error: &str) -> String {
         .chars()
         .any(crate::render::line_utils::is_unsafe_display_char)
     {
-        return "server error (see logs for details)".to_owned();
+        return tl("server error (see logs for details)").to_owned();
     }
     if error.chars().count() > MAX_TOAST_ERROR_CHARS {
         let mut cut: String = error.chars().take(MAX_TOAST_ERROR_CHARS - 1).collect();
@@ -322,7 +326,7 @@ pub(super) fn dispatch_show_trace(app: &mut AppView) -> Vec<Effect> {
         return vec![];
     };
     let Some(dir) = agent.session.local_session_dir() else {
-        agent.show_toast("This session has not been recorded yet");
+        agent.show_toast(tl("This session has not been recorded yet"));
         return vec![];
     };
     agent.active_modal = Some(crate::views::modal::ActiveModal::Trace {
@@ -415,7 +419,7 @@ pub(super) fn dispatch_show_usage(app: &mut AppView) -> Vec<Effect> {
                 push_and_page_flip(
                     &mut agent.scrollback,
                     RenderBlock::system(
-                        "Session usage is unavailable until the session starts.".to_string(),
+                        tl("Session usage is unavailable until the session starts.").to_string(),
                     ),
                 );
             }
@@ -475,8 +479,9 @@ pub(super) fn append_consumer_billing_surface(app: &mut AppView, agent_id: Agent
     if let Some(url) = app.usage_billing_redirect_url.clone() {
         if let Some(agent) = app.agents.get_mut(&agent_id) {
             agent.scrollback.push_block(RenderBlock::System(
-                crate::scrollback::blocks::SystemMessageBlock::new(format!(
-                    "Please check your usage on {url}"
+                crate::scrollback::blocks::SystemMessageBlock::new(tlf(
+                    "Please check your usage on {url}",
+                    &[("url", &url)],
                 )),
             ));
         }
@@ -511,8 +516,9 @@ pub(crate) fn commit_minimal_update_notice(app: &mut AppView, latest_version: &s
     if let ActiveView::Agent(id) = app.active_view
         && let Some(agent) = app.agents.get_mut(&id)
     {
-        agent.scrollback.push_block(RenderBlock::system(format!(
-            "Update available: v{latest_version}. Restart to apply."
+        agent.scrollback.push_block(RenderBlock::system(tlf(
+            "Update available: v{version}. Restart to apply.",
+            &[("version", &latest_version)],
         )));
     }
 }
@@ -555,10 +561,10 @@ pub(super) fn dispatch_open_gboom(app: &mut AppView) -> Vec<Effect> {
         return vec![];
     };
     if detect_graphics_protocol() == GraphicsProtocol::None {
-        agent.show_toast(
+        agent.show_toast(tl(
             "No demons here: GBOOM needs a graphics-capable terminal \
              (kitty, Ghostty, WezTerm, iTerm2)",
-        );
+        ));
         return vec![];
     }
     // Close other media modals: they share the kitty placement id
@@ -583,7 +589,7 @@ pub(super) fn notify_session_ready(
     notification_service.notify(NotificationEvent {
         kind: NotificationEventKind::SessionReady,
         title: "Crok".into(),
-        body: NotificationEventKind::SessionReady.as_ref().into(),
+        body: xai_grok_i18n::tl(NotificationEventKind::SessionReady.as_ref()).into(),
         session_id: agent.session.session_id.as_ref().map(|s| s.0.to_string()),
     });
 }
@@ -643,12 +649,13 @@ pub(super) fn handle_coding_data_sharing_failed(
     }
     refresh_open_settings_modals(app);
     let reason = if error.contains(WKE_TEAM_MEMBER_MISSING_ACL) {
-        "Ask a team admin to change this setting.".to_owned()
+        tl("Ask a team admin to change this setting.").to_owned()
     } else {
         scrub_error_for_toast(&error)
     };
-    app.show_toast(&format!(
-        "\u{2717} Couldn't update coding data sharing: {reason}"
+    app.show_toast(&tlf(
+        "\u{2717} Couldn't update coding data sharing: {reason}",
+        &[("reason", &reason)],
     ));
     tracing::warn!(
         target: "settings",

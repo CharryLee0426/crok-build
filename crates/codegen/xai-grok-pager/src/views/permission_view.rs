@@ -13,6 +13,7 @@ use xai_grok_workspace::permission::{
 };
 
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{fill, tl, tl_parts, tlf, tlm};
 
 use crate::theme::Theme;
 
@@ -568,14 +569,14 @@ pub fn render_permission_view(
         let mut spans: Vec<Span<'static>> = Vec::new();
         if show_scope_hint {
             spans.push(Span::styled("\u{2190} \u{2192}", key_style));
-            spans.push(Span::styled(" narrow scope", hint_style));
+            spans.push(Span::styled(format!(" {}", tl("narrow scope")), hint_style));
         }
         if show_edit_hint {
             if show_scope_hint {
                 spans.push(Span::styled("  \u{00b7}  ", hint_style));
             }
             spans.push(Span::styled("e", key_style));
-            spans.push(Span::styled(" edit pattern", hint_style));
+            spans.push(Span::styled(format!(" {}", tl("edit pattern")), hint_style));
         }
         buf.set_line(content_x, y, &Line::from(spans), content_width);
         y += 1;
@@ -792,35 +793,35 @@ fn render_pattern_preview_line(
     match edit.trimmed() {
         None => {
             spans.push(Span::styled(
-                "type a command pattern to allow (e.g. gh api repos/*)",
+                tl("type a command pattern to allow (e.g. gh api repos/*)"),
                 dim,
             ));
         }
         Some(pattern) if xai_grok_workspace::permission::bash_glob_is_catchall(pattern) => {
             spans.push(Span::styled(
-                "\u{2717} matches everything, won't be saved",
+                format!("\u{2717} {}", tl("matches everything, won't be saved")),
                 Style::default().fg(theme.accent_error),
             ));
             spans.push(sep);
             spans.push(Span::styled("Esc", Style::default().fg(theme.accent_user)));
-            spans.push(Span::styled(" cancel", dim));
+            spans.push(Span::styled(format!(" {}", tl("cancel")), dim));
         }
         Some(pattern) => {
             if xai_grok_workspace::permission::bash_pattern_matches_command(pattern, command) {
                 spans.push(Span::styled(
-                    "\u{2713} matches this command",
+                    format!("\u{2713} {}", tl("matches this command")),
                     Style::default().fg(theme.accent_success),
                 ));
             } else {
                 spans.push(Span::styled(
-                    "\u{2717} won't match this command",
+                    format!("\u{2717} {}", tl("won't match this command")),
                     Style::default().fg(theme.accent_error),
                 ));
             }
             if xai_grok_workspace::permission::bash_pattern_is_broad(pattern) {
                 spans.push(sep.clone());
                 spans.push(Span::styled(
-                    "\u{26a0} very broad",
+                    format!("\u{26a0} {}", tl("very broad")),
                     Style::default().fg(theme.warning),
                 ));
             }
@@ -829,9 +830,9 @@ fn render_pattern_preview_line(
                 "Enter",
                 Style::default().fg(theme.accent_user),
             ));
-            spans.push(Span::styled(" save  ", dim));
+            spans.push(Span::styled(format!(" {}  ", tl("save")), dim));
             spans.push(Span::styled("Esc", Style::default().fg(theme.accent_user)));
-            spans.push(Span::styled(" cancel", dim));
+            spans.push(Span::styled(format!(" {}", tl("cancel")), dim));
         }
     }
     buf.set_line(content_x, y, &Line::from(spans), content_width);
@@ -1350,13 +1351,14 @@ fn build_mcp_args_lines(
 
 fn truncation_indicator_line(theme: &Theme) -> Line<'static> {
     let style = Style::default().fg(theme.gray).bg(theme.bg_light);
+    let (before, after) = tl_parts("{key} to expand", "key");
     Line::from(vec![
-        Span::styled("... ", style),
+        Span::styled(format!("... {before}"), style),
         Span::styled(
             "Ctrl-F",
             Style::default().fg(theme.accent_user).bg(theme.bg_light),
         ),
-        Span::styled(" to expand", style),
+        Span::styled(after, style),
     ])
 }
 
@@ -1522,7 +1524,7 @@ fn build_reject_once_line<'a>(
         (preview, Style::default().fg(theme.text_primary).bg(row_bg))
     } else {
         (
-            "No, reject (type to add feedback)".to_string(),
+            tl("No, reject (type to add feedback)").to_string(),
             Style::default().fg(theme.gray).bg(row_bg),
         )
     };
@@ -1542,6 +1544,54 @@ fn build_reject_once_line<'a>(
     Line::from(spans).style(Style::default().bg(row_bg))
 }
 
+/// The answers the harness offers. They arrive in English with the request;
+/// listing them here keeps each in the catalog, and a row looks its answer up as it is drawn.
+const _OFFERED_ANSWERS: &[&str] = &[
+    tlm("Yes"),
+    tlm("Yes, proceed"),
+    tlm("Yes, allow once"),
+    tlm("Yes, send once"),
+    tlm("Yes, allow all edits during this session"),
+    tlm("Yes, and don't ask again for anything (always-approve mode)"),
+    tlm("Yes, and don't ask again for bash commands"),
+    tlm("No, and tell Crok what to do differently"),
+    tlm("No, and don't ask again for this command"),
+    tlm("always allow"),
+    tlm("allow once"),
+    tlm("reject once"),
+    tlm("Always allow:"),
+    tlm("Never allow:"),
+];
+
+/// Answers that name a site or a tool, recognized by the words around the name.
+const NAMED_ANSWERS: &[&str] = &[
+    tlm("Yes, always allow {name} for this project"),
+    tlm("No, never allow {name} for this project"),
+    tlm("Always allow: {name}"),
+    tlm("Never allow: {name}"),
+];
+
+/// An answer in the interface language. One the catalog does not know is shown as it arrived.
+fn shown_answer(name: &str) -> String {
+    let whole = tl(name);
+    if whole != name {
+        return whole.to_string();
+    }
+    for pattern in NAMED_ANSWERS {
+        let Some((head, tail)) = pattern.split_once("{name}") else {
+            continue;
+        };
+        if let Some(named) = name
+            .strip_prefix(head)
+            .and_then(|rest| rest.strip_suffix(tail))
+            && !named.is_empty()
+        {
+            return fill(tl(pattern), &[("name", &named)]);
+        }
+    }
+    name.to_string()
+}
+
 fn dynamic_option_label(
     option: &acp::PermissionOption,
     selected_words: Option<&str>,
@@ -1559,11 +1609,14 @@ fn dynamic_option_label(
             let scope_text = match scope.selected {
                 McpScope::Tool => perm.display_name(),
                 McpScope::Server => match scope.server_prefix.as_deref() {
-                    Some(s) => format!("all tools from {}", mcp_titleize_segment(s)),
+                    Some(s) => tlf(
+                        "all tools from {server}",
+                        &[("server", &mcp_titleize_segment(s))],
+                    ),
                     None => perm.display_name(),
                 },
             };
-            return (format!("{} ", perm.prompt_prefix), Some(scope_text));
+            return (format!("{} ", tl(&perm.prompt_prefix)), Some(scope_text));
         }
 
         if let Some(words) = selected_words
@@ -1572,12 +1625,12 @@ fn dynamic_option_label(
             )
         {
             return (
-                format!("{} ", bash_perm.prompt_prefix),
+                format!("{} ", tl(&bash_perm.prompt_prefix)),
                 Some(words.to_owned()),
             );
         }
     }
-    (option.name.clone(), None)
+    (shown_answer(&option.name), None)
 }
 
 pub(crate) fn allow_scope_label(

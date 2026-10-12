@@ -3,6 +3,7 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::views::extensions_modal::ExtensionsTab;
+use xai_grok_i18n::tlm;
 use xai_grok_telemetry::events::ExtensionsModalTrigger;
 
 /// Open the extensions modal on the Workflows catalog tab.
@@ -11,7 +12,7 @@ pub struct WorkflowsCommand;
 impl SlashCommand for WorkflowsCommand {
     slash_meta! {
         name: "workflows",
-        description: "Browse installed workflows",
+        description: tlm("Browse installed workflows"),
         usage: "/workflows",
     }
 

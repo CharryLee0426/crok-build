@@ -7,6 +7,7 @@ use std::time::Duration;
 use crossterm::event;
 use crossterm::execute;
 use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
+use xai_grok_i18n::{tl, tlf};
 
 use super::{PagerTerminal, ScreenMode};
 use crate::app::agent_view::AgentView;
@@ -81,16 +82,16 @@ pub(crate) fn transition_terminal(
     ) {
         input_paused.store(false, Ordering::Release);
         return ModeSwitchOutcome::Aborted(
-            "terminal input reader did not park before the mode switch".to_owned(),
+            tl("terminal input reader did not park before the mode switch").to_owned(),
         );
     }
     let writer_sync = terminal.backend_mut().writer_mut().writer_sync().clone();
     let drained = match writer_sync.wait_drained(Duration::from_millis(750)) {
         Ok(crate::render::draw::WriterDrain::Drained) => Ok(()),
         Ok(crate::render::draw::WriterDrain::TimedOut) => {
-            Err("terminal writer did not drain before the mode switch".to_owned())
+            Err(tl("terminal writer did not drain before the mode switch").to_owned())
         }
-        Err(error) => Err(format!("terminal writer failed: {error}")),
+        Err(error) => Err(tlf("terminal writer failed: {error}", &[("error", &error)])),
     };
     if let Err(reason) = drained {
         input_paused.store(false, Ordering::Release);
@@ -165,8 +166,9 @@ fn perform_screen_transition(
                         ratatui::Viewport::Inline(rows)
                     };
                     match terminal.set_viewport(rollback_viewport) {
-                        Ok(()) => ModeSwitchOutcome::Aborted(format!(
-                            "inline viewport probe failed: {error}"
+                        Ok(()) => ModeSwitchOutcome::Aborted(tlf(
+                            "inline viewport probe failed: {error}",
+                            &[("error", &error)],
                         )),
                         Err(rollback_error) => ModeSwitchOutcome::NeedsExecFallback(format!(
                             "inline viewport probe failed ({error}); rollback also failed \

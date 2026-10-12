@@ -6,6 +6,7 @@ use crate::app::actions::Effect;
 use crate::app::agent::AgentId;
 use crate::app::app_view::{ActiveView, AppView};
 use crate::scrollback::block::RenderBlock;
+use xai_grok_i18n::tl;
 
 /// Send a mid-turn interjection.
 /// Pushes a standard user prompt block locally for instant feedback, records the text in prompt history, and clears the prompt.
@@ -65,7 +66,7 @@ fn dispatch_interject_on_inner(
     }
 
     let Some(session_id) = agent.session.session_id.clone() else {
-        agent.show_toast(NO_SESSION_NOTICE);
+        agent.show_toast(tl(NO_SESSION_NOTICE));
         return vec![];
     };
 
@@ -90,7 +91,7 @@ fn dispatch_interject_on_inner(
     // The composer is NOT touched here: the producer that consumed composer text (the InterjectPrompt registry arm) clears it at the call site
     // Every other producer (Send now, edit-interject, plan review comments) carries non-composer text and must keep the user's draft/stash
     if user_submit {
-        agent.show_toast("Interjection sent");
+        agent.show_toast(tl("Interjection sent"));
     }
 
     // Image-bearing interjection: build text and image content blocks via the same helper as the queued-prompt drain path
@@ -158,7 +159,7 @@ pub(super) fn dispatch_send_prompt_now(
                     crate::app::agent::QueueEntryKind::Prompt,
                 )
             });
-        agent.show_toast("Reconnecting, please wait...");
+        agent.show_toast(tl("Reconnecting, please wait..."));
         return vec![];
     }
 
@@ -166,7 +167,7 @@ pub(super) fn dispatch_send_prompt_now(
     agent.ephemeral_tip.clear_on_submit();
 
     let Some(session_id) = agent.session.session_id.clone() else {
-        agent.show_toast(NO_SESSION_NOTICE);
+        agent.show_toast(tl(NO_SESSION_NOTICE));
         return vec![];
     };
 

@@ -34,6 +34,10 @@ ZAI_API_KEY), then start Crok again.";
 /// Set as `CROK_ANTHROPIC_CACHE_TTL`; the binary copies every `CROK_*` variable onto its `GROK_*` name.
 const ANTHROPIC_CACHE_TTL_ENV: &str = "GROK_ANTHROPIC_CACHE_TTL";
 
+/// `off` stops requests from asking Anthropic where they differ from the one before.
+/// Set as `CROK_ANTHROPIC_CACHE_DIAGNOSTICS`.
+const ANTHROPIC_CACHE_DIAGNOSTICS_ENV: &str = "GROK_ANTHROPIC_CACHE_DIAGNOSTICS";
+
 /// Offer provider setup only when no explicit model choice or usable credential applies.
 pub fn needs_provider_setup(cfg: &Config) -> bool {
     if cfg.default_model_override.is_some()
@@ -101,8 +105,25 @@ pub(crate) fn anthropic_options(backend: &ApiBackend, base_url: &str) -> Option<
     matches_auth_route(ModelProvider::Anthropic, base_url, backend.clone()).then(|| {
         AnthropicOptions {
             cache_ttl: anthropic_cache_ttl(std::env::var(ANTHROPIC_CACHE_TTL_ENV).ok().as_deref()),
+            cache_diagnostics: anthropic_cache_diagnostics(
+                std::env::var(ANTHROPIC_CACHE_DIAGNOSTICS_ENV)
+                    .ok()
+                    .as_deref(),
+            ),
         }
     })
+}
+
+/// On unless told otherwise. Each request of a conversation then names the response before it,
+/// and Anthropic answers with the first place the two differ: what made a request miss the cache.
+/// For that it keeps hashes and token counts of each such request for a short time, and no prompt text.
+fn anthropic_cache_diagnostics(configured: Option<&str>) -> bool {
+    !matches!(
+        configured
+            .map(|value| value.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("0" | "off" | "false" | "no")
+    )
 }
 
 /// An hour unless told otherwise. A session is worked on in bursts: between two prompts, during a
@@ -1602,6 +1623,14 @@ mod tests {
         );
         assert_eq!(anthropic_cache_ttl(Some("1h")), PromptCacheTtl::OneHour);
         assert_eq!(anthropic_cache_ttl(Some("30m")), PromptCacheTtl::OneHour);
+
+        // Cache diagnostics are asked for unless switched off by name.
+        for on in [None, Some(""), Some("1"), Some("on"), Some("anything else")] {
+            assert!(anthropic_cache_diagnostics(on), "{on:?}");
+        }
+        for off in ["0", "off", " OFF ", "false", "no"] {
+            assert!(!anthropic_cache_diagnostics(Some(off)), "{off}");
+        }
     }
 
     #[test]

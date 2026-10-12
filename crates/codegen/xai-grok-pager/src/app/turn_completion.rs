@@ -8,6 +8,7 @@
 
 use crate::app::error_display::WireErrorType;
 use crate::scrollback::blocks::SessionEvent;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 use super::agent::AgentId;
 use super::agent_view::AgentView;
@@ -30,6 +31,15 @@ pub(crate) const COMPLETION_KIND_KEY: &str = xai_grok_shell::session::commands::
 /// `_meta.completionKind` of [`xai_grok_shell::session::commands::PromptCompletionKind::RemovedFromQueue`].
 pub(crate) const REMOVED_FROM_QUEUE_KIND: &str =
     xai_grok_shell::session::commands::REMOVED_FROM_QUEUE_KIND;
+
+/// The phrases `xai_grok_hooks::config::hook_display_name` returns for a hook with no name of its own.
+/// That crate defines them; marking them here puts them in the translation catalog, and
+/// `open_prompt_blocked_card` translates whichever one it is given.
+const _HOOK_TIER_PHRASES: [&str; 3] = [
+    tlm("a managed policy hook"),
+    tlm("a managed hook"),
+    tlm("a user hook"),
+];
 
 /// Unknown tokens stay [`TurnStopReason::Unknown`], which maps to `TurnCompleted` (live `_` arm).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,7 +220,7 @@ pub(super) fn note_hook_blocked_turn(
             open_prompt_blocked_card(agent, &blocked, text);
         }
         // A hold with no requeued row (foreign turn, or no stash) has no card; the toast keeps the parked queue from being silent
-        None => agent.show_toast("A hook blocked the last prompt — the queue is paused"),
+        None => agent.show_toast(tl("A hook blocked the last prompt — the queue is paused")),
     }
 }
 
@@ -243,6 +253,7 @@ fn open_prompt_blocked_card(
     prompt_text: String,
 ) {
     use crate::views::question_view::{LocalQuestionKind, QuestionViewState};
+    use xai_grok_hooks::config::HookDisplayName;
     use xai_grok_tools::implementations::grok_build::ask_user_question::{
         Question, QuestionOption,
     };
@@ -256,7 +267,9 @@ fn open_prompt_blocked_card(
         // Modal collision or a composer busy with a queue edit
         // The hold, the requeued row, and the stored context (for a later reopen) already protect the queue
         // Leave a plain toast so the parked state isn't silent
-        agent.show_toast("Prompt blocked by a hook — it is held at the front of the queue");
+        agent.show_toast(tl(
+            "Prompt blocked by a hook — it is held at the front of the queue",
+        ));
         return;
     }
 
@@ -266,13 +279,21 @@ fn open_prompt_blocked_card(
 
     let row_id = blocked.row_id;
     let was_combined = blocked.was_combined;
-    let hook_name = blocked.hook_name.as_deref().unwrap_or("a hook");
-    let short_hook_name = xai_grok_hooks::config::hook_display_name(hook_name);
+    // A hook's own name reads as written; the tier phrases and the no-name fallback are text.
+    let short_hook_name = match blocked
+        .hook_name
+        .as_deref()
+        .map(xai_grok_hooks::config::hook_display_label)
+    {
+        Some(HookDisplayName::Named(name)) => name,
+        Some(HookDisplayName::Tier(phrase)) => tl(phrase),
+        None => tl("a hook"),
+    };
     let reason = blocked.reason.as_deref().unwrap_or_default();
 
     // `\n\n` splits the card header into a bold label plus dimmed description lines (one per paragraph)
     // The paragraphs: framing, hook reason verbatim, queue context
-    let mut question = format!("Prompt blocked by {short_hook_name}");
+    let mut question = tlf("Prompt blocked by {hook}", &[("hook", &short_hook_name)]);
     if !reason.is_empty() {
         question.push_str("\n\n");
         question.push_str(reason);
@@ -280,32 +301,43 @@ fn open_prompt_blocked_card(
     // Waiting rows sit BEHIND the requeued blocked prompt.
     let waiting = agent.session.pending_prompts.len().saturating_sub(1);
     if was_combined {
-        question.push_str("\n\nThis was a combined submission.");
+        question.push_str("\n\n");
+        question.push_str(tl("This was a combined submission."));
     }
     if waiting > 0 {
-        question.push_str(&format!(
-            "\n\n{waiting} more prompt{} waiting (queue paused).",
-            if waiting == 1 { "" } else { "s" }
-        ));
+        let more = if waiting == 1 {
+            tlf(
+                "{count} more prompt waiting (queue paused).",
+                &[("count", &waiting)],
+            )
+        } else {
+            tlf(
+                "{count} more prompts waiting (queue paused).",
+                &[("count", &waiting)],
+            )
+        };
+        question.push_str("\n\n");
+        question.push_str(&more);
     }
 
+    // The answer is read by position (`translate_local_submit`), so the labels are free to change.
     let preview = Some(prompt_text);
     let options = vec![
         QuestionOption {
-            label: "Edit".into(),
-            description: "Fix your prompt".into(),
+            label: tl("Edit").into(),
+            description: tl("Fix your prompt").into(),
             preview: preview.clone(),
             id: None,
         },
         QuestionOption {
-            label: "Resend".into(),
-            description: "Send it unchanged. The hook may block it again.".into(),
+            label: tl("Resend").into(),
+            description: tl("Send it unchanged. The hook may block it again.").into(),
             preview: preview.clone(),
             id: None,
         },
         QuestionOption {
-            label: "Discard".into(),
-            description: "Remove it from the queue".into(),
+            label: tl("Discard").into(),
+            description: tl("Remove it from the queue").into(),
             preview,
             id: None,
         },

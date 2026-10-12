@@ -189,6 +189,23 @@ impl SlashMru {
         Self::recency_score(ts, Self::now_secs())
     }
 
+    /// [`Self::rank_score`] for every name of a menu: the clock is read once and no name is copied.
+    pub fn rank_scores<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) -> Vec<u64> {
+        self.ensure_loaded();
+        let now = Self::now_secs();
+        names
+            .into_iter()
+            .map(|name| {
+                let name = name.trim().trim_start_matches('/');
+                if name.is_empty() {
+                    return 0;
+                }
+                let ts = self.by_command.get(name).copied().unwrap_or(0);
+                Self::recency_score(ts, now)
+            })
+            .collect()
+    }
+
     /// Take an owned, `Send` snapshot to persist when dirty; clears the dirty flag.
     /// Returns `None` when persistence is disabled (tests) or nothing changed.
     /// The snapshot is written off the UI thread by [`persist_async`].

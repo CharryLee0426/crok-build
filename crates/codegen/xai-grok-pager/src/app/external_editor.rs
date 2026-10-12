@@ -7,27 +7,31 @@ use std::path::{Path, PathBuf};
 use crate::app::agent::AgentId;
 use crate::app::app_view::{ActiveView, AppView};
 use crate::scrollback::block::RenderBlock;
+use xai_grok_i18n::{tl, tlm};
 
 const PROMPT_EDITOR_MAX_BYTES: u64 = 4 * 1024 * 1024;
+// These messages are translated where they are shown: `report_prompt_failure` and
+// `report_config_failure`.
 pub(crate) const ATTACHMENT_MESSAGE: &str =
-    "External prompt editing is not available while the draft has attachments.";
+    tlm("External prompt editing is not available while the draft has attachments.");
 pub(crate) const VOICE_MESSAGE: &str =
-    "External prompt editing is not available while voice input is active.";
+    tlm("External prompt editing is not available while voice input is active.");
 pub(crate) const PASTE_MESSAGE: &str =
-    "External prompt editing is not available while a paste is still being processed.";
+    tlm("External prompt editing is not available while a paste is still being processed.");
 pub(crate) const OWNERSHIP_MESSAGE: &str =
-    "External prompt editing was cancelled because another input surface became active.";
+    tlm("External prompt editing was cancelled because another input surface became active.");
 const PROMPT_EDITOR_PREPARE_FAILURE: &str =
-    "Could not open the draft in an external editor; the original draft was kept.";
-const PROMPT_EDITOR_FAILURE: &str = "External prompt editor failed; the original draft was kept.";
+    tlm("Could not open the draft in an external editor; the original draft was kept.");
+const PROMPT_EDITOR_FAILURE: &str =
+    tlm("External prompt editor failed; the original draft was kept.");
 const PROMPT_EDITOR_NONZERO: &str =
-    "External prompt editor exited unsuccessfully; the original draft was kept.";
+    tlm("External prompt editor exited unsuccessfully; the original draft was kept.");
 const PROMPT_EDITOR_INVALID_UTF8: &str =
-    "External prompt editor saved invalid UTF-8; the original draft was kept.";
+    tlm("External prompt editor saved invalid UTF-8; the original draft was kept.");
 const PROMPT_EDITOR_TOO_LARGE: &str =
-    "External prompt editor saved a draft larger than 4 MiB; the original draft was kept.";
+    tlm("External prompt editor saved a draft larger than 4 MiB; the original draft was kept.");
 const PROMPT_EDITOR_STALE: &str =
-    "The draft changed while the external editor was open; the newer draft was kept.";
+    tlm("The draft changed while the external editor was open; the newer draft was kept.");
 
 #[derive(Clone, Debug)]
 pub(crate) enum PendingEditorRequest {
@@ -123,7 +127,7 @@ impl Drop for PromptEditorFile {
 fn parse_editor_argv(command: &str) -> Result<Vec<String>, String> {
     shlex::split(command)
         .filter(|parts| parts.first().is_some_and(|program| !program.is_empty()))
-        .ok_or_else(|| "could not parse $VISUAL or $EDITOR".to_owned())
+        .ok_or_else(|| tlm("could not parse $VISUAL or $EDITOR").to_owned())
 }
 
 fn resolve_editor_argv(visual: Option<&str>, editor: Option<&str>) -> Result<Vec<String>, String> {
@@ -242,6 +246,7 @@ pub(crate) fn finish_prepare_error(app: &mut AppView, error: PrepareError) {
 }
 
 fn report_config_failure(app: &mut AppView, message: &str) {
+    let message = tl(message);
     if app.screen_mode.is_minimal()
         && let ActiveView::Agent(id) = app.active_view
         && let Some(agent) = app.agents.get_mut(&id)
@@ -350,7 +355,7 @@ pub(crate) fn report_prompt_failure(app: &mut AppView, agent_id: AgentId, messag
     if let Some(agent) = app.agents.get_mut(&agent_id) {
         agent
             .scrollback
-            .push_block(RenderBlock::system(message.to_owned()));
+            .push_block(RenderBlock::system(tl(message).to_owned()));
     }
 }
 

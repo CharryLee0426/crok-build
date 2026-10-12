@@ -64,6 +64,9 @@ tracing = { workspace = true }
 xai-ratatui-textarea = { workspace = true }
 xai-ratatui-inline = { workspace = true }
 
+# Interface language
+xai-grok-i18n = { workspace = true }
+
 # ACP
 agent-client-protocol = { workspace = true }
 xai-grok-config = { workspace = true }

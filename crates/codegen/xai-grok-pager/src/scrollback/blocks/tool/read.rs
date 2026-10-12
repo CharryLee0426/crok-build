@@ -18,6 +18,8 @@ const FIRST_LINES: usize = 5;
 const LAST_LINES: usize = 3;
 
 use crate::appearance::AppearanceConfig;
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_tools::implementations::skills::types::skill_name_from_path;
 
 /// What kind of non-text media this read produced.
@@ -177,19 +179,22 @@ impl ReadToolCallBlock {
         // SKILL.md reads render as "Skill {skill_name}".
         if let Some(skill) = self.skill_name() {
             return Line::from(vec![
-                Span::styled("Skill ", bold_style),
+                Span::styled(format!("{} ", tl("Skill")), bold_style),
                 Span::styled(skill.to_owned(), path_style),
             ]);
         }
 
-        let prefix = "Read ";
+        let prefix = format!("{} ", tl("Read"));
         let range_suffix = self
             .line_range
             .map(|r| {
                 if let Some(total) = self.total_lines
                     && total > r.end.saturating_sub(r.start) + 1
                 {
-                    format!(" ({} of {total})", r)
+                    format!(
+                        " ({})",
+                        tlf("{range} of {total}", &[("range", &r), ("total", &total)])
+                    )
                 } else {
                     format!(" ({})", r)
                 }
@@ -197,22 +202,25 @@ impl ReadToolCallBlock {
             .unwrap_or_default();
         // Extra suffix for errors or empty content
         let extra_suffix = if self.content.as_ref().is_some_and(|c| c.is_empty()) {
-            " (empty)".to_string()
+            format!(" ({})", tl("empty"))
         } else if let Some(media) = &self.media_kind {
             match media {
-                ReadMediaKind::Image => " (image)".to_string(),
-                ReadMediaKind::Pdf { pages } => format!(" ({pages} pages)"),
+                ReadMediaKind::Image => format!(" ({})", tl("image")),
+                ReadMediaKind::Pdf { pages } => {
+                    format!(" ({})", tlf("{count} pages", &[("count", pages)]))
+                }
             }
         } else {
             String::new()
         };
-        let total_suffix_len = range_suffix.len() + extra_suffix.len();
+        // Terminal columns, not bytes: the label and the suffixes are translated.
+        let total_suffix_len = range_suffix.width() + extra_suffix.width();
         let path = crate::render::tool_paths::path_for_tool_surface(
             &self.path,
             surface,
             cwd,
             width,
-            prefix.len() + total_suffix_len,
+            prefix.width() + total_suffix_len,
         );
 
         let mut spans = vec![
@@ -387,7 +395,8 @@ impl BlockContent for ReadToolCallBlock {
                 } else if let Some(err) = &self.error {
                     lines.push(BlockLine::separator(Line::from("")));
                     let error_style = Style::default().fg(theme.accent_error);
-                    for line in err.lines() {
+                    // A fallback stored in English ("Read failed") is looked up when it is drawn; other errors show as they are.
+                    for line in tl(err).lines() {
                         lines.push(BlockLine::separator(Line::from(Span::styled(
                             line.to_string(),
                             error_style,

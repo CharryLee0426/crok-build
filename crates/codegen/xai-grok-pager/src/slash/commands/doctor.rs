@@ -5,9 +5,10 @@
 use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, DoctorRequest, SlashCommand, slash_meta,
 };
+use xai_grok_i18n::{tl, tlm};
 
 const USAGE: &str =
-    "Usage: /doctor [fix [ssh-wrap|tmux-clipboard|dcs-passthrough|tmux-extended-keys]]";
+    tlm("Usage: /doctor [fix [ssh-wrap|tmux-clipboard|dcs-passthrough|tmux-extended-keys]]");
 
 pub struct DoctorCommand;
 
@@ -44,11 +45,11 @@ impl SlashCommand for DoctorCommand {
     slash_meta! {
         name: "doctor",
         aliases: ["terminal-setup", "terminal-check", "terminal-info"],
-        description: "Check this session and show available fixes",
+        description: tlm("Check this session and show available fixes"),
         usage: "/doctor [fix [FIX]]",
         takes_args: true,
         session_scoped: true,
-        arg_placeholder: "[fix [FIX]]",
+        arg_placeholder: tlm("[fix [FIX]]"),
     }
 
     fn suggest_args(&self, _ctx: &AppCtx, args_query: &str) -> Option<Vec<ArgItem>> {
@@ -69,7 +70,7 @@ impl SlashCommand for DoctorCommand {
                     display: handle.into(),
                     match_text: format!("fix {handle} {id}"),
                     insert_text: format!("fix {handle}"),
-                    description: label.into(),
+                    description: tl(label).into(),
                 })
                 .collect::<Vec<_>>();
             return (!items.is_empty()).then_some(items);
@@ -78,7 +79,7 @@ impl SlashCommand for DoctorCommand {
             display: "fix".into(),
             match_text: "fix".into(),
             insert_text: "fix".into(),
-            description: "Show automatic fixes available here".into(),
+            description: tl("Show automatic fixes available here").into(),
         }])
     }
 
@@ -89,9 +90,9 @@ impl SlashCommand for DoctorCommand {
             (Some("fix"), None, None) => CommandResult::Doctor(DoctorRequest::ListFixes),
             (Some("fix"), Some(value), None) => match crate::diagnostics::resolve_fix_id(value) {
                 Ok(id) => CommandResult::Doctor(DoctorRequest::Fix(id)),
-                Err(error) => CommandResult::Error(format!("{error}\n{USAGE}")),
+                Err(error) => CommandResult::Error(format!("{error}\n{}", tl(USAGE))),
             },
-            _ => CommandResult::Error(USAGE.to_owned()),
+            _ => CommandResult::Error(tl(USAGE).to_owned()),
         }
     }
 }

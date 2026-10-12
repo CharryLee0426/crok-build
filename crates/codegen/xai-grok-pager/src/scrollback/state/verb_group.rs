@@ -18,6 +18,7 @@ use crate::scrollback::blocks::tool::{ToolCallBlock, VerbGroupKind};
 use crate::scrollback::entry::ScrollbackEntry;
 use crate::scrollback::types::DisplayMode;
 use crate::theme::Theme;
+use xai_grok_i18n::tlf;
 
 /// One step of a verb-group run walk.
 pub(crate) enum RunStep {
@@ -328,30 +329,32 @@ impl<'e> BucketAccumulator<'e> {
                     let running_n = bucket.running_sources.len();
                     let done_n = count.saturating_sub(running_n);
                     if running_n > 0 && done_n > 0 {
-                        format!(
-                            "{sep}{} {running_n} {}, {done_n} completed",
-                            bucket.kind.verb(true),
-                            bucket.kind.noun(running_n),
-                        )
+                        let mixed = if running_n == 1 {
+                            tlf(
+                                "Running {running} subagent, {done} completed",
+                                &[("running", &running_n), ("done", &done_n)],
+                            )
+                        } else {
+                            tlf(
+                                "Running {running} subagents, {done} completed",
+                                &[("running", &running_n), ("done", &done_n)],
+                            )
+                        };
+                        format!("{sep}{mixed}")
                     } else {
-                        format!(
-                            "{sep}{} {count} {}",
-                            bucket.kind.verb(running_n > 0),
-                            bucket.kind.noun(count),
-                        )
+                        format!("{sep}{}", bucket.kind.summary(running_n > 0, count))
                     }
                 }
-                _ => format!(
-                    "{sep}{} {count} {}",
-                    bucket.kind.verb(self.running),
-                    bucket.kind.noun(count),
-                ),
+                _ => format!("{sep}{}", bucket.kind.summary(self.running, count)),
             };
             text.push_str(&segment);
             spans.push(Span::styled(segment, text_style));
         }
         if self.failed_count > 0 {
-            let suffix = format!(" · {} failed", self.failed_count);
+            let suffix = format!(
+                " · {}",
+                tlf("{count} failed", &[("count", &self.failed_count)])
+            );
             text.push_str(&suffix);
             spans.push(Span::styled(suffix, theme.fg(theme.accent_error)));
         }

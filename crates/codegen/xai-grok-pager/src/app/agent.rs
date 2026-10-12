@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 use xai_acp_lib::AcpAgentTx;
+use xai_grok_i18n::tl;
 use xai_grok_shell::extensions::notification::GoalClassifierVerdict;
 use xai_grok_shell::sampling::types::ReasoningEffort;
 /// Unique local identifier for an agent.
@@ -121,14 +122,14 @@ impl AgentCommand {
     /// Human-readable label for the status line (e.g., "Compacting").
     pub fn display_name(&self) -> &'static str {
         match self {
-            Self::Compact => "Compacting",
-            Self::SwitchModelCompact => "Switching model",
-            Self::CreateWorktree => "Creating worktree",
-            Self::RestoreWorktree => "Restoring session in worktree",
-            Self::RestoreCode => "Restoring code",
-            Self::ForkSession => "Forking session",
-            Self::MemoryFlush => "Flushing memory",
-            Self::MemoryDream => "Consolidating memory",
+            Self::Compact => tl("Compacting"),
+            Self::SwitchModelCompact => tl("Switching model"),
+            Self::CreateWorktree => tl("Creating worktree"),
+            Self::RestoreWorktree => tl("Restoring session in worktree"),
+            Self::RestoreCode => tl("Restoring code"),
+            Self::ForkSession => tl("Forking session"),
+            Self::MemoryFlush => tl("Flushing memory"),
+            Self::MemoryDream => tl("Consolidating memory"),
         }
     }
     /// The raw command text (e.g., "/compact").
@@ -389,11 +390,11 @@ impl GoalDisplayStatus {
     /// Returns the empty string for non-paused variants; they render through their own labels (e.g. `"Budget"`, `"Done"`) elsewhere.
     pub fn pause_label(&self) -> &'static str {
         match self {
-            Self::UserPaused => "Paused",
-            Self::BackOffPaused => "Paused (back-off)",
-            Self::NoProgressPaused => "Paused (no progress)",
-            Self::InfraPaused => "Paused (error)",
-            Self::Blocked => "Paused (verification blocked)",
+            Self::UserPaused => tl("Paused"),
+            Self::BackOffPaused => tl("Paused (back-off)"),
+            Self::NoProgressPaused => tl("Paused (no progress)"),
+            Self::InfraPaused => tl("Paused (error)"),
+            Self::Blocked => tl("Paused (verification blocked)"),
             Self::Active
             | Self::Failed
             | Self::Interrupted
@@ -1094,9 +1095,9 @@ impl AgentSession {
     }
 }
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    fn test_session() -> AgentSession {
+    pub(crate) fn test_session() -> AgentSession {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         AgentSession {
             id: AgentId(0),

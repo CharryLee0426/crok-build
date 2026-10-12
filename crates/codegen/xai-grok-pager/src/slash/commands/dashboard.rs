@@ -11,6 +11,7 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::slash::{ModeSupport, Remedy};
+use xai_grok_i18n::tlm;
 
 pub struct DashboardCommand;
 
@@ -21,10 +22,10 @@ impl SlashCommand for DashboardCommand {
         // The dashboard replaced that modal for switching, renaming, and closing active sessions.
         // The aliases inherit the feature gate (`set_dashboard_visible` hides by canonical name) and the minimal-mode gate below
         aliases: ["agents-dashboard", "sessions"],
-        description: "Open the Agent Dashboard",
+        description: tlm("Open the Agent Dashboard"),
         usage: "/dashboard",
         mode_support: ModeSupport::FullscreenOnly(Remedy::SwitchMode {
-            why: "minimal is single-session",
+            why: tlm("minimal is single-session"),
         }),
     }
 

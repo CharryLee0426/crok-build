@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use agent_client_protocol as acp;
 use serde::Serialize;
 use xai_acp_lib::{AcpAgentTx, acp_send};
+use xai_grok_i18n::{tlf, tlm};
 use xai_grok_workspace::session::git::RestoreDegree;
 
 use super::effects::{
@@ -213,7 +214,10 @@ pub(crate) fn parse_resume_response(
 
 fn create_failure(detail: &str) -> WorktreeRpcError {
     WorktreeRpcError {
-        message: sanitize_user_error(&format!("couldn't create worktree: {detail}")),
+        message: sanitize_user_error(&tlf(
+            "couldn't create worktree: {detail}",
+            &[("detail", &detail)],
+        )),
     }
 }
 
@@ -260,7 +264,9 @@ pub(crate) async fn resume_session_into_worktree(
             .into(),
     );
     let started = std::time::Instant::now();
-    let resp = match acp_send_bounded(req, acp_tx, "Worktree session resume").await {
+    // The action name is kept on the timeout error and translated where that error is shown.
+    let action = tlm("Worktree session resume");
+    let resp = match acp_send_bounded(req, acp_tx, action).await {
         Ok(resp) => {
             tracing::info!(
                 session_id,
@@ -285,9 +291,9 @@ pub(crate) async fn resume_session_into_worktree(
 /// Append the worktree location to a failure that happened after the worktree was created, so
 /// the caller can reclaim it.
 pub(crate) fn note_orphaned_worktree(message: &str, worktree_root: &Path) -> String {
-    format!(
-        "{message} (worktree {} was created and is still on disk; remove it with `crok worktree rm`)",
-        worktree_root.display()
+    tlf(
+        "{message} (worktree {path} was created and is still on disk; remove it with `crok worktree rm`)",
+        &[("message", &message), ("path", &worktree_root.display())],
     )
 }
 

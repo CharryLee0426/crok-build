@@ -1,5 +1,6 @@
 use agent_client_protocol as acp;
 use xai_acp_lib::AcpResult;
+use xai_grok_i18n::tl;
 
 pub use xai_grok_tools::implementations::grok_build::exit_plan_mode::{
     ExitPlanModeExtRequest, ExitPlanModeExtResponse,
@@ -10,7 +11,8 @@ use crate::views::prompt_widget::StashedPrompt;
 /// Placeholder body for the plan-approval preview when `exit_plan_mode` parks with no plan content.
 /// No content means a missing/empty `plan.md`, or a whitespace-only body. Must be non-empty after
 /// trim so `LineViewerState::open_markdown_content` accepts it; empty bodies are rejected there.
-pub const EMPTY_PLAN_PLACEHOLDER: &str = "\
+pub const EMPTY_PLAN_PLACEHOLDER: &str = xai_grok_i18n::tlm(
+    "\
 # No plan written yet
 
 The agent exited plan mode without writing a plan.
@@ -18,16 +20,17 @@ The agent exited plan mode without writing a plan.
 - **Approve**: leave plan mode and start implementing
 - **Request changes**: send the agent back to planning
 - **Quit**: abandon and turn plan mode off
-";
+",
+);
 
 /// Status-line label while plan approval is parked.
 ///
 /// Empty plans use an active decision prompt instead of "Waiting…", so the UI doesn't look stuck when there is no preview body to open.
 pub fn plan_approval_status_label(has_plan: bool) -> &'static str {
     if has_plan {
-        "Waiting on plan approval"
+        tl("Waiting on plan approval")
     } else {
-        "No plan written: approve or request changes"
+        tl("No plan written: approve or request changes")
     }
 }
 

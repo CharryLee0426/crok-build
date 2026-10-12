@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use xai_grok_i18n::{tl, tlf};
+
 use super::layout::{self, Row};
 
 /// Commits read per load; `m` in the explorer reads this many more.
@@ -34,8 +36,8 @@ impl Scope {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::All => "All branches",
-            Self::Current => "Current branch",
+            Self::All => tl("All branches"),
+            Self::Current => tl("Current branch"),
         }
     }
 }
@@ -116,7 +118,7 @@ pub struct FileStat {
 /// Reads the graph for the repository containing `cwd`.
 pub fn load(cwd: &Path, scope: Scope, limit: usize) -> Result<GraphData, String> {
     let top = git(cwd, &["rev-parse", "--show-toplevel"])
-        .map_err(|_| format!("Not a git repository: {}", cwd.display()))?;
+        .map_err(|_| tlf("Not a git repository: {path}", &[("path", &cwd.display())]))?;
     let root = PathBuf::from(String::from_utf8_lossy(&top).trim_end_matches(['\n', '\r']));
     let head = git(&root, &["rev-parse", "--verify", "--quiet", "HEAD"])
         .ok()
@@ -197,10 +199,7 @@ pub fn load(cwd: &Path, scope: Scope, limit: usize) -> Result<GraphData, String>
                 Commit {
                     hash: UNCOMMITTED.to_owned(),
                     parents: vec![head.clone()],
-                    subject: format!(
-                        "Uncommitted changes · {changed} {}",
-                        if changed == 1 { "file" } else { "files" }
-                    ),
+                    subject: uncommitted_subject(changed),
                     uncommitted: Some(changed),
                     ..Commit::default()
                 },
@@ -229,6 +228,17 @@ pub fn load(cwd: &Path, scope: Scope, limit: usize) -> Result<GraphData, String>
         remote_branches,
         tags,
     })
+}
+
+/// The subject of the row that stands for the working tree's `changed` uncommitted paths, in the
+/// interface language.
+pub fn uncommitted_subject(changed: usize) -> String {
+    let files = if changed == 1 {
+        tlf("{count} file", &[("count", &changed)])
+    } else {
+        tlf("{count} files", &[("count", &changed)])
+    };
+    format!("{} · {files}", tl("Uncommitted changes"))
 }
 
 /// The paths `hash` changed against its first parent; for [`UNCOMMITTED`], the working tree
@@ -307,15 +317,17 @@ fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     }
     let output = command
         .output()
-        .map_err(|error| format!("Could not run git: {error}"))?;
+        .map_err(|error| tlf("Could not run git: {error}", &[("error", &error)]))?;
     if output.status.success() {
         Ok(output.stdout)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!(
-            "git {} failed: {}",
-            args.first().unwrap_or(&""),
-            stderr.trim()
+        Err(tlf(
+            "git {command} failed: {error}",
+            &[
+                ("command", args.first().unwrap_or(&"")),
+                ("error", &stderr.trim()),
+            ],
         ))
     }
 }

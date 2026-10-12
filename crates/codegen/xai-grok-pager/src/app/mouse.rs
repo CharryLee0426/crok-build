@@ -13,6 +13,7 @@ use crate::views::btw_overlay::BTW_OVERLAY_ENTRY_IDX;
 use crate::views::prompt_widget::PromptEvent;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use std::time::Instant;
+use xai_grok_i18n::tl;
 impl AgentView {
     /// Multi-click check for the prompt textarea, paired by time only (no coordinates); a mispaired action is one undo step.
     /// Records the click for the next pairing.
@@ -167,7 +168,7 @@ impl AgentView {
                     }
                     if !was_visible && !self.watching_cue_toast_shown {
                         self.watching_cue_toast_shown = true;
-                        self.show_toast("Tip: Ctrl+G toggles the tasks pane");
+                        self.show_toast(tl("Tip: Ctrl+G toggles the tasks pane"));
                     }
                     return InputOutcome::Changed;
                 }

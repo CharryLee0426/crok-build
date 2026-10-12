@@ -8,6 +8,7 @@ use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand, slash_meta,
 };
 use agent_client_protocol as acp;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 pub struct UsageCommand;
 
@@ -50,7 +51,7 @@ impl SlashCommand for UsageCommand {
     slash_meta! {
         name: "usage",
         aliases: ["cost"],
-        description: "View usage",
+        description: tlm("View usage"),
         usage: "/usage [show|manage]",
         takes_args: true,
     }
@@ -73,33 +74,37 @@ impl SlashCommand for UsageCommand {
                 display: "show".into(),
                 match_text: "show".into(),
                 insert_text: "show".into(),
-                description: "View usage".into(),
+                description: tl("View usage").into(),
             },
             ArgItem {
                 display: "manage".into(),
                 match_text: "manage".into(),
                 insert_text: "manage".into(),
-                description: "Manage billing".into(),
+                description: tl("Manage billing").into(),
             },
         ])
     }
 
     fn run(&self, ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         if !ctx.usage_command_visible {
-            return CommandResult::Error("/usage is not available.".into());
+            return CommandResult::Error(tl("/usage is not available.").into());
         }
         let arg = args.trim();
         if !ctx.billing_surface_visible {
             return match arg {
                 "" => CommandResult::Action(Action::ShowUsage),
-                _ => CommandResult::Error(format!("Unknown argument: {arg}. Use /usage")),
+                _ => CommandResult::Error(tlf(
+                    "Unknown argument: {arg}. Use /usage",
+                    &[("arg", &arg)],
+                )),
             };
         }
         match arg {
             "" | "show" => CommandResult::Action(Action::ShowUsage),
             "manage" => CommandResult::Action(Action::ManageBilling),
-            _ => CommandResult::Error(format!(
-                "Unknown argument: {arg}. Use /usage show or /usage manage"
+            _ => CommandResult::Error(tlf(
+                "Unknown argument: {arg}. Use /usage show or /usage manage",
+                &[("arg", &arg)],
             )),
         }
     }

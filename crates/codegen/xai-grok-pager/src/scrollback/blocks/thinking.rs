@@ -1,6 +1,7 @@
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 use crate::render::color::blend_line_with_default;
 use crate::scrollback::block::BlockContent;
@@ -15,7 +16,7 @@ use crate::appearance::AppearanceConfig;
 
 /// TODO: hard-coded because `AppView::minimal_key_intercept` matches this chord literally instead of going through the keybinding registry.
 /// Resolve the label from the registry once it does, so a remap is advertised correctly.
-const EXPAND_HINT: &str = "ctrl+e to expand";
+const EXPAND_HINT: &str = tlm("ctrl+e to expand");
 
 const EXPAND_HINT_GAP: &str = "  ";
 
@@ -33,7 +34,7 @@ fn append_expand_hint(line: Line<'static>, ctx: &BlockContext) -> Line<'static> 
     {
         return line;
     }
-    let hint = format!("{EXPAND_HINT_GAP}({EXPAND_HINT})");
+    let hint = format!("{EXPAND_HINT_GAP}({})", tl(EXPAND_HINT));
     let used: usize = line.spans.iter().map(|s| s.content.width()).sum();
     if used + hint.width() > ctx.content_width() {
         return line;
@@ -269,14 +270,18 @@ impl ThinkingBlock {
         let detail_style = theme.muted();
 
         if ctx.is_running {
-            Line::from(Span::styled("Thinking…", label_style))
+            Line::from(Span::styled(tl("Thinking…"), label_style))
         } else if let Some(time_str) = self.format_time() {
+            // Two phrases, each in its own style: the label, then the duration.
             Line::from(vec![
-                Span::styled("Thought", label_style),
-                Span::styled(format!(" for {time_str}"), detail_style),
+                Span::styled(tl("Thought"), label_style),
+                Span::styled(
+                    format!(" {}", tlf("for {time}", &[("time", &time_str)])),
+                    detail_style,
+                ),
             ])
         } else {
-            Line::from(Span::styled("Thought", label_style))
+            Line::from(Span::styled(tl("Thought"), label_style))
         }
     }
 

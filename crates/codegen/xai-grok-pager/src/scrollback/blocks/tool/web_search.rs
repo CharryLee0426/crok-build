@@ -11,6 +11,8 @@ use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode, Selectable,
 };
 use crate::theme::Theme;
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
 
 const MAX_INLINE_LINES: usize = 10;
 const TRUNCATED_INLINE_LINES: usize = 3;
@@ -103,7 +105,12 @@ impl WebSearchToolCallBlock {
             theme.fg(theme.command)
         };
 
-        let prefix = self.label.as_deref().unwrap_or("Web Search ").to_owned();
+        // An override ("X Search ") is stored in English with its space; a label the catalog knows
+        // is shown translated.
+        let prefix = match self.label.as_deref() {
+            Some(label) => format!("{} ", tl(label.trim_end())),
+            None => format!("{} ", tl("Web Search")),
+        };
 
         match max_width {
             Some(w) => {
@@ -111,20 +118,24 @@ impl WebSearchToolCallBlock {
                 // The fullscreen footer shows raw citation count as "Sources".
                 let site_count = self.unique_domains().len();
                 let suffix = if site_count > 0 {
-                    let s = if site_count == 1 { "" } else { "s" };
-                    format!(" ({site_count} site{s})")
+                    let sites = if site_count == 1 {
+                        tlf("{count} site", &[("count", &site_count)])
+                    } else {
+                        tlf("{count} sites", &[("count", &site_count)])
+                    };
+                    format!(" ({sites})")
                 } else {
                     String::new()
                 };
 
-                // Only show suffix if prefix + suffix fit within width.
+                // Only show suffix if prefix + suffix fit within width (terminal columns).
                 // Otherwise drop it to avoid overflow on narrow terminals.
-                let suffix_fits = prefix.len() + suffix.len() < w;
+                let suffix_fits = prefix.width() + suffix.width() < w;
                 let effective_suffix = if suffix_fits { &suffix } else { "" };
 
                 let query_budget = w
-                    .saturating_sub(prefix.len())
-                    .saturating_sub(effective_suffix.len());
+                    .saturating_sub(prefix.width())
+                    .saturating_sub(effective_suffix.width());
                 let display_query = truncate_str(&self.query, query_budget);
 
                 let mut spans = vec![
@@ -181,7 +192,8 @@ impl WebSearchToolCallBlock {
         let label_style = theme.muted();
         let value_style = theme.primary();
 
-        let mut spans: Vec<Span<'static>> = vec![Span::styled("  Sources: ", label_style)];
+        let mut spans: Vec<Span<'static>> =
+            vec![Span::styled(format!("  {}: ", tl("Sources")), label_style)];
 
         let shown = unique.len().min(MAX_INLINE_SOURCES);
         for (i, domain) in unique.iter().take(shown).enumerate() {
@@ -193,7 +205,10 @@ impl WebSearchToolCallBlock {
 
         let remaining = unique.len().saturating_sub(MAX_INLINE_SOURCES);
         if remaining > 0 {
-            spans.push(Span::styled(format!(" (+{remaining} more)"), label_style));
+            spans.push(Span::styled(
+                format!(" ({})", tlf("+{count} more", &[("count", &remaining)])),
+                label_style,
+            ));
         }
 
         Some(Line::from(spans))
@@ -270,7 +285,11 @@ impl BlockContent for WebSearchToolCallBlock {
                             lines.push(
                                 BlockLine::from(Line::from(Span::styled(
                                     format!(
-                                        "{indent}... ({remaining} more lines, press Enter to view)",
+                                        "{indent}... ({})",
+                                        tlf(
+                                            "{count} more lines, press Enter to view",
+                                            &[("count", &remaining)]
+                                        ),
                                     ),
                                     theme.dim(),
                                 )))
@@ -292,7 +311,8 @@ impl BlockContent for WebSearchToolCallBlock {
                         .push(BlockLine::from(Line::from("")).with_panel_background(theme.bg_dark));
                 } else if let Some(ref err) = self.error {
                     lines.push(Line::from("").into());
-                    for line in err.lines() {
+                    // A fallback stored in English ("Web search failed") is looked up when it is drawn; other errors show as they are.
+                    for line in tl(err).lines() {
                         lines.push(
                             Line::from(Span::styled(
                                 format!("  {line}"),
@@ -303,7 +323,13 @@ impl BlockContent for WebSearchToolCallBlock {
                     }
                 } else if !self.is_x_search {
                     lines.push(Line::from("").into());
-                    lines.push(Line::from(Span::styled("  (no content)", theme.muted())).into());
+                    lines.push(
+                        Line::from(Span::styled(
+                            format!("  ({})", tl("no content")),
+                            theme.muted(),
+                        ))
+                        .into(),
+                    );
                 }
 
                 // Sources summary line (after content, matching fullscreen order).

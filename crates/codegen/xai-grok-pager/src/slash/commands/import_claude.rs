@@ -6,6 +6,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 /// Open the interactive Claude settings import modal in the active session.
 pub struct ImportClaudeCommand;
@@ -13,7 +14,7 @@ pub struct ImportClaudeCommand;
 impl SlashCommand for ImportClaudeCommand {
     slash_meta! {
         name: "import-claude",
-        description: "Open the Claude settings import modal",
+        description: tlm("Open the Claude settings import modal"),
         usage: "/import-claude",
     }
 

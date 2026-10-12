@@ -8,6 +8,7 @@ use crate::notifications::protocol::NotificationProtocol;
 use crate::notifications::{NotificationCondition, NotificationMethod};
 use crate::terminal::{ByobuBackend, MultiplexerKind, TerminalContext, TerminalName};
 use crate::theme::color_support::ColorLevel;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 mod doctor_format;
 mod fix;
@@ -44,6 +45,13 @@ pub use model::{
 };
 pub use view::{DiagnosticSnapshot, view};
 
+// How the text of a warning or a finding is marked in this module. `crok doctor --json` prints a
+// finding's summary and note as they are stored, so they are stored in English: a fixed sentence
+// is marked with `tlm` here and looked up where the report is drawn (`doctor_format`). A sentence
+// with a value in it has no key to look up once the value is filled in. It is translated where it
+// is built (`tlf`) only in the checks that the JSON report never runs, the notification and
+// sandbox ones; in the checks that both reports share it is left as it is, in English.
+
 /// Passive input-device probe for `grok doctor` / `/doctor`. The TUI passes true only while voice mode is enabled.
 pub fn apply_voice_probe(report: &mut DiagnosticReport, emit_missing_issue: bool) {
     if !xai_grok_voice::AUDIO_SUPPORTED {
@@ -75,15 +83,20 @@ fn voice_missing_finding(error: String) -> DiagnosticFinding {
     DiagnosticFinding {
         id: VOICE_NO_INPUT_DEVICE_ID,
         disposition: FindingDisposition::Issue,
-        message: format!("Voice dictation is unavailable: {error}"),
+        message: tlf(
+            "Voice dictation is unavailable: {error}",
+            &[("error", &error)],
+        ),
         remediation: None,
         automatic_remediation: None,
         note: Some(
-            "Connect or select a microphone in your system sound settings. On Linux, install a \
-             supported audio recorder if none was found on PATH. Then run `/doctor` or `crok \
-             doctor` again. Doctor can't detect denied macOS microphone access when the system \
-             returns silence; follow the message shown when dictation fails."
-                .to_owned(),
+            tlm(
+                "Connect or select a microphone in your system sound settings. On Linux, install \
+                 a supported audio recorder if none was found on PATH. Then run `/doctor` or \
+                 `crok doctor` again. Doctor can't detect denied macOS microphone access when the \
+                 system returns silence; follow the message shown when dictation fails.",
+            )
+            .to_owned(),
         ),
     }
 }
@@ -194,9 +207,10 @@ fn actionable_warning_summary(
             )
         })
         .filter_map(|warning| view::id_for(warning.category));
+    // Kept for the welcome screen, which looks it up when it draws the banner
     Some(crate::startup::ActionableStartupWarning::new(
         crate::startup::WarningSeverity::Warning,
-        "Clipboard may be unreachable.",
+        tlm("Clipboard may be unreachable."),
         ids,
     ))
 }
@@ -224,15 +238,17 @@ pub(crate) fn collect_startup_warnings_from(
     if ctx.brand == TerminalName::AppleTerminal && ctx.is_ssh {
         let mut warning = TerminalWarning::new(
             WarningCategory::UnsupportedTerminal,
-            "Apple Terminal doesn't support OSC 52, so clipboard copy over SSH is unavailable",
+            tlm("Apple Terminal doesn't support OSC 52, so clipboard copy over SSH is unavailable"),
             None,
             None,
         );
         warning.note = Some(
-            "Crok also saves each copy to the backup file shown in the copy message. To copy \
-             directly, run `crok wrap ssh <host>` on your local computer or use a terminal that \
-             supports OSC 52. You can also use `/copy <file>` or `/minimal`."
-                .to_owned(),
+            tlm(
+                "Crok also saves each copy to the backup file shown in the copy message. To copy \
+                 directly, run `crok wrap ssh <host>` on your local computer or use a terminal \
+                 that supports OSC 52. You can also use `/copy <file>` or `/minimal`.",
+            )
+            .to_owned(),
         );
         warnings.push(warning);
     }
@@ -241,14 +257,16 @@ pub(crate) fn collect_startup_warnings_from(
     if ctx.byobu == Some(ByobuBackend::Screen) {
         let mut warning = TerminalWarning::new(
             WarningCategory::ByobuScreen,
-            "Byobu is using GNU screen, which has limited clipboard and display support",
+            tlm("Byobu is using GNU screen, which has limited clipboard and display support"),
             None,
             None,
         );
         warning.note = Some(
-            "Switch Byobu to its tmux backend, then restart or reattach the session. \
-             tmux-specific fixes apply only after you switch backends."
-                .to_owned(),
+            tlm(
+                "Switch Byobu to its tmux backend, then restart or reattach the session. \
+                 tmux-specific fixes apply only after you switch backends.",
+            )
+            .to_owned(),
         );
         warnings.push(warning);
         return warnings;
@@ -259,15 +277,19 @@ pub(crate) fn collect_startup_warnings_from(
     if ctx.is_tmux_backed() && matches!(tmux.control_mode, probes::TmuxProbeResult::Available(true))
     {
         let message = match fullscreen_active {
-            Some(true) => "Fullscreen may be unreliable in tmux control mode",
-            Some(false) => "Crok is using inline mode because tmux control mode limits fullscreen",
-            None => "Display may be limited in tmux control mode",
+            Some(true) => tlm("Fullscreen may be unreliable in tmux control mode"),
+            Some(false) => {
+                tlm("Crok is using inline mode because tmux control mode limits fullscreen")
+            }
+            None => tlm("Display may be limited in tmux control mode"),
         };
         let mut warning = TerminalWarning::new(WarningCategory::ControlMode, message, None, None);
         warning.note = Some(
-            "If display problems continue, connect with a regular tmux client instead of \
-             control mode."
-                .to_owned(),
+            tlm(
+                "If display problems continue, connect with a regular tmux client instead of \
+                 control mode.",
+            )
+            .to_owned(),
         );
         warnings.push(warning);
     }
@@ -288,7 +310,7 @@ pub(crate) fn collect_startup_warnings_from(
     {
         let mut warning = TerminalWarning::new(
             WarningCategory::TmuxExtendedKeysOff,
-            "`extended-keys` is off in tmux, so some shortcuts may not work",
+            tlm("`extended-keys` is off in tmux, so some shortcuts may not work"),
             Some("set -g extended-keys on"),
             Some(&config_path),
         );
@@ -349,28 +371,32 @@ pub(crate) fn wezterm_kitty_keyboard_warning_from(
     if shape == WezTermShape::SshXtversion {
         let mut warning = TerminalWarning::new(
             WarningCategory::WezTermKittyKeyboardOff,
-            "Shift+Enter can't insert a newline in WezTerm over SSH",
+            tlm("Shift+Enter can't insert a newline in WezTerm over SSH"),
             None,
             None,
         );
         warning.note = Some(
-            "For this session, type `\\` and then press Enter. Crok can't negotiate the Kitty \
-             keyboard protocol over SSH yet. `enable_kitty_keyboard = true` applies only to \
-             local WezTerm sessions."
-                .to_string(),
+            tlm(
+                "For this session, type `\\` and then press Enter. Crok can't negotiate the Kitty \
+                 keyboard protocol over SSH yet. `enable_kitty_keyboard = true` applies only to \
+                 local WezTerm sessions.",
+            )
+            .to_string(),
         );
         return Some(warning);
     }
     let mut warning = TerminalWarning::new(
         WarningCategory::WezTermKittyKeyboardOff,
-        "Shift+Enter can't insert a newline because WezTerm's Kitty keyboard protocol is off",
+        tlm("Shift+Enter can't insert a newline because WezTerm's Kitty keyboard protocol is off"),
         Some("config.enable_kitty_keyboard = true"),
         Some("~/.config/wezterm/wezterm.lua"),
     );
     warning.note = Some(
-        "Restart WezTerm after changing this setting. Until then, type `\\` and then press \
-         Enter to insert a newline."
-            .to_string(),
+        tlm(
+            "Restart WezTerm after changing this setting. Until then, type `\\` and then press \
+             Enter to insert a newline.",
+        )
+        .to_string(),
     );
     Some(warning)
 }
@@ -388,18 +414,23 @@ fn sandbox_profile_conflict_warning_from(conflicts: Vec<String>) -> Option<Termi
         .map(|name| format!("'{name}'"))
         .collect::<Vec<_>>()
         .join(", ");
+    // Only the TUI runs this check, so its two sentences with a value are translated here
     Some(TerminalWarning {
         category: WarningCategory::SandboxProfileConflict,
-        message: format!(
-            "Project and user sandbox settings define these profiles differently: {profiles}"
+        message: tlf(
+            "Project and user sandbox settings define these profiles differently: {profiles}",
+            &[("profiles", &profiles)],
         ),
         fix: None,
         config_path: None,
-        note: Some(format!(
-            "Crok is using the user profile. Compare `.grok/sandbox.toml` with {}, then rename \
-             or remove the conflicting project profile. Project settings can add profile names \
-             but can't redefine a user profile.",
-            crate::util::display_user_grok_path(xai_grok_config::SANDBOX_CONFIG_FILENAME)
+        note: Some(tlf(
+            "Crok is using the user profile. Compare `.grok/sandbox.toml` with {path}, then \
+             rename or remove the conflicting project profile. Project settings can add profile \
+             names but can't redefine a user profile.",
+            &[(
+                "path",
+                &crate::util::display_user_grok_path(xai_grok_config::SANDBOX_CONFIG_FILENAME),
+            )],
         )),
     })
 }
@@ -417,14 +448,16 @@ pub fn ssh_wrap_hint(
     }
     let mut warning = TerminalWarning::new(
         WarningCategory::SshWithoutWrap,
-        "Use local SSH wrapping for more reliable clipboard copy and terminal recovery",
+        tlm("Use local SSH wrapping for more reliable clipboard copy and terminal recovery"),
         Some("crok wrap ssh <host>"),
         None,
     );
     warning.note = Some(
-        "Run this on your local computer instead of plain `ssh`. It forwards copies to your \
-         local clipboard and restores terminal modes if the connection drops."
-            .to_string(),
+        tlm(
+            "Run this on your local computer instead of plain `ssh`. It forwards copies to your \
+             local clipboard and restores terminal modes if the connection drops.",
+        )
+        .to_string(),
     );
     Some(warning)
 }
@@ -437,11 +470,12 @@ fn actionable_assembled_warnings(
     wayland_clipboard_warning: Option<&TerminalWarning>,
     sandbox_profile_warning: Option<&TerminalWarning>,
 ) -> Vec<crate::startup::ActionableStartupWarning> {
+    // Kept for the welcome screen, which looks each one up when it draws the banner
     let mut warnings = Vec::new();
     if sandbox_profile_warning.is_some() {
         warnings.push(crate::startup::ActionableStartupWarning::new(
             crate::startup::WarningSeverity::Warning,
-            "Project sandbox settings conflict with your settings.",
+            tlm("Project sandbox settings conflict with your settings."),
             [SANDBOX_PROFILE_CONFLICT_ID],
         ));
     }
@@ -450,7 +484,7 @@ fn actionable_assembled_warnings(
             0,
             crate::startup::ActionableStartupWarning::new(
                 crate::startup::WarningSeverity::Warning,
-                "Copies need this terminal to stay focused.",
+                tlm("Copies need this terminal to stay focused."),
                 [DiagnosticId::new("terminal", "wayland-data-control")],
             ),
         );
@@ -460,7 +494,7 @@ fn actionable_assembled_warnings(
             0,
             crate::startup::ActionableStartupWarning::new(
                 crate::startup::WarningSeverity::Warning,
-                "Shift+Enter can't insert newlines in WezTerm.",
+                tlm("Shift+Enter can't insert newlines in WezTerm."),
                 [DiagnosticId::new("terminal", "wezterm-kitty")],
             ),
         );
@@ -526,15 +560,19 @@ pub(crate) fn collect_notification_warnings_with_method(
     {
         let mut warning = TerminalWarning::new(
             WarningCategory::NotificationProtocolFallback,
-            "Crok is using the terminal bell because the terminal was not recognized",
+            tlm("Crok is using the terminal bell because the terminal was not recognized"),
             None,
             None,
         );
-        warning.note = Some(format!(
+        // Only the TUI runs the notification checks, so a note with a value is translated here
+        warning.note = Some(tlf(
             "If the bell works for you, no change is needed. Otherwise, set `method` in \
-             `[ui.notifications]` in {} to a protocol your terminal supports. Set it to `none` \
-             to turn off terminal notifications.",
-            crate::util::display_user_grok_path(xai_grok_config::USER_CONFIG_FILENAME)
+             `[ui.notifications]` in {path} to a protocol your terminal supports. Set it to \
+             `none` to turn off terminal notifications.",
+            &[(
+                "path",
+                &crate::util::display_user_grok_path(xai_grok_config::USER_CONFIG_FILENAME),
+            )],
         ));
         warnings.push(warning);
     }
@@ -551,7 +589,7 @@ pub(crate) fn collect_notification_warnings_with_method(
         let config_path = ctx.tmux_config_path();
         let mut warning = TerminalWarning::new(
             WarningCategory::DcsPassthrough,
-            "`allow-passthrough` is off in tmux, so terminal notifications are blocked",
+            tlm("`allow-passthrough` is off in tmux, so terminal notifications are blocked"),
             Some("set -wg allow-passthrough on"),
             Some(&config_path),
         );
@@ -564,16 +602,20 @@ pub(crate) fn collect_notification_warnings_with_method(
     if condition == NotificationCondition::Unfocused && !supports_focus_tracking(ctx.brand) {
         let mut warning = TerminalWarning::new(
             WarningCategory::FocusTrackingUnavailable,
-            "This terminal may not report focus changes, so notifications set to `unfocused` may not appear",
+            tlm(
+                "This terminal may not report focus changes, so notifications set to `unfocused` may not appear",
+            ),
             Some("condition = \"always\" in [ui.notifications]"),
             Some(&crate::util::display_user_grok_path(
                 xai_grok_config::USER_CONFIG_FILENAME,
             )),
         );
         warning.note = Some(
-            "Use `always` to notify whether or not the terminal is focused. Use `never` or \
-             `method = \"none\"` to turn notifications off."
-                .to_owned(),
+            tlm(
+                "Use `always` to notify whether or not the terminal is focused. Use `never` or \
+                 `method = \"none\"` to turn notifications off.",
+            )
+            .to_owned(),
         );
         warnings.push(warning);
     }
@@ -616,9 +658,13 @@ pub(crate) fn merge_tui_runtime_findings(
         {
             if existing.id == DiagnosticId::new("terminal", "dcs-passthrough") {
                 existing.message = runtime_finding.message;
+                // Added to a note that is already filled in, so it is translated as it is added
                 existing.note = Some(match existing.note.take() {
-                    Some(note) => format!("{note} OSC terminal notifications are also blocked."),
-                    None => "OSC terminal notifications are also blocked.".to_owned(),
+                    Some(note) => format!(
+                        "{note} {}",
+                        tl("OSC terminal notifications are also blocked.")
+                    ),
+                    None => tlm("OSC terminal notifications are also blocked.").to_owned(),
                 });
             }
         } else {
@@ -627,8 +673,13 @@ pub(crate) fn merge_tui_runtime_findings(
     }
 }
 
+// Worded where it is built, since the path is filled in: the TUI's report reads in the interface
+// language, and `crok doctor` (and its JSON) is built by the command line, which sets no language
 fn tmux_reload_note(config_path: &str) -> String {
-    format!("Reload tmux with `tmux source-file {config_path}`, or restart the tmux server.")
+    tlf(
+        "Reload tmux with `tmux source-file {config_path}`, or restart the tmux server.",
+        &[("config_path", &config_path)],
+    )
 }
 
 fn diagnose_clipboard_from_facts(
@@ -673,7 +724,7 @@ pub fn diagnose_clipboard_from_values(
     {
         let mut warning = TerminalWarning::new(
             WarningCategory::Clipboard,
-            "`set-clipboard` is off in tmux, so OSC 52 clipboard copies are blocked",
+            tlm("`set-clipboard` is off in tmux, so OSC 52 clipboard copies are blocked"),
             Some("set -g set-clipboard on"),
             Some(config_path),
         );
@@ -690,7 +741,9 @@ pub fn diagnose_clipboard_from_values(
     {
         let mut warning = TerminalWarning::new(
             WarningCategory::DcsPassthrough,
-            "`allow-passthrough` is off in tmux, which can block clipboard copies in nested sessions",
+            tlm(
+                "`allow-passthrough` is off in tmux, which can block clipboard copies in nested sessions",
+            ),
             Some("set -wg allow-passthrough on"),
             Some(config_path),
         );
@@ -715,14 +768,16 @@ pub fn diagnose_wayland_data_control(
     let fix = (!wl_copy_available).then_some("sudo apt install wl-clipboard");
     let mut warning = TerminalWarning::new(
         WarningCategory::WaylandNoDataControl,
-        "Clipboard copies may fail if you switch away from this Wayland terminal",
+        tlm("Clipboard copies may fail if you switch away from this Wayland terminal"),
         fix,
         None,
     );
     warning.note = Some(
-        "Keep this terminal focused until the copy message appears. If your distribution does \
-         not use apt, install the `wl-clipboard` package with its package manager."
-            .to_owned(),
+        tlm(
+            "Keep this terminal focused until the copy message appears. If your distribution \
+             does not use apt, install the `wl-clipboard` package with its package manager.",
+        )
+        .to_owned(),
     );
     Some(warning)
 }
@@ -861,11 +916,11 @@ pub fn color_support_warning(
     if level == probes::RuntimeEvidence::Available(ColorLevel::None) {
         let mut warning = TerminalWarning::new(
             WarningCategory::LimitedColorSupport,
-            "Colors are off because `NO_COLOR` is set",
+            tlm("Colors are off because `NO_COLOR` is set"),
             None,
             None,
         );
-        warning.note = Some("Unset `NO_COLOR`, then restart Crok.".to_string());
+        warning.note = Some(tlm("Unset `NO_COLOR`, then restart Crok.").to_string());
         return Some(warning);
     }
 
@@ -875,16 +930,19 @@ pub fn color_support_warning(
     if color_passthrough == TmuxColorPassthrough::Reduced {
         let mut warning = TerminalWarning::new(
             WarningCategory::TmuxColorReduced,
-            "tmux is reducing 24-bit color to this client's palette, so themes look washed out",
+            tlm(
+                "tmux is reducing 24-bit color to this client's palette, so themes look washed out",
+            ),
             Some("set -as terminal-features \",*:RGB\""),
             Some(tmux_config_path),
         );
-        warning.note = Some(format!(
+        warning.note = Some(tlf(
             "Run `tmux source-file {tmux_config_path}`, then detach and reattach: the server \
              reads the option only on reload, and a client fixes its color depth only at attach. \
              If Crok still reports less than truecolor afterwards, also add `set -g \
              default-terminal \"tmux-256color\"` and `export COLORTERM=truecolor` to your shell \
-             startup file."
+             startup file.",
+            &[("tmux_config_path", &tmux_config_path)],
         ));
         return Some(warning);
     }
@@ -901,41 +959,49 @@ pub fn color_support_warning(
     if brand == TerminalName::AppleTerminal {
         let mut warning = TerminalWarning::new(
             WarningCategory::LimitedColorSupport,
-            "Apple Terminal supports 256 colors, so truecolor themes are unavailable",
+            tlm("Apple Terminal supports 256 colors, so truecolor themes are unavailable"),
             None,
             None,
         );
-        warning.note = Some("Use a terminal that supports truecolor, such as Ghostty.".to_string());
+        warning.note =
+            Some(tlm("Use a terminal that supports truecolor, such as Ghostty.").to_string());
         return Some(warning);
     }
 
     if is_tmux_backed {
         let mut warning = TerminalWarning::new(
             WarningCategory::LimitedColorSupport,
-            &format!(
-                "This terminal reports {level_label} color, so truecolor themes are unavailable"
+            &tlf(
+                "This terminal reports {level_label} color, so truecolor themes are unavailable",
+                &[("level_label", &level_label)],
             ),
             Some("set -as terminal-features \",*:RGB\""),
             Some(tmux_config_path),
         );
-        warning.note = Some(format!(
+        warning.note = Some(tlf(
             "In the same tmux config, also add `set -g default-terminal \"tmux-256color\"`. Add \
              `export COLORTERM=truecolor` to your shell startup file. Then reload tmux with \
-             `tmux source-file {tmux_config_path}`, then detach and reattach, and restart Crok."
+             `tmux source-file {tmux_config_path}`, then detach and reattach, and restart Crok.",
+            &[("tmux_config_path", &tmux_config_path)],
         ));
         return Some(warning);
     }
 
     let mut warning = TerminalWarning::new(
         WarningCategory::LimitedColorSupport,
-        &format!("This terminal reports {level_label} color, so truecolor themes are unavailable"),
+        &tlf(
+            "This terminal reports {level_label} color, so truecolor themes are unavailable",
+            &[("level_label", &level_label)],
+        ),
         Some("export COLORTERM=truecolor"),
         None,
     );
     warning.note = Some(
-        "Add this export to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, then \
-         restart Crok."
-            .to_string(),
+        tlm(
+            "Add this export to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, then \
+             restart Crok.",
+        )
+        .to_string(),
     );
     Some(warning)
 }

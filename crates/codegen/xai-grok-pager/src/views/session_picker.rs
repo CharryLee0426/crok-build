@@ -6,6 +6,8 @@ use crate::app::app_view::SessionPickerEntry;
 use crate::views::picker::{PickerEntry, PickerField, PickerRow, PickerState};
 use indexmap::IndexMap;
 use std::collections::HashSet;
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
 /// Offset added to content-hit indices in the picker `expanded` set so they don't collide with fuzzy-entry indices.
 pub const CONTENT_EXPAND_OFFSET: usize = 100_000;
 /// Session id for free-text Enter (`SubmitQuery` with no selectable rows).
@@ -210,11 +212,11 @@ impl SourceFilter {
     pub fn label(self) -> &'static str {
         match self {
             Self::Grok => "Crok",
-            Self::Headless => "Headless",
-            Self::Local => "Local",
-            Self::Remote => "Remote",
-            Self::External => "External",
-            Self::All => "All",
+            Self::Headless => tl("Headless"),
+            Self::Local => tl("Local"),
+            Self::Remote => tl("Remote"),
+            Self::External => tl("External"),
+            Self::All => tl("All"),
         }
     }
     pub fn next(self) -> Self {
@@ -387,7 +389,27 @@ fn selectable_fallback<T>(map: &[Option<T>], preferred: usize) -> Option<usize> 
 /// ordered-chars subsequence match. That matched so loosely (e.g. "rc" hitting "rust-check") that
 /// spurious title rows drowned out the results users actually searched for.
 pub(crate) fn fuzzy_matches_session(name: &str, query: &str) -> bool {
-    query.is_empty() || name.to_lowercase().contains(query)
+    if query.is_empty() {
+        return true;
+    }
+    // The filter runs over every entry on every keystroke and every frame; it must not lowercase
+    // each name into a new string each time.
+    if name.is_ascii() && query.is_ascii() {
+        let needle = query.as_bytes();
+        return name
+            .as_bytes()
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle));
+    }
+    thread_local! {
+        static LOWERED: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+    }
+    LOWERED.with(|lowered| {
+        let mut lowered = lowered.borrow_mut();
+        lowered.clear();
+        lowered.extend(name.chars().flat_map(char::to_lowercase));
+        lowered.contains(query)
+    })
 }
 /// The query the picker's local fuzzy filter should apply on top of the current entries. The server
 /// matches message content as well as title, so the local fuzzy match is skipped: re-applying it
@@ -672,7 +694,7 @@ pub(crate) fn build_session_entry_data(
                 };
             };
             let summary = if entry.summary.is_empty() {
-                "(no prompt)".to_string()
+                tl("(no prompt)").to_string()
             } else {
                 entry.summary.clone()
             };
@@ -685,41 +707,46 @@ pub(crate) fn build_session_entry_data(
                 field_data.push(("ID".into(), entry.id.clone()));
                 field_data.push(("CWD".into(), entry.cwd.clone()));
                 if let Some(ref model) = entry.model_id {
-                    field_data.push(("Model".into(), model.clone()));
+                    field_data.push((tl("Model").into(), model.clone()));
                 }
                 let fmt_time = |dt: chrono::DateTime<chrono::Utc>| {
                     dt.with_timezone(&chrono::Local)
                         .format("%b %d, %l:%M%P")
                         .to_string()
                 };
-                field_data.push(("Created".into(), fmt_time(entry.created_at)));
-                field_data.push(("Updated".into(), fmt_time(entry.updated_at)));
-                field_data.push(("Source".into(), entry.source.clone()));
+                field_data.push((tl("Created").into(), fmt_time(entry.created_at)));
+                field_data.push((tl("Updated").into(), fmt_time(entry.updated_at)));
+                field_data.push((tl("Source").into(), entry.source.clone()));
                 if let Some(ref host) = entry.hostname {
-                    field_data.push(("Host".into(), host.clone()));
+                    field_data.push((tl("Host").into(), host.clone()));
                 }
                 if entry.num_messages > 0 {
-                    field_data.push(("Messages".into(), entry.num_messages.to_string()));
+                    field_data.push((tl("Messages").into(), entry.num_messages.to_string()));
                 }
                 let max_w = content_width.saturating_sub(4 + 12) as usize;
                 if let Some(recap) = entry.last_recap.as_deref().map(str::trim)
                     && !recap.is_empty()
                 {
-                    field_data.push(("Recap".into(), truncate_str(recap, max_w)));
+                    field_data.push((tl("Recap").into(), truncate_str(recap, max_w)));
                 }
                 if let Some(last_turn) = entry.last_turn_summary.as_deref().map(str::trim)
                     && !last_turn.is_empty()
                 {
-                    field_data.push(("Last turn".into(), truncate_str(last_turn, max_w)));
+                    field_data.push((tl("Last turn").into(), truncate_str(last_turn, max_w)));
                 }
                 if let Some(ref detail) = entry.card_detail {
                     field_data.push((
-                        "Turns".into(),
-                        format!("{}    Tools  {}", detail.turn_count, detail.tool_call_count),
+                        tl("Turns").into(),
+                        format!(
+                            "{}    {}  {}",
+                            detail.turn_count,
+                            tl("Tools"),
+                            detail.tool_call_count
+                        ),
                     ));
                     if !detail.first_prompt_preview.is_empty() {
                         let preview = truncate_str(&detail.first_prompt_preview, max_w);
-                        field_data.push(("Prompt".into(), preview));
+                        field_data.push((tl("Prompt").into(), preview));
                     }
                 }
             }
@@ -781,7 +808,7 @@ pub(crate) fn build_grouped_picker_entries<'a>(
                 summary_lines: &[],
                 dimmed: false,
                 indent: 1,
-                badge: b.badge,
+                badge: xai_grok_i18n::tl(b.badge),
                 badge_color: None,
                 collapsible: b.collapsible,
                 underline_last_desc: false,
@@ -817,7 +844,7 @@ pub(crate) fn build_content_entry_data(
             let summary = if h.summary.is_empty() {
                 h.snippet
                     .as_deref()
-                    .unwrap_or("(no summary)")
+                    .unwrap_or(tl("(no summary)"))
                     .lines()
                     .next()
                     .unwrap_or_default()
@@ -873,11 +900,12 @@ pub(crate) fn build_content_header_label(
         let spinner_frames = crate::glyphs::dot_spinner_frames();
         let frame_idx = (tick / 4) as usize % spinner_frames.len();
         format!(
-            "{} Searching session content\u{2026}",
-            spinner_frames.get(frame_idx).copied().unwrap_or("")
+            "{} {}",
+            spinner_frames.get(frame_idx).copied().unwrap_or(""),
+            tl("Searching session content…")
         )
     } else if has_content_rows {
-        "Extended search results (remote and local sessions)".to_string()
+        tl("Extended search results (remote and local sessions)").to_string()
     } else {
         String::new()
     }
@@ -894,8 +922,12 @@ pub(crate) fn hidden_external_hint(
                 .filter(|entry| crate::app::is_foreign_picker_source(&entry.source))
                 .count();
             (hidden > 0).then(|| {
-                let plural = if hidden == 1 { "" } else { "s" };
-                format!("{hidden} external session{plural} hidden \u{b7} f to show")
+                let hidden_text = if hidden == 1 {
+                    tlf("{count} external session hidden", &[("count", &hidden)])
+                } else {
+                    tlf("{count} external sessions hidden", &[("count", &hidden)])
+                };
+                format!("{hidden_text} \u{b7} {}", tl("f to show"))
             })
         }
         _ => None,
@@ -906,21 +938,36 @@ pub(crate) fn format_time_ago(dt: chrono::DateTime<chrono::Utc>) -> String {
     let now = chrono::Utc::now();
     let duration = now.signed_duration_since(dt);
     let raw = if duration.num_minutes() < 1 {
-        "just now".to_string()
+        tl("just now").to_string()
     } else if duration.num_minutes() < 60 {
-        format!("{}m ago", duration.num_minutes())
+        tlf("{count}m ago", &[("count", &duration.num_minutes())])
     } else if duration.num_hours() < 24 {
-        format!("{}h ago", duration.num_hours())
+        tlf("{count}h ago", &[("count", &duration.num_hours())])
     } else if duration.num_days() < 30 {
-        format!("{}d ago", duration.num_days())
+        tlf("{count}d ago", &[("count", &duration.num_days())])
     } else {
-        format!("{}mo ago", duration.num_days() / 30)
+        tlf("{count}mo ago", &[("count", &(duration.num_days() / 30))])
     };
-    format!("{:>8}", raw)
+    // Right-align in 8 columns, not 8 characters: the text is not ASCII in every language
+    format!("{}{raw}", " ".repeat(8usize.saturating_sub(raw.width())))
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_filter_ignores_case_for_ascii_and_other_scripts() {
+        assert!(fuzzy_matches_session("Fix the Login Bug", "login"));
+        assert!(fuzzy_matches_session("Fix the Login Bug", "the login"));
+        assert!(!fuzzy_matches_session("Fix the Login Bug", "logout"));
+        assert!(fuzzy_matches_session("", ""));
+        assert!(!fuzzy_matches_session("", "x"));
+        assert!(!fuzzy_matches_session("ab", "abc"));
+        assert!(fuzzy_matches_session("修复 登录 Bug", "登录"));
+        assert!(fuzzy_matches_session("Résumé the Session", "résumé"));
+        assert!(fuzzy_matches_session("Straße", "straße"));
+        assert!(!fuzzy_matches_session("修复 登录 Bug", "退出"));
+    }
     fn at<'a, T>(xs: &'a [T], i: usize) -> &'a T {
         match xs.get(i) {
             Some(v) => v,

@@ -30,6 +30,36 @@ struct TokenCounts: Equatable {
     }
 }
 
+/// A request that could not read all of what the request before it left in the provider's prompt
+/// cache: the `cache_miss` of a `response_started` update, from Anthropic's cache diagnostics.
+struct PromptCacheMiss: Equatable {
+    enum Change: String { case model, system, tools, messages }
+
+    var changed: Change
+    /// About how many input tokens came after the change. An estimate, not a billed amount.
+    var missedInputTokens: Int
+
+    init?(_ value: Any?) {
+        guard let value = value as? [String: Any], let changed = (value["changed"] as? String).flatMap(Change.init) else { return nil }
+        self.changed = changed
+        missedInputTokens = value["missed_input_tokens"] as? Int ?? 0
+    }
+
+    /// The line the transcript shows, in the interface language.
+    var text: String {
+        let change: String
+        switch changed {
+        case .model: change = L10n.t("cache_miss_model", "Prompt cache: the model changed since the previous request.")
+        case .system: change = L10n.t("cache_miss_system", "Prompt cache: the system prompt changed since the previous request.")
+        case .tools: change = L10n.t("cache_miss_tools", "Prompt cache: the tool list changed since the previous request.")
+        case .messages: change = L10n.t("cache_miss_messages", "Prompt cache: earlier messages changed since the previous request.")
+        }
+        guard missedInputTokens > 0 else { return change }
+        return L10n.t("cache_miss_tokens", "{change} About {tokens} input tokens after the change were not read from the cache.",
+                      ["change": change, "tokens": missedInputTokens.formatted()])
+    }
+}
+
 enum TokenRate: Equatable {
     /// The harness's figure for the last completed response.
     case measured(Double)

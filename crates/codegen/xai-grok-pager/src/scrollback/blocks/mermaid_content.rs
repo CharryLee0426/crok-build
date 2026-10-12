@@ -12,6 +12,7 @@ use std::ops::Range;
 
 use ratatui::text::Line;
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlm};
 use xai_grok_markdown::MarkdownRenderView;
 
 use crate::appearance::RenderMermaid;
@@ -25,14 +26,14 @@ pub const MERMAID_INFO: &str = "mermaid";
 const MERMAID_LABEL: &str = "\u{25c7} mermaid";
 
 /// Status hint shown in the affordance row while an on-click diagram render is in flight.
-const MERMAID_RENDERING: &str = "rendering diagram\u{2026}";
+const MERMAID_RENDERING: &str = tlm("rendering diagram…");
 
 /// Affordance-row button label: open the rendered PNG in the OS default app.
-const AFFORDANCE_OPEN: &str = "[Open Image]";
+const AFFORDANCE_OPEN: &str = tlm("[Open Image]");
 /// Affordance-row button label: copy the rendered PNG's filesystem path.
-const AFFORDANCE_COPY_PATH: &str = "[Copy Image Path]";
+const AFFORDANCE_COPY_PATH: &str = tlm("[Copy Image Path]");
 /// Affordance-row button label: copy the diagram's Mermaid source.
-const AFFORDANCE_COPY_SOURCE: &str = "[Copy Source]";
+const AFFORDANCE_COPY_SOURCE: &str = tlm("[Copy Source]");
 
 /// Display-column gap between adjacent affordance-row buttons (and before the trailing status hint).
 const AFFORDANCE_GAP: u16 = 3;
@@ -298,6 +299,8 @@ fn affordance_buttons(start_col: u16) -> [AffordanceButton; 3] {
     ];
     let mut col = start_col;
     specs.map(|(label, kind)| {
+        // Looked up here, on every layout, so the row follows a language change.
+        let label = tl(label);
         let button = AffordanceButton { label, kind, col };
         col += UnicodeWidthStr::width(label) as u16 + AFFORDANCE_GAP;
         button
@@ -312,7 +315,7 @@ pub(crate) fn affordance_row(rendering: bool) -> AffordanceRow {
     let buttons = affordance_buttons(buttons_start);
     let status = rendering.then(|| buttons.last()).flatten().map(|last| {
         let after = last.col + UnicodeWidthStr::width(last.label) as u16 + AFFORDANCE_GAP;
-        (after, MERMAID_RENDERING)
+        (after, tl(MERMAID_RENDERING))
     });
     AffordanceRow {
         label: (0, MERMAID_LABEL),

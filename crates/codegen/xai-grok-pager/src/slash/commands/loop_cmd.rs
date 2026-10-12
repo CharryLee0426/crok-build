@@ -1,4 +1,5 @@
 use agent_client_protocol as acp;
+use xai_grok_i18n::{tl, tlm};
 use xai_grok_tools::implementations::grok_build::{
     SCHEDULER_CREATE_TOOL_NAME, loop_schedule_instruction, loop_usage_message,
 };
@@ -82,17 +83,21 @@ fn interval_to_human(token: &str) -> String {
 impl SlashCommand for LoopCommand {
     slash_meta! {
         name: "loop",
-        description: "Run a prompt on a recurring interval",
+        description: tlm("Run a prompt on a recurring interval"),
         usage: "/loop [interval] <prompt>",
         takes_args: true,
         args_required: true,
-        arg_placeholder: "[interval] <prompt>",
+        arg_placeholder: tlm("[interval] <prompt>"),
         required_tools: LOOP_REQUIRED_TOOLS,
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         if args.trim().is_empty() {
-            return CommandResult::Message(loop_usage_message().to_string());
+            // Worded in xai-grok-tools-api; the marker keeps the text in the catalog
+            const _USAGE: &str = xai_grok_i18n::tlm(
+                "Usage: /loop [interval] <prompt>\nExample: /loop 30m check deploy status\nExample: /loop check deploy status every hour\n\nTell me how often it should run (e.g. 30m, 1 hour, every 2 days).",
+            );
+            return CommandResult::Message(tl(loop_usage_message()).to_string());
         }
 
         let (interval_token, prompt) = parse_loop_args(args);
@@ -101,7 +106,7 @@ impl SlashCommand for LoopCommand {
         // The authoritative schedule arrives when the model calls scheduler_create, whose ScheduledTaskCreated replaces this provisional entry
         let human_schedule = match interval_token {
             Some(token) => interval_to_human(token),
-            None => "scheduling…".to_string(),
+            None => tl("scheduling…").to_string(),
         };
 
         CommandResult::InjectSkill {

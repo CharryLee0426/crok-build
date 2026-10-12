@@ -2,6 +2,7 @@
 //! A trailing space after the picked model re-opens the dropdown into a window sub-menu when the model offers several, then the effort sub-menu.
 
 use agent_client_protocol as acp;
+use xai_grok_i18n::{tl, tlf, tlm};
 use xai_grok_shell::sampling::types::{ReasoningEffortOption, supports_reasoning_effort_meta};
 
 use crate::acp::model_state::ModelState;
@@ -21,14 +22,14 @@ impl SlashCommand for ModelCommand {
     slash_meta! {
         name: "model",
         aliases: ["m"],
-        description: "Switch the active model",
+        description: tlm("Switch the active model"),
         usage: "/model <name> [window] [effort]",
         takes_args: true,
         args_required: true,
         session_scoped: true,
         // The dashboard offers `/model` to pick the model for the next spawned agent (intercepted in `dispatch_dashboard_dispatch_slash`).
         offered_when_session_less: true,
-        arg_placeholder: "<model> [window] [effort]",
+        arg_placeholder: tlm("<model> [window] [effort]"),
     }
 
     fn suggest_args(&self, ctx: &AppCtx, args_query: &str) -> Option<Vec<ArgItem>> {
@@ -67,7 +68,7 @@ impl SlashCommand for ModelCommand {
     fn run(&self, ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         let trimmed = args.trim();
         if trimmed.is_empty() {
-            return CommandResult::Error("Usage: /model <name> [window] [effort]".into());
+            return CommandResult::Error(tl("Usage: /model <name> [window] [effort]").into());
         }
 
         // Prefer an exact full-string catalog match first. Model display names often contain spaces ("Grok 4.5").
@@ -108,7 +109,7 @@ impl SlashCommand for ModelCommand {
             };
         }
 
-        CommandResult::Error(format!("Unknown model: {trimmed}"))
+        CommandResult::Error(tlf("Unknown model: {name}", &[("name", &trimmed)]))
     }
 }
 
@@ -119,9 +120,9 @@ fn supports_reasoning_effort(info: &acp::ModelInfo) -> bool {
 /// The arg picker title for the `/model` sub-menu that `args_query` has reached.
 pub(crate) fn picker_title(models: &ModelState, args_query: &str) -> &'static str {
     match chained_phase(models, args_query) {
-        Some(ChainedPhase::Window { .. }) => "Pick context window",
-        Some(ChainedPhase::Effort { .. }) => "Pick reasoning effort",
-        Some(ChainedPhase::Done) | None => "Pick model",
+        Some(ChainedPhase::Window { .. }) => tl("Pick context window"),
+        Some(ChainedPhase::Effort { .. }) => tl("Pick reasoning effort"),
+        Some(ChainedPhase::Done) | None => tl("Pick model"),
     }
 }
 
@@ -294,7 +295,7 @@ fn build_model_items(models: &ModelState) -> Vec<ArgItem> {
         let chains = has_chained_args(models, id, info);
 
         let display = if is_current {
-            format!("{} (current)", info.name)
+            format!("{} {}", info.name, tl("(current)"))
         } else {
             info.name.clone()
         };

@@ -6,6 +6,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 /// Open the prompt-history search overlay via `/history`.
 pub struct HistoryCommand;
@@ -13,7 +14,7 @@ pub struct HistoryCommand;
 impl SlashCommand for HistoryCommand {
     slash_meta! {
         name: "history",
-        description: "Search prompt history",
+        description: tlm("Search prompt history"),
         usage: "/history",
         session_scoped: true,
     }

@@ -175,4 +175,54 @@ final class SidePanelSnapshotTests: XCTestCase {
         store.sidePanelTab = .sideChat
         try write(ContentView().desktopEnvironment(store).frame(width: 1320, height: 780), "main-side-panel", size: CGSize(width: 1320, height: 780))
     }
+
+    /// Settings and the side panel in another interface language: every section of the Settings sheet
+    /// at its full height, the Chrome import it opens, and the panel's tabs.
+    func testSettingsAndSidePanelInAnotherLanguage() throws {
+        let language = AppLanguage.parse(ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_LANGUAGE"] ?? "zh-Hans")
+        L10n.setLanguage(language)
+        defer { L10n.setLanguage(.auto) }
+        let name = language.configValue
+        let (store, _) = makeStore()
+        store.features.browser.makeDataStore = { .nonPersistent() }
+        let home = directory!
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("provider-auth"), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["provider": "openrouter", "access_token": "sk-fixture"])
+            .write(to: home.appendingPathComponent("provider-auth/openrouter.json"))
+        let accounts = AccountStore(reader: AccountStatusReader(home: home, environment: [:]))
+        let command = GrokCommandModel(link: home.appendingPathComponent("bin/crok"), bundle: home, home: home)
+        let settings = VStack(alignment: .leading, spacing: 16) {
+            AppearanceSettingsSection().settingsCard()
+            AccountsSettingsSection(accounts: accounts)
+            DisplaySettingsSection()
+            BehaviorSettingsSection()
+            BrowserSettingsSection()
+            CommandLineSettingsSection(command: command)
+            DeveloperSettingsSection()
+        }
+        .padding(24).frame(width: 660).foregroundStyle(Theme.ink).desktopEnvironment(store)
+        try write(settings, "settings-\(name)", size: CGSize(width: 660, height: 2_050))
+
+        let profiles = [ChromeProfile(directory: URL(fileURLWithPath: "/tmp/Chrome/Default"), name: "Work", account: "me@example.com")]
+        try write(ImportChromeSheet(model: ChromeImportModel(profiles: profiles, phase: .ready)).desktopEnvironment(store).foregroundStyle(Theme.ink),
+                  "import-chrome-\(name)", size: CGSize(width: 580, height: 470))
+
+        let files = store.features.files
+        files.load()
+        settle(1.2)
+        let size = CGSize(width: 400, height: 720)
+        func panel(width: CGFloat = 400) -> some View {
+            SidePanelView(containerWidth: 1400).desktopEnvironment(store).frame(width: width, height: 720).foregroundStyle(Theme.ink)
+        }
+        store.sidePanelTab = .files
+        try write(panel(), "side-panel-tree-\(name)", size: size)
+        files.scope = .changes
+        try write(panel(), "side-panel-changes-\(name)", size: size)
+        store.sidePanelTab = .sideChat
+        try write(panel(), "side-panel-side-chat-\(name)", size: size)
+        // The browser tab asks for a wider panel.
+        store.sidePanelTab = .browser
+        let wide = CGSize(width: SidePanelView.defaultBrowserWidth, height: 720)
+        try write(panel(width: wide.width), "side-panel-browser-\(name)", size: wide)
+    }
 }

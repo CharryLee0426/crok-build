@@ -34,10 +34,11 @@ use ratatui::{
 use crate::render::line_utils::truncate_str;
 use crate::theme::Theme;
 use xai_grok_announcements::visible_announcements;
+use xai_grok_i18n::{tl, tlm};
 
-const HIDE_CTA: &str = "hide: /announcements hide";
+const HIDE_CTA: &str = tlm("hide: /announcements hide");
 /// Clickable hide button, far right of the title row.
-const HIDE_BUTTON: &str = "[hide]";
+const HIDE_BUTTON: &str = tlm("[hide]");
 /// Alert prefix on the title row; the message row indents by its width.
 const TITLE_PREFIX: &str = "! ";
 /// Columns between title/message text and the right-hand button/CTA.
@@ -361,7 +362,7 @@ fn paint_hide_button(
     use unicode_width::UnicodeWidthStr;
 
     let max_w = area.width as usize;
-    let button_w = UnicodeWidthStr::width(HIDE_BUTTON);
+    let button_w = UnicodeWidthStr::width(tl(HIDE_BUTTON));
     if max_w < button_w {
         return None;
     }
@@ -374,7 +375,7 @@ fn paint_hide_button(
     buf.set_span(
         hide_x,
         row,
-        &Span::styled(HIDE_BUTTON, button_style),
+        &Span::styled(tl(HIDE_BUTTON), button_style),
         button_w as u16,
     );
     Some(Rect::new(hide_x, row, button_w as u16, 1))
@@ -438,7 +439,7 @@ fn render_critical_rows(
     let dim_style = dim_hide_style(&theme);
     let max_w = area.width as usize;
     let prefix_w = UnicodeWidthStr::width(TITLE_PREFIX);
-    let button_w = UnicodeWidthStr::width(HIDE_BUTTON);
+    let button_w = UnicodeWidthStr::width(tl(HIDE_BUTTON));
     let row0 = area.y;
     let row1 = area.y.saturating_add(1);
     let max_y = area.y.saturating_add(area.height);
@@ -483,7 +484,7 @@ fn render_critical_rows(
         // Message column matches the title column: indent past the `! ` prefix
         let mut x = area.x.saturating_add(prefix_w as u16);
         let mut remaining = max_w.saturating_sub(prefix_w);
-        let cta_w = UnicodeWidthStr::width(HIDE_CTA);
+        let cta_w = UnicodeWidthStr::width(tl(HIDE_CTA));
 
         // Reserve the CTA (plus gap) up front: the message truncates, never the CTA
         // Non-dismissible reserves nothing; the message reclaims the full row past the prefix (`W−2`)
@@ -507,7 +508,7 @@ fn render_critical_rows(
         }
         if dismissible && remaining > 0 {
             // Degenerate widths still truncate the CTA itself rather than panic.
-            let cta_disp = truncate_str(HIDE_CTA, remaining);
+            let cta_disp = truncate_str(tl(HIDE_CTA), remaining);
             buf.set_span(
                 x,
                 row1,
@@ -551,8 +552,8 @@ fn render_promo_row(
 
     let dim_style = dim_hide_style(&theme);
     let max_w = area.width as usize;
-    let button_w = UnicodeWidthStr::width(HIDE_BUTTON);
-    let hide_cta_w = UnicodeWidthStr::width(HIDE_CTA);
+    let button_w = UnicodeWidthStr::width(tl(HIDE_BUTTON));
+    let hide_cta_w = UnicodeWidthStr::width(tl(HIDE_CTA));
     let row = area.y;
     let mut hits = BannerHits::default();
 
@@ -570,7 +571,7 @@ fn render_promo_row(
             buf.set_span(
                 hide_cta_x,
                 row,
-                &Span::styled(HIDE_CTA, dim_style),
+                &Span::styled(tl(HIDE_CTA), dim_style),
                 hide_cta_w as u16,
             );
             right_reserved = button_w + GAP + hide_cta_w;

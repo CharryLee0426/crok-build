@@ -5,6 +5,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 /// List background tasks, subagents, and scheduled tasks.
 pub struct TasksCommand;
@@ -12,14 +13,14 @@ pub struct TasksCommand;
 impl SlashCommand for TasksCommand {
     slash_meta! {
         name: "tasks",
-        description: "List background tasks, subagents, and scheduled tasks",
+        description: tlm("List background tasks, subagents, and scheduled tasks"),
         usage: "/tasks",
         session_scoped: true,
     }
 
     fn run(&self, ctx: &mut CommandExecCtx, _args: &str) -> CommandResult {
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session".to_string());
+            return CommandResult::Error(tl("No active session").to_string());
         }
         CommandResult::Action(Action::ShowTasks)
     }

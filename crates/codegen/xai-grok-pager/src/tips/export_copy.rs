@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 
 use super::EphemeralTip;
 use crate::theme::Theme;
+use xai_grok_i18n::{tl, tl_parts};
 
 pub(crate) const EXPORT_COPY_TIP_KEY: &str = "export_copy_tip";
 
@@ -97,16 +98,25 @@ pub fn export_copy_tip() -> EphemeralTip {
     let key_style = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);
+    let (copy_before, copy_after) = tl_parts("{command} last reply", "command");
+    let (export_before, export_after) = tl_parts("{command} full transcript", "command");
     EphemeralTip {
         ticks_remaining: EXPORT_COPY_TIP_TICKS,
         ..EphemeralTip::new(
             EXPORT_COPY_TIP_KEY,
             Line::from(vec![
-                Span::styled("Copying a lot? ", dim),
+                Span::styled(
+                    format!(
+                        "{}{}{copy_before}",
+                        tl("Copying a lot?"),
+                        xai_grok_i18n::sentence_gap()
+                    ),
+                    dim,
+                ),
                 Span::styled("/copy", key_style),
-                Span::styled(" last reply · ", dim),
+                Span::styled(format!("{copy_after} · {export_before}"), dim),
                 Span::styled("/export", key_style),
-                Span::styled(" full transcript", dim),
+                Span::styled(export_after, dim),
             ]),
         )
         .with_session_seen_cap(EXPORT_COPY_TIP_SEEN_KEY, EXPORT_COPY_TIP_SEEN_CAP)

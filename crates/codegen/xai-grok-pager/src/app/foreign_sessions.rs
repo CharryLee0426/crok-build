@@ -10,6 +10,7 @@ use tokio::sync::Semaphore;
 use xai_grok_foreign_sessions::{
     EnabledForeignSessionSources, ForeignSessionSummary, ForeignSessionTool, RecentForeignSession,
 };
+use xai_grok_i18n::tlm;
 pub(crate) const RESUME_HINT_WINDOW: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 #[derive(Debug, Clone)]
 pub(crate) struct ForeignResumeLaunch {
@@ -285,7 +286,8 @@ pub(crate) fn is_foreign_picker_source(source: &str) -> bool {
 }
 pub(crate) fn badge_for_picker_source(source: &str) -> &'static str {
     match source {
-        "conversation" => "chat",
+        // Kept on the picker row; translated where the row's badge is drawn.
+        "conversation" => tlm("chat"),
         _ => ForeignPickerSource::from_picker_source(source)
             .map(ForeignPickerSource::picker_source)
             .unwrap_or(""),

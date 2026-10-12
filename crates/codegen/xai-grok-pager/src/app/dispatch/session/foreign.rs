@@ -7,6 +7,7 @@ use crate::views::modal::ActiveModal;
 use crate::views::session_picker::repo_name_from_cwd;
 use crate::views::session_picker_surface::SessionPickerHost;
 
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::session::unified_list::ListScope;
 
 /// The history `kind` filter for the welcome screen's multi-source history under `--chat`.
@@ -182,7 +183,7 @@ pub(in crate::app::dispatch) fn handle_session_list_loaded(
             );
         }
         let empty_notice = partial.map_or_else(
-            || "No sessions found for this directory".to_owned(),
+            || tl("No sessions found for this directory").to_owned(),
             |partial| partial.picker_notice().to_owned(),
         );
         let partial_notice = partial.map(ConversationsPartial::picker_notice);
@@ -201,9 +202,9 @@ pub(in crate::app::dispatch) fn handle_session_list_loaded(
         app.session_picker_relaxed_notified_for = Some(app.cwd.clone());
         let message = match scope {
             ListScope::Repo => {
-                "No sessions in this directory. Showing other sessions from this repository."
+                tl("No sessions in this directory. Showing other sessions from this repository.")
             }
-            _ => "No sessions in this directory. Showing sessions from other directories.",
+            _ => tl("No sessions in this directory. Showing sessions from other directories."),
         };
         app.show_toast(message);
     }
@@ -231,7 +232,7 @@ pub(in crate::app::dispatch) fn handle_session_list_failed(
             return vec![];
         };
         tracing::warn!(error = %error, "session list fetch failed");
-        let error_notice = format!("Couldn't load sessions: {error}");
+        let error_notice = tlf("Couldn't load sessions: {error}", &[("error", &error)]);
         notice = target.native_failed(error_notice, is_search, chat_mode);
         *target.detail_seq += 1;
     }

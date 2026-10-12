@@ -9,6 +9,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 /// Toggle multiline input mode via `/multiline`.
 pub struct MultilineCommand;
@@ -17,7 +18,7 @@ impl SlashCommand for MultilineCommand {
     slash_meta! {
         name: "multiline",
         aliases: ["ml"],
-        description: "Toggle multiline input mode (swap Enter and Shift+Enter)",
+        description: tlm("Toggle multiline input mode (swap Enter and Shift+Enter)"),
         usage: "/multiline",
         session_scoped: true,
         // Dashboard dispatch/peek own their own multiline flag (`DashboardState::multiline_mode`); same swap as the agent prompt.

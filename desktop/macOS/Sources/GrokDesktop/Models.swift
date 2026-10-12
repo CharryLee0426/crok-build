@@ -232,7 +232,7 @@ extension DesktopState {
 }
 
 enum DesktopVersion {
-    /// Packaging writes `desktop/macOS/VERSION` into Info.plist; unpackaged development runs have none.
+    /// Packaging writes the repository's `VERSION` into Info.plist; unpackaged development runs have none.
     static var current: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0" }
 }
 

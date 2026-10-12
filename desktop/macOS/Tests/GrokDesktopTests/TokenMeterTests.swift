@@ -175,6 +175,44 @@ final class TokenMeterTests: XCTestCase {
         XCTAssertNil(tokens.meters[id])
     }
 
+    // MARK: Cache diagnostics
+
+    private func started(_ cacheMiss: [String: Any]?, session: String = "session-1") -> [String: Any] {
+        var update: [String: Any] = ["sessionUpdate": "response_started", "message_id": "msg_1", "model": "claude-opus-5-5",
+                                     "input_tokens": 42, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 41_850]
+        update["cache_miss"] = cacheMiss
+        return ["sessionId": session, "update": update]
+    }
+
+    /// Anthropic's cache diagnostics: a response whose request differed from the one before it puts
+    /// a line in the transcript saying what changed. Every other response adds nothing.
+    func testAPromptCacheMissIsWrittenIntoTheTranscript() {
+        L10n.setLanguage(.en)
+        defer { L10n.setLanguage(.auto) }
+        let (store, id) = makeStore()
+        defer { store.shutdown() }
+        let lines = { store.state.conversations.first { $0.id == id }?.messages.filter { $0.kind == .system }.map(\.text) ?? [] }
+
+        XCTAssertFalse(store.receiveFeatureNotification("x.ai/session_notification", params: started(nil), id: id))
+        // A kind this build does not know says nothing rather than something wrong.
+        XCTAssertFalse(store.receiveFeatureNotification("x.ai/session_notification", params: started(["changed": "weather", "missed_input_tokens": 9]), id: id))
+        // A subagent's request is not this task's.
+        _ = store.receiveFeatureNotification("x.ai/session_notification", params: started(["changed": "tools", "missed_input_tokens": 9], session: "child"), id: id)
+        XCTAssertEqual(lines(), [])
+
+        XCTAssertTrue(store.receiveFeatureNotification("x.ai/session_notification", params: started(["changed": "system", "missed_input_tokens": 41_850]), id: id))
+        XCTAssertEqual(lines(), ["Prompt cache: the system prompt changed since the previous request. About \(41_850.formatted()) input tokens after the change were not read from the cache."])
+
+        // Without a size, only what changed. Each part of a request has its own wording, in each language.
+        XCTAssertEqual(PromptCacheMiss(["changed": "messages"])?.text, "Prompt cache: earlier messages changed since the previous request.")
+        L10n.setLanguage(.de)
+        XCTAssertEqual(PromptCacheMiss(["changed": "model", "missed_input_tokens": 7])?.text,
+                       "Prompt-Cache: Das Modell hat sich seit der vorherigen Anfrage geändert. Etwa 7 Eingabe-Tokens nach der Änderung wurden nicht aus dem Cache gelesen.")
+        L10n.setLanguage(.zhHans)
+        XCTAssertEqual(PromptCacheMiss(["changed": "tools", "missed_input_tokens": 7])?.text,
+                       "提示缓存：工具列表与上一次请求相比有变化。变化之后约有 7 个输入 token 未从缓存读取。")
+    }
+
     func testStreamedChunksAreEstimatedAndPublishedOnAnInterval() async throws {
         let (store, id) = makeStore()
         defer { store.shutdown() }

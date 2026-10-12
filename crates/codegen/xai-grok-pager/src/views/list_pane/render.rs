@@ -16,6 +16,8 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::widgets::StatefulWidget;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use xai_grok_i18n::tl;
 
 use super::layout::WrapMode;
 use super::state::ListPaneState;
@@ -111,16 +113,25 @@ impl<T: ListItem> StatefulWidget for ListPane<'_, T> {
 
         // Render the "Copied!" toast (bottom-right corner, briefly after y-copy)
         // Rendered after the indicators so it can replace the bottom-right indicator instead of overlapping it
-        if state.copy_toast_active() && content_area.height > 0 && content_area.width > 8 {
-            let toast_text = " Copied!";
-            let x = content_area.right().saturating_sub(toast_text.len() as u16);
-            let y = content_area.bottom().saturating_sub(1);
-            // Write each char, keeping bg (selection highlight) but overriding fg and modifiers so content styles don't leak
-            for (i, ch) in toast_text.chars().enumerate() {
-                if let Some(cell) = buf.cell_mut((x + i as u16, y)) {
-                    cell.set_char(ch);
-                    cell.fg = self.style.toast_fg;
-                    cell.modifier = ratatui::style::Modifier::BOLD;
+        if state.copy_toast_active() && content_area.height > 0 {
+            let toast_text = format!(" {}", tl("Copied!"));
+            let toast_w = toast_text.width() as u16;
+            // The text needs a column to spare (English: 8 columns in a pane wider than 8).
+            if content_area.width > toast_w {
+                let mut x = content_area.right().saturating_sub(toast_w);
+                let y = content_area.bottom().saturating_sub(1);
+                // Write each char, keeping bg (selection highlight) but overriding fg and modifiers so content styles don't leak
+                for ch in toast_text.chars() {
+                    // A wide character owns two cells; its second cell is blanked.
+                    let ch_w = ch.width().unwrap_or(0) as u16;
+                    for i in 0..ch_w {
+                        if let Some(cell) = buf.cell_mut((x + i, y)) {
+                            cell.set_char(if i == 0 { ch } else { ' ' });
+                            cell.fg = self.style.toast_fg;
+                            cell.modifier = ratatui::style::Modifier::BOLD;
+                        }
+                    }
+                    x += ch_w;
                 }
             }
         }
@@ -529,16 +540,17 @@ fn render_bottom_bar(
     if let Some(mode) = state.input_mode() {
         // Active input bar: left-aligned, editable
         let label = match mode {
-            super::state::InputBarMode::Search => "search: ",
-            super::state::InputBarMode::Filter => "filter: ",
-            super::state::InputBarMode::GotoLine => "go to: ",
-            super::state::InputBarMode::Comment => "comment: ",
+            super::state::InputBarMode::Search => tl("search"),
+            super::state::InputBarMode::Filter => tl("filter"),
+            super::state::InputBarMode::GotoLine => tl("go to"),
+            super::state::InputBarMode::Comment => tl("comment"),
         };
+        let label = format!("{label}: ");
         let label_style = Style::default()
             .fg(style.input_bar_prompt_fg)
             .bg(style.input_bar_bg);
+        let label_w = label.width() as u16;
         let label_line = Line::from(Span::styled(label, label_style));
-        let label_w = label.len() as u16;
         buf.set_line_safe(area.x, area.y, &label_line, label_w);
 
         // Textarea fills the rest. Multi-line for comment mode.
@@ -554,11 +566,11 @@ fn render_bottom_bar(
     } else if let Some(matcher) = state.matcher() {
         // Accepted matcher: right-aligned, dim
         let mode_word = match matcher.mode {
-            super::state::MatchMode::Filter => "filter",
-            super::state::MatchMode::Search => "search",
+            super::state::MatchMode::Filter => tl("filter"),
+            super::state::MatchMode::Search => tl("search"),
         };
         let status = format!("[{}: {}]  ", mode_word, matcher.query());
-        let status_w = status.len() as u16;
+        let status_w = status.width() as u16;
         let dim_style = Style::default()
             .fg(style.input_bar_text_fg)
             .bg(style.input_bar_bg)

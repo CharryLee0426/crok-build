@@ -25,6 +25,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 use crate::app::actions::Action;
 use crate::app::app_view::InputOutcome;
@@ -58,69 +59,69 @@ const NOTICE_MAX_WIDTH: u16 = 72;
 // Notices use bold leads rather than `#` headings: heading text takes the theme accent color.
 /// Only advertises the actions the shell reported as available in this session.
 fn empty_state_markdown(capture_enabled: bool, dream_enabled: bool) -> String {
-    let mut text = String::from("**Nothing remembered yet.**\n\n");
+    let mut text = format!("**{}**\n\n", tl("Nothing remembered yet."));
     if capture_enabled {
-        text.push_str("- Keep working. Notes are saved automatically after each completed turn.\n");
+        text.push_str(&format!(
+            "- {}\n",
+            tl("Keep working. Notes are saved automatically after each completed turn.")
+        ));
     }
-    text.push_str("- `/remember <note>` saves something specific right now.\n");
+    text.push_str(&format!(
+        "- {}\n",
+        tl("`/remember <note>` saves something specific right now.")
+    ));
     if dream_enabled {
-        text.push_str("- `/dream` organizes saved notes into topics.\n");
+        text.push_str(&format!(
+            "- {}\n",
+            tl("`/dream` organizes saved notes into topics.")
+        ));
     }
-    text.push_str(
-        "\nCrok Build remembers conventions, decisions, and project facts across sessions so you \
-         don't have to repeat yourself. Notes live in **workspace** memory for this repository and \
-         **global** memory shared across all your projects; each has a generated `MEMORY.md` index \
-         that fills in as notes are saved.\n",
-    );
+    text.push_str(&format!(
+        "\n{}\n",
+        tl(
+            "Crok Build remembers conventions, decisions, and project facts across sessions so \
+             you don't have to repeat yourself. Notes live in **workspace** memory for this \
+             repository and **global** memory shared across all your projects; each has a \
+             generated `MEMORY.md` index that fills in as notes are saved."
+        )
+    ));
     text
 }
 
 fn disabled_state_markdown(reason: Option<MemoryDisabledReason>) -> &'static str {
     match reason {
-        None | Some(MemoryDisabledReason::SessionToggle) => {
-            "\
+        None | Some(MemoryDisabledReason::SessionToggle) => tl("\
 **Memory is off for this session.** Press **t** to turn it back on.
 
 While off, Crok isn't reading or saving notes; anything already remembered is kept on disk. \
 Memory carries conventions, decisions, and project facts between sessions so you don't have \
-to repeat yourself."
-        }
-        Some(MemoryDisabledReason::ConfigOptOut) => {
-            "\
+to repeat yourself."),
+        Some(MemoryDisabledReason::ConfigOptOut) => tl("\
 **Memory is off** (`[memory] enabled = false` in `config.toml`). Press **t** to turn it on for \
 this session.
 
 The toggle lasts for this session only; new sessions follow `config.toml`. Set `enabled = true` \
-there (or remove the line) to keep memory on. Anything already remembered is kept on disk."
-        }
-        Some(MemoryDisabledReason::ProcessDisabled) => {
-            "\
+there (or remove the line) to keep memory on. Anything already remembered is kept on disk."),
+        Some(MemoryDisabledReason::ProcessDisabled) => tl("\
 **Memory is off for this process.** Start a new session without `--no-memory` or \
 `CROK_MEMORY=0` to use it.
 
 Memory was turned off when Crok Build started, so it can't be turned on here. Anything already \
-remembered is kept on disk."
-        }
-        Some(MemoryDisabledReason::RolloutRestricted) => {
-            "\
+remembered is kept on disk."),
+        Some(MemoryDisabledReason::RolloutRestricted) => tl("\
 **Memory is unavailable in this session.** Start a new session to pick up your current settings.
 
 This session's memory settings were pinned when it started, and they disable memory, so it \
-can't be turned on here. Press **s** for details."
-        }
-        Some(MemoryDisabledReason::NotConfigured) => {
-            "\
+can't be turned on here. Press **s** for details."),
+        Some(MemoryDisabledReason::NotConfigured) => tl("\
 **Memory isn't configured.** Press **s** for details.
 
-No memory storage is set up for this session, so there is nothing to browse or turn on."
-        }
-        Some(MemoryDisabledReason::Unknown) => {
-            "\
+No memory storage is set up for this session, so there is nothing to browse or turn on."),
+        Some(MemoryDisabledReason::Unknown) => tl("\
 **Memory is off for this session.** Press **s** for details.
 
 This session reports a reason this version of Crok Build doesn't recognize; press **t** to try \
-turning it back on."
-        }
+turning it back on."),
     }
 }
 
@@ -471,7 +472,7 @@ impl MemoryModalState {
                 self.clamp_selected();
                 self.load_preview();
                 MemoryStatusLine {
-                    text: format!("Deleted {}.", label.unwrap_or_default()),
+                    text: tlf("Deleted {name}.", &[("name", &label.unwrap_or_default())]),
                     is_error: false,
                     ticks_remaining: None,
                 }
@@ -752,7 +753,10 @@ impl MemoryModalState {
                 self.preview_hash = Some(blake3::hash(text.as_bytes()).to_hex().to_string());
                 Some(MarkdownContent::new(text))
             }
-            NoteRead::TooLarge => Some(MarkdownContent::new("*(File too large to preview)*")),
+            NoteRead::TooLarge => Some(MarkdownContent::new(format!(
+                "*{}*",
+                tl("(File too large to preview)")
+            ))),
             NoteRead::Unreadable => None,
         });
     }
@@ -865,9 +869,9 @@ pub fn build_entries(
             entries.extend(items);
         }
     };
-    push_section("Global", global);
-    push_section("Workspace", workspace);
-    push_section("Sessions", session);
+    push_section(tlm("Global"), global);
+    push_section(tlm("Workspace"), workspace);
+    push_section(tlm("Sessions"), session);
     entries
 }
 
@@ -881,7 +885,7 @@ pub fn render_memory_modal(
     let shortcuts = build_shortcuts(state);
 
     let modal_config = ModalWindowConfig {
-        title: "Memory",
+        title: tl("Memory"),
         tabs: None,
         shortcuts: &shortcuts,
         sizing: if state.fullscreen {
@@ -1063,9 +1067,9 @@ fn render_file_list(buf: &mut Buffer, area: Rect, state: &mut MemoryModalState, 
     let viewport = state.query.viewport(area.width as usize);
     if state.query().is_empty() {
         let placeholder = if filter_focused {
-            "type to filter..."
+            tl("type to filter...")
         } else {
-            "/ to filter..."
+            tl("/ to filter...")
         };
         buf.set_span(
             area.x,
@@ -1169,7 +1173,7 @@ fn render_file_list(buf: &mut Buffer, area: Rect, state: &mut MemoryModalState, 
                 .fg(theme.accent_user)
                 .bg(theme.bg_base)
                 .add_modifier(Modifier::BOLD);
-            let line = Line::from(Span::styled(&entry.label, header_style));
+            let line = Line::from(Span::styled(tl(&entry.label), header_style));
             buf.set_line(area.x, y, &line, content_width);
         } else {
             let bg = if is_selected {
@@ -1206,8 +1210,8 @@ fn render_file_list(buf: &mut Buffer, area: Rect, state: &mut MemoryModalState, 
             if is_selected
                 && matches!(state.mode, MemoryModalMode::ConfirmingDelete { idx } if idx == filt_idx)
             {
-                let hint = " [x to confirm]";
-                let hint_w = hint.len() as u16;
+                let hint = format!(" [{}]", tl("x to confirm"));
+                let hint_w = hint.width() as u16;
                 let hint_x = (area.x + content_width).saturating_sub(hint_w + 1);
                 buf.set_span(
                     hint_x,
@@ -1247,8 +1251,8 @@ fn render_no_matches(buf: &mut Buffer, area: Rect, y: u16, query: &str, theme: &
     let width = area.width as usize;
     let style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
     let lines = [
-        format!("No notes match \u{201C}{query}\u{201D}"),
-        "Backspace clears the filter".to_owned(),
+        tlf("No notes match “{query}”", &[("query", &query)]),
+        tl("Backspace clears the filter").to_owned(),
     ];
     for (row, text) in lines.iter().enumerate() {
         let y = y + row as u16;
@@ -1270,7 +1274,7 @@ fn render_preview(buf: &mut Buffer, area: Rect, state: &mut MemoryModalState, th
         state.preview_plain_width = 0;
         // With a filter that matches nothing the list already explains; an empty pane is clearer.
         if !state.filter_has_no_matches() {
-            let msg = "No file selected";
+            let msg = tl("No file selected");
             let style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
             let cy = area.y + area.height / 2;
             let cx = area.x + area.width.saturating_sub(msg.width() as u16) / 2;
@@ -1380,7 +1384,7 @@ pub fn handle_memory_key(state: &mut MemoryModalState, key: &KeyEvent) -> InputO
             let path = entry.path.clone();
             state.pending_delete = Some(path.clone());
             state.status = Some(MemoryStatusLine {
-                text: format!("Deleting {}…", entry.label),
+                text: tlf("Deleting {name}…", &[("name", &entry.label)]),
                 is_error: false,
                 ticks_remaining: None,
             });
@@ -1790,20 +1794,28 @@ fn handle_browse(state: &mut MemoryModalState, key: &KeyEvent) -> InputOutcome {
             };
             if state.preview_hash.is_none() {
                 state.status = Some(MemoryStatusLine {
-                    text: "Can't delete: this note couldn't be read for verification.".to_owned(),
+                    text: tl("Can't delete: this note couldn't be read for verification.")
+                        .to_owned(),
                     is_error: true,
                     ticks_remaining: None,
                 });
                 return InputOutcome::Changed;
             }
             let scope = match entry.source.as_str() {
-                "session" => "session logs".to_owned(),
-                source => format!("{source} memory"),
+                "session" => tl("session logs").to_owned(),
+                "workspace" => tl("workspace memory").to_owned(),
+                "global" => tl("global memory").to_owned(),
+                source => tlf("{source} memory", &[("source", &source)]),
             };
             state.status = Some(MemoryStatusLine {
                 text: format!(
-                    "Delete {} from {scope}? Dream may re-derive it from future sessions. x confirm · any other key cancels",
-                    entry.label
+                    "{} {} · {}",
+                    tlf(
+                        "Delete {name} from {scope}? Dream may re-derive it from future sessions.",
+                        &[("name", &entry.label), ("scope", &scope)],
+                    ),
+                    tl("x confirm"),
+                    tl("any other key cancels"),
                 ),
                 is_error: false,
                 ticks_remaining: None,
@@ -1866,55 +1878,55 @@ fn build_shortcuts(state: &MemoryModalState) -> Vec<Shortcut<'static>> {
         id: 0,
     };
     let fullscreen_label = if state.fullscreen {
-        "^F normal"
+        tl("^F normal")
     } else {
-        "^F fullscreen"
+        tl("^F fullscreen")
     };
     match &state.mode {
         MemoryModalMode::Browse if !state.memory_enabled => {
             let mut shortcuts = Vec::new();
             if state.can_enable() {
-                shortcuts.push(plain("t turn on"));
+                shortcuts.push(plain(tl("t turn on")));
             }
             shortcuts.push(plain(fullscreen_label));
-            shortcuts.push(plain("Esc close"));
+            shortcuts.push(plain(tl("Esc close")));
             shortcuts
         }
         MemoryModalMode::Browse if !state.has_notes() => {
             vec![
-                plain("t turn off"),
+                plain(tl("t turn off")),
                 plain(fullscreen_label),
-                plain("Esc close"),
+                plain(tl("Esc close")),
             ]
         }
         MemoryModalMode::PreviewFocused => vec![
-            plain("\u{2191}/\u{2193} scroll"),
-            plain("drag to copy"),
+            plain(tl("↑/↓ scroll")),
+            plain(tl("drag to copy")),
             plain(if state.split_shown {
-                "Esc list"
+                tl("Esc list")
             } else {
-                "Esc back"
+                tl("Esc back")
             }),
             plain(fullscreen_label),
         ],
         MemoryModalMode::Browse => {
             let mut shortcuts = vec![
-                plain("\u{2191}/\u{2193} nav"),
-                plain("/ search"),
+                plain(tl("↑/↓ nav")),
+                plain(tl("/ search")),
                 plain(if state.split_shown {
-                    "Enter read"
+                    tl("Enter read")
                 } else {
-                    "Enter open"
+                    tl("Enter open")
                 }),
-                plain("y copy path"),
+                plain(tl("y copy path")),
             ];
             if state.can_delete_selected() {
-                shortcuts.push(plain("x delete"));
+                shortcuts.push(plain(tl("x delete")));
             }
             shortcuts.extend([
-                plain("t turn off"),
+                plain(tl("t turn off")),
                 plain(fullscreen_label),
-                plain("Esc close"),
+                plain(tl("Esc close")),
             ]);
             // Browse is nav mode (filter inactive), so append `i search` last (matching the shared pickers)
             modal_window::push_vim_nav_search_hint(&mut shortcuts, false);
@@ -1922,24 +1934,24 @@ fn build_shortcuts(state: &MemoryModalState) -> Vec<Shortcut<'static>> {
         }
         MemoryModalMode::FilterFocused => vec![
             Shortcut {
-                label: "type to filter",
+                label: tl("type to filter"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "Esc exit filter",
+                label: tl("Esc exit filter"),
                 clickable: false,
                 id: 0,
             },
         ],
         MemoryModalMode::ConfirmingDelete { .. } => vec![
             Shortcut {
-                label: "x confirm delete",
+                label: tl("x confirm delete"),
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "any key cancel",
+                label: tl("any key cancel"),
                 clickable: false,
                 id: 0,
             },
@@ -1982,12 +1994,18 @@ fn observation_key_label(file_name: &str) -> Option<String> {
     }
     let (from, through) = range.split_once('-')?;
     let (from, through): (u64, u64) = (from.parse().ok()?, through.parse().ok()?);
-    let turns = if from == through {
-        format!("turn {from}")
+    let number = ordinal + 1;
+    Some(if from == through {
+        tlf(
+            "observation, turn {turn} (#{number})",
+            &[("turn", &from), ("number", &number)],
+        )
     } else {
-        format!("turns {from}\u{2013}{through}")
-    };
-    Some(format!("observation, {turns} (#{})", ordinal + 1))
+        tlf(
+            "observation, turns {from}–{through} (#{number})",
+            &[("from", &from), ("through", &through), ("number", &number)],
+        )
+    })
 }
 
 /// Relative age in at most 3 columns (`<1m`, `27m`, `5h`, `99d`, `52w`, `99y`); no suffix, the

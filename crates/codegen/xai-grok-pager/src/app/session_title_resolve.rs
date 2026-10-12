@@ -6,6 +6,7 @@
 //! Materialization keeps [`select_by_title`] as the authoritative error source (ambiguity / no-match).
 //! It is also the fallback for callers that bypass pinning.
 
+use xai_grok_i18n::tlf;
 use xai_grok_shell::session::persistence::{RecentSessionSelection, Summary};
 
 /// UUID-shaped resume args always take the id path, even when no such id exists and a session is titled with that exact UUID.
@@ -23,9 +24,9 @@ fn title_key(s: &str) -> String {
 /// The title miss stays visible even when remote restore produces the final error.
 /// Debug formatting: the arg is arbitrary user text.
 pub(crate) fn title_miss_hint(arg: &str) -> String {
-    format!(
-        "no session id or title matched {arg:?} for this directory; \
-         try `crok sessions search {arg:?}`"
+    tlf(
+        "no session id or title matched {target} for this directory; try `crok sessions search {target}`",
+        &[("target", &format!("{arg:?}"))],
     )
 }
 
@@ -142,7 +143,10 @@ pub(crate) fn worktree_resume_failure_message(
     local_miss_target: Option<&str>,
     detail: &str,
 ) -> String {
-    let msg = format!("couldn't resume worktree session: {detail}");
+    let msg = tlf(
+        "couldn't resume worktree session: {detail}",
+        &[("detail", &detail)],
+    );
     match local_miss_target {
         Some(target) => format!("{msg}; {}", title_miss_hint(target)),
         None => msg,

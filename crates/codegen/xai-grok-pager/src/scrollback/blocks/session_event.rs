@@ -19,6 +19,7 @@ use crate::scrollback::types::{
 use crate::theme::Theme;
 use crate::util::format_duration;
 use crate::views::plan_approval_view::PlanReviewOutcome;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::extensions::notification::{
     MODEL_FAMILY_SWITCH_COMPACT_BANNER, MemoryCaptureDebugEntry,
 };
@@ -36,8 +37,8 @@ pub enum MemoryCommandKind {
 impl MemoryCommandKind {
     fn started_text(self) -> &'static str {
         match self {
-            Self::Flush => "Flushing memory…",
-            Self::Dream => "Consolidating memory…",
+            Self::Flush => tl("Flushing memory…"),
+            Self::Dream => tl("Consolidating memory…"),
         }
     }
 }
@@ -217,17 +218,26 @@ impl MemoryCaptureBlock {
     }
 
     fn title(&self) -> String {
-        let noun = if self.entries.len() == 1 {
-            "memory"
+        let count = self.entries.len();
+        if count == 1 {
+            tlf(
+                "Model-generated memory debug output: {count} memory for turns {from}-{through}",
+                &[
+                    ("count", &count),
+                    ("from", &self.from_turn),
+                    ("through", &self.through_turn),
+                ],
+            )
         } else {
-            "memories"
-        };
-        format!(
-            "Model-generated memory debug output: {} {noun} for turns {}-{}",
-            self.entries.len(),
-            self.from_turn,
-            self.through_turn
-        )
+            tlf(
+                "Model-generated memory debug output: {count} memories for turns {from}-{through}",
+                &[
+                    ("count", &count),
+                    ("from", &self.from_turn),
+                    ("through", &self.through_turn),
+                ],
+            )
+        }
     }
 
     pub(crate) fn searchable_text(&self) -> String {
@@ -261,7 +271,10 @@ impl BlockContent for MemoryCaptureBlock {
             for (index, entry) in self.entries.iter().enumerate() {
                 lines.push(BlockLine::separator(Line::default()));
                 lines.push(BlockLine::styled(Line::from(Span::styled(
-                    format!("Untrusted model-generated observation {}", index + 1),
+                    tlf(
+                        "Untrusted model-generated observation {number}",
+                        &[("number", &(index + 1))],
+                    ),
                     theme.muted().add_modifier(Modifier::BOLD),
                 ))));
                 lines.extend(
@@ -296,7 +309,7 @@ impl BlockContent for MemoryCaptureBlock {
                     .and_then(|name| name.to_str())
                     .unwrap_or(entry.path.as_str());
                 let mut path_line = BlockLine::styled(Line::from(vec![
-                    Span::styled("Open file \u{2192} ", theme.muted()),
+                    Span::styled(format!("{} \u{2192} ", tl("Open file")), theme.muted()),
                     Span::styled(
                         label.to_owned(),
                         theme.primary().add_modifier(Modifier::UNDERLINED),
@@ -375,51 +388,50 @@ impl SessionEvent {
             // Deliberately period-less: don't re-punctuate
             SessionEvent::TurnCompleted {
                 elapsed: Some(elapsed),
-            } => {
-                format!("Worked for {}", format_duration(*elapsed))
-            }
-            SessionEvent::TurnCompleted { elapsed: None } => "Turn completed.".to_string(),
+            } => tlf("Worked for {time}", &[("time", &format_duration(*elapsed))]),
+            SessionEvent::TurnCompleted { elapsed: None } => tl("Turn completed.").to_string(),
             SessionEvent::TurnCancelled {
                 elapsed: Some(elapsed),
                 cause,
-            } => {
-                format!("{} in {}.", cause.phrase(), format_duration(*elapsed))
-            }
+            } => cause.banner(Some(format_duration(*elapsed).as_str())),
             SessionEvent::TurnCancelled {
                 elapsed: None,
                 cause,
-            } => format!("{}.", cause.phrase()),
+            } => cause.banner(None),
             SessionEvent::TurnBlockedByHook {
                 elapsed: Some(elapsed),
-            } => {
-                format!("Turn blocked by a hook in {}.", format_duration(*elapsed))
-            }
+            } => tlf(
+                "Turn blocked by a hook in {time}.",
+                &[("time", &format_duration(*elapsed))],
+            ),
             SessionEvent::TurnBlockedByHook { elapsed: None } => {
-                "Turn blocked by a hook.".to_string()
+                tl("Turn blocked by a hook.").to_string()
             }
-            SessionEvent::TurnHalted { elapsed } => {
-                format!(
-                    "Agent was unable to make progress. Turn ended in {}.",
-                    format_duration(*elapsed)
-                )
-            }
+            SessionEvent::TurnHalted { elapsed } => tlf(
+                "Agent was unable to make progress. Turn ended in {time}.",
+                &[("time", &format_duration(*elapsed))],
+            ),
             SessionEvent::TurnFailed {
                 error,
                 elapsed: Some(elapsed),
-            } => {
-                format!("Turn failed in {}: {error}", format_duration(*elapsed))
-            }
+            } => tlf(
+                "Turn failed in {time}: {error}",
+                &[("time", &format_duration(*elapsed)), ("error", error)],
+            ),
             SessionEvent::TurnFailed {
                 error,
                 elapsed: None,
-            } => {
-                format!("Turn failed: {error}")
-            }
+            } => tlf("Turn failed: {error}", &[("error", error)]),
             SessionEvent::CompactionStarted { percentage, reason } => {
                 if reason == MODEL_FAMILY_SWITCH_COMPACT_BANNER {
-                    MODEL_FAMILY_SWITCH_COMPACT_BANNER.to_string()
+                    // The English is the shell's constant; it is looked up like any other text.
+                    const _BANNER: &str = xai_grok_i18n::tlm("Switching model. Compacting…");
+                    tl(MODEL_FAMILY_SWITCH_COMPACT_BANNER).to_string()
                 } else {
-                    format!("Context {percentage}% full. Compacting…")
+                    tlf(
+                        "Context {percentage}% full. Compacting…",
+                        &[("percentage", percentage)],
+                    )
                 }
             }
             SessionEvent::CompactionCompleted {
@@ -430,13 +442,11 @@ impl SessionEvent {
                 let after = format_tokens(*tokens_after);
                 // Older shells don't send tokens_before; keep the legacy format
                 let body = match tokens_before {
-                    Some(before) if *before > 0 => {
-                        format!(
-                            "Context compacted: {} → {after} tokens",
-                            format_tokens(*before)
-                        )
-                    }
-                    _ => format!("Context compacted → {after} tokens"),
+                    Some(before) if *before > 0 => tlf(
+                        "Context compacted: {before} → {after} tokens",
+                        &[("before", &format_tokens(*before)), ("after", &after)],
+                    ),
+                    _ => tlf("Context compacted → {after} tokens", &[("after", &after)]),
                 };
                 if let Some(ms) = elapsed_ms {
                     let secs = *ms as f64 / 1000.0;
@@ -447,23 +457,25 @@ impl SessionEvent {
             }
             SessionEvent::CompactionFailed { error } => {
                 if error.trim().is_empty() {
-                    "Compaction failed.".to_string()
+                    tl("Compaction failed.").to_string()
                 } else {
                     // Multi-line errors (guidance and detail) split in `output`; old one-line replays render unchanged
-                    format!("Compaction failed - {error}")
+                    tlf("Compaction failed - {error}", &[("error", error)])
                 }
             }
-            SessionEvent::CompactionCancelled => "Compaction cancelled.".to_string(),
+            SessionEvent::CompactionCancelled => tl("Compaction cancelled.").to_string(),
             SessionEvent::RetryFailed { error, error_type } => {
                 use crate::app::error_display::WireErrorType;
                 if WireErrorType::parse(error_type.as_deref())
                     == WireErrorType::EncryptedContentMismatch
                 {
-                    "This session's conversation history is incompatible with the \
-                     current model. Please start a new session."
-                        .to_string()
+                    tl(
+                        "This session's conversation history is incompatible with the \
+                         current model. Please start a new session.",
+                    )
+                    .to_string()
                 } else {
-                    format!("Retry failed: {error}")
+                    tlf("Retry failed: {error}", &[("error", error)])
                 }
             }
             SessionEvent::RequestFailed {
@@ -473,29 +485,35 @@ impl SessionEvent {
                 if !xai_grok_config::Distribution::current()
                     .allows(xai_grok_config::Capability::AccountLogin) =>
             {
-                "Authentication failed: the model endpoint rejected this build's credential. \
-                 Check its key, then resend your message."
-                    .to_string()
+                tl(
+                    "Authentication failed: the model endpoint rejected this build's credential. \
+                     Check its key, then resend your message.",
+                )
+                .to_string()
             }
-            SessionEvent::ReAuthRequired => {
+            SessionEvent::ReAuthRequired => tl(
                 "Authentication required: your provider credentials were rejected or \
                  have expired. Run `crok login` for your provider (openai-codex, openrouter, \
-                 anthropic, deepseek, glm or glm-cn), then resend your message."
-                    .to_string()
-            }
-            SessionEvent::ContextTooLarge => {
+                 anthropic, deepseek, glm or glm-cn), then resend your message.",
+            )
+            .to_string(),
+            SessionEvent::ContextTooLarge => tl(
                 "This conversation is too large for the model's context window. \
-                 Use /new to start a new session."
-                    .to_string()
-            }
+                 Use /new to start a new session.",
+            )
+            .to_string(),
             SessionEvent::DiskFull => {
-                xai_grok_shell::extensions::notification::DISK_FULL_USER_MESSAGE.to_string()
+                // The English is the shell's constant; it is looked up like any other text.
+                const _DISK_FULL: &str =
+                    xai_grok_i18n::tlm("Out of disk space. Free some space and try again.");
+                tl(xai_grok_shell::extensions::notification::DISK_FULL_USER_MESSAGE).to_string()
             }
             // No "Context N% full." prefix; that phrasing is the auto marker's
-            SessionEvent::CompactStarted => "Compacting conversation…".to_string(),
-            SessionEvent::CompactCompleted { elapsed } => {
-                format!("Compaction completed in {}.", format_duration(*elapsed))
-            }
+            SessionEvent::CompactStarted => tl("Compacting conversation…").to_string(),
+            SessionEvent::CompactCompleted { elapsed } => tlf(
+                "Compaction completed in {time}.",
+                &[("time", &format_duration(*elapsed))],
+            ),
             SessionEvent::MemoryCommandStarted { command } => command.started_text().to_string(),
             SessionEvent::MemoryCommandCompleted {
                 summary,
@@ -504,8 +522,9 @@ impl SessionEvent {
             } => {
                 if *succeeded {
                     format!(
-                        "{summary} ({})  \u{00b7}  /memory to view",
-                        format_duration(*elapsed)
+                        "{summary} ({})  \u{00b7}  {}",
+                        format_duration(*elapsed),
+                        tl("/memory to view")
                     )
                 } else {
                     summary.clone()
@@ -522,23 +541,34 @@ impl SessionEvent {
                 if new_model_id.is_empty() {
                     reason.clone()
                 } else {
-                    format!("{reason} Switched to \"{new_model_id}\".")
+                    format!(
+                        "{reason} {}",
+                        tlf("Switched to \"{model}\".", &[("model", new_model_id)])
+                    )
                 }
             }
             SessionEvent::MemorySaved { path, trigger } => {
                 let short_path = crate::util::abbreviate_path(path);
-                format!("Memory saved ({trigger}) \u{2192} {short_path}  \u{00b7}  /memory to view")
+                format!(
+                    "{} \u{2192} {short_path}  \u{00b7}  {}",
+                    tlf("Memory saved ({trigger})", &[("trigger", trigger)]),
+                    tl("/memory to view")
+                )
             }
-            SessionEvent::GoalCompleted { elapsed } => {
-                format!("Goal complete in {} end-to-end.", format_duration(*elapsed))
-            }
+            SessionEvent::GoalCompleted { elapsed } => tlf(
+                "Goal complete in {time} end-to-end.",
+                &[("time", &format_duration(*elapsed))],
+            ),
             SessionEvent::Recap { summary, auto: _ } => {
                 // Always "Recap:" (manual `/recap` and auto return-from-away).
-                format!("Recap: {summary}")
+                format!("{}: {summary}", tl("Recap"))
             }
             SessionEvent::PlanModeEnteredByAgent { permission } => {
                 format!(
-                    "Agent entered plan mode · active permission mode: {permission} · file edits outside session plan.md blocked until plan mode exits"
+                    "{} · {} · {}",
+                    tl("Agent entered plan mode"),
+                    active_permission_mode(*permission),
+                    tl("file edits outside session plan.md blocked until plan mode exits")
                 )
             }
             SessionEvent::PlanReviewClosed {
@@ -546,10 +576,14 @@ impl SessionEvent {
                 permission,
             } => {
                 let verdict = match outcome {
-                    PlanReviewOutcome::Approved => "approved",
-                    PlanReviewOutcome::Abandoned => "abandoned",
+                    PlanReviewOutcome::Approved => tl("Plan approved"),
+                    PlanReviewOutcome::Abandoned => tl("Plan abandoned"),
                 };
-                format!("Plan {verdict} · plan mode off · active permission mode: {permission}")
+                format!(
+                    "{verdict} · {} · {}",
+                    tl("plan mode off"),
+                    active_permission_mode(*permission)
+                )
             }
         }
     }
@@ -594,6 +628,14 @@ impl SessionEvent {
                 | SessionEvent::TurnFailed { .. }
         )
     }
+}
+
+/// The `active permission mode: <mode>` part of the plan-mode markers.
+fn active_permission_mode(permission: PermissionLabel) -> String {
+    tlf(
+        "active permission mode: {permission}",
+        &[("permission", &tl(permission.display_name()))],
+    )
 }
 
 /// Format a token count with "k" suffix for thousands.
@@ -642,8 +684,12 @@ impl SessionEventBlock {
         };
         let header_style = header_text_style.add_modifier(Modifier::BOLD);
         // Non-selectable chrome (same as Thinking / tool label prefixes).
-        let header_line =
-            || BlockLine::separator(Line::from(Span::styled("Recap".to_string(), header_style)));
+        let header_line = || {
+            BlockLine::separator(Line::from(Span::styled(
+                tl("Recap").to_string(),
+                header_style,
+            )))
+        };
 
         // Loading: header only; the animated gray sidebar is the feedback.
         if ctx.is_running {
@@ -654,7 +700,7 @@ impl SessionEventBlock {
 
         match ctx.mode {
             DisplayMode::Collapsed => {
-                let mut spans = vec![Span::styled("Recap".to_string(), header_style)];
+                let mut spans = vec![Span::styled(tl("Recap").to_string(), header_style)];
                 let preview = summary.lines().next().unwrap_or(summary).trim();
                 if !preview.is_empty() {
                     spans.push(Span::styled(format!("  {preview}"), theme.muted()));

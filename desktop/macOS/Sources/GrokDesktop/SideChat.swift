@@ -41,7 +41,7 @@ final class SideChatModel: ObservableObject {
                 let (client, session) = try await store.session(for: id)
                 let result = try ExtensionResponse.unwrap(try await client.request("_x.ai/btw", params: ["sessionId": session, "question": prompt], timeout: nil))
                 guard let answer = result["answer"] as? String, !answer.isEmpty else {
-                    throw DesktopError.message("The harness did not return an answer to the side question.")
+                    throw DesktopError.message(L10n.t("side_chat_no_answer", "The harness did not return an answer to the side question."))
                 }
                 self?.append(SideChatMessage(role: .answer, text: answer), to: id)
             } catch {
@@ -108,6 +108,7 @@ extension AppStore {
 
 /// The Side chat tab: the selected task's side chat, or what side chats are for without one.
 struct SideChatView: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var sideChat: SideChatModel
     /// The selected task. Given rather than read from the store, so that the tab is not evaluated
     /// again for every chunk a running task streams.
@@ -117,10 +118,10 @@ struct SideChatView: View {
     var body: some View {
         if let id = conversationID {
             SideChatPane(model: sideChat, conversationID: id, taskTitle: taskTitle, messages: sideChat.thread(id),
-                         isPending: sideChat.pending.contains(id), focusRequest: sideChat.focusRequest)
+                         isPending: sideChat.pending.contains(id), focusRequest: sideChat.focusRequest, language: language.language)
         } else {
-            SidePanelEmptyState(symbol: "bubble.left.and.text.bubble.right", title: "No task selected",
-                                detail: "Side chats belong to a task. Open one to ask Crok a quick question without interrupting its work.")
+            SidePanelEmptyState(symbol: "bubble.left.and.text.bubble.right", title: L10n.t("side_chat_no_task", "No task selected"),
+                                detail: L10n.t("side_chat_no_task_detail", "Side chats belong to a task. Open one to ask Crok a quick question without interrupting its work."))
         }
     }
 }
@@ -134,6 +135,8 @@ private struct SideChatPane: NSViewRepresentable {
     let messages: [SideChatMessage]
     let isPending: Bool
     let focusRequest: Int
+    /// Not read here: a new interface language makes SwiftUI update the pane, which words itself again.
+    let language: AppLanguage
 
     func makeNSView(context: Context) -> SideChatPaneView { SideChatPaneView(model: model) }
 

@@ -5,19 +5,20 @@
 
 use crate::app::actions::{Action, PlanModeKind};
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 pub struct PlanCommand;
 
 impl SlashCommand for PlanCommand {
     slash_meta! {
         name: "plan",
-        description: "Enter plan mode",
+        description: tlm("Enter plan mode"),
         usage: "/plan [description]",
         takes_args: true,
         session_scoped: true,
         // The dashboard offers `/plan` to start the next spawned agent in plan mode (intercepted in `dispatch_dashboard_dispatch_slash`).
         offered_when_session_less: true,
-        arg_placeholder: "[description]",
+        arg_placeholder: tlm("[description]"),
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {

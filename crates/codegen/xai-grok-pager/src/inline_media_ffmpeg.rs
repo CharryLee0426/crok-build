@@ -2,7 +2,7 @@
 
 use crate::prompt_images::InlineMediaInfo;
 
-pub const FFMPEG_HINT_TEXT: &str = "Install ffmpeg to view inline";
+pub const FFMPEG_HINT_TEXT: &str = xai_grok_i18n::tlm("Install ffmpeg to view inline");
 
 /// Caches the first success and keeps re-probing failures, so installing ffmpeg mid-session recovers posters.
 pub fn ffmpeg_available() -> bool {

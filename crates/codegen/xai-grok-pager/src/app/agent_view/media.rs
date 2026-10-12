@@ -9,6 +9,7 @@ use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
+use xai_grok_i18n::tl;
 
 /// Identity of a media file's contents at load time, keying the negative cache of failed loads.
 /// On Unix, inode and ctime also catch a same-length in-place rewrite whose mtime is too coarse to move.
@@ -107,7 +108,7 @@ impl AgentView {
                             tracing::debug!("copy image failed: {e}");
                         }
                     });
-                    self.show_toast("Copied image");
+                    self.show_toast(tl("Copied image"));
                 }
             }
             _ => {}
@@ -528,10 +529,10 @@ impl AgentView {
     /// The `[Open]` button, the inline-image click target, and the Enter-key handler all route here.
     pub(crate) fn open_media_natively(&mut self, path: &std::path::Path) -> bool {
         if crate::app::link_opener::open_path(path) {
-            self.show_toast("Opening in default app\u{2026}");
+            self.show_toast(tl("Opening in default app…"));
             true
         } else {
-            self.show_toast("Could not open file");
+            self.show_toast(tl("Could not open file"));
             false
         }
     }
@@ -553,7 +554,7 @@ impl AgentView {
         let path_owned = path.to_path_buf();
         let (tx, rx) = std::sync::mpsc::channel();
         self.video_load_rx = Some(rx);
-        self.show_toast("Loading video\u{2026}");
+        self.show_toast(tl("Loading video…"));
         std::thread::spawn(move || {
             let result =
                 crate::prompt_images::VideoViewerState::open_from_path(&path_owned).map(|viewer| {
@@ -632,7 +633,7 @@ impl AgentView {
                     tracing::debug!("copy image failed: {e}");
                 }
             });
-            self.show_toast("Copied image");
+            self.show_toast(tl("Copied image"));
             return Some(InputOutcome::Changed);
         }
 

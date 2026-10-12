@@ -1,6 +1,7 @@
 //! The Skills tab's listing: which fetch the tab waits for, and the rows for the folders the
 //! backend couldn't scan.
 
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::extensions::skills::{SkillScanError, SkillsListResponse};
 
 use super::{ExtensionsModalState, TabDataState};
@@ -42,10 +43,11 @@ pub(super) fn scan_error_rows(errors: &[SkillScanError], query: &str) -> Vec<Str
     if errors.is_empty() || !query.is_empty() {
         return Vec::new();
     }
-    let header = match errors.len() {
-        1 => "Couldn't scan (1 folder) · r to reload".to_owned(),
-        count => format!("Couldn't scan ({count} folders) · r to reload"),
+    let scanned = match errors.len() {
+        1 => tl("Couldn't scan (1 folder)").to_owned(),
+        count => tlf("Couldn't scan ({count} folders)", &[("count", &count)]),
     };
+    let header = format!("{scanned} · {}", tl("r to reload"));
     std::iter::once(header)
         .chain(
             errors

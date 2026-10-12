@@ -6,6 +6,7 @@
 //! Skills (`SkillMeta::Skill`) are also passed through as `/name args` for the shell to expand, but marked `InjectSkill` for rendering.
 
 use agent_client_protocol as acp;
+use xai_grok_i18n::tlf;
 use xai_grok_tools::implementations::skills::types::SkillScope;
 
 use super::command::{CommandExecCtx, CommandProvenance, CommandResult, SlashCommand};
@@ -137,9 +138,10 @@ impl SlashCommand for AcpSlashCommand {
             format!("/{} {}", self.name, args)
         };
         match self.skill {
-            SkillMeta::Malformed => {
-                CommandResult::Error(format!("Malformed skill metadata for /{}", self.name))
-            }
+            SkillMeta::Malformed => CommandResult::Error(tlf(
+                "Malformed skill metadata for /{name}",
+                &[("name", &self.name)],
+            )),
             SkillMeta::Absent | SkillMeta::Foreign => CommandResult::PassThrough(text),
             SkillMeta::Skill(_) => CommandResult::InjectSkill {
                 display_text: text.clone(),

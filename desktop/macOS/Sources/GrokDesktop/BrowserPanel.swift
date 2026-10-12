@@ -30,22 +30,23 @@ struct BrowserPanelView: View {
 // MARK: - Toolbar
 
 private struct BrowserToolbar: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var browser: BrowserModel
     @ObservedObject var page: BrowserPage
     let address: BrowserAddressModel
 
     var body: some View {
         HStack(spacing: 4) {
-            IconButton(icon: "chevron.left", help: "Back · ⌘[", size: 26) { page.goBack() }
+            IconButton(icon: "chevron.left", help: L10n.t("browser_back", "Back · ⌘["), size: 26) { page.goBack() }
                 .disabled(!page.canGoBack).opacity(page.canGoBack ? 1 : 0.4)
-            IconButton(icon: "chevron.right", help: "Forward · ⌘]", size: 26) { page.goForward() }
+            IconButton(icon: "chevron.right", help: L10n.t("browser_forward", "Forward · ⌘]"), size: 26) { page.goForward() }
                 .disabled(!page.canGoForward).opacity(page.canGoForward ? 1 : 0.4)
-            IconButton(icon: page.isLoading ? "xmark" : "arrow.clockwise", help: page.isLoading ? "Stop loading" : "Reload · ⌘R", size: 26) {
+            IconButton(icon: page.isLoading ? "xmark" : "arrow.clockwise", help: page.isLoading ? L10n.t("browser_stop", "Stop loading") : L10n.t("browser_reload", "Reload · ⌘R"), size: 26) {
                 if page.isLoading { page.stop() } else { page.reload() }
             }
             .disabled(page.isBlank).opacity(page.isBlank ? 0.4 : 1)
             BrowserAddressBar(address: address, page: page).padding(.horizontal, 2)
-            IconButton(icon: "plus", help: "New tab · ⌘T", size: 26) { browser.newTab() }
+            IconButton(icon: "plus", help: L10n.t("browser_new_tab_help", "New tab · ⌘T"), size: 26) { browser.newTab() }
             BrowserMenu(page: page)
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -62,6 +63,7 @@ private struct BrowserToolbar: View {
 }
 
 private struct BrowserAddressBar: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var browser: BrowserModel
     @ObservedObject var address: BrowserAddressModel
     @ObservedObject var page: BrowserPage
@@ -80,8 +82,8 @@ private struct BrowserAddressBar: View {
                     Image(systemName: bookmarked ? "star.fill" : "star").font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(bookmarked ? Theme.accent : Theme.muted).frame(width: 20, height: 22).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).help(bookmarked ? "Remove bookmark" : "Bookmark this page")
-                .accessibilityLabel(bookmarked ? "Remove bookmark" : "Bookmark this page")
+                .buttonStyle(.plain).help(bookmarked ? L10n.t("browser_remove_bookmark", "Remove bookmark") : L10n.t("browser_add_bookmark", "Bookmark this page"))
+                .accessibilityLabel(bookmarked ? L10n.t("browser_remove_bookmark", "Remove bookmark") : L10n.t("browser_add_bookmark", "Bookmark this page"))
             }
         }
         .padding(.leading, 10).padding(.trailing, 7).frame(height: 30)
@@ -100,11 +102,11 @@ private struct BrowserAddressBar: View {
     }
 
     private var security: String {
-        if address.isEditing || page.isBlank { return "Search or enter an address" }
+        if address.isEditing || page.isBlank { return L10n.t("browser_security_search", "Search or enter an address") }
         switch page.url?.scheme {
-        case "https": return "The connection to this site is encrypted."
-        case "file": return "A file on this Mac."
-        default: return page.url?.host.map(BrowserAddress.isLocal) == true ? "A page served from this Mac or your network." : "The connection to this site is not encrypted."
+        case "https": return L10n.t("browser_security_https", "The connection to this site is encrypted.")
+        case "file": return L10n.t("browser_security_file", "A file on this Mac.")
+        default: return page.url?.host.map(BrowserAddress.isLocal) == true ? L10n.t("browser_security_local", "A page served from this Mac or your network.") : L10n.t("browser_security_http", "The connection to this site is not encrypted.")
         }
     }
 }
@@ -123,7 +125,6 @@ private struct BrowserAddressInput: NSViewRepresentable {
     func makeNSView(context: Context) -> AddressField {
         let field = AddressField()
         field.delegate = context.coordinator
-        field.placeholderString = "Search or enter address"
         field.font = .systemFont(ofSize: 12.5)
         field.focusRingType = .none
         field.isBezeled = false
@@ -132,7 +133,6 @@ private struct BrowserAddressInput: NSViewRepresentable {
         field.lineBreakMode = .byTruncatingTail
         field.cell?.usesSingleLineMode = true
         field.cell?.isScrollable = true
-        field.setAccessibilityLabel("Address and search")
         field.onFocus = { [weak coordinator = context.coordinator] in coordinator?.focused() }
         // Requests made before the bar existed are not for it.
         context.coordinator.focusRequest = focusRequest
@@ -142,6 +142,11 @@ private struct BrowserAddressInput: NSViewRepresentable {
     func updateNSView(_ field: AddressField, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        let placeholder = L10n.t("browser_address_placeholder", "Search or enter address")
+        if field.placeholderString != placeholder {
+            field.placeholderString = placeholder
+            field.setAccessibilityLabel(L10n.t("browser_address_label", "Address and search"))
+        }
         coordinator.isShowingText = true
         field.showText(text)
         coordinator.isShowingText = false
@@ -213,47 +218,48 @@ private struct BrowserAddressInput: NSViewRepresentable {
 }
 
 private struct BrowserMenu: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var browser: BrowserModel
     @ObservedObject var page: BrowserPage
 
     var body: some View {
         Menu {
-            Button("New Tab", systemImage: "plus") { browser.newTab() }
-            if browser.canCloseTab { Button("Close Tab", systemImage: "xmark") { browser.close(page) } }
+            Button(L10n.t("browser_new_tab", "New Tab"), systemImage: "plus") { browser.newTab() }
+            if browser.canCloseTab { Button(L10n.t("browser_close_tab", "Close Tab"), systemImage: "xmark") { browser.close(page) } }
             if page.url != nil {
                 Divider()
-                Button("Add Link to Prompt", systemImage: "text.insert") { browser.addLinkToPrompt(page) }
-                Button("Copy Link", systemImage: "doc.on.doc") { browser.copyLink(page) }
-                Button("Open in Default Browser", systemImage: "arrow.up.forward.app") { browser.openInDefaultBrowser(page) }
+                Button(L10n.t("browser_add_link", "Add Link to Prompt"), systemImage: "text.insert") { browser.addLinkToPrompt(page) }
+                Button(L10n.t("copy_link", "Copy Link"), systemImage: "doc.on.doc") { browser.copyLink(page) }
+                Button(L10n.t("browser_open_default", "Open in Default Browser"), systemImage: "arrow.up.forward.app") { browser.openInDefaultBrowser(page) }
             }
             if page.webView != nil {
                 Divider()
-                Button("Zoom In", systemImage: "plus.magnifyingglass") { page.zoom(.zoomIn) }
-                Button("Zoom Out", systemImage: "minus.magnifyingglass") { page.zoom(.zoomOut) }
-                Button("Actual Size") { page.zoom(.actualSize) }
+                Button(L10n.t("zoom_in", "Zoom In"), systemImage: "plus.magnifyingglass") { page.zoom(.zoomIn) }
+                Button(L10n.t("zoom_out", "Zoom Out"), systemImage: "minus.magnifyingglass") { page.zoom(.zoomOut) }
+                Button(L10n.t("actual_size", "Actual Size")) { page.zoom(.actualSize) }
             }
             if !browser.bookmarks.isEmpty {
                 Divider()
-                Menu("Bookmarks") {
+                Menu(L10n.t("bookmarks", "Bookmarks")) {
                     ForEach(browser.bookmarks.prefix(BrowserMenu.bookmarkLimit)) { bookmark in
                         Button(bookmark.title.isEmpty ? bookmark.url : bookmark.title) { browser.open(bookmark.url) }
                     }
                     if browser.bookmarks.count > BrowserMenu.bookmarkLimit {
                         Divider()
-                        Button("All \(browser.bookmarks.count.formatted()) Bookmarks…") { browser.newTab() }
+                        Button(L10n.t("browser_all_bookmarks", "All {count} Bookmarks…", ["count": browser.bookmarks.count.formatted()])) { browser.newTab() }
                     }
                 }
             }
             Divider()
-            Button("Import from Chrome…", systemImage: "square.and.arrow.down") { browser.showChromeImport() }
-            Button("Clear History") { browser.clearHistory() }
-            Button("Clear Browsing Data…") { browser.confirmClearBrowsingData() }
+            Button(L10n.t("browser_import_chrome", "Import from Chrome…"), systemImage: "square.and.arrow.down") { browser.showChromeImport() }
+            Button(L10n.t("browser_clear_history", "Clear History")) { browser.clearHistory() }
+            Button(L10n.t("browser_clear_data_menu", "Clear Browsing Data…")) { browser.confirmClearBrowsingData() }
         } label: {
             Image(systemName: "ellipsis").font(.system(size: 12, weight: .medium)).frame(width: 26, height: 26).contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .foregroundStyle(Theme.muted)
-        .help("Bookmarks, import, and more").accessibilityLabel("Browser menu")
+        .help(L10n.t("browser_menu_help", "Bookmarks, import, and more")).accessibilityLabel(L10n.t("browser_menu", "Browser menu"))
     }
 
     /// A menu is for a handful; the start page lists them all.
@@ -291,6 +297,7 @@ private struct BrowserTabStrip: View {
 }
 
 private struct BrowserTabChip: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var browser: BrowserModel
     @ObservedObject var page: BrowserPage
     let isSelected: Bool
@@ -319,12 +326,12 @@ private struct BrowserTabChip: View {
                     .frame(width: 16, height: 16).contentShape(Rectangle())
             }
             .buttonStyle(.plain).opacity(hovered || isSelected ? 1 : 0)
-            .help("Close tab · ⌘W").accessibilityLabel("Close \(page.displayTitle)")
+            .help(L10n.t("browser_close_tab_help", "Close tab · ⌘W")).accessibilityLabel(L10n.t("browser_close_named", "Close {title}", ["title": page.displayTitle]))
         }
         .padding(.leading, 9).padding(.trailing, 5).frame(height: 26)
         .background(isSelected ? Theme.hover : hovered ? Theme.hover.opacity(0.5) : .clear, in: RoundedRectangle(cornerRadius: 7))
         .onHover { hovered = $0 }
-        .help(page.url?.absoluteString ?? "New Tab")
+        .help(page.url?.absoluteString ?? L10n.t("browser_new_tab", "New Tab"))
     }
 }
 
@@ -396,6 +403,7 @@ private struct BrowserWebHost: NSViewRepresentable {
 }
 
 private struct BrowserFailureView: View {
+    @ObservedObject private var language = L10n.state
     let failure: BrowserPage.Failure
     let address: String
     let retry: () -> Void
@@ -410,7 +418,7 @@ private struct BrowserFailureView: View {
             }
             Text(failure.detail).font(.system(size: 12.5)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Try Again", action: retry).buttonStyle(SubtleButtonStyle()).font(.system(size: 12, weight: .medium)).padding(.top, 4)
+            Button(L10n.t("try_again", "Try Again"), action: retry).buttonStyle(SubtleButtonStyle()).font(.system(size: 12, weight: .medium)).padding(.top, 4)
         }
         .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -476,6 +484,7 @@ private struct BrowserLinkRow: View {
 
 /// A new tab: bookmarks, the pages visited last, and the way in from Chrome.
 private struct BrowserStartPage: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var browser: BrowserModel
     @State private var showsAllBookmarks = false
 
@@ -486,11 +495,11 @@ private struct BrowserStartPage: View {
         if browser.bookmarks.isEmpty && browser.recent.isEmpty {
             VStack(spacing: 10) {
                 Image(systemName: "globe").font(.system(size: 24, weight: .light)).foregroundStyle(Theme.muted)
-                Text("Browse beside your task").font(.system(size: 14, weight: .medium))
-                Text("Preview what Crok builds, read the docs, and keep a page in view while you work. Type an address or a search above.")
+                Text(L10n.t("browser_start_title", "Browse beside your task")).font(.system(size: 14, weight: .medium))
+                Text(L10n.t("browser_start_detail", "Preview what Crok builds, read the docs, and keep a page in view while you work. Type an address or a search above."))
                     .font(.system(size: 12.5)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                Button { browser.showChromeImport() } label: { Label("Import from Chrome…", systemImage: "square.and.arrow.down") }
+                Button { browser.showChromeImport() } label: { Label(L10n.t("browser_import_chrome", "Import from Chrome…"), systemImage: "square.and.arrow.down") }
                     .buttonStyle(SubtleButtonStyle()).font(.system(size: 12, weight: .medium)).padding(.top, 6)
             }
             .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -499,28 +508,29 @@ private struct BrowserStartPage: View {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     if !browser.bookmarks.isEmpty {
                         let shown = showsAllBookmarks ? browser.bookmarks[...] : browser.bookmarks.prefix(Self.bookmarkPreview)
-                        header("Bookmarks", count: browser.bookmarks.count)
+                        header(L10n.t("bookmarks", "Bookmarks"), count: browser.bookmarks.count)
                         ForEach(shown) { bookmark in
                             BrowserLinkRow(title: bookmark.title, address: bookmark.url, symbol: "star") { browser.open(bookmark.url) }
                                 .contextMenu {
-                                    Button("Open in New Tab", systemImage: "plus.square.on.square") { open(bookmark.url) }
-                                    Button("Remove Bookmark", systemImage: "star.slash") { browser.removeBookmark(bookmark.id) }
+                                    Button(L10n.t("browser_open_new_tab", "Open in New Tab"), systemImage: "plus.square.on.square") { open(bookmark.url) }
+                                    Button(L10n.t("browser_remove_bookmark_menu", "Remove Bookmark"), systemImage: "star.slash") { browser.removeBookmark(bookmark.id) }
                                 }
                         }
                         if browser.bookmarks.count > Self.bookmarkPreview {
-                            Button(showsAllBookmarks ? "Show fewer" : "Show all \(browser.bookmarks.count.formatted())") { showsAllBookmarks.toggle() }
+                            Button(showsAllBookmarks ? L10n.t("browser_show_fewer", "Show fewer")
+                                   : L10n.t("browser_show_all", "Show all {count}", ["count": browser.bookmarks.count.formatted()])) { showsAllBookmarks.toggle() }
                                 .buttonStyle(.plain).font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.accent)
                                 .padding(.horizontal, 8).padding(.vertical, 6)
                         }
                     }
                     if !browser.recent.isEmpty {
-                        header("Recently visited", count: nil).padding(.top, browser.bookmarks.isEmpty ? 0 : 10)
+                        header(L10n.t("browser_recent", "Recently visited"), count: nil).padding(.top, browser.bookmarks.isEmpty ? 0 : 10)
                         ForEach(browser.recent) { item in
                             BrowserLinkRow(title: item.title, address: item.url, symbol: "clock") { browser.open(item.url) }
-                                .contextMenu { Button("Open in New Tab", systemImage: "plus.square.on.square") { open(item.url) } }
+                                .contextMenu { Button(L10n.t("browser_open_new_tab", "Open in New Tab"), systemImage: "plus.square.on.square") { open(item.url) } }
                         }
                     }
-                    Button { browser.showChromeImport() } label: { Label("Import from Chrome…", systemImage: "square.and.arrow.down") }
+                    Button { browser.showChromeImport() } label: { Label(L10n.t("browser_import_chrome", "Import from Chrome…"), systemImage: "square.and.arrow.down") }
                         .buttonStyle(SubtleButtonStyle()).font(.system(size: 12, weight: .medium))
                         .padding(.horizontal, 8).padding(.top, 14)
                 }

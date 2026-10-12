@@ -1290,7 +1290,7 @@ fn every_persisting_setting_has_rollback_arm() {
                     .map(|(s, _)| s.as_str().to_owned());
                 assert_ne!(
                     toast.as_deref(),
-                    Some(crate::app::dispatch::ROLLBACK_NO_ARM_TOAST),
+                    Some(crate::app::dispatch::rollback_no_arm_toast()),
                     "Setting `{key}` emits Effect::PersistSetting but apply_setting_rollback has \
                      no arm — a failed persist diverges in-memory state from config.toml. Add an arm.",
                 );

@@ -70,12 +70,12 @@ enum GrokCommand {
     /// translocated copy would stop working once that copy goes away.
     static func unavailableReason(bundle: URL, launcher: URL?, workspaceTestBuild: Bool? = nil) -> String? {
         if workspaceTestBuild ?? isWorkspaceTestBuild(in: bundle) {
-            return "This workspace test build stays out of the global Terminal command path."
+            return L10n.t("cli_unavailable_test_build", "This workspace test build stays out of the global Terminal command path.")
         }
-        guard launcher != nil else { return "Available in the packaged app." }
+        guard launcher != nil else { return L10n.t("cli_unavailable_packaged", "Available in the packaged app.") }
         let readOnly = (try? bundle.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly == true
         if readOnly || bundle.path.contains("/AppTranslocation/") {
-            return "Move Crok Desktop to your Applications folder and open it from there to turn this on."
+            return L10n.t("cli_unavailable_move", "Move Crok Desktop to your Applications folder and open it from there to turn this on.")
         }
         return nil
     }
@@ -97,7 +97,7 @@ enum GrokCommand {
         } catch let error as POSIXError where error.code == .EACCES || error.code == .EPERM {
             let directory = link.deletingLastPathComponent().path
             try await privileged("/bin/mkdir -p \(shellQuoted(directory)) && /bin/ln -sfh \(shellQuoted(launcher.path)) \(shellQuoted(link.path))",
-                                 "Crok Desktop wants to install the crok command in \(directory).")
+                                 L10n.t("cli_install_prompt", "Crok Desktop wants to install the crok command in {directory}.", ["directory": directory]))
         }
     }
 
@@ -108,7 +108,8 @@ enum GrokCommand {
         if code == ENOENT { return }
         guard code == EACCES || code == EPERM else { throw posixError(code) }
         try await privileged("if [ -L \(shellQuoted(link.path)) ]; then /bin/rm -f \(shellQuoted(link.path)); fi",
-                             "Crok Desktop wants to remove the crok command from \(link.deletingLastPathComponent().path).")
+                             L10n.t("cli_remove_prompt", "Crok Desktop wants to remove the crok command from {directory}.",
+                                    ["directory": link.deletingLastPathComponent().path]))
     }
 
     /// Clears the download quarantine from the launcher and the TUI it runs. Opening the app approved it;
@@ -138,7 +139,7 @@ enum GrokCommand {
         var message = errors.trimmingCharacters(in: .whitespacesAndNewlines)
         if let range = message.range(of: #"^\d+:\d+: execution error: "#, options: .regularExpression) { message.removeSubrange(range) }
         if let range = message.range(of: #"\s*\(-?\d+\)$"#, options: .regularExpression) { message.removeSubrange(range) }
-        return message.isEmpty ? "The administrator command did not finish." : message
+        return message.isEmpty ? L10n.t("cli_admin_unfinished", "The administrator command did not finish.") : message
     }
 
     /// Replaces `link` atomically, so a working command is never briefly missing.
@@ -182,8 +183,11 @@ final class GrokCommandModel: ObservableObject {
     @Published var error: String?
     let link: URL
     let launcher: URL?
-    let unavailableReason: String?
+    var unavailableReason: String? {
+        GrokCommand.unavailableReason(bundle: bundle, launcher: launcher, workspaceTestBuild: isWorkspaceTestBuild)
+    }
     let isWorkspaceTestBuild: Bool
+    private let bundle: URL
     private let home: URL
     private let privileged: GrokCommand.PrivilegedRunner
 
@@ -193,10 +197,9 @@ final class GrokCommandModel: ObservableObject {
         self.link = link
         self.home = home
         self.privileged = privileged
+        self.bundle = bundle
         launcher = GrokCommand.launcher(in: bundle)
-        let workspaceTestBuild = GrokCommand.isWorkspaceTestBuild(in: bundle)
-        isWorkspaceTestBuild = workspaceTestBuild
-        unavailableReason = GrokCommand.unavailableReason(bundle: bundle, launcher: launcher, workspaceTestBuild: workspaceTestBuild)
+        isWorkspaceTestBuild = GrokCommand.isWorkspaceTestBuild(in: bundle)
         refresh()
     }
 
@@ -243,6 +246,7 @@ final class GrokCommandModel: ObservableObject {
 
 /// Settings for the `crok` command, which runs the Crok Build TUI bundled with the app from any terminal.
 struct CommandLineSettingsSection: View {
+    @ObservedObject private var language = L10n.state
     @StateObject private var command: GrokCommandModel
     @State private var confirmingReplace = false
 
@@ -252,15 +256,17 @@ struct CommandLineSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Command line", systemImage: "terminal").font(.system(size: 15, weight: .semibold))
+            Label(L10n.t("cli_section", "Command line"), systemImage: "terminal").font(.system(size: 15, weight: .semibold))
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
-                    (Text("crok").font(.system(size: 14, weight: .semibold, design: .monospaced))
-                        + Text(" command in Terminal").font(.system(size: 14, weight: .medium)))
+                    (Text(title.before).font(.system(size: 14, weight: .medium))
+                        + Text("crok").font(.system(size: 14, weight: .semibold, design: .monospaced))
+                        + Text(title.after).font(.system(size: 14, weight: .medium)))
                     Text(detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                     if command.status.isOn, !command.otherInstallations.isEmpty {
-                        Text("Also installed: \(command.otherInstallations.map(Self.abbreviated).joined(separator: ", ")). Terminals run whichever comes first in PATH.")
+                        Text(L10n.t("cli_also_installed", "Also installed: {paths}. Terminals run whichever comes first in PATH.",
+                                    ["paths": command.otherInstallations.map(Self.abbreviated).joined(separator: ", ")]))
                             .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                     }
                     if let error = command.error {
@@ -274,41 +280,46 @@ struct CommandLineSettingsSection: View {
                 }
                 Spacer(minLength: 12)
                 if command.isWorking { ProgressView().controlSize(.small) }
-                Toggle("crok command in Terminal", isOn: Binding(get: { command.status.isOn }, set: setEnabled))
+                Toggle(L10n.fill(Self.titleTemplate, ["command": "crok"]), isOn: Binding(get: { command.status.isOn }, set: setEnabled))
                     .toggleStyle(.switch).labelsHidden().controlSize(.small).disabled(!command.canToggle)
             }
         }
         .settingsCard()
         .onAppear { command.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in command.refresh() }
-        .alert("Replace the existing crok command?", isPresented: $confirmingReplace) {
-            Button("Replace") { Task { await command.enable(replacing: true) } }
-            Button("Cancel", role: .cancel) {}
+        .alert(L10n.t("cli_replace_title", "Replace the existing crok command?"), isPresented: $confirmingReplace) {
+            Button(L10n.t("cli_replace", "Replace")) { Task { await command.enable(replacing: true) } }
+            Button(L10n.t("cancel", "Cancel"), role: .cancel) {}
         } message: {
             Text(replaceMessage)
         }
     }
 
+    /// "crok command in Terminal", with the command name set in the code font wherever the language puts it.
+    private static var titleTemplate: String { L10n.t("cli_title", "{command} command in Terminal") }
+    private var title: (before: String, after: String) { L10n.split(Self.titleTemplate, around: "command") }
+
     private var replaceMessage: String {
         guard case .taken(let target, _) = command.status else { return "" }
-        let current = Self.abbreviated(target)
-        return "\(command.link.path) runs \(current). The link will run Crok Desktop's Crok Build instead; \(current) itself is not changed."
+        return L10n.t("cli_replace_message", "{link} runs {current}. The link will run Crok Desktop's Crok Build instead; {current} itself is not changed.",
+                      ["link": command.link.path, "current": Self.abbreviated(target)])
     }
 
     private var detail: String {
         switch command.status {
         case .installed:
-            return "Terminals run this app's Crok Build TUI with crok, linked at \(command.link.path)."
+            return L10n.t("cli_detail_installed", "Terminals run this app's Crok Build TUI with crok, linked at {link}.", ["link": command.link.path])
         case .otherCopy(let app):
-            return "crok runs the Crok Desktop at \(Self.abbreviated(app))."
+            return L10n.t("cli_detail_other_copy", "crok runs the Crok Desktop at {app}.", ["app": Self.abbreviated(app)])
         case .broken(let app):
-            return "crok links to a Crok Desktop that was moved or deleted (\(Self.abbreviated(app)))."
+            return L10n.t("cli_detail_broken", "crok links to a Crok Desktop that was moved or deleted ({app}).", ["app": Self.abbreviated(app)])
         case .taken(let target, true):
-            return command.unavailableReason ?? "\(command.link.path) runs \(Self.abbreviated(target)). Turning this on replaces the link."
+            return command.unavailableReason ?? L10n.t("cli_detail_taken_replaceable", "{link} runs {target}. Turning this on replaces the link.",
+                                                       ["link": command.link.path, "target": Self.abbreviated(target)])
         case .taken:
-            return "Another program is installed at \(command.link.path). Remove it to turn this on."
+            return L10n.t("cli_detail_taken", "Another program is installed at {link}. Remove it to turn this on.", ["link": command.link.path])
         case .notInstalled:
-            return command.unavailableReason ?? "Type crok in any terminal to run the Crok Build TUI that comes with this app."
+            return command.unavailableReason ?? L10n.t("cli_detail_not_installed", "Type crok in any terminal to run the Crok Build TUI that comes with this app.")
         }
     }
 
@@ -316,8 +327,8 @@ struct CommandLineSettingsSection: View {
     private var repairTitle: String? {
         guard command.unavailableReason == nil else { return nil }
         switch command.status {
-        case .otherCopy: return "Use This Copy"
-        case .broken: return "Repair"
+        case .otherCopy: return L10n.t("cli_use_this_copy", "Use This Copy")
+        case .broken: return L10n.t("cli_repair", "Repair")
         default: return nil
         }
     }

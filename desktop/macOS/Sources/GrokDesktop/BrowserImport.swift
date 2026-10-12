@@ -24,7 +24,7 @@ struct ChromeImportAccess {
         let context = LAContext()
         var unavailable: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
-            throw ChromeImportError.notAuthenticated(unavailable?.localizedDescription ?? "This Mac cannot confirm who is using it.")
+            throw ChromeImportError.notAuthenticated(unavailable?.localizedDescription ?? L10n.t("import_cannot_confirm", "This Mac cannot confirm who is using it."))
         }
         do {
             try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
@@ -45,8 +45,11 @@ struct ChromeImportSelection: Equatable {
 
     /// "cookies, history, and bookmarks", for the authentication prompt.
     var summary: String {
-        let parts = [cookies ? "cookies" : nil, history ? "history" : nil, bookmarks ? "bookmarks" : nil].compactMap { $0 }
-        return ListFormatter.localizedString(byJoining: parts)
+        let parts = [cookies ? L10n.t("import_word_cookies", "cookies") : nil, history ? L10n.t("import_word_history", "history") : nil,
+                     bookmarks ? L10n.t("import_word_bookmarks", "bookmarks") : nil].compactMap { $0 }
+        let formatter = ListFormatter()
+        formatter.locale = Locale(identifier: L10n.resolvedCode)
+        return formatter.string(from: parts) ?? parts.joined(separator: ", ")
     }
 }
 
@@ -73,10 +76,10 @@ enum ChromeImporter {
     static func read(profile: URL, selection: ChromeImportSelection, access: ChromeImportAccess) -> ChromeImportPayload {
         var payload = ChromeImportPayload()
         if selection.history {
-            do { payload.history = try ChromeData.history(in: profile) } catch { payload.problems.append("History: \(error.localizedDescription)") }
+            do { payload.history = try ChromeData.history(in: profile) } catch { payload.problems.append(L10n.t("import_problem_history", "History: {error}", ["error": error.localizedDescription])) }
         }
         if selection.bookmarks {
-            do { payload.bookmarks = try ChromeData.bookmarks(in: profile) } catch { payload.problems.append("Bookmarks: \(error.localizedDescription)") }
+            do { payload.bookmarks = try ChromeData.bookmarks(in: profile) } catch { payload.problems.append(L10n.t("import_problem_bookmarks", "Bookmarks: {error}", ["error": error.localizedDescription])) }
         }
         if selection.cookies {
             do {
@@ -84,11 +87,12 @@ enum ChromeImporter {
                 let result = try ChromeData.cookies(in: profile, cipher: cipher)
                 payload.cookies = result
                 if result.undecryptable > 0 {
-                    payload.problems.append(result.undecryptable == 1 ? "1 cookie could not be decrypted and was left out."
-                        : "\(result.undecryptable.formatted()) cookies could not be decrypted and were left out.")
+                    payload.problems.append(result.undecryptable == 1
+                        ? L10n.t("import_cookie_undecryptable_one", "1 cookie could not be decrypted and was left out.")
+                        : L10n.t("import_cookies_undecryptable", "{count} cookies could not be decrypted and were left out.", ["count": result.undecryptable.formatted()]))
                 }
             } catch {
-                payload.problems.append("Cookies: \(error.localizedDescription)")
+                payload.problems.append(L10n.t("import_problem_cookies", "Cookies: {error}", ["error": error.localizedDescription]))
             }
         }
         return payload
@@ -129,7 +133,7 @@ extension BrowserModel {
             do {
                 result.history = try await history.merge(items)
             } catch {
-                result.problems.append("History: \(error.localizedDescription)")
+                result.problems.append(L10n.t("import_problem_history", "History: {error}", ["error": error.localizedDescription]))
             }
             refreshRecent()
         }
@@ -200,7 +204,7 @@ final class ChromeImportModel: ObservableObject {
         let selection = selection, access = access
         phase = .authenticating
         do {
-            try await access.authenticate("import your Chrome \(selection.summary)")
+            try await access.authenticate(L10n.t("import_auth_reason", "import your Chrome {items}", ["items": selection.summary]))
         } catch ChromeImportError.authenticationCancelled {
             phase = .ready
             return
@@ -223,6 +227,7 @@ final class ChromeImportModel: ObservableObject {
 
 /// Import from Chrome: which profile, what to bring, and how it went.
 struct ImportChromeSheet: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var browser: BrowserModel
     @StateObject private var model: ChromeImportModel
@@ -233,8 +238,8 @@ struct ImportChromeSheet: View {
     init(model: ChromeImportModel) { _model = StateObject(wrappedValue: model) }
 
     var body: some View {
-        DesktopPanel(title: "Import from Chrome",
-                     subtitle: "Bring your Chrome sign-ins, history, and bookmarks into Crok's browser. Chrome and its data are left as they are.",
+        DesktopPanel(title: L10n.t("import_from_chrome", "Import from Chrome"),
+                     subtitle: L10n.t("import_subtitle", "Bring your Chrome sign-ins, history, and bookmarks into Crok's browser. Chrome and its data are left as they are."),
                      width: 580, onClose: close) {
             content.padding(24)
         } footer: {
@@ -246,15 +251,15 @@ struct ImportChromeSheet: View {
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .loading:
-            status(working: true, "Looking for Chrome profiles…")
+            status(working: true, L10n.t("import_looking", "Looking for Chrome profiles…"))
         case .finished(let result):
             finished(result)
         default:
             if model.profiles.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "questionmark.folder").font(.system(size: 24, weight: .light)).foregroundStyle(Theme.muted)
-                    Text("No Chrome profiles").font(.system(size: 14, weight: .medium))
-                    Text("Google Chrome has not been used on this Mac, so there is nothing to import.")
+                    Text(L10n.t("import_no_profiles", "No Chrome profiles")).font(.system(size: 14, weight: .medium))
+                    Text(L10n.t("import_no_profiles_detail", "Google Chrome has not been used on this Mac, so there is nothing to import."))
                         .font(.system(size: 12.5)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 18)
@@ -266,28 +271,28 @@ struct ImportChromeSheet: View {
 
     private var options: some View {
         VStack(alignment: .leading, spacing: 14) {
-            row("Chrome profile", detail: model.profile?.account ?? "Not signed in to a Google account") {
-                Picker("Chrome profile", selection: $model.profileID) {
+            row(L10n.t("import_profile", "Chrome profile"), detail: model.profile?.account ?? L10n.t("import_not_signed_in", "Not signed in to a Google account")) {
+                Picker(L10n.t("import_profile", "Chrome profile"), selection: $model.profileID) {
                     ForEach(model.profiles) { profile in Text(profile.name).tag(profile.id) }
                 }
                 .labelsHidden().pickerStyle(.menu).fixedSize()
             }
             Divider()
-            row("Cookies and sign-ins", detail: "Stay signed in to the sites you use in Chrome. macOS asks for your login keychain password to release Chrome's encryption key.") {
-                Toggle("Cookies and sign-ins", isOn: $model.selection.cookies).toggleStyle(.switch).labelsHidden().controlSize(.small)
+            row(L10n.t("import_cookies", "Cookies and sign-ins"), detail: L10n.t("import_cookies_detail", "Stay signed in to the sites you use in Chrome. macOS asks for your login keychain password to release Chrome's encryption key.")) {
+                Toggle(L10n.t("import_cookies", "Cookies and sign-ins"), isOn: $model.selection.cookies).toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
-            row("History", detail: "The pages you visited, for suggestions in the address bar.") {
-                Toggle("History", isOn: $model.selection.history).toggleStyle(.switch).labelsHidden().controlSize(.small)
+            row(L10n.t("history", "History"), detail: L10n.t("import_history_detail", "The pages you visited, for suggestions in the address bar.")) {
+                Toggle(L10n.t("history", "History"), isOn: $model.selection.history).toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
-            row("Bookmarks", detail: "Listed on new tabs and in the browser's menu.") {
-                Toggle("Bookmarks", isOn: $model.selection.bookmarks).toggleStyle(.switch).labelsHidden().controlSize(.small)
+            row(L10n.t("bookmarks", "Bookmarks"), detail: L10n.t("import_bookmarks_detail", "Listed on new tabs and in the browser's menu.")) {
+                Toggle(L10n.t("bookmarks", "Bookmarks"), isOn: $model.selection.bookmarks).toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
             switch model.phase {
-            case .authenticating: Divider(); status(working: true, "Waiting for you to confirm it's you…")
-            case .reading: Divider(); status(working: true, "Reading Chrome's data… Allow the keychain request if macOS shows one.")
+            case .authenticating: Divider(); status(working: true, L10n.t("import_waiting_confirm", "Waiting for you to confirm it's you…"))
+            case .reading: Divider(); status(working: true, L10n.t("import_reading", "Reading Chrome's data… Allow the keychain request if macOS shows one."))
             case .applying(let done, let total):
                 Divider()
-                status(working: true, "Storing cookies… \(done.formatted()) of \(total.formatted())")
+                status(working: true, L10n.t("import_storing", "Storing cookies… {done} of {total}", ["done": done.formatted(), "total": total.formatted()]))
             case .failed(let message):
                 Divider()
                 HStack(alignment: .top, spacing: 9) {
@@ -302,12 +307,18 @@ struct ImportChromeSheet: View {
 
     private func finished(_ result: ChromeImportResult) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Imported from \(model.profile?.name ?? "Chrome")", systemImage: "checkmark.circle.fill")
+            Label(L10n.t("import_done_from", "Imported from {name}", ["name": model.profile?.name ?? "Chrome"]), systemImage: "checkmark.circle.fill")
                 .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.green)
             VStack(alignment: .leading, spacing: 6) {
-                if let cookies = result.cookies { count(cookies, "cookie", symbol: "key") }
-                if let history = result.history { count(history, "visited page", symbol: "clock") }
-                if let bookmarks = result.bookmarks { count(bookmarks, "new bookmark", symbol: "star") }
+                if let cookies = result.cookies {
+                    count(cookies, one: L10n.t("import_count_cookie", "{count} cookie"), many: L10n.t("import_count_cookies", "{count} cookies"), symbol: "key")
+                }
+                if let history = result.history {
+                    count(history, one: L10n.t("import_count_page", "{count} visited page"), many: L10n.t("import_count_pages", "{count} visited pages"), symbol: "clock")
+                }
+                if let bookmarks = result.bookmarks {
+                    count(bookmarks, one: L10n.t("import_count_bookmark", "{count} new bookmark"), many: L10n.t("import_count_bookmarks", "{count} new bookmarks"), symbol: "star")
+                }
             }
             ForEach(result.problems, id: \.self) { problem in
                 HStack(alignment: .top, spacing: 9) {
@@ -316,17 +327,18 @@ struct ImportChromeSheet: View {
                 }
             }
             if result.cookies ?? 0 > 0 {
-                Text("Reload pages that are already open to use the imported sign-ins. A few sites tie a sign-in to the browser it was made in and will ask you to sign in again.")
+                Text(L10n.t("import_reload_note", "Reload pages that are already open to use the imported sign-ins. A few sites tie a sign-in to the browser it was made in and will ask you to sign in again."))
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func count(_ value: Int, _ noun: String, symbol: String) -> some View {
+    /// "1 cookie" or "250 cookies": `one` and `many` are the two wordings, each with a `{count}`.
+    private func count(_ value: Int, one: String, many: String, symbol: String) -> some View {
         HStack(spacing: 9) {
             Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(Theme.muted).frame(width: 18)
-            Text("\(value.formatted()) \(value == 1 ? noun : noun + "s")").font(.system(size: 13)).monospacedDigit()
+            Text(L10n.fill(value == 1 ? one : many, ["count": value.formatted()])).font(.system(size: 13)).monospacedDigit()
         }
     }
 
@@ -351,22 +363,22 @@ struct ImportChromeSheet: View {
 
     @ViewBuilder private var footer: some View {
         Image(systemName: "touchid").foregroundStyle(Theme.muted).accessibilityHidden(true)
-        Text("macOS confirms it's you before anything is read.").font(.system(size: 12)).foregroundStyle(Theme.muted)
+        Text(L10n.t("import_confirm_note", "macOS confirms it's you before anything is read.")).font(.system(size: 12)).foregroundStyle(Theme.muted)
         Spacer()
         switch model.phase {
         case .finished:
-            Button("Done", action: close).keyboardShortcut(.defaultAction)
+            Button(L10n.t("done", "Done"), action: close).keyboardShortcut(.defaultAction)
         case .failed:
-            Button("Close", action: close)
-            Button("Try Again") { model.reset() }.keyboardShortcut(.defaultAction)
+            Button(L10n.t("close", "Close"), action: close)
+            Button(L10n.t("try_again", "Try Again")) { model.reset() }.keyboardShortcut(.defaultAction)
         default:
-            Button("Cancel", action: close).disabled(model.phase.isWorking)
+            Button(L10n.t("cancel", "Cancel"), action: close).disabled(model.phase.isWorking)
             Button {
                 Task { await model.run(browser: browser) }
             } label: {
                 HStack(spacing: 7) {
                     if model.phase.isWorking { ProgressView().controlSize(.mini) }
-                    Text("Import")
+                    Text(L10n.t("import_action", "Import"))
                 }
             }
             .keyboardShortcut(.defaultAction)
@@ -382,31 +394,32 @@ struct ImportChromeSheet: View {
 
 /// The browser's preferences in Settings.
 struct BrowserSettingsSection: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var browser: BrowserModel
     @AppStorage(BrowserAddress.searchEngineKey) private var searchEngine = BrowserAddress.SearchEngine.google.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Browser", systemImage: "globe").font(.system(size: 15, weight: .semibold))
-            row("Search engine", detail: "Used when what you type in the address bar is not an address.") {
-                Picker("Search engine", selection: $searchEngine) {
+            Label(L10n.t("browser", "Browser"), systemImage: "globe").font(.system(size: 15, weight: .semibold))
+            row(L10n.t("browser_search_engine", "Search engine"), detail: L10n.t("browser_search_engine_detail", "Used when what you type in the address bar is not an address.")) {
+                Picker(L10n.t("browser_search_engine", "Search engine"), selection: $searchEngine) {
                     ForEach(BrowserAddress.SearchEngine.allCases) { Text($0.title).tag($0.rawValue) }
                 }
                 .labelsHidden().pickerStyle(.menu).fixedSize()
             }
             Divider()
-            row("Chrome", detail: "Bring your sign-ins, history, and bookmarks from Google Chrome. macOS confirms it's you first.") {
-                Button("Import…") {
+            row("Chrome", detail: L10n.t("browser_chrome_detail", "Bring your sign-ins, history, and bookmarks from Google Chrome. macOS confirms it's you first.")) {
+                Button(L10n.t("browser_import_button", "Import…")) {
                     store.showSettings = false
                     // After the Settings sheet has gone: a window shows one sheet at a time.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { store.sheet = .importChrome }
                 }
-                .buttonStyle(.bordered).accessibilityLabel("Import from Chrome")
+                .buttonStyle(.bordered).accessibilityLabel(L10n.t("import_from_chrome", "Import from Chrome"))
             }
             Divider()
-            row("Browsing data", detail: "Cookies, sign-ins, caches, and history that the browser keeps on this Mac.") {
-                Button("Clear…") { browser.confirmClearBrowsingData() }.buttonStyle(.bordered).accessibilityLabel("Clear browsing data")
+            row(L10n.t("browser_data", "Browsing data"), detail: L10n.t("browser_data_detail", "Cookies, sign-ins, caches, and history that the browser keeps on this Mac.")) {
+                Button(L10n.t("browser_clear_button", "Clear…")) { browser.confirmClearBrowsingData() }.buttonStyle(.bordered).accessibilityLabel(L10n.t("browser_clear_data", "Clear browsing data"))
             }
         }
         .settingsCard()

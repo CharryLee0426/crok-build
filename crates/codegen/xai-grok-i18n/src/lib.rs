@@ -159,6 +159,138 @@ pub fn t_or<'a>(key: &str, fallback: &'a str) -> &'a str {
     lookup_with_fallback(key).unwrap_or(fallback)
 }
 
+/// The current locale's text for `key`, while the catalog's English for it is still `en`.
+///
+/// The caller owns the English. A translation is a translation of one wording, so it stops applying when
+/// the caller's wording has moved on, or when the caller is a stand-in that only shares the key (a test's
+/// synthetic setting): `None` then, and the caller shows its own text.
+pub fn translation_of(key: &str, en: &str) -> Option<&'static str> {
+    translation_in(current_locale(), key, en)
+}
+
+fn translation_in(locale: Locale, key: &str, en: &str) -> Option<&'static str> {
+    let english = catalog::lookup(Locale::En, key)?;
+    if english != en {
+        return None;
+    }
+    match locale {
+        Locale::En => Some(english),
+        other => catalog::lookup(other, key),
+    }
+}
+
+/// Catalog text for `key` in the current locale. `en` is the English wording, repeated at the call
+/// site so the code reads on its own; it must match the catalog's English, which a test in each
+/// calling crate checks.
+pub fn tr(key: &str, en: &'static str) -> &'static str {
+    translation_of(key, en).unwrap_or(en)
+}
+
+// ── Text that is its own key ───────────────────────────────────────────────────
+
+/// The current locale's text for an English string that is its own catalog key.
+///
+/// Most of the interface is written this way: the English stays where it is drawn, and the catalog holds
+/// an entry whose key is that same English. A string with no entry shows as written. Use [`tr`] with a
+/// named key when one English wording needs two different translations.
+pub fn tl(en: &str) -> &str {
+    match current_locale() {
+        Locale::En => en,
+        locale => catalog::lookup(locale, en).unwrap_or(en),
+    }
+}
+
+/// [`tl`] for a sentence with `{name}` placeholders, such as `"Worked for {time}"`. Each language puts
+/// them where its word order needs them.
+pub fn tlf(en: &str, values: &[(&str, &dyn std::fmt::Display)]) -> String {
+    fill(tl(en), values)
+}
+
+/// The text before and after the `{name}` placeholder of a translated sentence, for a caller that draws
+/// the value itself (in another style, or as a control). Without that placeholder, all of it is `before`.
+pub fn tl_parts<'a>(en: &'a str, name: &str) -> (&'a str, &'a str) {
+    let text = tl(en);
+    let Some(open) = find_placeholder(text, name) else {
+        return (text, "");
+    };
+    let after = open + name.len() + 2;
+    (
+        text.get(..open).unwrap_or(text),
+        text.get(after..).unwrap_or(""),
+    )
+}
+
+/// Marks an English string in a `const` or `static` table, or in data that is built once and kept, as
+/// text to translate. It is returned unchanged; pass it to [`tl`] where it is drawn, so it follows a
+/// language change.
+pub const fn tlm(en: &'static str) -> &'static str {
+    en
+}
+
+/// What goes between two sentences drawn one after the other: a space, except where the full stop
+/// already carries the gap (Chinese and Japanese write the next sentence directly after `。`).
+pub fn sentence_gap() -> &'static str {
+    match current_locale() {
+        Locale::ZhHans | Locale::Ja => "",
+        _ => " ",
+    }
+}
+
+/// Where `{name}` starts in `text`.
+fn find_placeholder(text: &str, name: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(found) = text.get(from..)?.find('{') {
+        let open = from + found;
+        let rest = text.get(open + 1..)?;
+        if rest.strip_prefix(name).is_some_and(|r| r.starts_with('}')) {
+            return Some(open);
+        }
+        from = open + 1;
+    }
+    None
+}
+
+/// Replace each `{name}` in `template` with its value, in one pass: a value that itself contains braces
+/// is not filled again, and a placeholder with no value stays as written.
+pub fn fill(template: &str, values: &[(&str, &dyn std::fmt::Display)]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(template.len() + 16);
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let (before, tail) = rest.split_at(open);
+        out.push_str(before);
+        let Some(close) = tail.find('}') else {
+            rest = tail;
+            break;
+        };
+        let name = tail.get(1..close).unwrap_or_default();
+        match values.iter().find(|(n, _)| *n == name) {
+            Some((_, value)) => {
+                let _ = write!(out, "{value}");
+            }
+            None => out.push_str(tail.get(..=close).unwrap_or_default()),
+        }
+        rest = tail.get(close + 1..).unwrap_or_default();
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Every supported locale, in catalog column order.
+pub const ALL_LOCALES: &[Locale] = &[
+    Locale::En,
+    Locale::ZhHans,
+    Locale::Ja,
+    Locale::Es,
+    Locale::Fr,
+    Locale::De,
+];
+
+/// Look up `key` in one locale with no fallback and no global state. For coverage checks.
+pub fn lookup_in(locale: Locale, key: &str) -> Option<&'static str> {
+    catalog::lookup(locale, key)
+}
+
 // ── Settings convenience helpers ───────────────────────────────────────────────
 
 /// Look up `setting.{key}.label` in the current locale (English fallback).
@@ -181,6 +313,16 @@ pub fn settings_description(key: &str) -> Option<&'static str> {
     lookup_with_fallback(&buf)
 }
 
+/// The translation of a setting's label `en` (see [`translation_of`]).
+pub fn settings_label_of(key: &str, en: &str) -> Option<&'static str> {
+    translation_of(&format!("setting.{key}.label"), en)
+}
+
+/// The translation of a setting's description `en` (see [`translation_of`]).
+pub fn settings_description_of(key: &str, en: &str) -> Option<&'static str> {
+    translation_of(&format!("setting.{key}.description"), en)
+}
+
 // ── Category labels ────────────────────────────────────────────────────────────
 
 /// Look up the display label for a settings category id.
@@ -192,6 +334,34 @@ pub fn category_label(id: &str) -> Option<&'static str> {
     buf.push_str("category.");
     buf.push_str(id);
     lookup_with_fallback(&buf)
+}
+
+// ── Enum choices ───────────────────────────────────────────────────────────────
+
+fn choice_key(group: &str, canonical: &str, suffix: &str) -> String {
+    let mut buf = String::with_capacity(8 + group.len() + canonical.len() + suffix.len());
+    buf.push_str("choice.");
+    buf.push_str(group);
+    buf.push('.');
+    buf.push_str(canonical);
+    buf.push_str(suffix);
+    buf
+}
+
+/// Look up `choice.{group}.{canonical}`: the name of one choice of an enum setting.
+/// `group` is the setting's key, or the key of the setting whose choices it shares.
+pub fn choice_label(group: &str, canonical: &str) -> Option<&'static str> {
+    lookup_with_fallback(&choice_key(group, canonical, ""))
+}
+
+/// The translation of a choice's name `en` (see [`translation_of`]).
+pub fn choice_label_of(group: &str, canonical: &str, en: &str) -> Option<&'static str> {
+    translation_of(&choice_key(group, canonical, ""), en)
+}
+
+/// The translation of `en`, the line under a choice in its picker (`choice.{group}.{canonical}.description`).
+pub fn choice_description_of(group: &str, canonical: &str, en: &str) -> Option<&'static str> {
+    translation_of(&choice_key(group, canonical, ".description"), en)
 }
 
 // ── SUPPORTED_LOCALES ──────────────────────────────────────────────────────────
@@ -330,12 +500,79 @@ mod tests {
         assert_eq!(settings_label("ui_language"), Some("Interface language"));
         assert_eq!(
             settings_description("ui_language"),
-            Some("Language for the terminal UI. System follows your locale when supported. Restart not required.")
+            Some("Language for the terminal UI. System follows your locale when supported.")
         );
         assert_eq!(settings_label("compact_mode"), Some("Compact mode"));
         assert_eq!(category_label("appearance"), Some("Appearance"));
         assert_eq!(category_label("advanced"), Some("Advanced"));
         set_locale(Locale::En);
+    }
+
+    #[test]
+    fn a_translation_applies_to_the_wording_it_translates() {
+        // The locale is an argument here: other tests change the process-wide one
+        let de = Locale::De;
+        assert_eq!(
+            translation_in(de, "common.cancel", "Cancel"),
+            Some("Abbrechen")
+        );
+        assert_eq!(
+            translation_in(Locale::En, "common.cancel", "Cancel"),
+            Some("Cancel")
+        );
+        // Another wording under the same key keeps its own text
+        assert_eq!(translation_in(de, "common.cancel", "Cancel it"), None);
+        assert_eq!(
+            translation_in(de, "setting.compact_mode.label", "Compact mode (synthetic)"),
+            None
+        );
+        assert_eq!(translation_in(de, "this.key.does.not.exist", "x"), None);
+        // Whatever the process-wide locale is now, an unknown wording comes back as it was given
+        assert_eq!(tr("common.cancel", "Cancel it"), "Cancel it");
+        assert_eq!(
+            settings_label_of("compact_mode", "Compact mode (synthetic)"),
+            None
+        );
+    }
+
+    #[test]
+    fn fill_puts_values_where_the_sentence_names_them() {
+        assert_eq!(
+            fill("Worked for {time}", &[("time", &"2m5s")]),
+            "Worked for 2m5s"
+        );
+        assert_eq!(
+            fill("{b} then {a}, {a} again", &[("a", &1), ("b", &2)]),
+            "2 then 1, 1 again"
+        );
+        // A value is not filled again, and what has no value stays as written
+        assert_eq!(
+            fill(
+                "{file}: {error}",
+                &[("file", &"{error}.txt"), ("error", &"gone")]
+            ),
+            "{error}.txt: gone"
+        );
+        assert_eq!(
+            fill("keeps {unknown} and a lone {", &[]),
+            "keeps {unknown} and a lone {"
+        );
+        assert_eq!(fill("no placeholders", &[("a", &1)]), "no placeholders");
+    }
+
+    #[test]
+    fn text_with_no_entry_shows_as_written() {
+        // Whatever the process-wide locale is now: these have no catalog entry
+        assert_eq!(tl("zz no such text zz"), "zz no such text zz");
+        assert_eq!(tlf("zz {n} zz", &[("n", &3)]), "zz 3 zz");
+        assert_eq!(
+            tl_parts("zz before {value} after zz", "value"),
+            ("zz before ", " after zz")
+        );
+        assert_eq!(tl_parts("zz {other} zz", "value"), ("zz {other} zz", ""));
+        assert_eq!(tl_parts("{value} first", "value"), ("", " first"));
+        const MARKED: &str = tlm("zz marked zz");
+        assert_eq!(tl(MARKED), "zz marked zz");
     }
 
     #[test]

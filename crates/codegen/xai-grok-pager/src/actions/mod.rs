@@ -225,9 +225,13 @@ impl ActionDef {
     /// Uses `default_key` only.
     /// For paired hints (j/k, h/l), the view should use [`HintItem::paired`] with keys from two related action defs.
     pub fn hint(&self) -> HintItem {
-        let mut item = HintItem::new(self.default_key, self.label);
+        // The registry is built once and keeps its English; a hint is made each time it is drawn,
+        // so this is where its words take the interface language
+        let mut item = HintItem::new(self.default_key, xai_grok_i18n::tl(self.label));
         item.custom_display = self.hint_key_display;
-        item.description = Some(std::borrow::Cow::Borrowed(self.description));
+        item.description = Some(std::borrow::Cow::Borrowed(xai_grok_i18n::tl(
+            self.description,
+        )));
         item
     }
 }

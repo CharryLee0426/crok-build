@@ -2,35 +2,38 @@ use super::{ConnectAttempt, Context, EarlierAttempt, Reason, StartupFailure};
 use crate::app::connect_timeout::CONNECT_UI_TIMEOUT_TRY_COMMAND;
 use std::fmt::Write as _;
 use std::time::Duration;
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{sentence_gap, tl, tlf};
 use xai_grok_telemetry::startup::{AgentKind, PhaseSnapshot, StartupPhase, format_duration};
 const WRAP_WIDTH: usize = 76;
 pub(super) fn render(failure: &StartupFailure) -> String {
     let context = &failure.context;
     let mut rows = vec![
-        ("Mode", attempted_agents(context)),
-        ("Version", context.version.clone()),
+        (tl("Mode"), attempted_agents(context)),
+        (tl("Version"), context.version.clone()),
     ];
     let mut report = match &failure.reason {
         Reason::TimedOut { waited, timings } => {
             let advice = advice_for(timings, context.attempt);
-            rows.push(("Steps", format_steps(timings)));
+            rows.push((tl("Steps"), format_steps(timings)));
             if let Some(command) = advice.next_step.command() {
-                rows.push(("Try", command.to_owned()));
+                rows.push((tl("Try"), command.to_owned()));
             }
             let explanation = fill_indented(&advice.explanation(), "  ", "  ");
             format!(
-                "Couldn't start Crok: startup timed out after {}.\n\n{explanation}",
-                whole_seconds(*waited)
+                "{}\n\n{explanation}",
+                tlf(
+                    "Couldn't start Crok: startup timed out after {time}.",
+                    &[("time", &whole_seconds(*waited))]
+                )
             )
         }
-        Reason::Cancelled => {
-            format!(
-                "Startup cancelled while connecting to the {}.",
-                agent_name(context.target)
-            )
-        }
+        Reason::Cancelled => tlf(
+            "Startup cancelled while connecting to the {agent}.",
+            &[("agent", &agent_name(context.target))],
+        ),
     };
-    rows.push(("Log", context.log_path.display().to_string()));
+    rows.push((tl("Log"), context.log_path.display().to_string()));
     let _ = write!(report, "\n\n{}", label_rows(&rows));
     report
 }
@@ -56,26 +59,32 @@ fn advice_for(timings: &PhaseSnapshot, attempt: ConnectAttempt) -> Advice {
 impl Advice {
     fn explanation(&self) -> String {
         let mut explanation = match self.doing {
-            Some(doing) => format!("The longest step was {doing}."),
-            None => "No startup step had begun.".to_owned(),
+            Some(doing) => tlf("The longest step was {step}.", &[("step", &doing)]),
+            None => tl("No startup step had begun.").to_owned(),
         };
+        let gap = sentence_gap();
         if let Some(earlier) = self.earlier {
             let target = agent_name(earlier.target);
             let _ = write!(
                 explanation,
-                " Crok spent the first {} on the {target}.",
-                whole_seconds(earlier.wait)
+                "{gap}{}",
+                tlf(
+                    "Crok spent the first {time} on the {agent}.",
+                    &[("time", &whole_seconds(earlier.wait)), ("agent", &target)]
+                )
             );
         }
-        let _ = write!(explanation, " {}", self.next_step.text());
+        let _ = write!(explanation, "{gap}{}", self.next_step.text());
         if matches!(
             self.next_step,
             NextStep::Retry | NextStep::CheckNetworkThenRetry
         ) {
             let _ = write!(
                 explanation,
-                " On a slow machine or network filesystem, a larger startup \
-                 budget can help. Set it with the command below."
+                "{gap}{}",
+                tl(
+                    "On a slow machine or network filesystem, a larger startup budget can help. Set it with the command below."
+                )
             );
         }
         explanation
@@ -98,7 +107,7 @@ fn format_steps(timings: &PhaseSnapshot) -> String {
         })
         .collect();
     if steps.is_empty() {
-        return "none".to_owned();
+        return tl("none").to_owned();
     }
     steps.join(", ")
 }
@@ -106,13 +115,14 @@ fn format_steps(timings: &PhaseSnapshot) -> String {
 fn label_rows(rows: &[(&str, String)]) -> String {
     let column_width = rows
         .iter()
-        .map(|(label, _)| label.len() + ":".len())
+        .map(|(label, _)| label.width() + ":".len())
         .max()
         .unwrap_or(0);
     rows.iter()
         .map(|(label, value)| {
-            let label = format!("  {:<column_width$} ", format!("{label}:"));
-            let hanging = " ".repeat(label.len());
+            let padding = " ".repeat(column_width.saturating_sub(label.width() + ":".len()));
+            let label = format!("  {label}:{padding} ");
+            let hanging = " ".repeat(label.width());
             fill_indented(value, &label, &hanging)
         })
         .collect::<Vec<_>>()
@@ -137,12 +147,13 @@ enum NextStep {
 impl NextStep {
     fn text(self) -> &'static str {
         match self {
-            Self::Retry => "Start Crok again.",
-            Self::CheckNetworkThenRetry => "Check your network connection, then start Crok again.",
-            Self::RestartSharedLeader => {
-                "Stop it with the command below, which also stops any other Crok \
-                 session using it, then start Crok again."
+            Self::Retry => tl("Start Crok again."),
+            Self::CheckNetworkThenRetry => {
+                tl("Check your network connection, then start Crok again.")
             }
+            Self::RestartSharedLeader => tl(
+                "Stop it with the command below, which also stops any other Crok session using it, then start Crok again.",
+            ),
         }
     }
     /// Kept out of the prose so wrapping can never split it.
@@ -157,31 +168,32 @@ impl NextStep {
 fn step_advice(phase: StartupPhase) -> (&'static str, NextStep) {
     use NextStep::{CheckNetworkThenRetry as Network, RestartSharedLeader, Retry};
     match phase {
-        StartupPhase::ConfigLoad => ("reading your local configuration", Retry),
-        StartupPhase::ManagedPolicy => ("checking your organization's managed policy", Network),
-        StartupPhase::Bootstrap => ("loading your account settings", Network),
-        StartupPhase::ModelCatalog => ("reading the list of available models", Retry),
-        StartupPhase::WorkerSpawn => ("starting the local agent", Retry),
-        StartupPhase::LeaderConnect => ("connecting to the shared leader", RestartSharedLeader),
-        StartupPhase::AcpInitialize => ("waiting for the agent to respond", Retry),
-        StartupPhase::EagerAuth => ("refreshing your sign-in", Network),
-        StartupPhase::AppInit => ("preparing the interface", Retry),
-        StartupPhase::SessionCreate => ("creating the session", Retry),
+        StartupPhase::ConfigLoad => (tl("reading your local configuration"), Retry),
+        StartupPhase::ManagedPolicy => (tl("checking your organization's managed policy"), Network),
+        StartupPhase::Bootstrap => (tl("loading your account settings"), Network),
+        StartupPhase::ModelCatalog => (tl("reading the list of available models"), Retry),
+        StartupPhase::WorkerSpawn => (tl("starting the local agent"), Retry),
+        StartupPhase::LeaderConnect => (tl("connecting to the shared leader"), RestartSharedLeader),
+        StartupPhase::AcpInitialize => (tl("waiting for the agent to respond"), Retry),
+        StartupPhase::EagerAuth => (tl("refreshing your sign-in"), Network),
+        StartupPhase::AppInit => (tl("preparing the interface"), Retry),
+        StartupPhase::SessionCreate => (tl("creating the session"), Retry),
     }
 }
 fn attempted_agents(context: &Context) -> String {
     let target = agent_name(context.target);
     match context.attempt {
         ConnectAttempt::First => target.to_owned(),
-        ConnectAttempt::AfterFallback(earlier) => {
-            format!("{}, then {target}", agent_name(earlier.target))
-        }
+        ConnectAttempt::AfterFallback(earlier) => tlf(
+            "{first}, then {second}",
+            &[("first", &agent_name(earlier.target)), ("second", &target)],
+        ),
     }
 }
 fn agent_name(agent: AgentKind) -> &'static str {
     match agent {
-        AgentKind::Embedded => "local agent",
-        AgentKind::Leader => "shared leader",
+        AgentKind::Embedded => tl("local agent"),
+        AgentKind::Leader => tl("shared leader"),
     }
 }
 /// Rounded: a truncated total can print smaller than the steps it sums.

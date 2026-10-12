@@ -6,9 +6,10 @@
 use crate::slash::command::SlashCommand;
 use crate::slash::registry::CommandRegistry;
 use crate::slash::{InlineSlashToken, scan_inline_slash_tokens};
+use xai_grok_i18n::tlm;
 
 pub(crate) const MID_TEXT_GOAL_NOTICE: &str =
-    "Slash commands only work at the start of the message — put `/goal …` first.";
+    tlm("Slash commands only work at the start of the message — put `/goal …` first.");
 
 /// Skills and plugin skills are mentions; `/btw` hoists. Other builtins do not run mid-text.
 #[must_use]

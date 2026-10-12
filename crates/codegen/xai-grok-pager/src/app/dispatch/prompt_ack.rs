@@ -13,29 +13,31 @@ use crate::app::cancel_latency::TurnEnd;
 use crate::app::prompt_ack::{PromptAckDeadlines, PromptAckOutcome};
 use crate::scrollback::block::RenderBlock;
 use std::time::{Duration, Instant};
+use xai_grok_i18n::{tl, tlf, tlm};
 use xai_grok_telemetry::events::{
     PromptAckDisposition, PromptAckPromptKind, PromptAckSurface, PromptAckTimeoutFired,
 };
 
-const PROMPT_ACK_TIMEOUT_TOAST_RESTORED: &str = "Prompt not accepted, text restored";
-const PROMPT_ACK_TIMEOUT_TOAST_STOPPED: &str = "Prompt not accepted, turn stopped";
+const PROMPT_ACK_TIMEOUT_TOAST_RESTORED: &str = tlm("Prompt not accepted, text restored");
+const PROMPT_ACK_TIMEOUT_TOAST_STOPPED: &str = tlm("Prompt not accepted, turn stopped");
 
 /// Scrollback notice for a fired fail-safe; the wording names where the user's text went.
 fn prompt_ack_timeout_notice(limit: Duration, disposition: PromptAckDisposition) -> String {
     let limit_secs = limit.as_secs();
     let recovery = match disposition {
         PromptAckDisposition::RestoredToComposer => {
-            "Your text is back in the input box; press Enter to retry."
+            tl("Your text is back in the input box; press Enter to retry.")
         }
         PromptAckDisposition::MergedIntoDraft => {
-            "Your text was placed above your draft in the input box; press Enter to retry."
+            tl("Your text was placed above your draft in the input box; press Enter to retry.")
         }
         PromptAckDisposition::NotRestorable => {
-            "The turn was stopped; send the prompt again to retry."
+            tl("The turn was stopped; send the prompt again to retry.")
         }
     };
-    format!(
-        "The agent did not accept your prompt within {limit_secs}s. {recovery} If this keeps happening, run /feedback."
+    tlf(
+        "The agent did not accept your prompt within {seconds}s. {recovery} If this keeps happening, run /feedback.",
+        &[("seconds", &limit_secs), ("recovery", &recovery)],
     )
 }
 
@@ -172,12 +174,12 @@ fn fire_fail_safe(
             deadlines.hard,
             disposition,
         )));
-    agent.show_toast(match disposition {
+    agent.show_toast(tl(match disposition {
         PromptAckDisposition::RestoredToComposer | PromptAckDisposition::MergedIntoDraft => {
             PROMPT_ACK_TIMEOUT_TOAST_RESTORED
         }
         PromptAckDisposition::NotRestorable => PROMPT_ACK_TIMEOUT_TOAST_STOPPED,
-    });
+    }));
 
     crate::unified_log::write_direct_warn(
         "prompt.ack_timeout",

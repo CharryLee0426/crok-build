@@ -14,7 +14,8 @@ icon_style="${DESKTOP_ICON_STYLE:-standard}"
 test_build="${DESKTOP_TEST_BUILD:-0}"
 register_app="${DESKTOP_REGISTER_APP:-1}"
 state_file="${DESKTOP_STATE_FILE:-}"
-version="${DESKTOP_VERSION:-$(/usr/bin/tr -d '[:space:]' < "$package_dir/VERSION")}"
+# The release number is shared with the TUI (`crok upgrade` compares it with the latest release).
+version="${DESKTOP_VERSION:-$(/usr/bin/tr -d '[:space:]' < "$repository_dir/VERSION")}"
 grok_source="${CROK_BINARY:-${GROK_BINARY:-$repository_dir/target/release/xai-grok-pager}}"
 if [[ "$app_dir" != /* ]]; then app_dir="$PWD/$app_dir"; fi
 if [[ "$icon_path" != /* ]]; then icon_path="$PWD/$icon_path"; fi

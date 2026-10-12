@@ -23,6 +23,34 @@ pub(crate) enum AppendDurability {
     Buffered,
     Durable,
 }
+/// A `summary.json` as last parsed, with the file's modification time and length. A listing
+/// reads every summary in scope; with thousands of sessions, parsing only the files that changed
+/// since the last listing turns a scan of reads into a scan of stats.
+struct CachedSummary {
+    stamp: SummaryStamp,
+    /// `None` when the file did not parse.
+    summary: Option<Summary>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SummaryStamp {
+    modified: Option<std::time::SystemTime>,
+    len: u64,
+}
+
+/// Past this many files the cache starts over, bounding its memory.
+const SUMMARY_CACHE_CAP: usize = 50_000;
+
+fn summary_cache()
+-> std::sync::MutexGuard<'static, std::collections::HashMap<PathBuf, CachedSummary>> {
+    static CACHE: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<PathBuf, CachedSummary>>,
+    > = std::sync::LazyLock::new(Default::default);
+    CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// JSONL storage under `{root}/sessions/{url_encoded_cwd}/{session_id}/`.
 #[derive(Clone)]
 pub struct JsonlStorageAdapter {
@@ -281,24 +309,53 @@ impl JsonlStorageAdapter {
     fn list_sessions_sync(&self, cwd: Option<&str>) -> io::Result<Vec<Summary>> {
         let session_dirs = self.scan_session_dirs(cwd)?;
         let mut summaries = Vec::new();
+        let mut cache = summary_cache();
+        if cache.len() > SUMMARY_CACHE_CAP {
+            cache.clear();
+        }
         for session_dir in session_dirs {
             let summary_path = session_dir.join(super::SUMMARY_FILE);
-            match std::fs::read(&summary_path) {
-                Ok(bytes) => {
-                    if let Ok(mut summary) = serde_json::from_slice::<Summary>(&bytes)
-                        && !summary.is_hidden()
-                    {
+            let Ok(meta) = std::fs::metadata(&summary_path) else {
+                continue;
+            };
+            let stamp = SummaryStamp {
+                modified: meta.modified().ok(),
+                len: meta.len(),
+            };
+            if let Some(cached) = cache.get(&summary_path)
+                && cached.stamp == stamp
+            {
+                if let Some(summary) = &cached.summary
+                    && !summary.is_hidden()
+                {
+                    summaries.push(summary.clone());
+                }
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&summary_path) else {
+                continue;
+            };
+            let summary = serde_json::from_slice::<Summary>(&bytes)
+                .ok()
+                .map(|mut summary| {
+                    if !summary.is_hidden() {
+                        // A repair that rewrites the file moves its stamp, so the next listing reads it once more.
                         super::summary_write::repair_untagged_worktree_summary(
                             &mut summary,
                             &summary_path,
                             &session_dir.join(format!("{}.lock", super::SUMMARY_FILE)),
                         );
-                        summaries.push(summary);
                     }
-                }
-                Err(_) => continue,
+                    summary
+                });
+            if let Some(summary) = &summary
+                && !summary.is_hidden()
+            {
+                summaries.push(summary.clone());
             }
+            cache.insert(summary_path, CachedSummary { stamp, summary });
         }
+        drop(cache);
         summaries.sort_by_cached_key(|s| {
             (
                 std::cmp::Reverse(s.last_active_at.unwrap_or(s.updated_at)),
@@ -2065,6 +2122,8 @@ fn is_valid_data_uri_image(url: &str) -> bool {
 }
 #[cfg(test)]
 mod durable_tests;
+#[cfg(test)]
+mod list_cache_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

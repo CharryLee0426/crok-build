@@ -11,6 +11,7 @@ use crate::app::actions::Action;
 use crate::app::agent_view::AgentView;
 use crate::render::line_utils::truncate_str;
 use crate::theme::Theme;
+use xai_grok_i18n::{tl, tlm};
 
 /// Args for painting a dense bottom-pinned live tail in the peek middle.
 pub struct PeekLiveTailArgs<'a> {
@@ -186,7 +187,7 @@ pub fn compute_peek_fields(
             let last_user_message = extract_last_user_message(agent);
             let time_ago = agent
                 .last_active_at
-                .map(|t| crate::util::format_time_ago(t.elapsed()))
+                .map(|t| xai_grok_i18n::tl(&crate::util::format_time_ago(t.elapsed())).to_string())
                 .unwrap_or_default();
             // A pending permission takes the question slot. Otherwise a single-question, single-select agent
             // `AskUserQuestion` (ext, not a local pager dialog) renders the same way.
@@ -505,9 +506,9 @@ pub fn render_peek_panel(
                         // Permission reject vs. ask-tool "Other" free-text.
                         // Painted manually (not via the widget's unfocused-only placeholder) so the hint stays visible while the caret sits on the row
                         let placeholder_text = if panel.is_ask_question() {
-                            "Other (type your own answer)"
+                            tl("Other (type your own answer)")
                         } else {
-                            "No, reject (type to add feedback)"
+                            tl("No, reject (type to add feedback)")
                         };
                         let placeholder = truncate_str(placeholder_text, avail as usize);
                         buf.set_string(text_x, y, placeholder, theme.dim().bg(theme.bg_base));
@@ -567,7 +568,7 @@ pub fn render_peek_panel(
             theme.dim()
         }
         .bg(theme.bg_base);
-        let label_trunc = truncate_str(&panel.response_type, label_avail);
+        let label_trunc = truncate_str(tl(&panel.response_type), label_avail);
         buf.set_string(inner.x, inner.y, label_trunc, label_style);
         if time_w > 0 && time_w + 1 < inner.width {
             let time_x = inner.x + inner.width - time_w;
@@ -588,7 +589,7 @@ pub fn render_peek_panel(
         if let Some(PeekLiveTailArgs { scrollback }) = live_tail {
             if middle_h > 0 {
                 if scrollback.is_empty() {
-                    if let Some(hint) = empty_hint.or(Some("No activity yet")) {
+                    if let Some(hint) = empty_hint.or(Some(tl("No activity yet"))) {
                         let trunc = truncate_str(hint, inner.width as usize);
                         buf.set_string(inner.x, middle_top, trunc, theme.dim().bg(theme.bg_base));
                     }
@@ -625,7 +626,7 @@ pub fn render_peek_panel(
         vpad_top: 0,
         chrome: false,
         bg: PromptBg::Canvas(theme.bg_base),
-        placeholder_override: Some("reply\u{2026}"),
+        placeholder_override: Some(tl("reply…")),
         image_preview: false,
         ..PromptStyle::default()
     };
@@ -697,19 +698,19 @@ pub fn extract_last_response_type(agent: &AgentView) -> String {
     // dwelling on the previous, now-stale "Response".
     if running {
         match agent.session.turn_activity() {
-            Some(TurnActivity::Thinking) => return "Thinking".to_string(),
-            Some(TurnActivity::Responding) => return "Response".to_string(),
-            Some(TurnActivity::AutoCompacting) => return "Compacting".to_string(),
-            Some(TurnActivity::Retrying { .. }) => return "Retrying".to_string(),
+            Some(TurnActivity::Thinking) => return tlm("Thinking").to_string(),
+            Some(TurnActivity::Responding) => return tlm("Response").to_string(),
+            Some(TurnActivity::AutoCompacting) => return tlm("Compacting").to_string(),
+            Some(TurnActivity::Retrying { .. }) => return tlm("Retrying").to_string(),
             // A tool is executing: fall through to the scan to recover its specific label (Bash/Read/…)
             // A missing/stale block yields the generic "Working" fallback below
             Some(TurnActivity::ToolRunning { .. }) => {}
             // Blocked on a suppressed tool (task output / wait / sleep): keep the compact "Working" label
-            Some(TurnActivity::Waiting(_)) => return "Working".to_string(),
-            Some(TurnActivity::WritingToolCall(_)) => return "Preparing".to_string(),
+            Some(TurnActivity::Waiting(_)) => return tlm("Working").to_string(),
+            Some(TurnActivity::WritingToolCall(_)) => return tlm("Preparing").to_string(),
             // Turn running but no live activity (e.g. just granted a permission and waiting for tool results / the next inference).
             // Show "Working", never a stale response
-            None => return "Working".to_string(),
+            None => return tlm("Working").to_string(),
         }
     }
     let len = agent.scrollback.len();
@@ -725,36 +726,41 @@ pub fn extract_last_response_type(agent: &AgentView) -> String {
                 if running {
                     break;
                 }
-                return "Response".to_string();
+                return tlm("Response").to_string();
             }
             RenderBlock::Thinking(_) => {
-                return if running { "Thinking" } else { "Thought" }.to_string();
+                return if running {
+                    tlm("Thinking")
+                } else {
+                    tlm("Thought")
+                }
+                .to_string();
             }
             RenderBlock::ToolCall(tc) => {
                 let label = match tc {
                     ToolCallBlock::Execute(_) => Some("Bash"),
-                    ToolCallBlock::Read(_) => Some("Read"),
-                    ToolCallBlock::Edit(_) => Some("Edit"),
-                    ToolCallBlock::ListDir(_) => Some("List"),
-                    ToolCallBlock::Search(_) => Some("Search"),
-                    ToolCallBlock::WebFetch(_) => Some("Fetch"),
-                    ToolCallBlock::WebSearch(_) => Some("Web search"),
-                    ToolCallBlock::IntegrationSearch(_) => Some("Tool search"),
-                    ToolCallBlock::UseTool(_) => Some("Tool"),
-                    ToolCallBlock::MemorySearch(_) => Some("Memory"),
-                    ToolCallBlock::SentMessage(_) => Some("Message"),
-                    ToolCallBlock::Skill(_) => Some("Skill"),
-                    ToolCallBlock::Other(_) => Some("Tool"),
+                    ToolCallBlock::Read(_) => Some(tlm("Read")),
+                    ToolCallBlock::Edit(_) => Some(tlm("Edit")),
+                    ToolCallBlock::ListDir(_) => Some(tlm("List")),
+                    ToolCallBlock::Search(_) => Some(tlm("Search")),
+                    ToolCallBlock::WebFetch(_) => Some(tlm("Fetch")),
+                    ToolCallBlock::WebSearch(_) => Some(tlm("Web search")),
+                    ToolCallBlock::IntegrationSearch(_) => Some(tlm("Tool search")),
+                    ToolCallBlock::UseTool(_) => Some(tlm("Tool")),
+                    ToolCallBlock::MemorySearch(_) => Some(tlm("Memory")),
+                    ToolCallBlock::SentMessage(_) => Some(tlm("Message")),
+                    ToolCallBlock::Skill(_) => Some(tlm("Skill")),
+                    ToolCallBlock::Other(_) => Some(tlm("Tool")),
                 };
                 if let Some(label) = label {
                     return label.to_string();
                 }
             }
-            RenderBlock::Subagent(_) => return "Subagent".to_string(),
-            RenderBlock::Workflow(_) => return "Workflow".to_string(),
-            RenderBlock::BgTask(_) => return "Task".to_string(),
+            RenderBlock::Subagent(_) => return tlm("Subagent").to_string(),
+            RenderBlock::Workflow(_) => return tlm("Workflow").to_string(),
+            RenderBlock::BgTask(_) => return tlm("Task").to_string(),
             RenderBlock::Btw(_) => return "Btw".to_string(),
-            RenderBlock::ContextInfo(_) => return "Context".to_string(),
+            RenderBlock::ContextInfo(_) => return tlm("Context").to_string(),
             // The user's latest input marks the turn boundary; there's no agent response after it yet
             RenderBlock::UserPrompt(_) => break,
             // Structural blocks carry no response type; keep scanning
@@ -765,9 +771,9 @@ pub fn extract_last_response_type(agent: &AgentView) -> String {
         }
     }
     if running {
-        "Working".to_string()
+        tlm("Working").to_string()
     } else {
-        "Idle".to_string()
+        tlm("Idle").to_string()
     }
 }
 

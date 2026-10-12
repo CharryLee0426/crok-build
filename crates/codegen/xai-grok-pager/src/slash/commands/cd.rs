@@ -6,19 +6,20 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 pub struct CdCommand;
 
 impl SlashCommand for CdCommand {
     slash_meta! {
         name: "cd",
-        description: "Change the working directory for new agents",
+        description: tlm("Change the working directory for new agents"),
         usage: "/cd [path]",
         takes_args: true,
         // `/cd` only makes sense on the dashboard (it changes where the dashboard dispatches new agents).
         // Hide it from completion everywhere else (the agent view and the welcome screen)
         dashboard_only: true,
-        arg_placeholder: "path",
+        arg_placeholder: tlm("path"),
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {

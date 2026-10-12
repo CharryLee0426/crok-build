@@ -30,9 +30,9 @@ enum AccountProvider: String, CaseIterable, Identifiable {
             return [AccountKeySource(id: "deepseek", title: "DeepSeek", site: "platform.deepseek.com",
                                      keyPage: "https://platform.deepseek.com/api_keys", environmentKeys: ["DEEPSEEK_API_KEY"])]
         case .glm:
-            return [AccountKeySource(id: "glm", title: "International", site: "z.ai",
+            return [AccountKeySource(id: "glm", title: L10n.t("accounts_glm_international", "International"), site: "z.ai",
                                      keyPage: "https://z.ai/manage-apikey/apikey-list", environmentKeys: ["ZAI_API_KEY"]),
-                    AccountKeySource(id: "glm-cn", title: "China mainland", site: "bigmodel.cn",
+                    AccountKeySource(id: "glm-cn", title: L10n.t("accounts_glm_china", "China mainland"), site: "bigmodel.cn",
                                      keyPage: "https://bigmodel.cn/coding-plan/personal/overview", environmentKeys: ["ZHIPU_API_KEY"])]
         case .anthropic:
             return [AccountKeySource(id: "anthropic", title: "Anthropic", site: "platform.claude.com",
@@ -45,11 +45,11 @@ enum AccountProvider: String, CaseIterable, Identifiable {
     /// What the row says before anything is connected.
     var signedOutDetail: String {
         switch self {
-        case .openrouter, .codex: return "Sign in with your browser"
-        case .deepseek: return "Add an API key from platform.deepseek.com"
-        case .glm: return "Add the API key from your z.ai or bigmodel.cn subscription"
+        case .openrouter, .codex: return L10n.t("accounts_browser_sign_in", "Sign in with your browser")
+        case .deepseek: return L10n.t("accounts_add_key_from", "Add an API key from {site}", ["site": "platform.deepseek.com"])
+        case .glm: return L10n.t("accounts_add_glm_key", "Add the API key from your z.ai or bigmodel.cn subscription")
         // The Claude API, billed per token. A Claude subscription is a different product and has no key.
-        case .anthropic: return "Add a Claude API key from platform.claude.com"
+        case .anthropic: return L10n.t("accounts_add_claude_key", "Add a Claude API key from {site}", ["site": "platform.claude.com"])
         }
     }
 }
@@ -69,7 +69,7 @@ struct AccountStatus: Equatable {
     enum State: Equatable { case signedOut, connected, expired, unreadable }
     var state: State = .signedOut
     var identity: String?
-    var detail: String = "Sign in with your browser"
+    var detail: String = L10n.t("accounts_browser_sign_in", "Sign in with your browser")
     /// The CLI name of the saved credential (`crok logout <name>` removes it). Nil when the
     /// credential comes from the environment, which Crok Desktop cannot change.
     var savedAs: String?
@@ -131,12 +131,12 @@ struct AccountStatusReader {
         switch provider {
         case .openrouter:
             if validSecret(environment["OPENROUTER_API_KEY"]) {
-                return AccountStatus(state: .connected, detail: "API key from environment · account name unavailable")
+                return AccountStatus(state: .connected, detail: L10n.t("accounts_env_key_no_name", "API key from environment · account name unavailable"))
             }
             switch readCredential(named: provider.rawValue) {
             case .missing: return AccountStatus(detail: provider.signedOutDetail)
             case .invalid: return unreadable()
-            case .found: return AccountStatus(state: .connected, detail: "API key connected · account name unavailable", savedAs: provider.rawValue)
+            case .found: return AccountStatus(state: .connected, detail: L10n.t("accounts_key_no_name", "API key connected · account name unavailable"), savedAs: provider.rawValue)
             }
         case .codex:
             switch readCredential(named: provider.rawValue) {
@@ -147,9 +147,11 @@ struct AccountStatusReader {
                 // means an expired access token can be renewed without signing in again.
                 guard validSecret(credential.refresh_token), let accountID = displayText(credential.account_id),
                       let expiry = credential.expires_at, expiry.isFinite, expiry > 0 else { return unreadable() }
-                let identity = profileEmail(from: credential.access_token) ?? "Account \(accountID)"
+                let identity = profileEmail(from: credential.access_token) ?? L10n.t("accounts_account_id", "Account {id}", ["id": accountID])
                 return AccountStatus(state: .connected, identity: identity,
-                                     detail: expiry <= now().timeIntervalSince1970 ? "Signed in · session renews automatically" : "Signed in",
+                                     detail: expiry <= now().timeIntervalSince1970
+                                        ? L10n.t("accounts_signed_in_renews", "Signed in · session renews automatically")
+                                        : L10n.t("accounts_signed_in", "Signed in"),
                                      savedAs: provider.rawValue)
             }
         case .deepseek, .glm, .anthropic:
@@ -166,15 +168,17 @@ struct AccountStatusReader {
             // A provider with one site needs no site name; GLM says which of its two is connected.
             let site = sources.count > 1 ? " · \(source.site)" : ""
             if let name = source.environmentKeys.first(where: { validSecret(environment[$0]) }) {
-                return AccountStatus(state: .connected, detail: "API key from \(name)\(site)")
+                return AccountStatus(state: .connected, detail: L10n.t("accounts_key_from", "API key from {name}", ["name": name]) + site)
             }
             switch readCredential(named: source.id) {
             case .missing: continue
             case .invalid: damaged = true
-            case .found: return AccountStatus(state: .connected, detail: "API key connected\(site)", savedAs: source.id)
+            case .found: return AccountStatus(state: .connected, detail: L10n.t("accounts_key_connected", "API key connected") + site, savedAs: source.id)
             }
         }
-        return damaged ? AccountStatus(state: .unreadable, detail: "Saved API key is unreadable · add it again") : AccountStatus(detail: provider.signedOutDetail)
+        return damaged
+            ? AccountStatus(state: .unreadable, detail: L10n.t("accounts_key_unreadable", "Saved API key is unreadable · add it again"))
+            : AccountStatus(detail: provider.signedOutDetail)
     }
 
     private enum SavedCredential {
@@ -194,7 +198,7 @@ struct AccountStatusReader {
     }
 
     private func unreadable() -> AccountStatus {
-        AccountStatus(state: .unreadable, detail: "Saved sign-in is incomplete · sign in to reconnect")
+        AccountStatus(state: .unreadable, detail: L10n.t("accounts_sign_in_incomplete", "Saved sign-in is incomplete · sign in to reconnect"))
     }
 
     private func readData(_ url: URL) throws -> Data? {

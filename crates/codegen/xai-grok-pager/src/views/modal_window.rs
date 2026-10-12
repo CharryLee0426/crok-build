@@ -14,6 +14,7 @@ use ratatui::text::Span;
 use ratatui::widgets::{Block, Borders, Clear, Widget};
 
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::tl;
 
 use crate::render::line_utils::byte_offset_at_width;
 use crate::theme::Theme;
@@ -188,7 +189,7 @@ pub struct Shortcut<'a> {
 pub fn push_vim_nav_search_hint<'a>(shortcuts: &mut Vec<Shortcut<'a>>, search_active: bool) {
     if !search_active && crate::appearance::cache::load_vim_mode() {
         shortcuts.push(Shortcut {
-            label: "i search",
+            label: tl("i search"),
             clickable: false,
             id: 0,
         });

@@ -32,6 +32,7 @@ use crate::views::list_pane::{
     ListItem, ListPane, ListPaneConfig, ListPaneState, ListPaneStyle, WrapMode,
 };
 
+use xai_grok_i18n::tl;
 use xai_ratatui_textarea::ElementId;
 
 /// Stable ids for mermaid affordance rows (above source lines and comments).
@@ -1684,10 +1685,10 @@ pub fn render_line_viewer(
         let copy_hovered = viewer.plan_ref().is_some_and(|p| p.copy_hovered);
         let is_approval = viewer.feedback_active();
 
-        let comment_spans = build_shortcut_button('c', "comment", comment_hovered, theme);
+        let comment_spans = build_shortcut_button('c', tl("comment"), comment_hovered, theme);
         let comment_w: u16 = comment_spans.iter().map(|s| s.width() as u16).sum();
 
-        let copy_spans = build_shortcut_button('y', "copy plan", copy_hovered, theme);
+        let copy_spans = build_shortcut_button('y', tl("copy plan"), copy_hovered, theme);
         let copy_w: u16 = copy_spans.iter().map(|s| s.width() as u16).sum();
 
         // In approval mode, show `a approve` (or `a approve w/ comments` when inline comments are pending)
@@ -1695,15 +1696,15 @@ pub fn render_line_viewer(
         let (_action_label, action_w, action_spans): (&str, u16, Option<Vec<Span>>) = if is_approval
         {
             let label = if comment_count > 0 {
-                "approve w/ comments"
+                tl("approve w/ comments")
             } else {
-                "approve"
+                tl("approve")
             };
             let spans = build_shortcut_button('a', label, approve_hovered, theme);
             let w: u16 = spans.iter().map(|s| s.width() as u16).sum();
             (label, w, Some(spans))
         } else if comment_count > 0 {
-            let spans = build_shortcut_button('s', "send", approve_hovered, theme);
+            let spans = build_shortcut_button('s', tl("send"), approve_hovered, theme);
             let w: u16 = spans.iter().map(|s| s.width() as u16).sum();
             ("send", w, Some(spans))
         } else {
@@ -1713,7 +1714,7 @@ pub fn render_line_viewer(
         // `s revise` button, always visible in approval mode so the user can request changes (switches to prompt for revision notes)
         let (revise_w, revise_spans): (u16, Option<Vec<Span>>) = if is_approval {
             let send_hovered = viewer.plan_ref().is_some_and(|p| p.send_hovered);
-            let spans = build_shortcut_button('s', "request changes", send_hovered, theme);
+            let spans = build_shortcut_button('s', tl("request changes"), send_hovered, theme);
             let w: u16 = spans.iter().map(|s| s.width() as u16).sum();
             (w, Some(spans))
         } else {
@@ -1722,7 +1723,7 @@ pub fn render_line_viewer(
 
         // Quit button only renders in approval mode (casual closes via X).
         let quit_spans = if is_approval {
-            let s = build_shortcut_button('q', "quit plan", abandon_hovered, theme);
+            let s = build_shortcut_button('q', tl("quit plan"), abandon_hovered, theme);
             let w: u16 = s.iter().map(|s| s.width() as u16).sum();
             Some((s, w))
         } else {

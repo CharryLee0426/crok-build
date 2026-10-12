@@ -16,6 +16,7 @@ use super::{
 use crate::app::consent::{BodyCell, BodyRow, ConsentLegibility, ConsentNotice, row_cols, wrap};
 use crate::render::SafeBuf;
 use crate::theme::Theme;
+use xai_grok_i18n::{tl, tlm};
 
 /// Widest the body is allowed to run, so a long line stays readable on a wide terminal.
 const MAX_BODY_COLS: u16 = 78;
@@ -26,8 +27,8 @@ const BODY_TOP_OFFSET: u16 = 2;
 /// Below this the fallback message is shortened, because the long one would itself be clipped.
 const NARROW_COLS: u16 = 40;
 
-const TOO_SMALL: &str = "Enlarge the window to read this notice";
-const TOO_SMALL_NARROW: &str = "Window too small";
+const TOO_SMALL: &str = tlm("Enlarge the window to read this notice");
+const TOO_SMALL_NARROW: &str = tlm("Window too small");
 
 pub fn render_consent(
     content_area: Rect,
@@ -61,10 +62,14 @@ pub fn render_consent(
         paint_body(message, buf, theme, &rows, hovered_link)
     } else {
         // Title dropped: on a screen this small, why the notice is unreadable matters more.
-        let text = if message.width < NARROW_COLS {
-            TOO_SMALL_NARROW
+        // A translation wider than the block falls back to the short one as well
+        let long = tl(TOO_SMALL);
+        let text = if message.width < NARROW_COLS
+            || unicode_width::UnicodeWidthStr::width(long) > message.width as usize
+        {
+            tl(TOO_SMALL_NARROW)
         } else {
-            TOO_SMALL
+            long
         };
         paint_centered(message, buf, Style::default().fg(theme.gray), text);
         Vec::new()
@@ -73,9 +78,9 @@ pub fn render_consent(
     // Accept is refused while the body is unread, so the row is withheld rather than offered and ignored
     // Quit stays, or the screen would show no way out at all
     let menu_items: &[(&str, &str)] = if legibility.can_accept() {
-        &[("a", notice.accept_label.as_str()), ("q", "Quit")]
+        &[("a", notice.accept_label.as_str()), ("q", tl("Quit"))]
     } else {
-        &[("q", "Quit")]
+        &[("q", tl("Quit"))]
     };
     let menu_area = inset_horizontal(layout.menu, prompt::prompt_inset(compact));
     let menu_rects = render_menu(menu_area, buf, theme, menu_items, selected, None, 0);

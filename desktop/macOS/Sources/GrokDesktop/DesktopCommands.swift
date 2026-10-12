@@ -116,37 +116,29 @@ enum DesktopCommands {
         case "model", "effort", "gboom", "scroll-debug": return arguments.isEmpty ? .runNow : .waitForIdle
         case "memory": return arguments.isEmpty ? .runNow : .queue
         case "workflow": return arguments == "runs" ? .runNow : .queue
-        default: return catalog.contains { $0.name == name } ? .runNow : .queue
+        default: return catalogNames.contains(name) ? .runNow : .queue
         }
     }
 
-    static func canonical(_ name: String) -> String {
-        catalog.first { $0.name == name || $0.aliases.contains(name) }?.name ?? name
-    }
+    private static let catalogNames = Set(catalog.map(\.name))
 
+    /// Every name and alias in the catalog, to the command's name.
+    private static let canonicalNames: [String: String] = {
+        var names: [String: String] = [:]
+        for command in catalog {
+            // The first command in the catalog owns a name, as the linear scan did.
+            if names[command.name] == nil { names[command.name] = command.name }
+            for alias in command.aliases where names[alias] == nil { names[alias] = command.name }
+        }
+        return names
+    }()
+
+    static func canonical(_ name: String) -> String { canonicalNames[name] ?? name }
+
+    /// Ranks a list for one query. The composer and the palette rank through the store's
+    /// `commandIndex`, which keeps the prepared list between keystrokes.
     static func matches(_ commands: [SlashCommand], query: String) -> [SlashCommand] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !query.isEmpty else { return commands }
-        func rank(_ command: SlashCommand) -> Int? {
-            let names = [command.name.lowercased()] + command.aliases.map { $0.lowercased() }
-            if names.contains(query) { return 0 }
-            if names.contains(where: { $0.hasPrefix(query) }) { return 1 }
-            if names.contains(where: { $0.contains(query) }) { return 2 }
-            if command.description.localizedCaseInsensitiveContains(query) { return 3 }
-            for name in names {
-                var remaining = query[...]
-                for character in name where remaining.first == character { remaining = remaining.dropFirst() }
-                if remaining.isEmpty { return 4 }
-            }
-            return nil
-        }
-        var ranked: [(score: Int, index: Int, command: SlashCommand)] = []
-        for (index, command) in commands.enumerated() {
-            if let score = rank(command) { ranked.append((score, index, command)) }
-        }
-        ranked.sort { lhs, rhs in lhs.score == rhs.score ? lhs.index < rhs.index : lhs.score < rhs.score }
-        return ranked.map { $0.command }
+        CommandIndex(commands).matches(query: query)
     }
 }
 

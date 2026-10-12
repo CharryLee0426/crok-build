@@ -6,6 +6,7 @@ struct ComposerGitFooter: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var gitGraph: GitGraphModel
     @EnvironmentObject var tokens: TokenMeterModel
+    @ObservedObject private var language = L10n.state
     @State private var showBranches = false
 
     var body: some View {
@@ -45,9 +46,11 @@ struct ComposerGitFooter: View {
             .buttonStyle(FooterChipStyle())
             .help("Browse commits, branches, and merges · /git-graph")
         } else {
+            // Outside Git the snapshot carries the "No repository" marker, shown in the interface language.
             HStack(spacing: 6) {
                 Image(systemName: "arrow.triangle.branch")
-                Text(store.workspace.branch).fontWeight(.medium).truncationMode(.middle)
+                Text(store.workspace.branch == GitWorkspaceSnapshot.noRepository ? L10n.t("no_repository", "No repository") : store.workspace.branch)
+                    .fontWeight(.medium).truncationMode(.middle)
             }.padding(.horizontal, 5)
         }
     }

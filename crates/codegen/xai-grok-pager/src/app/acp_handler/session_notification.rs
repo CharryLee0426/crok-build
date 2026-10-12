@@ -1,4 +1,5 @@
 use super::*;
+use xai_grok_i18n::{fill, tl, tlf, tlm};
 use xai_grok_shell::extensions::notification::HookAnnotationKind;
 use xai_grok_shell::sampling::error::format_rate_limited_user_message;
 /// The one scrollback line a failed run gets; success gets none and a deny is already annotated by the shell.
@@ -18,14 +19,20 @@ pub(super) fn failed_hook_line(
         return None;
     };
     let subject = match xai_grok_hooks::config::hook_display_label(&run.name) {
-        HookDisplayName::Named(name) => format!("{event_name} hook ({name})"),
-        HookDisplayName::Tier(_) => format!("{event_name} hook"),
+        HookDisplayName::Named(name) => tlf(
+            "{event} hook ({name})",
+            &[("event", &event_name), ("name", &name)],
+        ),
+        HookDisplayName::Tier(_) => tlf("{event} hook", &[("event", &event_name)]),
     };
     let error = error.lines().next().unwrap_or("").trim();
     Some(if error.is_empty() {
-        format!("{subject} failed, ignored")
+        tlf("{subject} failed, ignored", &[("subject", &subject)])
     } else {
-        format!("{subject} failed, ignored: {error}")
+        tlf(
+            "{subject} failed, ignored: {error}",
+            &[("subject", &subject), ("error", &error)],
+        )
     })
 }
 /// A batch stamped with another turn's prompt id: a late `stop_cancelled` / `stop_failure` report can land after the next
@@ -299,6 +306,10 @@ pub(super) fn handle_session_notification_with_origin(
         | XaiSessionUpdate::AutoCompactCancelled { .. }
         | XaiSessionUpdate::RetryState(_)
         | XaiSessionUpdate::ImageDropped { .. }
+        | XaiSessionUpdate::ResponseStarted {
+            cache_miss: Some(_),
+            ..
+        }
         | XaiSessionUpdate::MemoryFlushCompleted { .. }
         | XaiSessionUpdate::MemoryCaptureActivity { .. }
         | XaiSessionUpdate::MemoryDreamCompleted { .. }
@@ -1397,7 +1408,7 @@ pub(super) fn handle_session_notification_with_origin(
                 }),
                 None => {
                     modal.skills_data = crate::views::extensions_modal::TabDataState::Error(
-                        "No active session".into(),
+                        tl("No active session").into(),
                     );
                 }
             }
@@ -1479,7 +1490,7 @@ fn queue_wake_turn_complete_notification(app: &mut AppView, agent_id: AgentId) {
         NotificationEvent {
             kind: NotificationEventKind::TurnComplete,
             title: session_name.unwrap_or_else(|| "Crok".into()),
-            body: String::from("Turn complete."),
+            body: String::from(tl("Turn complete.")),
             session_id,
         },
         3,
@@ -1722,21 +1733,26 @@ fn memory_capture_system_message(
     through_turn: u32,
     attempt: u32,
 ) -> String {
-    let activity = match activity {
-        "queued" => "queued",
-        "running" => "running",
-        "completed" => "completed",
-        "no_op" => "completed with no changes",
-        "retry" => "scheduled for retry",
-        "failed" => "failed",
-        _ => "updated",
+    // One whole sentence for each activity, so every language orders its own words
+    let sentence = match activity {
+        "queued" => tlm("Memory capture queued for turns {from}-{through}"),
+        "running" => tlm("Memory capture running for turns {from}-{through}"),
+        "completed" => tlm("Memory capture completed for turns {from}-{through}"),
+        "no_op" => tlm("Memory capture completed with no changes for turns {from}-{through}"),
+        "retry" => tlm("Memory capture scheduled for retry for turns {from}-{through}"),
+        "failed" => tlm("Memory capture failed for turns {from}-{through}"),
+        _ => tlm("Memory capture updated for turns {from}-{through}"),
     };
-    let attempt_suffix = if attempt > 1 {
-        format!(" (attempt {attempt})")
+    let message = fill(
+        tl(sentence),
+        &[("from", &from_turn), ("through", &through_turn)],
+    );
+    if attempt > 1 {
+        let attempt = tlf("attempt {attempt}", &[("attempt", &attempt)]);
+        format!("{message} ({attempt})")
     } else {
-        String::new()
-    };
-    format!("Memory capture {activity} for turns {from_turn}-{through_turn}{attempt_suffix}")
+        message
+    }
 }
 pub(super) fn apply_session_event(
     update: &XaiSessionUpdate,
@@ -1814,6 +1830,17 @@ pub(super) fn apply_session_event(
             let message = notes.join("\n");
             tracing::info!("Image dropped: {message}");
             scrollback.push_block(RenderBlock::system(message));
+            true
+        }
+        // Anthropic's cache diagnostics: this request could not read all of what the previous one cached.
+        XaiSessionUpdate::ResponseStarted {
+            cache_miss: Some(miss),
+            ..
+        } => {
+            tracing::info!(?miss, "Prompt cache miss");
+            scrollback.push_block(RenderBlock::system(
+                crate::app::status_blocks::prompt_cache_miss_text(miss),
+            ));
             true
         }
         XaiSessionUpdate::MemoryCaptureActivity {

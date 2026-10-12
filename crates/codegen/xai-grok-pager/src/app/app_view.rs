@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use xai_acp_lib::AcpAgentTx;
+use xai_grok_i18n::{tl, tlm};
 /// State for the "New Worktree" popup dialog on the welcome screen.
 #[derive(Debug, Default)]
 pub struct NewWorktreeDialogState {
@@ -260,8 +261,20 @@ pub const SLOW_TICK_INTERVAL: Duration = Duration::from_millis(83);
 const WELCOME_TOAST_DURATION: Duration = Duration::from_secs(2);
 fn reconnect_success_hides_mismatch(current: Option<&str>, incoming: &str) -> bool {
     current.is_some_and(crate::acp::is_version_mismatch_banner)
-        && (incoming.starts_with("Reconnected.") || incoming.starts_with("Session restored."))
+        && (incoming.starts_with("Reconnected.")
+            || incoming.starts_with("Session restored.")
+            || RECONNECT_SUCCESS_TOASTS
+                .iter()
+                .any(|toast| incoming == tl(toast)))
 }
+/// The reconnect toasts as the event loop shows them. They arrive here already in the interface
+/// language, where the English prefixes above no longer match.
+const RECONNECT_SUCCESS_TOASTS: [&str; 4] = [
+    tlm("Reconnected."),
+    tlm("Reconnected. Reloading session..."),
+    tlm("Reconnected. Re-initializing..."),
+    tlm("Session restored. In-progress tools and terminals were lost."),
+];
 /// Entry from the session list wire: welcome/resume pickers and non-leader dashboard roster fallback (`session_picker_entry_to_roster`).
 #[derive(Debug, Clone)]
 pub struct SessionPickerEntry {
@@ -1796,7 +1809,7 @@ impl AppView {
             Some(InputOutcome::Changed)
         } else if self.voice_state.blocks_new_capture() {
             self.voice_reset();
-            self.show_toast(crate::voice::RECORDING_DISCARDED_TOAST);
+            self.show_toast(tl(crate::voice::RECORDING_DISCARDED_TOAST));
             Some(InputOutcome::Changed)
         } else {
             None
@@ -2506,7 +2519,7 @@ impl AppView {
                             {
                                 return InputOutcome::Action(Action::CancelTurn);
                             } else {
-                                Some("close this session")
+                                Some(tlm("close this session"))
                             };
                             self.pending_action = Some(PendingAction::with_ttl(
                                 Action::DashboardOverlayStop,
@@ -2841,7 +2854,7 @@ impl AppView {
                     };
                     let shortcut = KeyShortcut::from(*key);
                     self.pending_action =
-                        Some(PendingAction::new(action, shortcut, "new in worktree"));
+                        Some(PendingAction::new(action, shortcut, tlm("new in worktree")));
                     return InputOutcome::Changed;
                 }
                 _ => unreachable!(),
@@ -2899,7 +2912,7 @@ impl AppView {
             self.pending_action = Some(PendingAction::new(
                 Action::Quit,
                 KeyShortcut::from(*key),
-                "quit",
+                tlm("quit"),
             ));
             return InputOutcome::Changed;
         }
@@ -3362,8 +3375,9 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                 }),
             _ => false,
         };
+        let delete_action = [('d', tlm("delete"))];
         let config = PickerConfig {
-            title: Some("Resume session"),
+            title: Some(tl("Resume session")),
             show_search_hint: true,
             expandable: true,
             esc_clears_query: true,
@@ -3381,7 +3395,7 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
             action_keys: if ctx.chat_mode || focused_is_foreign {
                 &[]
             } else {
-                &[('d', "delete")]
+                &delete_action
             },
             disable_search: false,
             compact_bottom_bar: false,
@@ -3866,7 +3880,7 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                     && let Some(md) = ctx.changelog_markdown.as_deref()
                 {
                     return InputOutcome::Action(Action::ShowReleaseNotes {
-                        title: "Release Notes".to_string(),
+                        title: tl("Release Notes").to_string(),
                         content: md.trim().to_string(),
                     });
                 }
@@ -4092,7 +4106,7 @@ fn dispatch_menu_action(
     if Some(index) == changelog_idx {
         if let Some(md) = changelog_md {
             return InputOutcome::Action(Action::ShowReleaseNotes {
-                title: "Release Notes".to_string(),
+                title: tl("Release Notes").to_string(),
                 content: md.trim().to_string(),
             });
         }
@@ -4367,14 +4381,14 @@ impl AppView {
                             match welcome_mode {
                                 Some((true, _, _)) => {
                                     flags_vec.push(crate::views::prompt_widget::PromptFlag {
-                                        text: "plan",
+                                        text: tlm("plan"),
                                         color: Some(theme.accent_plan),
                                         bold: false,
                                     });
                                 }
                                 Some((false, true, _)) => {
                                     flags_vec.push(crate::views::prompt_widget::PromptFlag {
-                                        text: "always-approve",
+                                        text: tlm("always-approve"),
                                         color: None,
                                         bold: false,
                                     });
@@ -4389,7 +4403,7 @@ impl AppView {
                                 }
                                 None if welcome_default_yolo => {
                                     flags_vec.push(crate::views::prompt_widget::PromptFlag {
-                                        text: "always-approve",
+                                        text: tlm("always-approve"),
                                         color: None,
                                         bold: false,
                                     });
@@ -4789,8 +4803,9 @@ impl AppView {
                                     dashboard.close_popup();
                                     if dashboard.error_toast.is_none() {
                                         dashboard.error_toast = Some(format!(
-                                            "{} Session closed",
-                                            crate::glyphs::check_mark()
+                                            "{} {}",
+                                            crate::glyphs::check_mark(),
+                                            tl("Session closed")
                                         ));
                                     }
                                 }
@@ -4843,7 +4858,7 @@ impl AppView {
                                         let title = agents
                                             .get(&agent_id)
                                             .map(crate::views::session_title::entry_title)
-                                            .unwrap_or_else(|| "(session)".to_string());
+                                            .unwrap_or_else(|| tl("(session)").to_string());
                                         let (cursor, post_flush, drawn) =
                                             crate::views::dashboard::render_popup_overlay(
                                                 f.buffer_mut(),
@@ -5397,7 +5412,7 @@ impl AppView {
                         agent.toast = None;
                     }
                     None => {
-                        agent.show_toast("Video playback requires ffmpeg");
+                        agent.show_toast(tl("Video playback requires ffmpeg"));
                     }
                 }
                 needs_redraw = true;
@@ -5532,7 +5547,7 @@ impl AppView {
                     | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                         agent.image_viewer = None;
                         agent.image_load_rx = None;
-                        agent.toast = Some(("Couldn't load image preview".into(), 6));
+                        agent.toast = Some((tl("Couldn't load image preview").into(), 6));
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 }

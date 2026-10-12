@@ -19,10 +19,10 @@ if [ ! -x "$harness" ]; then
 fi
 
 if [ "$1" = update ]; then
-    echo "crok: This crok comes with Crok Desktop and updates with it. Rebuild Crok Desktop to update." >&2
+    echo "crok: This crok comes with Crok Desktop and updates with it. Run \`crok upgrade\`, or use Crok Desktop > Check for Updates…" >&2
     exit 1
 fi
 
-# Updates arrive with Crok Desktop; the bundled copy must not install a different version of itself.
+# grok's own updater stays off: \`crok upgrade\` replaces the whole app, this copy with it.
 export CROK_DISABLE_AUTOUPDATER=1
 exec "$harness" "$@"

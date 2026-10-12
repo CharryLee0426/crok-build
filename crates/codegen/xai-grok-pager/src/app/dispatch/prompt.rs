@@ -25,16 +25,17 @@ use crate::scrollback::block::RenderBlock;
 use crate::scrollback::blocks::{MemoryCommandKind, SessionEvent};
 use crate::slash::command::DoctorRequest;
 use agent_client_protocol as acp;
+use xai_grok_i18n::{tl, tlf, tlm};
 use xai_grok_telemetry::session_ctx::log_event;
 
 /// Shared by every submit guard that refuses while the session reconnects.
-pub(super) const RECONNECTING_NOTICE: &str = "Reconnecting, please wait...";
+pub(super) const RECONNECTING_NOTICE: &str = tlm("Reconnecting, please wait...");
 
 pub(super) use crate::app::agent_view::{
     BUILD_IN_FLIGHT_ABANDON_NOTICE, BUILD_IN_FLIGHT_REVISE_NOTICE, LEAVE_PLAN_REVISE_NOTICE,
 };
 pub(super) const LEAVE_PLAN_BUILD_NOTICE: &str =
-    "Wait for plan mode to finish switching before building the plan.";
+    tlm("Wait for plan mode to finish switching before building the plan.");
 
 /// Chat kind for the next create: CLI `--chat` (`app.chat_mode`) or one-shot
 /// `/chat` (`deferred_startup.pending_chat`, consumed here).
@@ -141,24 +142,24 @@ pub(super) fn open_doctor_fix_question(
         return;
     };
     if agent.question_view.is_some() {
-        agent.scrollback.push_block(RenderBlock::system(
+        agent.scrollback.push_block(RenderBlock::system(tl(
             "Close the current question before applying this fix.",
-        ));
+        )));
         return;
     }
     let preview = crate::diagnostics::format_fix_preview(&plan);
     let question = Question {
-        question: "Apply this fix?".to_owned(),
+        question: tl("Apply this fix?").to_owned(),
         options: vec![
             QuestionOption {
-                label: "Apply".to_owned(),
-                description: "Make the changes shown above.".to_owned(),
+                label: tl("Apply").to_owned(),
+                description: tl("Make the changes shown above.").to_owned(),
                 preview: Some(preview),
                 id: None,
             },
             QuestionOption {
-                label: "Cancel".to_owned(),
-                description: "Do not change the configuration.".to_owned(),
+                label: tl("Cancel").to_owned(),
+                description: tl("Do not change the configuration.").to_owned(),
                 preview: None,
                 id: None,
             },
@@ -187,21 +188,23 @@ pub(super) fn dispatch_execute_plan(
     };
     // Same gate as send/bash: do not mark TurnRunning or fire ExecutePlan on a dead ACP channel.
     if app.reconnect_pending {
-        agent.show_toast(RECONNECTING_NOTICE);
+        agent.show_toast(tl(RECONNECTING_NOTICE));
         return vec![];
     }
     let Some(session_id) = agent.session.session_id.clone() else {
-        agent.show_toast(super::ctx::NO_SESSION_NOTICE);
+        agent.show_toast(tl(super::ctx::NO_SESSION_NOTICE));
         return vec![];
     };
     if !agent.session.state.is_idle() {
-        agent.show_toast("Wait for the current turn to end before building the plan.");
+        agent.show_toast(tl(
+            "Wait for the current turn to end before building the plan.",
+        ));
         return vec![];
     }
     // Shift+Tab / set_mode Off stages leave-Plan first. Approve must not
     // start ExecutePlan while that switch can still clear last_plan.
     if agent.plan_mode_pending == Some(false) {
-        agent.show_toast(LEAVE_PLAN_BUILD_NOTICE);
+        agent.show_toast(tl(LEAVE_PLAN_BUILD_NOTICE));
         return vec![];
     }
     let prompt_id = uuid::Uuid::new_v4().to_string();
@@ -222,7 +225,7 @@ pub(super) fn dispatch_execute_plan(
 }
 
 pub(in crate::app::dispatch) const LOAD_FAILED_NOTICE: &str =
-    "This session didn't open. Open it again with /resume, or start a new one with /new.";
+    tlm("This session didn't open. Open it again with /resume, or start a new one with /new.");
 
 /// A tab whose session never opened has nothing to send to, so its prompt or command would queue forever.
 fn refuse_if_load_failed(app: &mut AppView, id: AgentId) -> bool {
@@ -240,9 +243,9 @@ fn refuse_on_failed_tab(agent: &mut AgentView, minimal: bool) -> bool {
     if minimal {
         agent
             .scrollback
-            .push_block(RenderBlock::system(LOAD_FAILED_NOTICE.to_owned()));
+            .push_block(RenderBlock::system(tl(LOAD_FAILED_NOTICE).to_owned()));
     } else {
-        agent.show_toast(LOAD_FAILED_NOTICE);
+        agent.show_toast(tl(LOAD_FAILED_NOTICE));
     }
     true
 }
@@ -267,9 +270,9 @@ pub(super) fn dispatch_send_prompt(app: &mut AppView, text: String) -> Vec<Effec
 pub(super) fn dispatch_revise_plan(app: &mut AppView, text: String) -> Vec<Effect> {
     if app.reconnect_pending {
         if let Some(agent) = get_active_agent_mut(app) {
-            agent.show_toast(RECONNECTING_NOTICE);
+            agent.show_toast(tl(RECONNECTING_NOTICE));
         } else {
-            app.show_toast(RECONNECTING_NOTICE);
+            app.show_toast(tl(RECONNECTING_NOTICE));
         }
         return vec![];
     }
@@ -288,17 +291,17 @@ pub(super) fn dispatch_revise_plan(app: &mut AppView, text: String) -> Vec<Effec
     };
     if has_post_turn_review && leave_plan_pending {
         if let Some(agent) = get_active_agent_mut(app) {
-            agent.show_toast(LEAVE_PLAN_REVISE_NOTICE);
+            agent.show_toast(tl(LEAVE_PLAN_REVISE_NOTICE));
         } else {
-            app.show_toast(LEAVE_PLAN_REVISE_NOTICE);
+            app.show_toast(tl(LEAVE_PLAN_REVISE_NOTICE));
         }
         return vec![];
     }
     if has_post_turn_review && build_in_flight {
         if let Some(agent) = get_active_agent_mut(app) {
-            agent.show_toast(BUILD_IN_FLIGHT_REVISE_NOTICE);
+            agent.show_toast(tl(BUILD_IN_FLIGHT_REVISE_NOTICE));
         } else {
-            app.show_toast(BUILD_IN_FLIGHT_REVISE_NOTICE);
+            app.show_toast(tl(BUILD_IN_FLIGHT_REVISE_NOTICE));
         }
         return vec![];
     }
@@ -654,7 +657,7 @@ pub(super) fn dispatch_send_prompt_submission(
     app.pending_action = None;
 
     if app.reconnect_pending {
-        app.show_toast(RECONNECTING_NOTICE);
+        app.show_toast(tl(RECONNECTING_NOTICE));
         return vec![];
     }
 
@@ -774,10 +777,10 @@ pub(super) fn dispatch_send_prompt_submission(
     {
         if screen_mode_is_minimal {
             agent.scrollback.push_block(RenderBlock::system(
-                crate::slash::mid_text_hoist::MID_TEXT_GOAL_NOTICE.to_owned(),
+                tl(crate::slash::mid_text_hoist::MID_TEXT_GOAL_NOTICE).to_owned(),
             ));
         } else {
-            agent.show_toast(crate::slash::mid_text_hoist::MID_TEXT_GOAL_NOTICE);
+            agent.show_toast(tl(crate::slash::mid_text_hoist::MID_TEXT_GOAL_NOTICE));
         }
         return prelude;
     }
@@ -1336,7 +1339,7 @@ pub(super) fn dispatch_send_prompt_submission(
 /// Bash commands go through the same enqueue/drain pipeline as normal prompts, just with `QueueEntryKind::BashCommand`. No scrollback block is pushed here; the execute block from the shell IS the visual entry.
 pub(super) fn dispatch_send_bash_command(app: &mut AppView, command: String) -> Vec<Effect> {
     if app.reconnect_pending {
-        app.show_toast(RECONNECTING_NOTICE);
+        app.show_toast(tl(RECONNECTING_NOTICE));
         return vec![];
     }
 
@@ -1726,16 +1729,18 @@ pub(super) fn handle_prompt_response(
         let notification = match (&result, was_cancelling) {
             (Ok(_), false) if !agent.bash_turn => {
                 let body = match elapsed {
-                    Some(d) => {
-                        format!("Turn complete in {}.", crate::util::format_duration(d))
-                    }
-                    None => String::from("Turn complete."),
+                    Some(d) => tlf(
+                        "Turn complete in {time}.",
+                        &[("time", &crate::util::format_duration(d))],
+                    ),
+                    None => String::from(tl("Turn complete.")),
                 };
                 Some((NotificationEventKind::TurnComplete, body))
             }
-            (Err(err), _) if !dedicated_ux_shown => {
-                Some((NotificationEventKind::AgentError, format!("Error: {err}")))
-            }
+            (Err(err), _) if !dedicated_ux_shown => Some((
+                NotificationEventKind::AgentError,
+                tlf("Error: {error}", &[("error", &err)]),
+            )),
             _ => None,
         };
 

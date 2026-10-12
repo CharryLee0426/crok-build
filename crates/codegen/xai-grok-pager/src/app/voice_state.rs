@@ -239,11 +239,11 @@ impl AppView {
         {
             let kept = crate::voice::commit_interim_into_prompt(self).is_some();
             self.voice_reset();
-            self.show_toast(if kept {
+            self.show_toast(xai_grok_i18n::tl(if kept {
                 crate::voice::TRANSCRIPTION_TIMED_OUT_KEPT_TOAST
             } else {
                 crate::voice::TRANSCRIPTION_TIMED_OUT_TOAST
-            });
+            }));
         }
     }
 

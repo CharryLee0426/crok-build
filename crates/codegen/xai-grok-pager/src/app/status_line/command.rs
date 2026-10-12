@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_status_line::StatusLineContext;
 
 use crate::views::status_line::{MAX_STATUS_LINE_LINES, RowSize};
@@ -49,7 +50,7 @@ async fn run_status_command(
                 metrics::global().record_failed(elapsed_ms);
             }
             RunOutcome::Failed {
-                text: format!("[status line: {error}]"),
+                text: tlf("[status line: {error}]", &[("error", &error.painted())]),
                 error: error.to_string(),
             }
         }
@@ -75,6 +76,21 @@ impl std::fmt::Display for RunError {
             RunError::TimedOut => f.write_str("timed out"),
             RunError::Exit(Some(code)) => write!(f, "exit {code}"),
             RunError::Exit(None) => f.write_str("killed by signal"),
+        }
+    }
+}
+
+impl RunError {
+    /// The error as the status row paints it, in the interface language.
+    /// `Display` above stays English for the unified log; the two carry the same sentences.
+    fn painted(&self) -> String {
+        match self {
+            RunError::Spawn(e) => tlf("could not start the script: {error}", &[("error", e)]),
+            RunError::Wait(e) => tlf("could not wait for the script: {error}", &[("error", e)]),
+            RunError::Json(e) => tlf("could not encode Crok's payload: {error}", &[("error", e)]),
+            RunError::TimedOut => tl("timed out").to_string(),
+            RunError::Exit(Some(code)) => tlf("exit {code}", &[("code", code)]),
+            RunError::Exit(None) => tl("killed by signal").to_string(),
         }
     }
 }

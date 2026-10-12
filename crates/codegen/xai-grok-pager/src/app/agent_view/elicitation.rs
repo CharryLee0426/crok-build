@@ -6,6 +6,7 @@ use crate::app::app_view::InputOutcome;
 use crate::input::key::RowWalk;
 use crate::key;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use xai_grok_i18n::{tl, tlf};
 
 /// How an elicitation card closed without this window's answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -430,18 +431,22 @@ impl AgentView {
     fn push_unanswered_elicitation_notice(&mut self, server: &str, outcome: UnansweredElicitation) {
         let server = notice_server_name(server);
         let text = match outcome {
-            UnansweredElicitation::Declined => {
-                format!("Declined MCP “{server}” request for input.")
-            }
-            UnansweredElicitation::Cancelled => {
-                format!("Dismissed MCP “{server}” request for input without answering.")
-            }
-            UnansweredElicitation::ClosedElsewhere => format!(
-                "MCP “{server}” request for input closed before it was answered here (it timed out or was answered elsewhere)."
+            UnansweredElicitation::Declined => tlf(
+                "Declined MCP “{server}” request for input.",
+                &[("server", &server)],
             ),
-            UnansweredElicitation::Superseded => {
-                format!("Cancelled MCP “{server}” request for input to show a newer one.")
-            }
+            UnansweredElicitation::Cancelled => tlf(
+                "Dismissed MCP “{server}” request for input without answering.",
+                &[("server", &server)],
+            ),
+            UnansweredElicitation::ClosedElsewhere => tlf(
+                "MCP “{server}” request for input closed before it was answered here (it timed out or was answered elsewhere).",
+                &[("server", &server)],
+            ),
+            UnansweredElicitation::Superseded => tlf(
+                "Cancelled MCP “{server}” request for input to show a newer one.",
+                &[("server", &server)],
+            ),
         };
         crate::app::mode_switch::push_block_behind_live_stream(
             &mut self.scrollback,
@@ -513,7 +518,7 @@ fn notice_server_name(server: &str) -> String {
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
         .collect();
     if name.is_empty() {
-        "unnamed".to_owned()
+        tl("unnamed").to_owned()
     } else {
         name
     }

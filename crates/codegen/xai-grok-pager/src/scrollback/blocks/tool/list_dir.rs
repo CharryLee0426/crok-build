@@ -9,6 +9,8 @@ use crate::theme::Theme;
 
 use super::TOOL_HEADER_RANGE;
 use crate::appearance::AppearanceConfig;
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
 
 #[derive(Debug, Clone)]
 pub struct ListDirToolCallBlock {
@@ -104,21 +106,26 @@ impl ListDirToolCallBlock {
             theme.fg(theme.path)
         };
 
-        let prefix = "List ";
+        let prefix = format!("{} ", tl("List"));
         let entry_count = self.output.lines().filter(|l| !l.trim().is_empty()).count();
         let suffix = if self.error.is_none() && entry_count > 0 {
-            let s = if entry_count == 1 { "y" } else { "ies" };
-            format!(" ({entry_count} entr{s})")
+            let entries = if entry_count == 1 {
+                tlf("{count} entry", &[("count", &entry_count)])
+            } else {
+                tlf("{count} entries", &[("count", &entry_count)])
+            };
+            format!(" ({entries})")
         } else {
             String::new()
         };
-        let suffix_fits = width.is_none_or(|w| prefix.len() + suffix.len() < w);
+        // Terminal columns, not bytes: the label and the count are translated.
+        let suffix_fits = width.is_none_or(|w| prefix.width() + suffix.width() < w);
         let effective_suffix = if suffix_fits { suffix.as_str() } else { "" };
 
         let path_budget = width
             .map(|w| {
-                w.saturating_sub(prefix.len())
-                    .saturating_sub(effective_suffix.len())
+                w.saturating_sub(prefix.width())
+                    .saturating_sub(effective_suffix.width())
             })
             .unwrap_or(usize::MAX);
         let path = crate::render::tool_paths::shorten_path(&self.path, path_budget);

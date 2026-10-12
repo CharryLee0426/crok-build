@@ -15,6 +15,7 @@ use crate::scrollback::blocks::SessionEvent;
 use crate::scrollback::state::ScrollbackState;
 use agent_client_protocol as acp;
 use std::time::Instant;
+use xai_grok_i18n::{tl, tlf};
 /// When no flag is given and a persisted `fork_worktree_mode` (`Always` / `Never`) is set, the popup is skipped and that path is taken directly.
 /// The `Ask` default opens the [`open_fork_question`] modal so the user is asked.
 /// If the notification has not arrived yet (the user forks before the shell sends `git_head_changed`), the `worktree = false` fallback is safe.
@@ -23,7 +24,7 @@ pub(in crate::app::dispatch) fn dispatch_fork(
     args: crate::slash::commands::fork::ForkArgs,
 ) -> Vec<Effect> {
     let ActiveView::Agent(parent_id) = app.active_view else {
-        app.show_toast("/fork only works inside a session");
+        app.show_toast(tl("/fork only works inside a session"));
         return vec![];
     };
     let (has_session, in_git_repo) = app
@@ -32,12 +33,12 @@ pub(in crate::app::dispatch) fn dispatch_fork(
         .map(|a| (a.session.session_id.is_some(), a.current_branch.is_some()))
         .unwrap_or((false, false));
     if !has_session {
-        app.show_toast("Cannot fork: session is still being created");
+        app.show_toast(tl("Cannot fork: session is still being created"));
         return vec![];
     }
     match args.worktree_override {
         Some(true) if !in_git_repo => {
-            app.show_toast("Cannot create worktree: not in a git repository");
+            app.show_toast(tl("Cannot create worktree: not in a git repository"));
             vec![]
         }
         Some(worktree) => dispatch_fork_resolved(app, worktree, args.directive),
@@ -73,14 +74,14 @@ pub(super) fn worktree_persist_options()
     use xai_grok_tools::implementations::grok_build::ask_user_question::QuestionOption;
     [
         QuestionOption {
-            label: "Always worktree".into(),
-            description: "Use worktree and stop asking (reset in config.toml)".into(),
+            label: tl("Always worktree").into(),
+            description: tl("Use worktree and stop asking (reset in config.toml)").into(),
             preview: None,
             id: None,
         },
         QuestionOption {
-            label: "Never worktree".into(),
-            description: "Skip worktree and stop asking (reset in config.toml)".into(),
+            label: tl("Never worktree").into(),
+            description: tl("Skip worktree and stop asking (reset in config.toml)").into(),
             preview: None,
             id: None,
         },
@@ -100,26 +101,26 @@ fn open_fork_question(app: &mut AppView, directive: Option<String>) -> Vec<Effec
         return vec![];
     };
     if agent.question_view.is_some() {
-        app.show_toast("Finish answering the current question first");
+        app.show_toast(tl("Finish answering the current question first"));
         return vec![];
     }
     let mut options = vec![
         QuestionOption {
-            label: "Yes".into(),
-            description: "Fork in a new isolated git worktree".into(),
+            label: tl("Yes").into(),
+            description: tl("Fork in a new isolated git worktree").into(),
             preview: None,
             id: None,
         },
         QuestionOption {
-            label: "No".into(),
-            description: "Fork in the current cwd".into(),
+            label: tl("No").into(),
+            description: tl("Fork in the current cwd").into(),
             preview: None,
             id: None,
         },
     ];
     options.extend(worktree_persist_options());
     let question = Question {
-        question: "Run this fork in an isolated git worktree?".into(),
+        question: tl("Run this fork in an isolated git worktree?").into(),
         id: None,
         options,
         multi_select: Some(false),
@@ -151,7 +152,7 @@ pub(in crate::app::dispatch) fn dispatch_fork_resolved(
         return vec![];
     };
     let Some(parent_session_id) = parent.session.session_id.clone() else {
-        app.show_toast("Cannot fork: session not yet created");
+        app.show_toast(tl("Cannot fork: session not yet created"));
         return vec![];
     };
     let parent_cwd = parent.session.cwd.clone();
@@ -160,8 +161,8 @@ pub(in crate::app::dispatch) fn dispatch_fork_resolved(
     app.next_agent_id += 1;
     let new_agent = build_fork_placeholder(app, new_id, parent_id, &parent_cwd, worktree);
     let parent_marker = match directive.as_deref() {
-        Some(d) => format!("Forked: {d}"),
-        None => "Forked".to_string(),
+        Some(d) => tlf("Forked: {directive}", &[("directive", &d)]),
+        None => tl("Forked").to_string(),
     };
     let parent_chat_kind = parent.chat_kind || app.chat_mode;
     let parent_conversation_entry = parent.conversation_entry;
@@ -201,9 +202,9 @@ pub(in crate::app::dispatch) fn dispatch_fork_resolved(
             worktree,
         });
         if worktree {
-            agent
-                .scrollback
-                .push_block(RenderBlock::system("Creating worktree\u{2026}".to_string()));
+            agent.scrollback.push_block(RenderBlock::system(
+                tl("Creating worktree\u{2026}").to_string(),
+            ));
         }
         agent.pending_first_prompt = directive;
     }
@@ -308,16 +309,24 @@ pub(in crate::app::dispatch) fn build_child_fork_marker(
     switch_hint: Option<&str>,
 ) -> String {
     let header = if let Some(cmd) = switch_hint {
-        format!(
-            "Session {session_id} (forked from {parent_sid}), use {cmd} to switch between sessions",
+        tlf(
+            "Session {session} (forked from {parent}), use {command} to switch between sessions",
+            &[
+                ("session", &session_id),
+                ("parent", &parent_sid),
+                ("command", &cmd),
+            ],
         )
     } else {
-        format!("Session {session_id} (forked from {parent_sid})")
+        tlf(
+            "Session {session} (forked from {parent})",
+            &[("session", &session_id), ("parent", &parent_sid)],
+        )
     };
     if worktree {
         header
     } else {
-        format!("{header}\n  (both agents share cwd)")
+        format!("{header}\n  {}", tl("(both agents share cwd)"))
     }
 }
 pub(in crate::app::dispatch) fn dispatch_startup_fork_session(
@@ -401,22 +410,24 @@ pub(in crate::app::dispatch) fn handle_worktree_forked(
         crate::git_info::populate_from_cwd_async(session_cwd.clone());
         app.restore_code = None;
         agent.prompt.file_search.retarget(&session_cwd);
-        agent.scrollback.push_block(RenderBlock::system(format!(
-            "Worktree ready: {}",
-            worktree_path.display()
+        agent.scrollback.push_block(RenderBlock::system(tlf(
+            "Worktree ready: {path}",
+            &[("path", &worktree_path.display())],
         )));
         if let Some(summary) = strategy_summary {
             agent.scrollback.push_block(RenderBlock::system(summary));
         }
         match (code_restored, restore_summary.as_deref()) {
             (true, Some(s)) => {
-                agent
-                    .scrollback
-                    .push_block(RenderBlock::system(format!("\u{2713} Code restored: {s}")));
+                agent.scrollback.push_block(RenderBlock::system(tlf(
+                    "\u{2713} Code restored: {summary}",
+                    &[("summary", &s)],
+                )));
             }
             (false, Some(s)) => {
-                agent.scrollback.push_block(RenderBlock::system(format!(
-                    "\u{26A0} Code restore failed: {s}"
+                agent.scrollback.push_block(RenderBlock::system(tlf(
+                    "\u{26A0} Code restore failed: {summary}",
+                    &[("summary", &s)],
                 )));
             }
             _ => {}

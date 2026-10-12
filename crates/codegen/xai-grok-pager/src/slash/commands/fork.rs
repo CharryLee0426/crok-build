@@ -7,6 +7,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 /// [`parse_fork_args`] returns this, and [`Action::Fork`](crate::app::actions::Action::Fork) carries it to the dispatcher.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -32,26 +33,26 @@ pub fn parse_fork_args(args: &str) -> Result<ForkArgs, String> {
         match flag {
             "--worktree" => {
                 if worktree_override == Some(false) {
-                    return Err("--worktree and --no-worktree are mutually exclusive".into());
+                    return Err(tl("--worktree and --no-worktree are mutually exclusive").into());
                 }
                 if worktree_override == Some(true) {
-                    return Err("--worktree specified twice".into());
+                    return Err(tl("--worktree specified twice").into());
                 }
                 worktree_override = Some(true);
                 rest = after.trim_start();
             }
             "--no-worktree" => {
                 if worktree_override == Some(true) {
-                    return Err("--worktree and --no-worktree are mutually exclusive".into());
+                    return Err(tl("--worktree and --no-worktree are mutually exclusive").into());
                 }
                 if worktree_override == Some(false) {
-                    return Err("--no-worktree specified twice".into());
+                    return Err(tl("--no-worktree specified twice").into());
                 }
                 worktree_override = Some(false);
                 rest = after.trim_start();
             }
             "--at" => {
-                return Err("--at is not supported in this version".into());
+                return Err(tl("--at is not supported in this version").into());
             }
             _ => break,
         }
@@ -73,12 +74,12 @@ pub struct ForkCommand;
 impl SlashCommand for ForkCommand {
     slash_meta! {
         name: "fork",
-        description: "Branch the current session into a peer agent",
+        description: tlm("Branch the current session into a peer agent"),
         usage: "/fork [--worktree|--no-worktree] [directive]",
         takes_args: true,
         args_required: false,
         session_scoped: true,
-        arg_placeholder: "[directive]",
+        arg_placeholder: tlm("[directive]"),
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {

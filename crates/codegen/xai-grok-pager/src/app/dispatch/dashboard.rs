@@ -24,6 +24,7 @@ use crate::app::agent_view::AgentView;
 use crate::app::app_view::{ActiveView, AppView, DashboardReturn, TrustState};
 use crate::app::cancel_latency::CancelOrigin;
 use agent_client_protocol as acp;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_telemetry::events::CancellationScope;
 /// Keeps v1 config layout separate from v2 workspace layout.
 fn dashboard_state_for_mode(app: &mut AppView) -> crate::views::dashboard::DashboardState {
@@ -160,22 +161,22 @@ fn configure_dashboard_state(app: &mut AppView) {
 pub(super) fn dispatch_open_dashboard(app: &mut AppView) -> Vec<Effect> {
     use crate::views::dashboard::dashboard_enabled;
     if !dashboard_enabled() {
-        app.show_toast("Agent dashboard is disabled in this configuration");
+        app.show_toast(tl("Agent dashboard is disabled in this configuration"));
         return vec![];
     }
     if !matches!(app.auth_state, crate::app::app_view::AuthState::Done) {
-        app.show_toast("Sign in to open the dashboard");
+        app.show_toast(tl("Sign in to open the dashboard"));
         return vec![];
     }
     if matches!(
         app.consent_state,
         crate::app::consent::ConsentState::Pending { .. }
     ) {
-        app.show_toast("Answer the terms notice to open the dashboard");
+        app.show_toast(tl("Answer the terms notice to open the dashboard"));
         return vec![];
     }
     if matches!(app.trust_state, TrustState::Pending { .. }) {
-        app.show_toast("Answer the folder-trust question to open the dashboard");
+        app.show_toast(tl("Answer the folder-trust question to open the dashboard"));
         return vec![];
     }
     if matches!(app.active_view, ActiveView::AgentDashboard) {
@@ -350,7 +351,7 @@ fn dispatch_dashboard_load_local_build(
                 .map(|cwd| (session_id, std::path::PathBuf::from(cwd)))
         });
     let Some((resolved_id, resolved_cwd)) = resolved else {
-        app.show_toast("Session not found locally");
+        app.show_toast(tl("Session not found locally"));
         return vec![];
     };
     dispatch_dashboard_load_session(app, resolved_id, Some(resolved_cwd))
@@ -417,7 +418,7 @@ pub(super) fn dispatch_dashboard_attach(
         DashboardRowId::TopLevel(agent_id) => {
             if !app.agents.contains_key(&agent_id) {
                 if let Some(d) = app.dashboard.as_mut() {
-                    d.set_error_toast("Session no longer exists");
+                    d.set_error_toast(tl("Session no longer exists"));
                 }
                 return vec![];
             }
@@ -559,7 +560,11 @@ pub(super) fn dispatch_dashboard_overlay_stop(app: &mut AppView) -> Vec<Effect> 
             None => d.focus_new_agent_button(),
         }
         if d.error_toast.is_none() {
-            d.error_toast = Some(format!("{} Session closed", crate::glyphs::check_mark()));
+            d.error_toast = Some(format!(
+                "{} {}",
+                crate::glyphs::check_mark(),
+                tl("Session closed")
+            ));
         }
     }
     effects
@@ -574,7 +579,7 @@ pub(super) fn dispatch_dashboard_toggle_worktree(app: &mut AppView) -> Vec<Effec
             d.dispatch_worktree = !d.dispatch_worktree;
         } else {
             d.dispatch_worktree = false;
-            d.set_error_toast("Not a git repository: worktrees need one");
+            d.set_error_toast(tl("Not a git repository: worktrees need one"));
         }
     }
     vec![]
@@ -587,7 +592,7 @@ pub(super) fn dispatch_dashboard_toggle_auto_approve(app: &mut AppView) -> Vec<E
     };
     let Some(selected) = d.selected.as_ref() else {
         if let Some(d) = app.dashboard.as_mut() {
-            d.set_error_toast("Select a session first");
+            d.set_error_toast(tl("Select a session first"));
         }
         return vec![];
     };
@@ -597,7 +602,7 @@ pub(super) fn dispatch_dashboard_toggle_auto_approve(app: &mut AppView) -> Vec<E
     };
     if !app.agents.contains_key(&agent_id) {
         if let Some(d) = app.dashboard.as_mut() {
-            d.set_error_toast("Session no longer exists");
+            d.set_error_toast(tl("Session no longer exists"));
         }
         return vec![];
     }
@@ -605,7 +610,7 @@ pub(super) fn dispatch_dashboard_toggle_auto_approve(app: &mut AppView) -> Vec<E
     let new = !agent.session.yolo_mode;
     if let Some(warning) = yolo_enable_blocked(app, new) {
         if let Some(d) = app.dashboard.as_mut() {
-            d.set_error_toast(warning);
+            d.set_error_toast(tl(warning));
         }
         return vec![];
     }
@@ -793,7 +798,7 @@ pub(super) fn resolve_location_input(
 pub(super) fn dispatch_dashboard_open_location_picker(app: &mut AppView) -> Vec<Effect> {
     use crate::views::dashboard::{LocationCandidate, LocationPickerState};
     if !matches!(app.active_view, ActiveView::AgentDashboard) {
-        app.show_toast("Open the dashboard (/dashboard) to change location");
+        app.show_toast(tl("Open the dashboard (/dashboard) to change location"));
         return vec![];
     }
     if app
@@ -815,7 +820,11 @@ pub(super) fn dispatch_dashboard_open_location_picker(app: &mut AppView) -> Vec<
     let mut candidates: Vec<LocationCandidate> = Vec::new();
     candidates.push(LocationCandidate {
         label: location_picker_label(&cwd),
-        detail: format!("{}  (current)", crate::recent_dirs::display_path(&cwd)),
+        detail: format!(
+            "{}  ({})",
+            crate::recent_dirs::display_path(&cwd),
+            tl("current")
+        ),
         worktree: worktree_label(&cwd),
         path: cwd.clone(),
     });
@@ -847,7 +856,7 @@ pub(super) fn dispatch_dashboard_open_location_picker(app: &mut AppView) -> Vec<
 /// On failure the modal stays open with an inline error and the cwd is unchanged.
 pub(super) fn dispatch_dashboard_change_location(app: &mut AppView, input: String) -> Vec<Effect> {
     if !matches!(app.active_view, ActiveView::AgentDashboard) {
-        app.show_toast("Open the dashboard (/dashboard) to change location");
+        app.show_toast(tl("Open the dashboard (/dashboard) to change location"));
         return vec![];
     }
     let path = match resolve_location_input(&input, &app.cwd).filter(|p| p.is_dir()) {
@@ -858,9 +867,9 @@ pub(super) fn dispatch_dashboard_change_location(app: &mut AppView, input: Strin
                 .as_mut()
                 .and_then(|d| d.location_picker.as_mut())
             {
-                lp.error = Some(format!("Not a directory: {}", input.trim()));
+                lp.error = Some(tlf("Not a directory: {path}", &[("path", &input.trim())]));
             } else if let Some(d) = app.dashboard.as_mut() {
-                d.set_error_toast(&format!("Not a directory: {}", input.trim()));
+                d.set_error_toast(&tlf("Not a directory: {path}", &[("path", &input.trim())]));
             }
             return vec![];
         }
@@ -912,7 +921,7 @@ pub(super) fn dispatch_dashboard_confirm_worktree(
             if let Some(p) = prompt {
                 d.dispatch.restore(p);
             }
-            d.set_error_toast("Not a git repository: can't create a worktree here");
+            d.set_error_toast(tl("Not a git repository: can't create a worktree here"));
         }
         return vec![];
     }
@@ -955,7 +964,7 @@ pub(super) fn dispatch_dashboard_confirm_worktree(
             if let Some(warning) = policy_block
                 && let Some(dashboard) = app.dashboard.as_mut()
             {
-                dashboard.set_error_toast(warning);
+                dashboard.set_error_toast(tl(warning));
             }
         }
     }
@@ -1056,7 +1065,7 @@ pub(super) fn dispatch_dashboard_dispatch(
     }
     if trimmed.is_empty() {
         if let Some(d) = app.dashboard.as_mut() {
-            d.set_error_toast("Type a prompt to dispatch a session");
+            d.set_error_toast(tl("Type a prompt to dispatch a session"));
         }
         return vec![];
     }
@@ -1064,9 +1073,9 @@ pub(super) fn dispatch_dashboard_dispatch(
     if text.len() > MAX_DISPATCH_BYTES {
         let chars = text.chars().count();
         if let Some(d) = app.dashboard.as_mut() {
-            d.set_error_toast(&format!(
-                "Prompt too long ({chars} chars / {} bytes; max ~64 KiB)",
-                text.len()
+            d.set_error_toast(&tlf(
+                "Prompt too long ({chars} chars / {bytes} bytes; max ~64 KiB)",
+                &[("chars", &chars), ("bytes", &text.len())],
             ));
         }
         return vec![];
@@ -1123,7 +1132,7 @@ pub(super) fn dispatch_dashboard_dispatch(
         if let Some(warning) = policy_block
             && let Some(d) = app.dashboard.as_mut()
         {
-            d.set_error_toast(warning);
+            d.set_error_toast(tl(warning));
         }
     }
     effects
@@ -1175,9 +1184,12 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
             let token = invocation.token.to_string();
             if let Some(d) = app.dashboard.as_mut() {
                 d.dispatch.set_text("");
-                d.set_error_toast(&format!(
-                    "/{token} requires SuperGrok: upgrade at {}",
-                    super::billing::UPSELL_URL_UPGRADE
+                d.set_error_toast(&tlf(
+                    "/{name} requires SuperGrok: upgrade at {url}",
+                    &[
+                        ("name", &token),
+                        ("url", &super::billing::UPSELL_URL_UPGRADE),
+                    ],
                 ));
             }
             return vec![];
@@ -1195,7 +1207,7 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
             let name = command.name();
             if let Some(d) = app.dashboard.as_mut() {
                 d.dispatch.set_text("");
-                d.set_error_toast(&format!("/{name} only works in a session"));
+                d.set_error_toast(&tlf("/{name} only works in a session", &[("name", &name)]));
             }
             return vec![];
         }
@@ -1277,7 +1289,8 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
                 && let Some(d) = app.dashboard.as_mut()
             {
                 d.error_toast = Some(
-                    "Context window applies per session; run /context-window after spawn".into(),
+                    tl("Context window applies per session; run /context-window after spawn")
+                        .into(),
                 );
             }
             vec![]
@@ -1317,7 +1330,7 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
         CommandResult::Action(Action::ShowPlan) => {
             if let Some(d) = app.dashboard.as_mut() {
                 d.dispatch.set_text("");
-                d.set_error_toast("No plan to show on the dashboard");
+                d.set_error_toast(tl("No plan to show on the dashboard"));
             }
             vec![]
         }
@@ -1331,7 +1344,7 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
         CommandResult::Doctor(_) => {
             if let Some(d) = app.dashboard.as_mut() {
                 d.dispatch.set_text("");
-                d.set_error_toast("Open a session to run /doctor.");
+                d.set_error_toast(tl("Open a session to run /doctor."));
             }
             vec![]
         }
@@ -1400,7 +1413,7 @@ pub(super) fn apply_pending_dispatch_config(
         }
     }
     if let Some(warning) = policy_block {
-        agent.show_toast(warning);
+        agent.show_toast(tl(warning));
     }
 }
 /// Cycle the peeked agent's live mode using the agent prompt's gated rotation, the peek-panel counterpart to `DashboardCycleMode`.
@@ -1422,7 +1435,7 @@ pub(super) fn dispatch_dashboard_peek_cycle_mode(app: &mut AppView) -> Vec<Effec
     if !app.agents.contains_key(&agent_id) {
         if let Some(d) = app.dashboard.as_mut() {
             d.set_peek(None);
-            d.set_error_toast("Session no longer exists");
+            d.set_error_toast(tl("Session no longer exists"));
         }
         return vec![];
     }
@@ -1451,14 +1464,14 @@ pub(super) fn dispatch_dashboard_peek_reply(
     }
     let DashboardRowId::TopLevel(agent_id) = row else {
         if let Some(d) = app.dashboard.as_mut() {
-            d.set_error_toast("Load the session before replying");
+            d.set_error_toast(tl("Load the session before replying"));
         }
         return vec![];
     };
     if !app.agents.contains_key(&agent_id) {
         if let Some(d) = app.dashboard.as_mut() {
             d.set_peek(None);
-            d.set_error_toast("Session no longer exists");
+            d.set_error_toast(tl("Session no longer exists"));
         }
         return vec![];
     }
@@ -1468,7 +1481,7 @@ pub(super) fn dispatch_dashboard_peek_reply(
         .is_some_and(|agent| agent.load_failed)
     {
         if let Some(d) = app.dashboard.as_mut() {
-            d.set_error_toast(super::prompt::LOAD_FAILED_NOTICE);
+            d.set_error_toast(tl(super::prompt::LOAD_FAILED_NOTICE));
         }
         return vec![];
     }
@@ -1491,7 +1504,7 @@ pub(super) fn dispatch_dashboard_peek_reply(
         let Some(agent) = app.agents.get_mut(&agent_id) else {
             if let Some(d) = app.dashboard.as_mut() {
                 d.set_peek(None);
-                d.set_error_toast("Session no longer exists");
+                d.set_error_toast(tl("Session no longer exists"));
             }
             return vec![];
         };
@@ -1591,9 +1604,9 @@ fn workspace_layout_target(
 fn refuse_workspace_layout(app: &mut AppView, refusal: impl Into<LayoutRefusal>) {
     let message = match refusal.into() {
         LayoutRefusal::NotWorkspaceRow => return,
-        LayoutRefusal::NotFound => "Session is no longer in the workspace",
-        LayoutRefusal::ReadOnly => "Dashboard workspace is read-only",
-        LayoutRefusal::NotSavedYet => "Session isn't saved to the workspace yet",
+        LayoutRefusal::NotFound => tl("Session is no longer in the workspace"),
+        LayoutRefusal::ReadOnly => tl("Dashboard workspace is read-only"),
+        LayoutRefusal::NotSavedYet => tl("Session isn't saved to the workspace yet"),
     };
     app.show_toast(message);
 }
@@ -1628,7 +1641,7 @@ pub(super) fn dispatch_dashboard_begin_rename(app: &mut AppView) {
         return;
     };
     let crate::views::dashboard::DashboardRowId::TopLevel(agent_id) = &sel else {
-        d.set_error_toast("Load the session before renaming");
+        d.set_error_toast(tl("Load the session before renaming"));
         return;
     };
     let prefill = app
@@ -1807,7 +1820,7 @@ pub(super) fn dispatch_dashboard_stop(app: &mut AppView) -> Vec<Effect> {
                 return match stopped {
                     Some(effects) => effects,
                     None => {
-                        app.show_toast("Stop the session before deleting");
+                        app.show_toast(tl("Stop the session before deleting"));
                         vec![]
                     }
                 };
@@ -1822,18 +1835,18 @@ pub(super) fn dispatch_dashboard_stop(app: &mut AppView) -> Vec<Effect> {
                 .find(|e| e.session_id == session_id.as_str());
             match entry {
                 None => {
-                    app.show_toast("Session is no longer in the list");
+                    app.show_toast(tl("Session is no longer in the list"));
                     vec![]
                 }
                 Some(e) if e.origin.kind == "conversation" => {
-                    app.show_toast("Deleting chat conversations isn't supported yet");
+                    app.show_toast(tl("Deleting chat conversations isn't supported yet"));
                     vec![]
                 }
                 Some(e)
                     if !crate::views::dashboard::roster_activity_to_state(e.activity)
                         .allows_delete() =>
                 {
-                    app.show_toast("Stop the session before deleting");
+                    app.show_toast(tl("Stop the session before deleting"));
                     vec![]
                 }
                 Some(_) => arm_or_delete(app, sel),
@@ -2029,15 +2042,15 @@ fn delete_dashboard_row(
                 return vec![];
             };
             if !crate::views::dashboard::classify_top_level(agent).allows_delete() {
-                app.show_toast("Stop the session before deleting");
+                app.show_toast(tl("Stop the session before deleting"));
                 return vec![];
             }
             let Some(session_id) = agent.session.session_id.clone() else {
-                app.show_toast("No session history to delete");
+                app.show_toast(tl("No session history to delete"));
                 return vec![];
             };
             let cwd = agent.session.cwd.display().to_string();
-            app.show_toast("Deleting session\u{2026}");
+            app.show_toast(tl("Deleting session…"));
             vec![Effect::DeleteSession {
                 source: "current".into(),
                 session_id: session_id.to_string(),
@@ -2053,18 +2066,18 @@ fn delete_dashboard_row(
                 .find(|e| e.session_id == session_id)
                 .cloned()
             else {
-                app.show_toast("Session is no longer in the list");
+                app.show_toast(tl("Session is no longer in the list"));
                 return vec![];
             };
             if entry.origin.kind == "conversation" {
-                app.show_toast("Deleting chat conversations isn't supported yet");
+                app.show_toast(tl("Deleting chat conversations isn't supported yet"));
                 return vec![];
             }
             if !crate::views::dashboard::roster_activity_to_state(entry.activity).allows_delete() {
-                app.show_toast("Stop the session before deleting");
+                app.show_toast(tl("Stop the session before deleting"));
                 return vec![];
             }
-            app.show_toast("Deleting session\u{2026}");
+            app.show_toast(tl("Deleting session…"));
             vec![Effect::DeleteSession {
                 source: "local".into(),
                 session_id,
@@ -2113,7 +2126,7 @@ fn archive_dashboard_row(
                     .get(id)
                     .is_some_and(|agent| !dashboard_stop_readiness(agent).can_close())
             }) {
-                app.show_toast("Session became active; stop it before archiving");
+                app.show_toast(tl("Session became active; stop it before archiving"));
                 return vec![];
             }
             (session_id, loaded_ids)
@@ -2348,7 +2361,7 @@ pub(super) fn dispatch_dashboard_permission_select(
     let Some(agent) = app.agents.get_mut(&target_id) else {
         if let Some(d) = app.dashboard.as_mut() {
             d.set_peek(None);
-            d.set_error_toast("Row no longer exists");
+            d.set_error_toast(tl("Row no longer exists"));
         }
         return vec![];
     };
@@ -2359,7 +2372,7 @@ pub(super) fn dispatch_dashboard_permission_select(
     if !front_matches {
         if let Some(d) = app.dashboard.as_mut() {
             d.set_peek(None);
-            d.set_error_toast("Permission has changed: re-open peek");
+            d.set_error_toast(tl("Permission has changed: re-open peek"));
         }
         return vec![];
     }
@@ -2398,7 +2411,7 @@ pub(super) fn dispatch_dashboard_permission_followup(
     let Some(agent) = app.agents.get_mut(&target_id) else {
         if let Some(d) = app.dashboard.as_mut() {
             d.set_peek(None);
-            d.set_error_toast("Row no longer exists");
+            d.set_error_toast(tl("Row no longer exists"));
         }
         return vec![];
     };
@@ -2409,7 +2422,7 @@ pub(super) fn dispatch_dashboard_permission_followup(
     if !front_matches {
         if let Some(d) = app.dashboard.as_mut() {
             d.set_peek(None);
-            d.set_error_toast("Permission has changed: re-open peek");
+            d.set_error_toast(tl("Permission has changed: re-open peek"));
         }
         return vec![];
     }
@@ -2461,7 +2474,7 @@ pub(super) fn dispatch_dashboard_question_answer(
     let Some(agent) = app.agents.get_mut(&target_id) else {
         if let Some(d) = app.dashboard.as_mut() {
             d.set_peek(None);
-            d.set_error_toast("Row no longer exists");
+            d.set_error_toast(tl("Row no longer exists"));
         }
         return vec![];
     };

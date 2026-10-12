@@ -1,6 +1,7 @@
 //! Selection and folding for [`ScrollbackState`]: selected-entry tracking, fold/expand operations, group expansion, and view-mode visibility.
 
 use super::*;
+use xai_grok_i18n::tlm;
 
 /// Scroll/follow state captured before a fold-shaped layout change (entry fold or group expansion).
 /// [`ScrollbackState::rebuild_with_fold_anchor`] restores it so the change doesn't move the viewport.
@@ -623,9 +624,9 @@ impl ScrollbackState {
                 && entry.display_mode == DisplayMode::Collapsed
         });
         if any_collapsed {
-            "expand thinking"
+            tlm("expand thinking")
         } else {
-            "collapse thinking"
+            tlm("collapse thinking")
         }
     }
 
@@ -651,9 +652,9 @@ impl ScrollbackState {
             // Expanded verb slot: the selection acts as member 0, so the footer advertises the member's own fold, not the group's
             None
         } else if info.group_collapse_header {
-            Some("collapse")
+            Some(tlm("collapse"))
         } else if info.group_header_count > 0 {
-            Some("expand")
+            Some(tlm("expand"))
         } else {
             None
         }

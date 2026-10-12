@@ -13,7 +13,9 @@ use crate::render::wrapping::word_wrap_lines;
 use crate::scrollback::block::BlockContent;
 use crate::scrollback::types::{AccentStyle, BlockContext, BlockLine, BlockOutput};
 use crate::theme::{Theme, quantize};
-use xai_grok_shell::session::{ContextInfo, count_detail};
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
+use xai_grok_shell::session::ContextInfo;
 
 /// Categorical bar: each cell uses its category's glyph and color, filled left-to-right in legend order; free capacity is muted outlines.
 /// The informational rows never enter the bar.
@@ -89,17 +91,35 @@ struct RowLayout {
     count_width: usize,
 }
 
+/// The shell words a usage row's detail as a count and a noun ("21 skills", "1 server"). The nouns it
+/// is known to use are worded again in the interface language; anything else shows as sent.
+fn shown_detail(detail: &str) -> String {
+    const NOUNS: [(&str, &str); 8] = [
+        ("skill", xai_grok_i18n::tlm("{count} skill")),
+        ("skills", xai_grok_i18n::tlm("{count} skills")),
+        ("workflow", xai_grok_i18n::tlm("{count} workflow")),
+        ("workflows", xai_grok_i18n::tlm("{count} workflows")),
+        ("server", xai_grok_i18n::tlm("{count} server")),
+        ("servers", xai_grok_i18n::tlm("{count} servers")),
+        ("file", xai_grok_i18n::tlm("{count} file")),
+        ("files", xai_grok_i18n::tlm("{count} files")),
+    ];
+    let Some((count, noun)) = detail.split_once(' ') else {
+        return detail.to_string();
+    };
+    match NOUNS.iter().find(|(word, _)| *word == noun) {
+        Some((_, sentence)) => xai_grok_i18n::fill(tl(sentence), &[("count", &count)]),
+        None => detail.to_string(),
+    }
+}
+
 impl RowLayout {
     /// Measure column widths over every row that will render.
-    /// Widths are in codepoints, not bytes.
+    /// Labels and detail counts are measured in terminal columns (a translated label can be double-width);
+    /// the numeric cells are ASCII, so codepoints are columns there.
     fn measure<'a>(rows: impl Iterator<Item = &'a LegendRow> + Clone, total: u64) -> Self {
         Self {
-            label_width: rows
-                .clone()
-                .map(|r| r.label.chars().count())
-                .max()
-                .unwrap_or(0)
-                + 1,
+            label_width: rows.clone().map(|r| r.label.width()).max().unwrap_or(0) + 1,
             tokens_width: rows
                 .clone()
                 .map(|r| fmt_tok(r.tokens).chars().count())
@@ -112,7 +132,7 @@ impl RowLayout {
                 .unwrap_or(0),
             count_width: rows
                 .filter_map(|r| r.detail.as_deref())
-                .filter_map(|d| d.split(' ').next().map(|n| n.chars().count()))
+                .filter_map(|d| d.split(' ').next().map(|n| n.width()))
                 .max()
                 .unwrap_or(0),
         }
@@ -125,11 +145,15 @@ impl RowLayout {
 
     /// The row's numeric cells: tokens and percent, each right-aligned.
     fn cells(&self, tokens: u64, total: u64) -> String {
-        format!(
-            "{:>tokens_width$} tokens   {:>percent_width$}",
+        let count = format!(
+            "{:>tokens_width$}",
             fmt_tok(tokens),
+            tokens_width = self.tokens_width
+        );
+        format!(
+            "{}   {:>percent_width$}",
+            tlf("{count} tokens", &[("count", &count)]),
             Self::percent(tokens, total),
-            tokens_width = self.tokens_width,
             percent_width = self.percent_width,
         )
     }
@@ -167,8 +191,8 @@ impl RowLayout {
                 Span::raw(" "),
                 Span::styled(
                     format!(
-                        "{} tokens   {}",
-                        fmt_tok(row.tokens),
+                        "{}   {}",
+                        tlf("{count} tokens", &[("count", &fmt_tok(row.tokens))]),
                         Self::percent(row.tokens, total)
                     ),
                     muted,
@@ -181,11 +205,12 @@ impl RowLayout {
         } else {
             let mut spans = vec![
                 glyph,
+                // Padded by terminal columns: `{:<width$}` counts codepoints.
                 Span::styled(
                     format!(
-                        "{:<label_width$}",
+                        "{}{}",
                         row.label,
-                        label_width = self.label_width
+                        " ".repeat(self.label_width.saturating_sub(row.label.width()))
                     ),
                     label_style,
                 ),
@@ -315,14 +340,14 @@ impl ContextInfoBlock {
             LegendRow {
                 glyph: system_glyph,
                 color: system_color,
-                label: "System prompt".to_string(),
+                label: tl("System prompt").to_string(),
                 tokens: system_tokens,
                 detail: None,
             },
             LegendRow {
                 glyph: messages_glyph,
                 color: messages_color,
-                label: "Messages".to_string(),
+                label: tl("Messages").to_string(),
                 tokens: message_tokens,
                 detail: None,
             },
@@ -331,7 +356,7 @@ impl ContextInfoBlock {
             legend_rows.push(LegendRow {
                 glyph: overhead_glyph,
                 color: overhead_color,
-                label: "Reasoning/overhead".to_string(),
+                label: tl("Reasoning/overhead").to_string(),
                 tokens: overhead_tokens,
                 detail: None,
             });
@@ -339,23 +364,35 @@ impl ContextInfoBlock {
         legend_rows.push(LegendRow {
             glyph: free_glyph,
             color: empty_color,
-            label: "Free".to_string(),
+            label: tl("Free").to_string(),
             tokens: free_tokens,
             detail: None,
         });
         let info_rows: Vec<LegendRow> = std::iter::once(LegendRow {
             glyph: tools_glyph,
             color: tools_color,
-            label: "Tool definitions".to_string(),
+            label: tl("Tool definitions").to_string(),
             tokens: tool_tokens,
-            detail: Some(count_detail(tool_count, "tool")),
+            detail: Some(if tool_count == 1 {
+                tlf("{count} tool", &[("count", &tool_count)])
+            } else {
+                tlf("{count} tools", &[("count", &tool_count)])
+            }),
         })
         .chain(snapshot.usage_categories.iter().map(|c| LegendRow {
             glyph: tools_glyph,
             color: tools_color,
-            label: c.label.clone(),
+            // The shell names these rows ("Skills", "MCP servers"); a name the catalog knows is shown translated.
+            label: {
+                const _ROW_NAMES: [&str; 3] = [
+                    xai_grok_i18n::tlm("Skills"),
+                    xai_grok_i18n::tlm("Workflows"),
+                    xai_grok_i18n::tlm("MCP servers"),
+                ];
+                tl(&c.label).to_string()
+            },
             tokens: c.tokens,
-            detail: c.detail.clone(),
+            detail: c.detail.as_deref().map(shown_detail),
         }))
         .collect();
         let layout = RowLayout::measure(legend_rows.iter().chain(info_rows.iter()), total);
@@ -363,18 +400,23 @@ impl ContextInfoBlock {
 
         let mut lines: Vec<Line<'static>> = vec![
             // Header: bold white "Context"
-            Line::from(Span::styled("Context", primary)),
+            Line::from(Span::styled(tl("Context"), primary)),
             // Blank row between header and the at-a-glance summary
             Line::from(""),
             // Sub-header: token totals and percent. Uses `text_secondary` for a touch more contrast than `muted` so the
             // at-a-glance numbers stand apart from the breakdown/footer rows. The percentage is recomputed from `used / total`
             // so we get two decimal places of precision.
             Line::from(Span::styled(
-                format!(
-                    "{} / {} tokens ({:.2}%)",
-                    fmt_tok_big(used),
-                    fmt_tok_big(total),
-                    precise_usage_percent(used, total),
+                tlf(
+                    "{used} / {total} tokens ({percent})",
+                    &[
+                        ("used", &fmt_tok_big(used)),
+                        ("total", &fmt_tok_big(total)),
+                        (
+                            "percent",
+                            &format!("{:.2}%", precise_usage_percent(used, total)),
+                        ),
+                    ],
                 ),
                 Style::default().fg(theme.text_secondary),
             )),
@@ -393,7 +435,7 @@ impl ContextInfoBlock {
         }
         lines.push(Line::from(""));
 
-        lines.push(Line::from(Span::styled("Already counted above", muted)));
+        lines.push(Line::from(Span::styled(tl("Already counted above"), muted)));
         for row in &info_rows {
             lines.extend(layout.render(row, bar, total, label_style, muted));
         }
@@ -408,7 +450,10 @@ impl ContextInfoBlock {
             let remaining = threshold_tokens.saturating_sub(used);
             let (text, style) = if usage_pct >= threshold_percent {
                 (
-                    format!("Auto-compact triggers next turn (at {threshold_percent}%)"),
+                    tlf(
+                        "Auto-compact triggers next turn (at {percent}%)",
+                        &[("percent", &threshold_percent)],
+                    ),
                     Style::default().fg(quantize(theme.warning)),
                 )
             } else {
@@ -416,8 +461,15 @@ impl ContextInfoBlock {
                 // A 4m window at 60% reads `~1.0m tokens remaining`, not `~1000k tokens remaining`
                 (
                     format!(
-                        "Auto-compact at {threshold_percent}% \u{00b7} ~{} tokens remaining",
-                        fmt_tok_big(remaining)
+                        "{} \u{00b7} {}",
+                        tlf(
+                            "Auto-compact at {percent}%",
+                            &[("percent", &threshold_percent)]
+                        ),
+                        tlf(
+                            "~{count} tokens remaining",
+                            &[("count", &fmt_tok_big(remaining))]
+                        )
                     ),
                     muted,
                 )
@@ -429,7 +481,10 @@ impl ContextInfoBlock {
         // Footer stats
         lines.push(Line::from(Span::styled(
             format!(
-                "Turns: {turn_count} \u{00b7} Tool calls: {tool_call_count} \u{00b7} Compactions: {compaction_count}"
+                "{} \u{00b7} {} \u{00b7} {}",
+                tlf("Turns: {count}", &[("count", &turn_count)]),
+                tlf("Tool calls: {count}", &[("count", &tool_call_count)]),
+                tlf("Compactions: {count}", &[("count", &compaction_count)])
             ),
             muted,
         )));
@@ -440,7 +495,7 @@ impl ContextInfoBlock {
         if (80..snapshot.auto_compact_threshold_percent).contains(&usage_pct) {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "Tip: run /compact to free up context space.".to_string(),
+                tl("Tip: run /compact to free up context space.").to_string(),
                 Style::default().fg(quantize(theme.warning)),
             )));
         }

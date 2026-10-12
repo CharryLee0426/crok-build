@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use xai_grok_i18n::{tl, tlf};
 
 use crate::app::agent::ScheduledTaskInfo;
 use crate::util::{format_duration, parse_schedule_interval_secs};
@@ -39,8 +40,11 @@ fn suffix(
     };
     match remaining {
         None => String::new(),
-        Some(d) if d.is_zero() => " (due now)".to_owned(),
-        Some(d) => format!(" (next in {})", format_duration(d)),
+        Some(d) if d.is_zero() => format!(" {}", tl("(due now)")),
+        Some(d) => format!(
+            " {}",
+            tlf("(next in {time})", &[("time", &format_duration(d))])
+        ),
     }
 }
 

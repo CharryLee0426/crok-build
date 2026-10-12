@@ -9,10 +9,10 @@ enum SidePanelTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .files: return "Files"
-        case .sideChat: return "Side chat"
-        case .terminal: return "Terminal"
-        case .browser: return "Browser"
+        case .files: return L10n.t("files", "Files")
+        case .sideChat: return L10n.t("side_chat", "Side chat")
+        case .terminal: return L10n.t("terminal", "Terminal")
+        case .browser: return L10n.t("browser", "Browser")
         }
     }
 
@@ -29,6 +29,7 @@ enum SidePanelTab: String, CaseIterable, Identifiable {
 /// The panel on the right of the window: the project's files, side chats, a terminal, and a browser.
 /// Drag its leading edge to resize it; double-click the edge to restore the default width.
 struct SidePanelView: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var files: FilesPanelModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -87,7 +88,7 @@ struct SidePanelView: View {
         .overlay(alignment: .leading) {
             ResizeHandle(axis: .horizontal, value: binding, range: Self.minimumWidth...maximum,
                          defaultValue: defaultWidth, growsTowardStart: true,
-                         label: "Side panel width")
+                         label: L10n.t("side_panel_width", "Side panel width"))
                 .offset(x: -4.5)
         }
     }
@@ -102,7 +103,7 @@ enum SidePanelTabDensity: Equatable {
     var labelSpacing: Double { self == .compact ? 5 : 6 }
 
     /// The roomiest density whose tabs fit a bar this wide. The widths come from the tabs' names and
-    /// symbols, measured once, so the bar lays out one row instead of trying each and keeping the first that fits.
+    /// symbols, measured once per language, so the bar lays out one row instead of trying each and keeping the first that fits.
     static func fitting(barWidth: Double) -> SidePanelTabDensity {
         if barWidth >= minimumBarWidth(.regular) { return .regular }
         return barWidth >= minimumBarWidth(.compact) ? .compact : .icons
@@ -119,7 +120,12 @@ enum SidePanelTabDensity: Equatable {
     /// The bar around the tabs: its padding, the gap before the close button, and the button.
     static let chrome = 20.0 + 4 + 4 + 4 + 26
 
-    private static let namedWidths: (regular: Double, compact: Double) = {
+    /// The names differ in width between languages, so each language's measurement is kept.
+    private static var measuredWidths: [String: (regular: Double, compact: Double)] = [:]
+
+    private static var namedWidths: (regular: Double, compact: Double) {
+        let code = L10n.resolvedCode
+        if let widths = measuredWidths[code] { return widths }
         // The selected tab's name is semibold, the widest it gets; every name is measured that way.
         let font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
         let symbols = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
@@ -132,11 +138,14 @@ enum SidePanelTabDensity: Equatable {
             // Four points to spare: text is laid out a little differently than it is measured.
             return content + count * (density.labelSpacing + 2 * density.tabPadding) + (count - 1) * density.tabSpacing + chrome + 4
         }
-        return (bar(.regular), bar(.compact))
-    }()
+        let widths = (bar(.regular), bar(.compact))
+        measuredWidths[code] = widths
+        return widths
+    }
 }
 
 struct SidePanelTabBar: View, Equatable {
+    @ObservedObject private var language = L10n.state
     let selection: SidePanelTab
     let density: SidePanelTabDensity
     /// Not observed: the bar only tells the store what was chosen.
@@ -154,7 +163,7 @@ struct SidePanelTabBar: View, Equatable {
                 }
             }
             Spacer(minLength: 4)
-            IconButton(icon: "xmark", help: "Hide side panel · ⌘J", size: 26) {
+            IconButton(icon: "xmark", help: L10n.t("side_panel_hide", "Hide side panel · ⌘J"), size: 26) {
                 withAnimation(.easeInOut(duration: 0.18)) { store.showInspector = false }
             }
         }
@@ -163,6 +172,7 @@ struct SidePanelTabBar: View, Equatable {
 }
 
 private struct SidePanelTabButton: View {
+    @ObservedObject private var language = L10n.state
     let tab: SidePanelTab
     let isSelected: Bool
     var showsTitle = true
@@ -238,7 +248,7 @@ struct ResizeHandle: View {
         .animation(.easeOut(duration: 0.12), value: active)
         .accessibilityElement()
         .accessibilityLabel(label)
-        .accessibilityValue("\(Int(value)) points")
+        .accessibilityValue(L10n.t("points_value", "%d points", count: Int(value)))
         .accessibilityAdjustableAction { direction in
             let step = direction == .increment ? 24.0 : -24.0
             value = min(max(value + step, range.lowerBound), range.upperBound)

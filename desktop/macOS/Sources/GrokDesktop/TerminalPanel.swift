@@ -200,6 +200,7 @@ enum TerminalPalette {
 // MARK: - View
 
 struct TerminalPanelView: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var terminals: TerminalSessions
 
@@ -209,12 +210,12 @@ struct TerminalPanelView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     Image(systemName: "terminal").font(.system(size: 11)).foregroundStyle(Theme.muted)
-                    Text(status?.title ?? "Terminal").font(.system(size: 11.5, weight: .medium)).lineLimit(1)
+                    Text(status?.title ?? L10n.t("terminal", "Terminal")).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
                     Text((status?.directory ?? project.path).abbreviatingWithTildeInPath)
                         .font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
                     Spacer(minLength: 4)
-                    IconButton(icon: "eraser", help: "Clear the screen · ⌃L", size: 24) { terminals.clear(project) }
-                    IconButton(icon: "arrow.clockwise", help: "Restart the shell", size: 24) { terminals.restart(project) }
+                    IconButton(icon: "eraser", help: L10n.t("terminal_clear", "Clear the screen · ⌃L"), size: 24) { terminals.clear(project) }
+                    IconButton(icon: "arrow.clockwise", help: L10n.t("terminal_restart_shell", "Restart the shell"), size: 24) { terminals.restart(project) }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 Group {
@@ -229,10 +230,11 @@ struct TerminalPanelView: View {
                 if status?.hasExited == true {
                     HStack(spacing: 8) {
                         Image(systemName: "stop.circle").foregroundStyle(Theme.muted)
-                        Text(status?.exitCode.map { "The shell exited with status \($0)." } ?? "The shell exited.")
+                        Text(status?.exitCode.map { L10n.t("terminal_exited_status", "The shell exited with status {code}.", ["code": String($0)]) }
+                             ?? L10n.t("terminal_exited", "The shell exited."))
                             .font(.system(size: 12)).foregroundStyle(Theme.muted)
                         Spacer(minLength: 4)
-                        Button("Restart") { terminals.restart(project) }.buttonStyle(SubtleButtonStyle()).font(.system(size: 12, weight: .medium))
+                        Button(L10n.t("terminal_restart", "Restart")) { terminals.restart(project) }.buttonStyle(SubtleButtonStyle()).font(.system(size: 12, weight: .medium))
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(Theme.sidebar)
@@ -243,7 +245,7 @@ struct TerminalPanelView: View {
                 terminals.requestFocus()
             }
         } else {
-            SidePanelEmptyState(symbol: "terminal", title: "No project", detail: "Open a project to use a terminal in its folder.")
+            SidePanelEmptyState(symbol: "terminal", title: L10n.t("no_project", "No project"), detail: L10n.t("terminal_no_project_detail", "Open a project to use a terminal in its folder."))
         }
     }
 }

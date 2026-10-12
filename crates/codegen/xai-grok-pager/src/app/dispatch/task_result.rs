@@ -66,6 +66,7 @@ use crate::app::dispatch::settings;
 use crate::scrollback::block::RenderBlock;
 use crate::scrollback::blocks::MemoryCommandKind;
 use agent_client_protocol as acp;
+use xai_grok_i18n::{tl, tlf, tlm};
 pub(super) fn unregister_session_effect(session_id: Option<acp::SessionId>) -> Vec<Effect> {
     session_id
         .map(|sid| Effect::UnregisterActiveSession { session_id: sid })
@@ -89,20 +90,22 @@ fn displaced_draft_feedback_notice(
     outcome: xai_grok_shell::session::FeedbackOutcome,
 ) -> &'static str {
     match outcome {
-        xai_grok_shell::session::FeedbackOutcome::Submitted => super::notes::FEEDBACK_THANKS_NOTICE,
-        xai_grok_shell::session::FeedbackOutcome::SubmittedCleanupFailed => {
-            "Feedback was sent, but the stored draft could not be deleted. Delete it manually; do not resend."
+        xai_grok_shell::session::FeedbackOutcome::Submitted => {
+            tl(super::notes::FEEDBACK_THANKS_NOTICE)
         }
+        xai_grok_shell::session::FeedbackOutcome::SubmittedCleanupFailed => tl(
+            "Feedback was sent, but the stored draft could not be deleted. Delete it manually; do not resend.",
+        ),
         xai_grok_shell::session::FeedbackOutcome::LocalOnly => {
-            "Feedback was saved locally but was not sent. The draft was kept."
+            tl("Feedback was saved locally but was not sent. The draft was kept.")
         }
         xai_grok_shell::session::FeedbackOutcome::OutcomeUnknown => {
-            "The remote outcome is unknown. The draft was kept; do not resend it yet."
+            tl("The remote outcome is unknown. The draft was kept; do not resend it yet.")
         }
-        _ => "The remote outcome is unknown. The draft was kept; do not resend it yet.",
+        _ => tl("The remote outcome is unknown. The draft was kept; do not resend it yet."),
     }
 }
-pub(super) const X11_PRIMARY_PASTE_HINT: &str = "Try Shift+Insert to paste selected text";
+pub(super) const X11_PRIMARY_PASTE_HINT: &str = tlm("Try Shift+Insert to paste selected text");
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LiveSessionKind {
     Missing,
@@ -137,15 +140,20 @@ fn apply_workspace_transition(
     for notice in transition.notices {
         match notice {
             WorkspaceNotice::ArchiveRejectedReadOnly => {
-                app.show_toast("Could not archive session: dashboard workspace is read-only");
+                app.show_toast(tl(
+                    "Could not archive session: dashboard workspace is read-only",
+                ));
             }
             WorkspaceNotice::LoadFailed { error } => {
                 tracing::warn!(error = %error, "dashboard workspace load failed");
-                app.show_toast(&format!("Could not load dashboard workspace: {error}"));
+                app.show_toast(&tlf(
+                    "Could not load dashboard workspace: {error}",
+                    &[("error", &error)],
+                ));
             }
             WorkspaceNotice::Refreshing { error } => {
                 tracing::warn!(error = %error, "workspace snapshot after write failed");
-                app.show_toast("Dashboard workspace changed; refreshing");
+                app.show_toast(tl("Dashboard workspace changed; refreshing"));
             }
             WorkspaceNotice::SyncFailed {
                 count,
@@ -158,10 +166,17 @@ fn apply_workspace_transition(
                     error,
                     "dashboard workspace sync partially failed"
                 );
-                app.show_toast(&format!(
-                    "Could not sync {count} dashboard session{}",
-                    if count == 1 { "" } else { "s" }
-                ));
+                app.show_toast(&if count == 1 {
+                    tlf(
+                        "Could not sync {count} dashboard session",
+                        &[("count", &count)],
+                    )
+                } else {
+                    tlf(
+                        "Could not sync {count} dashboard sessions",
+                        &[("count", &count)],
+                    )
+                });
             }
             WorkspaceNotice::ArchiveFailed {
                 count,
@@ -174,21 +189,28 @@ fn apply_workspace_transition(
                     error,
                     "dashboard workspace archive partially failed"
                 );
-                app.show_toast(&format!(
-                    "Could not archive {count} dashboard session{}",
-                    if count == 1 { "" } else { "s" }
-                ));
+                app.show_toast(&if count == 1 {
+                    tlf(
+                        "Could not archive {count} dashboard session",
+                        &[("count", &count)],
+                    )
+                } else {
+                    tlf(
+                        "Could not archive {count} dashboard sessions",
+                        &[("count", &count)],
+                    )
+                });
             }
             WorkspaceNotice::ReadOnly => {
-                app.show_toast("Dashboard workspace is read-only in this Crok version");
+                app.show_toast(tl("Dashboard workspace is read-only in this Crok version"));
             }
             WorkspaceNotice::WriterFailed { error } => {
                 tracing::error!(error = %error, "dashboard workspace writer failed");
-                app.show_toast("Dashboard workspace writer failed; reopening");
+                app.show_toast(tl("Dashboard workspace writer failed; reopening"));
             }
             WorkspaceNotice::LayoutFailed { error } => {
                 tracing::warn!(error = %error, "dashboard workspace layout write failed");
-                app.show_toast("Could not save dashboard layout");
+                app.show_toast(tl("Could not save dashboard layout"));
             }
             WorkspaceNotice::RefreshFailed { error } => {
                 tracing::warn!(error = %error, "dashboard workspace refresh failed");
@@ -278,7 +300,7 @@ pub(super) fn maybe_show_x11_primary_paste_hint(
     if !eligible || completion != ClipboardPasteCompletion::FullMiss {
         return;
     }
-    show_clipboard_toast(target, X11_PRIMARY_PASTE_HINT, app);
+    show_clipboard_toast(target, tl(X11_PRIMARY_PASTE_HINT), app);
 }
 /// A clean `FullMiss` always qualifies; a remote read *error* (`AttachmentRead`) qualifies too.
 /// Inside `grok wrap` the authoritative pasteboard is the local host's, not the (absent) remote one.
@@ -297,9 +319,9 @@ pub(super) fn show_clipboard_failure(
 ) {
     let message = match failure {
         ClipboardPasteFailure::AlreadyReported => return,
-        ClipboardPasteFailure::TextRead => "Couldn't read clipboard text",
-        ClipboardPasteFailure::AttachmentRead => "Couldn't read clipboard contents",
-        ClipboardPasteFailure::TargetInsertion => "Couldn't paste clipboard contents",
+        ClipboardPasteFailure::TextRead => tl("Couldn't read clipboard text"),
+        ClipboardPasteFailure::AttachmentRead => tl("Couldn't read clipboard contents"),
+        ClipboardPasteFailure::TargetInsertion => tl("Couldn't paste clipboard contents"),
     };
     show_clipboard_toast(target, message, app);
 }
@@ -584,8 +606,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                 }
                 if !silent {
                     agent.scrollback.push_block(RenderBlock::System(
-                        crate::scrollback::blocks::SystemMessageBlock::new(format!(
-                            "Billing error: {error}"
+                        crate::scrollback::blocks::SystemMessageBlock::new(tlf(
+                            "Billing error: {error}",
+                            &[("error", &error)],
                         )),
                     ));
                 }
@@ -929,7 +952,10 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                             crate::app::agent::QueueEntryKind::Prompt,
                         )
                     });
-                agent.show_toast(&format!("Send now failed. Requeued: {error}"));
+                agent.show_toast(&tlf(
+                    "Send now failed. Requeued: {error}",
+                    &[("error", &error)],
+                ));
             }
             vec![]
         }
@@ -937,8 +963,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             if let Err(err) = result
                 && let Some(agent) = get_active_agent_mut(app)
             {
-                agent.scrollback.push_block(RenderBlock::system(format!(
-                    "Couldn't save preferred model: {err} (still active for this session)"
+                agent.scrollback.push_block(RenderBlock::system(tlf(
+                    "Couldn't save preferred model: {error} (still active for this session)",
+                    &[("error", &err)],
                 )));
             }
             vec![]
@@ -957,9 +984,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
         }
         TaskResult::ConsentPersistFailed { error } => {
             tracing::warn!(%error, "consent answer not persisted; the notice re-arms next launch");
-            app.show_toast(
+            app.show_toast(tl(
                 "\u{2717} Could not save your answer, so this notice returns next launch",
-            );
+            ));
             vec![]
         }
         TaskResult::ConsentRecorded { notice_id, version } => match app.account_email.clone() {
@@ -1099,8 +1126,10 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                 deliver_doctor_message(
                     app,
                     target.agent_id,
-                    "This fix was cancelled because the session changed. Run `/doctor fix` again."
-                        .to_owned(),
+                    tl(
+                        "This fix was cancelled because the session changed. Run `/doctor fix` again.",
+                    )
+                    .to_owned(),
                 );
                 return vec![];
             };
@@ -1115,19 +1144,25 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                     deliver_doctor_message(
                         app,
                         target.agent_id,
-                        format!(
-                            "This fix configures your local computer, not this SSH session.\nOn your local computer, run: {command}"
+                        tlf(
+                            "This fix configures your local computer, not this SSH session.\nOn your local computer, run: {command}",
+                            &[("command", &command)],
                         ),
                     );
                 }
                 Err(error) => deliver_doctor_message(
                     app,
                     target.agent_id,
-                    if error.starts_with("Could not prepare the fix:") {
-                        error
-                    } else {
-                        format!("Could not prepare the fix: {error}")
-                    },
+                    // The effect words a failed task itself, in English; say it once, in the interface language
+                    tlf(
+                        "Could not prepare the fix: {error}",
+                        &[(
+                            "error",
+                            &error
+                                .strip_prefix("Could not prepare the fix: ")
+                                .unwrap_or(&error),
+                        )],
+                    ),
                 ),
             }
             vec![]
@@ -1135,8 +1170,16 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
         TaskResult::DoctorFixApplied { target, result } => {
             let message = match result {
                 Ok(outcome) => crate::diagnostics::format_fix_success(&outcome),
-                Err(error) if error.starts_with("Could not apply the fix:") => error,
-                Err(error) => format!("Could not apply the fix: {error}"),
+                // The effect words a failed task itself, in English; say it once, in the interface language
+                Err(error) => tlf(
+                    "Could not apply the fix: {error}",
+                    &[(
+                        "error",
+                        &error
+                            .strip_prefix("Could not apply the fix: ")
+                            .unwrap_or(&error),
+                    )],
+                ),
             };
             deliver_doctor_message(app, target.agent_id, message);
             vec![]
@@ -1386,8 +1429,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             if let Some(agent) = app.agents.get_mut(&agent_id) {
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                        "Session shared: {share_url}"
+                    .push_block(crate::scrollback::block::RenderBlock::system(tlf(
+                        "Session shared: {url}",
+                        &[("url", &share_url)],
                     )));
             }
             vec![]
@@ -1396,8 +1440,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             if let Some(agent) = app.agents.get_mut(&agent_id) {
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                        "Couldn't share session: {error}"
+                    .push_block(crate::scrollback::block::RenderBlock::system(tlf(
+                        "Couldn't share session: {error}",
+                        &[("error", &error)],
                     )));
             }
             vec![]
@@ -1467,8 +1512,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                 } else if minimal {
                     push_and_page_flip(
                         &mut agent.scrollback,
-                        crate::scrollback::block::RenderBlock::system(format!(
-                            "Couldn't load session info: {error}"
+                        crate::scrollback::block::RenderBlock::system(tlf(
+                            "Couldn't load session info: {error}",
+                            &[("error", &error)],
                         )),
                     );
                 }
@@ -1490,8 +1536,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                 let safe = crate::views::session_title::sanitize_display_text(&title);
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                        "Session renamed to \"{safe}\""
+                    .push_block(crate::scrollback::block::RenderBlock::system(tlf(
+                        "Session renamed to \"{title}\"",
+                        &[("title", &safe)],
                     )));
             }
             vec![]
@@ -1500,8 +1547,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             if let Some(agent) = app.agents.get_mut(&agent_id) {
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                        "Couldn't rename session: {error}"
+                    .push_block(crate::scrollback::block::RenderBlock::system(tlf(
+                        "Couldn't rename session: {error}",
+                        &[("error", &error)],
                     )));
             }
             vec![]
@@ -1511,9 +1559,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                 agent.title_unpin_committed = false;
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(
+                    .push_block(crate::scrollback::block::RenderBlock::system(tl(
                         "Session title reset to auto",
-                    ));
+                    )));
             }
             vec![]
         }
@@ -1528,16 +1576,17 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                     agent.title_unpin_committed = false;
                     agent
                         .scrollback
-                        .push_block(crate::scrollback::block::RenderBlock::system(
+                        .push_block(crate::scrollback::block::RenderBlock::system(tl(
                             "Session title reset to auto",
-                        ));
+                        )));
                 } else {
                     agent.display_name = previous_display_name;
                     agent.generated_session_title = previous_generated_title;
                     agent
                         .scrollback
-                        .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                            "Couldn't reset session title: {error}"
+                        .push_block(crate::scrollback::block::RenderBlock::system(tlf(
+                            "Couldn't reset session title: {error}",
+                            &[("error", &error)],
                         )));
                 }
             }
@@ -1567,9 +1616,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             let membership_removal_failed = deleted_build
                 && !crate::app::workspace_sync::request_removal(app, &session_id, removal_cause);
             let delete_notice = if membership_removal_failed {
-                "Session deleted, but dashboard membership could not be removed"
+                tl("Session deleted, but dashboard membership could not be removed")
             } else {
-                "Session deleted"
+                tl("Session deleted")
             };
             if after == AfterSessionDelete::Stay {
                 app.dashboard_local_sessions
@@ -1658,7 +1707,10 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
         } => {
             tracing::warn!(source, session_id = %session_id, error = %error, "session delete failed");
             if source != "unused-home" {
-                app.show_toast(&format!("Couldn't delete session: {error}"));
+                app.show_toast(&tlf(
+                    "Couldn't delete session: {error}",
+                    &[("error", &error)],
+                ));
             }
             vec![]
         }
@@ -1688,8 +1740,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             } else if minimal {
                 push_and_page_flip(
                     &mut agent.scrollback,
-                    crate::scrollback::block::RenderBlock::system(format!(
-                        "Couldn't load context info: {error}"
+                    crate::scrollback::block::RenderBlock::system(tlf(
+                        "Couldn't load context info: {error}",
+                        &[("error", &error)],
                     )),
                 );
             }
@@ -1716,7 +1769,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             app,
             agent_id,
             &session_id,
-            format!("Couldn't load session usage: {error}"),
+            tlf("Couldn't load session usage: {error}", &[("error", &error)]),
             nonce,
         ),
         TaskResult::FeedbackComplete {
@@ -1736,8 +1789,10 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                     .scrollback
                     .push_block(
                         crate::scrollback::block::RenderBlock::system(
-                            "Feedback was enqueued, but the response did not arrive in time. The send may still complete; do not resend it yet."
-                                .to_owned(),
+                            tl(
+                                "Feedback was enqueued, but the response did not arrive in time. The send may still complete; do not resend it yet.",
+                            )
+                            .to_owned(),
                         ),
                     );
             }
@@ -1761,7 +1816,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                                 agent.feedback_modal = None;
                                 agent.scrollback.push_block(
                                     crate::scrollback::block::RenderBlock::system(
-                                        super::notes::FEEDBACK_THANKS_NOTICE.to_owned(),
+                                        tl(super::notes::FEEDBACK_THANKS_NOTICE).to_owned(),
                                     ),
                                 );
                             }
@@ -1774,8 +1829,10 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                                 if let Some(modal) = agent.feedback_modal.as_mut() {
                                     modal
                                         .mark_draft_send_error(
-                                            "Feedback was saved locally but was not sent. The draft was kept."
-                                                .to_owned(),
+                                            tl(
+                                                "Feedback was saved locally but was not sent. The draft was kept.",
+                                            )
+                                            .to_owned(),
                                         );
                                 }
                             }
@@ -1808,8 +1865,10 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                         .scrollback
                         .push_block(
                             crate::scrollback::block::RenderBlock::system(
-                                "Feedback was enqueued, but the response did not arrive in time. The send may still complete; do not resend it yet."
-                                    .to_owned(),
+                                tl(
+                                    "Feedback was enqueued, but the response did not arrive in time. The send may still complete; do not resend it yet.",
+                                )
+                                .to_owned(),
                             ),
                         );
                 }
@@ -1862,7 +1921,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             let Some(agent) = app.agents.get_mut(&agent_id) else {
                 return vec![];
             };
-            let failure = format!("Couldn't send feedback: {error}");
+            let failure = tlf("Couldn't send feedback: {error}", &[("error", &error)]);
             if let crate::app::actions::FeedbackSendOrigin::Modal {
                 submission_id,
                 modal_id,
@@ -1876,7 +1935,10 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                         .as_mut()
                         .filter(|modal| modal.matches_id(modal_id))
                     {
-                        modal.mark_draft_send_error(format!("{failure}. The draft was kept."));
+                        modal.mark_draft_send_error(tlf(
+                            "Couldn't send feedback: {error}. The draft was kept.",
+                            &[("error", &error)],
+                        ));
                     } else {
                         agent
                             .scrollback
@@ -2003,8 +2065,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             if let Some(error) = error {
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                        "Couldn't upload a session trace; your feedback was still sent. {error}"
+                    .push_block(crate::scrollback::block::RenderBlock::system(tlf(
+                        "Couldn't upload a session trace; your feedback was still sent. {error}",
+                        &[("error", &error)],
                     )));
             }
             vec![]
@@ -2124,7 +2187,10 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                             combined_texts: Vec::new(),
                         });
                 }
-                agent.show_toast(&format!("Interjection failed. Requeued: {error}"));
+                agent.show_toast(&tlf(
+                    "Interjection failed. Requeued: {error}",
+                    &[("error", &error)],
+                ));
             }
             vec![]
         }
@@ -2224,7 +2290,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                 return vec![];
             };
             agent.rewind_state = None;
-            app.show_toast(&format!("Undo failed: {error}"));
+            app.show_toast(&tlf("Undo failed: {error}", &[("error", &error)]));
             vec![]
         }
         TaskResult::RewindExecuteComplete { agent_id, response } => {

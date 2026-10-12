@@ -9,6 +9,7 @@
 //! A dirty pane switch is blocked and never arms the undrawn `EditConfirm` modal, which would otherwise capture all input invisibly.
 
 use crossterm::event::{KeyCode, KeyEvent};
+use xai_grok_i18n::{tl, tlm};
 
 use crate::key;
 use crate::views::modal::{ActiveModal, EditConfirmResult, ModalConfirmation};
@@ -20,7 +21,7 @@ use super::app_view::InputOutcome;
 
 /// Toast for an edit attempted on an optimistic queue row whose enqueue RPC has not confirmed.
 /// Shared by the keyboard and mouse edit paths, which both funnel through `enter_queue_edit`.
-pub(in crate::app) const STILL_QUEUEING_TOAST: &str = "Still queueing, try again in a moment";
+pub(in crate::app) const STILL_QUEUEING_TOAST: &str = tlm("Still queueing, try again in a moment");
 
 /// State of the prompt widget's editing context.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,7 +92,9 @@ impl AgentView {
                     AgentPane::Tasks => self.tasks.overlay.focused = false,
                     _ => {}
                 }
-                self.show_toast("Editing a queued prompt: press Enter to save, Esc to discard");
+                self.show_toast(tl(
+                    "Editing a queued prompt: press Enter to save, Esc to discard",
+                ));
                 return Some(false); // blocked, no modal armed
             }
             // Clean edit: silently exit editing mode
@@ -223,14 +226,14 @@ impl AgentView {
         if let Some(sid) = row.as_ref().and_then(|r| r.server_id.as_deref())
             && self.optimistic_queue_ids.contains(sid)
         {
-            self.show_toast(STILL_QUEUEING_TOAST);
+            self.show_toast(tl(STILL_QUEUEING_TOAST));
             return;
         }
         if is_server
             && let Some(server_id) = row.as_ref().and_then(|row| row.server_id.as_deref())
             && !self.shared_queue.iter().any(|entry| entry.id == server_id)
         {
-            self.show_toast("Queued prompt is no longer in the queue");
+            self.show_toast(tl("Queued prompt is no longer in the queue"));
             return;
         }
         if let Some(row) = row.as_ref()
@@ -318,7 +321,7 @@ impl AgentView {
             }
         } else {
             // The row left the mirror between selection and keypress, so there is nothing to edit.
-            self.show_toast("Queued prompt is no longer in the queue");
+            self.show_toast(tl("Queued prompt is no longer in the queue"));
         }
     }
 
@@ -487,11 +490,13 @@ impl AgentView {
         // Non-prompt rows stay queued (see `queue_row_prompt_like`): save the edit.
         let row_prompt_like = self.queue_row_prompt_like(id);
         if row_prompt_like == Some(false) {
-            self.show_toast("Can't send this mid-turn: it runs when the current turn ends");
+            self.show_toast(tl(
+                "Can't send this mid-turn: it runs when the current turn ends",
+            ));
             return self.save_edited_queued_row(id, server_id, true);
         }
         if row_prompt_like.is_none() && kind != crate::app::agent::QueueEntryKind::Prompt {
-            self.show_toast("Queued prompt is no longer in the queue");
+            self.show_toast(tl("Queued prompt is no longer in the queue"));
             return self.save_edited_queued_row(id, server_id, true);
         }
         match server_id {
@@ -500,7 +505,9 @@ impl AgentView {
                 // Drop them with an accurate toast
                 if !self.prompt.images.is_empty() {
                     self.prompt.images.clear();
-                    self.show_toast("Images can't be attached when editing a shared queued prompt");
+                    self.show_toast(tl(
+                        "Images can't be attached when editing a shared queued prompt",
+                    ));
                 }
                 // new_text carries the edit; without it the agent would interject the original server-side text
                 let expected_version = self.queue.row_ref(id).map(|r| r.version);
@@ -582,7 +589,7 @@ impl AgentView {
         // Restore the pre-edit draft; keeping the orphaned edit text would look "duplicated" (the row is now the running turn)
         // A concurrent-removal edit is lost
         self.exit_editing_mode();
-        self.show_toast("Queued prompt is no longer in the queue");
+        self.show_toast(tl("Queued prompt is no longer in the queue"));
     }
 
     /// Exit editing mode: restore stashed text, clear mode, focus the composer.

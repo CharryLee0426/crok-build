@@ -22,6 +22,7 @@ use crate::scrollback::block::BlockContent;
 use crate::scrollback::types::{AccentStyle, BlockContext, BlockOutput, DisplayMode};
 use crate::theme::Theme;
 use crate::util::format_duration;
+use xai_grok_i18n::{tl, tlf};
 
 /// What kind of subagent lifecycle event this block represents.
 #[derive(Debug, Clone)]
@@ -174,10 +175,17 @@ impl BlockContent for SubagentBlock {
         };
         let muted = theme.muted();
         let w = ctx.width as usize;
+        // The bold label, with its space. The description is cut to what the row has left, so every
+        // prefix below is measured in terminal columns from the text that is drawn.
+        let label = format!("{} ", tl("Subagent"));
 
         let line = match (&self.kind, self.is_background) {
             (SubagentBlockKind::Started, bg) => {
-                let verb = if bg { "started: " } else { "running: " };
+                let verb = if bg {
+                    format!("{}: ", tl("started"))
+                } else {
+                    format!("{}: ", tl("running"))
+                };
                 let activity_suffix: String = self
                     .activity_label
                     .as_deref()
@@ -189,11 +197,12 @@ impl BlockContent for SubagentBlock {
                     self.role.as_deref(),
                     self.model.as_deref(),
                 );
-                // "Subagent running: " / "Subagent started: " = 18 chars
-                let overhead = 18 + meta.width() + activity_suffix.width();
+                // "Subagent running: " / "Subagent started: " = 18 columns in English
+                let overhead =
+                    label.width() + verb.width() + meta.width() + activity_suffix.width();
                 let desc = quoted_desc(&self.description, w.saturating_sub(overhead));
                 let mut spans = vec![
-                    Span::styled("Subagent ", bold),
+                    Span::styled(label, bold),
                     Span::styled(verb, muted),
                     Span::styled(desc, muted),
                 ];
@@ -206,12 +215,13 @@ impl BlockContent for SubagentBlock {
             // Completed: Subagent completed in Xs: "description"
             (SubagentBlockKind::Completed { elapsed }, _) => {
                 let time_str = format_duration(*elapsed);
-                // "Subagent completed in Xs: " = 26 + time_str.len()
-                let prefix_len = 26 + time_str.len();
+                let status = format!("{}: ", tlf("completed in {time}", &[("time", &time_str)]));
+                // English: "Subagent completed in Xs: " plus 2 spare columns = 26 + the time, as before
+                let prefix_len = label.width() + status.width() + 2;
                 let desc = quoted_desc(&self.description, w.saturating_sub(prefix_len));
                 Line::from(vec![
-                    Span::styled("Subagent ", bold),
-                    Span::styled(format!("completed in {time_str}: "), muted),
+                    Span::styled(label, bold),
+                    Span::styled(status, muted),
                     Span::styled(desc, muted),
                 ])
             }
@@ -222,23 +232,29 @@ impl BlockContent for SubagentBlock {
                     .as_deref()
                     .map(|e| format!(" ({e})"))
                     .unwrap_or_default();
-                let prefix_len = 21 + time_str.len() + detail.len();
+                let status = format!(
+                    "{}{detail}: ",
+                    tlf("failed in {time}", &[("time", &time_str)])
+                );
+                // English: "Subagent failed in Xs (detail): " = 21 + the time + the detail, as before
+                let prefix_len = label.width() + status.width();
                 let desc = quoted_desc(&self.description, w.saturating_sub(prefix_len));
                 Line::from(vec![
-                    Span::styled("Subagent ", bold),
-                    Span::styled(format!("failed in {time_str}{detail}: "), muted),
+                    Span::styled(label, bold),
+                    Span::styled(status, muted),
                     Span::styled(desc, muted),
                 ])
             }
             // Cancelled: Subagent cancelled in Xs: "description"
             (SubagentBlockKind::Cancelled { elapsed }, _) => {
                 let time_str = format_duration(*elapsed);
-                // "Subagent cancelled in Xs: " = 26 + time_str.len()
-                let prefix_len = 26 + time_str.len();
+                let status = format!("{}: ", tlf("cancelled in {time}", &[("time", &time_str)]));
+                // English: "Subagent cancelled in Xs: " plus 2 spare columns = 26 + the time, as before
+                let prefix_len = label.width() + status.width() + 2;
                 let desc = quoted_desc(&self.description, w.saturating_sub(prefix_len));
                 Line::from(vec![
-                    Span::styled("Subagent ", bold),
-                    Span::styled(format!("cancelled in {time_str}: "), muted),
+                    Span::styled(label, bold),
+                    Span::styled(status, muted),
                     Span::styled(desc, muted),
                 ])
             }

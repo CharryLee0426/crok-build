@@ -12,6 +12,7 @@ use crate::scrollback::block::BlockContent;
 use crate::scrollback::types::{AccentStyle, BlockContext, BlockOutput, DisplayMode};
 use crate::theme::Theme;
 use crate::util::format_duration;
+use xai_grok_i18n::{tl, tlf};
 
 /// The signal recorded on a task the user stopped.
 pub(crate) const KILLED_SIGNAL: &str = "killed";
@@ -138,14 +139,20 @@ impl BlockContent for BgTaskBlock {
         };
         let line = match &self.kind {
             BgTaskKind::Started => Line::from(vec![
-                Span::styled("Task ", bold),
-                Span::styled("started: ", muted),
+                Span::styled(format!("{} ", tl("Task")), bold),
+                Span::styled(format!("{}: ", tl("started")), muted),
                 Span::styled(display, muted),
             ]),
             BgTaskKind::Completed { elapsed } => Line::from(vec![
-                Span::styled("Task ", bold),
+                Span::styled(format!("{} ", tl("Task")), bold),
                 Span::styled(
-                    format!("completed in {}: ", format_duration(*elapsed)),
+                    format!(
+                        "{}: ",
+                        tlf(
+                            "completed in {time}",
+                            &[("time", &format_duration(*elapsed))]
+                        )
+                    ),
                     muted,
                 ),
                 Span::styled(display, muted),
@@ -159,19 +166,26 @@ impl BlockContent for BgTaskBlock {
                 let is_killed = signal
                     .as_deref()
                     .is_some_and(|s| matches!(s, KILLED_SIGNAL | "SIGTERM" | "SIGKILL" | "oom"));
-                let verb = if is_killed { "killed" } else { "failed" };
+                let time = format_duration(*elapsed);
+                let status = if is_killed {
+                    tlf("killed in {time}", &[("time", &time)])
+                } else {
+                    tlf("failed in {time}", &[("time", &time)])
+                };
                 let detail = if is_killed {
                     String::new()
                 } else {
                     match (exit_code, signal) {
                         (_, Some(sig)) => format!(" ({})", sig),
-                        (Some(code), None) => format!(" (exit {})", code),
+                        (Some(code), None) => {
+                            format!(" ({})", tlf("exit {code}", &[("code", code)]))
+                        }
                         (None, None) => String::new(),
                     }
                 };
                 Line::from(vec![
-                    Span::styled("Task ", bold),
-                    Span::styled(format!("{verb} in {}: ", format_duration(*elapsed)), muted),
+                    Span::styled(format!("{} ", tl("Task")), bold),
+                    Span::styled(format!("{status}: "), muted),
                     Span::styled(format!("{}{}", display, detail), muted),
                 ])
             }

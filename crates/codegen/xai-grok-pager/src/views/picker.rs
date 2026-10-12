@@ -24,6 +24,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use xai_grok_i18n::{tl, tlm};
 
 use crate::input::line_editor::{LineEditOutcome, LineEditor};
 use crate::render::line_utils::truncate_str;
@@ -168,7 +169,11 @@ pub fn compute_scroll_offset(
     }
 }
 
-const SEARCH_BAR_LABEL: &str = " search: ";
+/// The prompt before the query in a search bar, in the interface language.
+fn search_bar_label() -> &'static str {
+    xai_grok_i18n::tr("picker.search_label", " search: ")
+}
+
 const SEARCH_BAR_TRAILING_GAP: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,7 +194,8 @@ impl SearchBarLayout {
 }
 
 pub fn search_bar_layout(width: u16, trailing_width: u16) -> SearchBarLayout {
-    let label_width = (SEARCH_BAR_LABEL.len() as u16).min(width);
+    // Columns, not bytes: the prompt is not ASCII in every language
+    let label_width = (search_bar_label().width() as u16).min(width);
     let available_input = width - label_width;
     let trailing_reserved = if trailing_width > 0
         && available_input
@@ -234,7 +240,7 @@ pub fn render_search_bar(
         y,
         width,
         theme,
-        SEARCH_BAR_LABEL,
+        search_bar_label(),
         query,
         active,
         show_hint,
@@ -262,7 +268,7 @@ pub fn render_search_bar_with_viewport(
         y,
         layout.render_width,
         theme,
-        SEARCH_BAR_LABEL,
+        search_bar_label(),
         query,
         active,
         show_hint,
@@ -305,7 +311,7 @@ pub(crate) fn render_line_editor_search_bar(
         y,
         width,
         theme,
-        SEARCH_BAR_LABEL,
+        search_bar_label(),
         editor,
         active,
         show_hint,
@@ -353,7 +359,7 @@ fn render_line_editor_search_bar_with_label(
     show_hint: bool,
     bg: Option<ratatui::style::Color>,
 ) {
-    let input_width = width.saturating_sub(label.len() as u16) as usize;
+    let input_width = width.saturating_sub(label.width() as u16) as usize;
     let viewport = editor.viewport(input_width);
     render_search_bar_with_label_viewport(
         buf,
@@ -430,7 +436,7 @@ fn render_search_bar_with_label_viewport(
     let always_active = !active && !show_hint;
 
     if active || !query.is_empty() || always_active {
-        let label_w = label.len() as u16;
+        let label_w = label.width() as u16;
         buf.set_line(
             x,
             y,
@@ -509,7 +515,7 @@ fn render_search_bar_with_label_viewport(
             x,
             y,
             &Line::from(Span::styled(
-                " / to search",
+                xai_grok_i18n::tr("picker.search_hint", " / to search"),
                 bg_style(Style::default().fg(theme.gray_dim)),
             )),
             width,
@@ -1117,8 +1123,10 @@ pub fn render_picker_row(
                 ));
                 buf.set_line(x + indent, fy, &line, width.saturating_sub(indent));
             } else {
-                let label_text = format!("{:<12} ", field.label);
-                let label_col = label_text.len() as u16;
+                // Twelve columns for the label, counted in columns: a translated label can be wide characters
+                let pad = 12usize.saturating_sub(field.label.width());
+                let label_text = format!("{}{} ", field.label, " ".repeat(pad));
+                let label_col = label_text.width() as u16;
                 let max_val_w = width.saturating_sub(indent + label_col) as usize;
                 // First line: label then the start of the value
                 let val = field.value;
@@ -1684,18 +1692,19 @@ pub struct PickerConfig<'a> {
 /// Standard picker shortcuts: navigate, select, close.
 ///
 /// Returns a static reference, so there is no per-call allocation.
+/// The labels are kept in English; the picker looks them up when it draws its shortcuts bar.
 pub fn picker_shortcuts() -> &'static [HintItem] {
     static SHORTCUTS: LazyLock<Vec<HintItem>> = LazyLock::new(|| {
         vec![
             HintItem {
                 keys: vec![],
-                label: "nav".into(),
+                label: tlm("nav").into(),
                 custom_display: Some("\u{2191}/\u{2193}"),
                 description: None,
                 pinned: false,
             },
-            HintItem::new(crate::key!(Enter), "select"),
-            HintItem::new(crate::key!(Esc), "close"),
+            HintItem::new(crate::key!(Enter), tlm("select")),
+            HintItem::new(crate::key!(Esc), tlm("close")),
         ]
     });
     &SHORTCUTS
@@ -1925,7 +1934,7 @@ fn render_picker_content_inner(
             .get((loading_tick / 4) as usize % spinner_frames.len())
             .copied()
             .unwrap_or("");
-        let msg = format!("{frame} Loading\u{2026}");
+        let msg = format!("{frame} {}", tl("Loading…"));
         let msg_style = Style::default().fg(theme.gray);
         let cx = content_area.x + content_area.width.saturating_sub(msg.width() as u16) / 2;
         let cy = content_area.y + content_area.height / 2;
@@ -1938,7 +1947,8 @@ fn render_picker_content_inner(
         let msg_style = Style::default()
             .fg(theme.gray_dim)
             .bg(picker_base_bg(bg, theme));
-        buf.set_string(content_area.x, content_area.y, "  No matches", msg_style);
+        let msg = format!("  {}", tl("No matches"));
+        buf.set_string(content_area.x, content_area.y, msg, msg_style);
         return empty_hit;
     }
 
@@ -2131,7 +2141,8 @@ pub fn render_picker(
         area,
         theme,
         state.mode.clone(),
-        config.title,
+        // Callers hand the title over in English, often from a constant
+        config.title.map(xai_grok_i18n::tl),
         state.close_hovered,
     ) {
         Some(f) => f,
@@ -2229,7 +2240,7 @@ pub fn render_picker(
     if config.disable_search {
         // Replace the search bar row with a plain title (e.g. "Keyboard Shortcuts" for the cheatsheet modal).
         // Mirrors the search-bar padding for visual consistency
-        let title_text = config.title.unwrap_or("");
+        let title_text = xai_grok_i18n::tl(config.title.unwrap_or(""));
         let title_style = Style::default()
             .fg(theme.text_primary)
             .add_modifier(Modifier::BOLD);
@@ -2375,24 +2386,28 @@ pub fn render_picker(
         let mut all_hints: Vec<HintItem> = Vec::new();
         // Base shortcuts (nav, select, close).
         if let Some(shortcuts) = config.shortcuts {
-            all_hints.extend_from_slice(shortcuts);
+            // Labels kept in a static (`picker_shortcuts`) are still English here
+            all_hints.extend(shortcuts.iter().map(|hint| HintItem {
+                label: tl(&hint.label).to_owned().into(),
+                ..hint.clone()
+            }));
         }
         // Show `i` in vim nav mode so users discover how to start typing
         if config.vim_normal_first && !state.search_active {
-            all_hints.push(HintItem::new(crate::key!('i'), "search"));
+            all_hints.push(HintItem::new(crate::key!('i'), tl("search")));
         }
         // Expandable: add the e (expand) and y (copy) hints
         if config.expandable && !config.compact_bottom_bar {
             all_hints.push(HintItem {
                 keys: vec![],
-                label: "expand".into(),
+                label: tl("expand").into(),
                 custom_display: Some("e/Shift+e"),
                 description: None,
                 pinned: false,
             });
             all_hints.push(HintItem {
                 keys: vec![],
-                label: "copy".into(),
+                label: tl("copy").into(),
                 custom_display: Some("y"),
                 description: None,
                 pinned: false,
@@ -2416,7 +2431,7 @@ pub fn render_picker(
                 if !display.is_empty() {
                     all_hints.push(HintItem {
                         keys: vec![],
-                        label: std::borrow::Cow::Owned(desc.to_string()),
+                        label: std::borrow::Cow::Owned(tl(desc).to_string()),
                         custom_display: Some(display),
                         description: None,
                         pinned: false,
@@ -3296,7 +3311,7 @@ mod tests {
         let theme = Theme::current();
         for counter in ["no matches", "bad pattern", "12/34"] {
             let counter_width = counter.width() as u16;
-            let width = SEARCH_BAR_LABEL.len() as u16 + counter_width + SEARCH_BAR_TRAILING_GAP;
+            let width = search_bar_label().width() as u16 + counter_width + SEARCH_BAR_TRAILING_GAP;
             let layout = search_bar_layout(width, counter_width);
             assert_eq!(
                 layout.trailing_width(),

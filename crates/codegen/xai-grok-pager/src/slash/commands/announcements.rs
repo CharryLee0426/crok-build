@@ -2,15 +2,16 @@ use crate::app::actions::Action;
 use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand, slash_meta,
 };
+use xai_grok_i18n::{tl, tlm};
 
-const USAGE: &str = "Usage: /announcements hide | show";
+const USAGE: &str = tlm("Usage: /announcements hide | show");
 
 pub struct AnnouncementsCommand;
 
 impl SlashCommand for AnnouncementsCommand {
     slash_meta! {
         name: "announcements",
-        description: "Show or hide announcements",
+        description: tlm("Show or hide announcements"),
         usage: "/announcements hide | show",
         takes_args: true,
         args_required: true,
@@ -23,13 +24,13 @@ impl SlashCommand for AnnouncementsCommand {
                 display: "hide".to_string(),
                 match_text: "hide".to_string(),
                 insert_text: "hide".to_string(),
-                description: "Hide the announcement banner".to_string(),
+                description: tl("Hide the announcement banner").to_string(),
             },
             ArgItem {
                 display: "show".to_string(),
                 match_text: "show".to_string(),
                 insert_text: "show".to_string(),
-                description: "Show the announcement banner".to_string(),
+                description: tl("Show the announcement banner").to_string(),
             },
         ])
     }
@@ -42,7 +43,7 @@ impl SlashCommand for AnnouncementsCommand {
         match args.split_whitespace().next().unwrap_or("") {
             "hide" => CommandResult::Action(Action::AnnouncementsHide),
             "show" => CommandResult::Action(Action::AnnouncementsShow),
-            _ => CommandResult::Error(USAGE.into()),
+            _ => CommandResult::Error(tl(USAGE).into()),
         }
     }
 }

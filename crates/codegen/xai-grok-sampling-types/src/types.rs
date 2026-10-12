@@ -1237,10 +1237,96 @@ impl std::str::FromStr for PromptCacheTtl {
 /// Set for requests to Anthropic's own endpoint (`api.anthropic.com`), which takes fields and
 /// refuses others that the wider family of Messages-compatible hosts does not.
 /// `None` sends the plain Messages request.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnthropicOptions {
     #[serde(default)]
     pub cache_ttl: PromptCacheTtl,
+    /// Whether a request that belongs to a [`CacheChain`] asks the API where it differs from the one before it.
+    #[serde(default = "cache_diagnostics_default")]
+    pub cache_diagnostics: bool,
+}
+
+fn cache_diagnostics_default() -> bool {
+    true
+}
+
+impl Default for AnthropicOptions {
+    fn default() -> Self {
+        Self {
+            cache_ttl: PromptCacheTtl::default(),
+            cache_diagnostics: cache_diagnostics_default(),
+        }
+    }
+}
+
+/// The part of a request that differs from the request before it, in the order a prompt is rendered.
+/// Everything from that part on is read by the model at the full input price instead of from the cache.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, strum::AsRefStr, strum::EnumString,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum PromptCacheChange {
+    Model,
+    System,
+    Tools,
+    /// An earlier message was altered, reordered or removed: compaction, a rewind, pruned tool results.
+    Messages,
+}
+
+/// A request found to differ from the one before it, so the prompt cache was read only up to the difference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptCacheMiss {
+    pub changed: PromptCacheChange,
+    /// About how many input tokens came after the difference. An estimate from byte lengths, not a billed amount.
+    pub missed_input_tokens: u64,
+}
+
+/// One conversation's line of requests to the model. Each resends what the one before it sent and
+/// adds to the end, and the provider's prompt cache is read only as far as that holds. On an
+/// endpoint that can compare two requests, every request of the line names the response before it,
+/// and the answer says where the two first differ.
+///
+/// A session owns one and puts a clone on each request of its turn loop. A side call that replays
+/// the conversation to read its cache carries [`CacheChain::reader`] instead.
+#[derive(Clone, Debug, Default)]
+pub struct CacheChain {
+    latest: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    reads_only: bool,
+}
+
+impl CacheChain {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The same line for a request that is compared with its latest response and is not followed:
+    /// the next request of the turn loop continues from where the loop was, not from the side call.
+    pub fn reader(&self) -> Self {
+        Self {
+            latest: std::sync::Arc::clone(&self.latest),
+            reads_only: true,
+        }
+    }
+
+    /// The `id` of the latest response, `None` before the first.
+    pub fn previous_message_id(&self) -> Option<String> {
+        self.latest
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Records the response to a request of this line, which the next request is compared with.
+    pub fn advance(&self, message_id: &str) {
+        if self.reads_only || message_id.is_empty() {
+            return;
+        }
+        *self
+            .latest
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(message_id.to_owned());
+    }
 }
 
 /// Stable identifier shared by every model request in one root conversation tree.
@@ -1444,6 +1530,8 @@ pub struct MessagesRequestWrapper {
     pub trace: Option<Box<dyn TraceContext>>,
     /// Caller span's W3C `traceparent`; see [`crate::ConversationRequest::traceparent`].
     pub traceparent: Option<String>,
+    /// See [`crate::ConversationRequest::cache_chain`].
+    pub cache_chain: Option<CacheChain>,
 }
 
 impl MessagesRequestWrapper {
@@ -1460,6 +1548,7 @@ impl MessagesRequestWrapper {
             x_grok_user_id: None,
             trace: None,
             traceparent: None,
+            cache_chain: None,
         }
     }
 
@@ -1489,6 +1578,28 @@ impl From<crate::messages::MessagesRequest> for MessagesRequestWrapper {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A reader sees where the conversation is and never moves it, and every clone is the same line.
+    #[test]
+    fn cache_chain_is_advanced_by_its_requests_and_only_read_by_side_calls() {
+        let chain = CacheChain::new();
+        let reader = chain.reader();
+        assert_eq!(chain.previous_message_id(), None);
+
+        chain.clone().advance("msg_1");
+        assert_eq!(reader.previous_message_id().as_deref(), Some("msg_1"));
+
+        reader.advance("msg_side");
+        reader.clone().advance("msg_side");
+        chain.advance("");
+        assert_eq!(chain.previous_message_id().as_deref(), Some("msg_1"));
+
+        // The option is on wherever nothing says otherwise, including a config written before it existed.
+        assert!(AnthropicOptions::default().cache_diagnostics);
+        let older: AnthropicOptions = serde_json::from_value(json!({"cache_ttl": "5m"})).unwrap();
+        assert!(older.cache_diagnostics);
+        assert_eq!(older.cache_ttl, PromptCacheTtl::FiveMinutes);
+    }
 
     #[test]
     fn reasoning_effort_serde_lowercase_round_trip() {

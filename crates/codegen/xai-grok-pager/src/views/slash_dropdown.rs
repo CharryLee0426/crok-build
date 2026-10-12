@@ -62,9 +62,12 @@ fn compute_label_column_w(items: &[SuggestionRow], content_w: usize) -> usize {
         .min(budget)
 }
 
-/// Build a flat list of styled lines for all visible items.
+/// Build a flat list of styled lines for the items in `window`, whose first item is item
+/// `window.start` of the list. Only the items a frame paints are built: with hundreds of skills
+/// listed, wrapping every description each frame is what made typing stutter.
 fn build_flat_lines(
     items: &[SuggestionRow],
+    window: std::ops::Range<usize>,
     selected: usize,
     hovered: Option<usize>,
     label_col_w: usize,
@@ -74,8 +77,13 @@ fn build_flat_lines(
     let hover_bg = theme.bg_hover;
     let mut flat: Vec<Line<'static>> = Vec::new();
     let mut starts: Vec<usize> = Vec::new();
+    let first = window.start;
+    let Some(shown) = items.get(window) else {
+        return (flat, starts);
+    };
 
-    for (idx, item) in items.iter().enumerate() {
+    for (offset, item) in shown.iter().enumerate() {
+        let idx = first + offset;
         starts.push(flat.len());
 
         let is_selected = idx == selected;
@@ -150,14 +158,19 @@ pub fn render_dropdown(
     };
 
     let label_col_w = compute_label_column_w(items, row_w.saturating_sub(PREFIX_W));
+    let desc_indent = PREFIX_W + label_col_w + LABEL_DESC_GAP;
 
-    // Build flat line list (multi-line descriptions produce multiple lines per item).
-    let (flat_lines, item_starts) =
-        build_flat_lines(items, selected, hovered, label_col_w, row_w, theme);
+    // Where each item's lines start (multi-line descriptions produce multiple lines per item);
+    // counted without building the lines.
+    let mut item_starts: Vec<usize> = Vec::with_capacity(items.len());
+    let mut total_lines = 0usize;
+    for item in items {
+        item_starts.push(total_lines);
+        total_lines += item_line_count(item, row_w, desc_indent);
+    }
 
     // Compute scroll offset so the selected item's first line is visible.
     let selected_start = item_starts.get(selected).copied().unwrap_or(0);
-    let total_lines = flat_lines.len();
     let scroll = if total_lines <= visible_rows || selected_start < visible_rows / 2 {
         0
     } else if selected_start + visible_rows / 2 >= total_lines {
@@ -166,11 +179,30 @@ pub fn render_dropdown(
         selected_start.saturating_sub(visible_rows / 2)
     };
 
+    // The items whose lines fall in the painted rows: from the one holding line `scroll` to the
+    // one holding the last painted line.
+    let first_item = item_starts
+        .partition_point(|&s| s <= scroll)
+        .saturating_sub(1);
+    let end_item = item_starts
+        .partition_point(|&s| s < scroll + visible_rows)
+        .max(first_item);
+    let (flat_lines, _) = build_flat_lines(
+        items,
+        first_item..end_item,
+        selected,
+        hovered,
+        label_col_w,
+        row_w,
+        theme,
+    );
+    let window_start = item_starts.get(first_item).copied().unwrap_or(0);
+
     // Render visible slice, recording which item each visible row shows.
-    let mut row_items = Vec::with_capacity(visible_rows.min(flat_lines.len()));
+    let mut row_items = Vec::with_capacity(visible_rows.min(total_lines));
     for vis_row in 0..visible_rows {
         let line_idx = scroll + vis_row;
-        if line_idx >= flat_lines.len() {
+        if line_idx >= total_lines {
             break;
         }
         row_items.push(
@@ -179,7 +211,7 @@ pub fn render_dropdown(
                 .saturating_sub(1),
         );
         let y = area.y + vis_row as u16;
-        let Some(line) = flat_lines.get(line_idx) else {
+        let Some(line) = flat_lines.get(line_idx.wrapping_sub(window_start)) else {
             break;
         };
         // Skip rows that fall outside the buffer (resize race).
@@ -273,17 +305,22 @@ fn flat_line_count(items: &[SuggestionRow], row_w: usize, cap: usize) -> usize {
     let desc_indent = PREFIX_W + label_col_w + LABEL_DESC_GAP;
     let mut lines = 0usize;
     for item in items {
-        let desc_w = BadgeLayout::compute(item, row_w, desc_indent).desc_w;
-        lines += if item.description.is_empty() {
-            1
-        } else {
-            simple_word_wrap(&item.description, desc_w).len()
-        };
+        lines += item_line_count(item, row_w, desc_indent);
         if lines >= cap {
             return cap;
         }
     }
     lines
+}
+
+/// Lines one item takes: its label line plus wrapped-description continuations, counted the way
+/// [`build_item_lines`] wraps them but without building a string per line.
+fn item_line_count(item: &SuggestionRow, row_w: usize, desc_indent: usize) -> usize {
+    if item.description.is_empty() {
+        return 1;
+    }
+    let desc_w = BadgeLayout::compute(item, row_w, desc_indent).desc_w;
+    wrapped_line_count(&item.description, desc_w)
 }
 
 /// Build lines for a single dropdown item and append them to `out`. Layout (same as question view).
@@ -451,15 +488,33 @@ fn build_highlighted_spans(
 ///
 /// Breaks at word boundaries when possible, hard-breaks at `width` otherwise.
 fn simple_word_wrap(text: &str, width: usize) -> Vec<String> {
-    if width == 0 {
-        return vec![text.to_string()];
-    }
     let mut lines = Vec::new();
-    let normalized = text.replace('\n', " ");
-    let mut remaining = normalized.as_str();
+    for_each_wrapped_line(text, width, |line| lines.push(line.to_string()));
+    lines
+}
+
+/// How many lines [`simple_word_wrap`] would return, without building them.
+fn wrapped_line_count(text: &str, width: usize) -> usize {
+    let mut count = 0usize;
+    for_each_wrapped_line(text, width, |_| count += 1);
+    count
+}
+
+/// The wrapping behind [`simple_word_wrap`], one callback per line. Newlines read as spaces.
+fn for_each_wrapped_line(text: &str, width: usize, mut visit: impl FnMut(&str)) {
+    if width == 0 {
+        visit(text);
+        return;
+    }
+    let normalized: std::borrow::Cow<'_, str> = if text.contains('\n') {
+        std::borrow::Cow::Owned(text.replace('\n', " "))
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    };
+    let mut remaining = normalized.as_ref();
     while !remaining.is_empty() {
         if remaining.width() <= width {
-            lines.push(remaining.to_string());
+            visit(remaining);
             break;
         }
         // Find break point: last space within width, or hard break.
@@ -492,10 +547,9 @@ fn simple_word_wrap(text: &str, width: usize) -> Vec<String> {
             })
         };
         let (chunk, rest) = remaining.split_at(break_at);
-        lines.push(chunk.trim_end().to_string());
+        visit(chunk.trim_end());
         remaining = rest.trim_start();
     }
-    lines
 }
 
 #[cfg(test)]
@@ -517,6 +571,86 @@ mod tests {
             .collect();
         assert_eq!(desired_item_rows(&matches, 80), MAX_DROPDOWN_ROWS);
         assert_eq!(desired_item_rows(&[], 80), 0);
+    }
+
+    /// The count used for layout must agree with the wrap that paints.
+    #[test]
+    fn wrapped_line_count_matches_the_wrap() {
+        let texts = [
+            "",
+            "short",
+            "a description that is long enough to wrap onto several lines of a narrow column",
+            "line one\nline two that keeps going past the width",
+            "supercalifragilisticexpialidocious-unbreakable-token-that-must-hard-break",
+            "宽字符 的 描述 也 需要 正确 换行 才行 呢 对吧",
+        ];
+        for text in texts {
+            for width in [0usize, 1, 5, 12, 30, 200] {
+                assert_eq!(
+                    wrapped_line_count(text, width),
+                    simple_word_wrap(text, width).len(),
+                    "{text:?} at width {width}"
+                );
+            }
+        }
+    }
+
+    /// With hundreds of matches only the painted window is built, and it is the right window.
+    #[test]
+    fn render_dropdown_paints_the_window_around_the_selection() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let theme = Theme::current();
+        let matches: Vec<SuggestionRow> = (0..600)
+            .map(|i| SuggestionRow {
+                display: format!("/cmd{i:03}"),
+                description: format!(
+                    "description for command {i} which is long enough to wrap in a narrow dropdown"
+                ),
+                insert_text: format!("/cmd{i:03}"),
+                indices: vec![],
+                tag: None,
+                provenance: None,
+            })
+            .collect();
+        let snap = SlashSnapshot {
+            open: true,
+            matches,
+            selected: 400,
+            ..Default::default()
+        };
+        let area = Rect::new(0, 0, 60, 8);
+        let mut buf = Buffer::empty(area);
+        let rendered = render_dropdown(&mut buf, area, &snap, None, &theme);
+        assert!(rendered.has_scrollbar);
+        assert!(
+            rendered.row_items.contains(&400),
+            "the selected item is on screen: {:?}",
+            rendered.row_items
+        );
+        assert!(
+            rendered.row_items.windows(2).all(|w| w[1] >= w[0]),
+            "rows show items in order: {:?}",
+            rendered.row_items
+        );
+        let painted: Vec<String> = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect();
+        assert!(
+            painted.iter().any(|line| line.contains("/cmd400")),
+            "the selected label is painted: {painted:?}"
+        );
+        assert!(
+            painted
+                .iter()
+                .all(|line| line.trim().is_empty() || !line.contains("/cmd0")),
+            "items far above the window are not painted: {painted:?}"
+        );
     }
 
     /// During terminal resize the computed items area can extend past the frame buffer.

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use xai_grok_i18n::tlm;
 
 pub use xai_grok_config::grok_home;
 pub use xai_grok_tools::util::format_bytes;
@@ -110,7 +111,7 @@ pub fn format_duration(d: Duration) -> String {
 pub fn format_time_ago(d: Duration) -> String {
     let secs = d.as_secs();
     if secs < 60 {
-        return "just now".to_string();
+        return tlm("just now").to_string();
     }
     if secs < 3600 {
         let mins = secs / 60;

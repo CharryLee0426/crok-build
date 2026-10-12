@@ -11,12 +11,39 @@ final class MenuState: ObservableObject {
     @Published fileprivate(set) var isSyncing = false
 }
 
+/// The composer's text. Published apart from the store so a keystroke redraws the composer and
+/// its command menu, not every view that observes the store (the sidebar, the transcript, the panels).
+@MainActor
+final class ComposerDraft: ObservableObject {
+    @Published var text = ""
+}
+
+/// The sidebar's search text, published apart from the store for the same reason.
+@MainActor
+final class SidebarSearch: ObservableObject {
+    @Published var text = ""
+}
+
 @MainActor
 final class AppStore: ObservableObject {
     @Published var state = DesktopState()
     @Published var runs: [UUID: RunState] = [:]
-    @Published var draft = ""
-    @Published var search = ""
+    let composerDraft = ComposerDraft()
+    let sidebarSearch = SidebarSearch()
+    /// The composer's text. Reading it in a view's body needs `@EnvironmentObject var composerDraft`.
+    var draft: String {
+        get { composerDraft.text }
+        set { if composerDraft.text != newValue { composerDraft.text = newValue } }
+    }
+    /// The sidebar's search text. Reading it in a view's body needs `@EnvironmentObject var sidebarSearch`.
+    var search: String {
+        get { sidebarSearch.text }
+        set { if sidebarSearch.text != newValue { sidebarSearch.text = newValue } }
+    }
+    /// The command list ranked for the composer menu and the palette, kept while its inputs stand.
+    var commandIndexCache: (key: CommandIndexKey, index: CommandIndex)?
+    /// When the catalog was last fetched from a harness of its own, per project.
+    var commandCatalogRefreshedAt: [UUID: Date] = [:]
     @Published var showSearch = false
     @Published var showSettings = false
     @Published var showRename = false
@@ -33,6 +60,8 @@ final class AppStore: ObservableObject {
     /// What the harness reported about itself and the signed-in account.
     @Published var harnessMeta = HarnessMeta()
     lazy var features = DesktopFeatures(store: self)
+    /// Check for Updates: the bundled `crok upgrade`, which replaces this app and its crok together.
+    lazy var softwareUpdate = SoftwareUpdateModel()
     /// The window the conversation is in, which ⌘W leaves open.
     weak var mainWindow: NSWindow?
     /// The side panel beside the conversation: files, side chat, and terminal.
@@ -508,6 +537,7 @@ final class AppStore: ObservableObject {
                 catalogRun.commandsLoaded = true
                 catalogRun.availableTools = commands["tools"] as? [String]
                 commandCatalogProjectID = project.id
+                commandCatalogRefreshedAt[project.id] = Date()
             } catch { /* Model selection still works with an older harness. */ }
             save()
         } catch {
@@ -1220,6 +1250,13 @@ final class AppStore: ObservableObject {
     var selectedSessionID: String? { state.selectedConversationID.flatMap(task)?.sessionID }
 
     /// Shows the unified log in Finder. `crok logs` reads the same file.
+    /// Crok Desktop › Check for Updates…: opens the Software Update sheet and checks again.
+    func checkForUpdates() {
+        showSettings = false
+        sheet = .softwareUpdate
+        if !softwareUpdate.isBusy { Task { await softwareUpdate.check() } }
+    }
+
     func revealLog() {
         DesktopLog.shared.flush()
         let file = DesktopLog.shared.file
@@ -1276,7 +1313,7 @@ final class AppStore: ObservableObject {
         guard !loginRunning else { return }
         loginFailure = nil
         guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
-            loginLog = "The bundled Crok runtime is missing. Reinstall Crok Desktop."; loginFailure = loginLog; return
+            loginLog = L10n.t("accounts_runtime_missing", "The bundled Crok runtime is missing. Reinstall Crok Desktop."); loginFailure = loginLog; return
         }
         let process = Process(); process.executableURL = URL(fileURLWithPath: binaryPath)
         process.currentDirectoryURL = URL(fileURLWithPath: project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path, isDirectory: true)
@@ -1334,7 +1371,7 @@ final class AppStore: ObservableObject {
     static func loginFailureText(_ log: String) -> String {
         let line = log.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty } ?? ""
         let text = line.hasPrefix("Error: ") ? String(line.dropFirst(7)) : line
-        return text.isEmpty ? "Sign-in did not finish." : text
+        return text.isEmpty ? L10n.t("accounts_sign_in_unfinished", "Sign-in did not finish.") : text
     }
     /// Removes one saved sign-in with `crok logout <provider>`. Keys set in the environment are not touched.
     func logout(provider: String) {

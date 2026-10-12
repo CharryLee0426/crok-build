@@ -7,6 +7,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Widget};
+use xai_grok_i18n::tl;
 
 use crate::prompt_images::VideoViewerState;
 use crate::render::safe_buf::SafeBuf;
@@ -55,8 +56,10 @@ pub fn render_video_overlay(
             name, viewer.video_width, viewer.video_height
         ),
         None => format!(
-            " Video ({}\u{00d7}{}) ",
-            viewer.video_width, viewer.video_height
+            " {} ({}\u{00d7}{}) ",
+            tl("Video"),
+            viewer.video_width,
+            viewer.video_height
         ),
     };
     let title_style = Style::default()

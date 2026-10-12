@@ -26,6 +26,7 @@ use crate::appearance::AppearanceConfig;
 use crate::render::Renderable;
 use crate::render::osc8::{LinkOverlay, OverlayLink};
 use crate::theme::Theme;
+use xai_grok_i18n::tl;
 
 /// Synthetic header `range_id`, reserved above block `selection_range` ids (which count up from 0).
 /// Expanded verb slot maps member 0's line 0 beside the header; a shared id would merge both rows into one selectable range.
@@ -35,16 +36,21 @@ pub(crate) const GROUP_HEADER_RANGE_ID: u16 = u16::MAX;
 /// Graphics terminals use a shorter overlay `[Open]` instead.
 pub fn media_open_button_label(is_video: bool) -> &'static str {
     if is_video {
-        "[Open Video]"
+        tl("[Open Video]")
     } else {
-        "[Open Image]"
+        tl("[Open Image]")
     }
+}
+
+/// Terminal columns the `[Open]` text button takes; its label is translated, so not its byte length.
+fn media_open_button_width(is_video: bool) -> u16 {
+    unicode_width::UnicodeWidthStr::width(media_open_button_label(is_video)) as u16
 }
 
 /// Centered left column for the `[Open]` text button.
 /// Shared by the renderer and the hit-area computation so the label and click target stay aligned.
 pub fn media_open_button_col(content_width: u16, is_video: bool) -> u16 {
-    let label_w = media_open_button_label(is_video).len() as u16;
+    let label_w = media_open_button_width(is_video);
     content_width.saturating_sub(label_w) / 2
 }
 
@@ -807,7 +813,7 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
             // Centered `[Open]` button: click-to-open
             // It is the second-to-last content line (the last line is a blank spacer)
             let open_button_screen_rect = if content_lines >= 2 {
-                let label_w = media_open_button_label(is_video).len() as u16;
+                let label_w = media_open_button_width(is_video);
                 let col = media_open_button_col(content_width, is_video);
                 let button_virtual_y = content_y_start + (content_lines - 2);
                 line_screen_rect(button_virtual_y, label_w).map(|mut rect| {

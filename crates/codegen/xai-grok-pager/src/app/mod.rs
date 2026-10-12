@@ -48,6 +48,7 @@ mod status_line_policy;
 pub mod subagent;
 pub mod subscription;
 pub(crate) mod token_meter;
+pub(crate) mod ui_language_sync;
 pub(crate) mod voice_state;
 pub(crate) mod worktree_session;
 pub(crate) use dispatch::dashboard_stop_readiness;
@@ -374,9 +375,10 @@ mod voice_gate_tests {
 /// `Ctrl+R` only works from scrollback, so the prompt-focused variant points at `/toggle-mouse-reporting` (which toggles from any pane).
 /// The banner is stored in the scrollback form; `AgentView::active_toast_message` swaps to the prompt form at render time when the prompt is focused.
 pub(crate) const MOUSE_OFF_HINT_SCROLLBACK: &str =
-    "Ctrl+r to enable mouse reporting and restore TUI features";
-pub(crate) const MOUSE_OFF_HINT_PROMPT: &str =
-    "/toggle-mouse-reporting to enable mouse reporting and restore TUI features";
+    xai_grok_i18n::tlm("Ctrl+r to enable mouse reporting and restore TUI features");
+pub(crate) const MOUSE_OFF_HINT_PROMPT: &str = xai_grok_i18n::tlm(
+    "/toggle-mouse-reporting to enable mouse reporting and restore TUI features",
+);
 /// Uses [`xai_ratatui_inline::Terminal`] instead of stock `ratatui::Terminal`: our `flush()` returns a `bool` saying whether any cells changed.
 /// This lets [`crate::render::draw::draw_frame`] skip cursor escape sequences on frames with empty diffs (e.g., off-screen animation ticks).
 /// Skipping them preserves the cursor blink timer; see [`crate::render::draw`] for details.
@@ -420,9 +422,9 @@ impl ScreenMode {
     /// Renaming one silently collapses it to `"other"` on the external stream.
     pub(crate) fn meta_label(self) -> &'static str {
         match self {
-            Self::Fullscreen => "fullscreen",
-            Self::Inline => "inline",
-            Self::Minimal => "minimal",
+            Self::Fullscreen => xai_grok_i18n::tlm("fullscreen"),
+            Self::Inline => xai_grok_i18n::tlm("inline"),
+            Self::Minimal => xai_grok_i18n::tlm("minimal"),
         }
     }
 }

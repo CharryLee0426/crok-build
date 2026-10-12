@@ -14,6 +14,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::StatefulWidget;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_workspace::permission::mcp_titleize_segment;
 
 use crate::clipboard::SystemClipboard;
@@ -395,7 +396,8 @@ impl BlockViewerPane {
 
         // Error-only blocks: show the error text
         if !read.has_content() {
-            let error = read.error.as_deref()?;
+            // The tracker's own fallbacks ("Read failed") are in the catalog; a tool's message shows as sent
+            let error = tl(read.error.as_deref()?);
             let error_style = Style::default().fg(theme.accent_error);
             let lines: Vec<Line<'static>> = error
                 .lines()
@@ -506,7 +508,7 @@ impl BlockViewerPane {
                 Style::default().fg(theme.gray_dim),
             )));
             lines.push(Line::from(Span::styled(
-                format!("Sources ({})", ws.citations.len()),
+                tlf("Sources ({count})", &[("count", &ws.citations.len())]),
                 Style::default().fg(theme.text_secondary),
             )));
             let url_style = Style::default().fg(theme.gray);
@@ -548,11 +550,12 @@ impl BlockViewerPane {
                 Span::styled(limit.to_string(), value),
             ]));
         }
-        let s = if st.result_count == 1 { "" } else { "s" };
-        lines.push(Line::from(Span::styled(
-            format!("{} result{s}", st.result_count),
-            label,
-        )));
+        let result_count = if st.result_count == 1 {
+            tlf("{count} result", &[("count", &st.result_count)])
+        } else {
+            tlf("{count} results", &[("count", &st.result_count)])
+        };
+        lines.push(Line::from(Span::styled(result_count, label)));
 
         // Tool list
         for (i, tool) in st.results.iter().enumerate() {
@@ -575,8 +578,8 @@ impl BlockViewerPane {
 
         // The error and rowless payloads (e.g. a large-output note) have nowhere else to show
         let (text, style) = match (&st.error, &st.content) {
-            (Some(error), _) => (Some(error), Style::default().fg(theme.accent_error)),
-            (None, content) if st.results.is_empty() => (content.as_ref(), dim),
+            (Some(error), _) => (Some(tl(error)), Style::default().fg(theme.accent_error)),
+            (None, content) if st.results.is_empty() => (content.as_deref(), dim),
             _ => (None, dim),
         };
         if let Some(text) = text {
@@ -616,7 +619,7 @@ impl BlockViewerPane {
         }
 
         // Output or error
-        let content = ut.output.as_deref().or(ut.error.as_deref());
+        let content = ut.output.as_deref().or(ut.error.as_deref().map(tl));
         if let Some(text) = content {
             if !ut.input_args.is_empty() {
                 lines.push(Line::from(""));
@@ -1040,34 +1043,34 @@ impl BlockViewerPane {
     /// Build shortcuts bar hints for this viewer.
     pub fn shortcuts_hints(&self) -> Vec<HintItem> {
         let mut hints = vec![
-            HintItem::new(crate::key!(Esc), "close"),
-            HintItem::new(crate::key!(Enter), "quote"),
-            HintItem::new(crate::key!('/'), "search"),
-            HintItem::new(crate::key!('f'), "filter"),
-            HintItem::new(crate::key!('v'), "select"),
-            HintItem::new(crate::key!('w'), "wrap"),
+            HintItem::new(crate::key!(Esc), tl("close")),
+            HintItem::new(crate::key!(Enter), tl("quote")),
+            HintItem::new(crate::key!('/'), tl("search")),
+            HintItem::new(crate::key!('f'), tl("filter")),
+            HintItem::new(crate::key!('v'), tl("select")),
+            HintItem::new(crate::key!('w'), tl("wrap")),
         ];
         match self.kind {
             ViewerKind::Markdown => {
-                hints.push(HintItem::new(crate::key!('r'), "raw"));
+                hints.push(HintItem::new(crate::key!('r'), tl("raw")));
             }
             ViewerKind::Execute => {
-                hints.push(HintItem::new(crate::key!('Y'), "copy cmd"));
+                hints.push(HintItem::new(crate::key!('Y'), tl("copy cmd")));
             }
             ViewerKind::Edit => {
-                hints.push(HintItem::new(crate::key!('Y'), "copy path"));
+                hints.push(HintItem::new(crate::key!('Y'), tl("copy path")));
             }
             ViewerKind::WebFetch => {
-                hints.push(HintItem::new(crate::key!('Y'), "copy url"));
+                hints.push(HintItem::new(crate::key!('Y'), tl("copy url")));
             }
             ViewerKind::WebSearch => {
-                hints.push(HintItem::new(crate::key!('Y'), "copy query"));
+                hints.push(HintItem::new(crate::key!('Y'), tl("copy query")));
             }
             ViewerKind::Read => {
-                hints.push(HintItem::new(crate::key!('Y'), "copy path"));
+                hints.push(HintItem::new(crate::key!('Y'), tl("copy path")));
             }
             ViewerKind::Grep => {
-                hints.push(HintItem::new(crate::key!('Y'), "copy pattern"));
+                hints.push(HintItem::new(crate::key!('Y'), tl("copy pattern")));
             }
             ViewerKind::BgTask => {}
             ViewerKind::IntegrationSearch | ViewerKind::UseTool | ViewerKind::PlainText => {}

@@ -1097,6 +1097,9 @@ pub(crate) struct SessionActor {
     pub(crate) recap_in_flight: std::cell::Cell<bool>,
     /// Bumped on each real user prompt (queue accept and turn start); an in-flight recap suppresses emit if this changes before commit.
     pub(crate) recap_epoch: std::cell::Cell<u64>,
+    /// The turn loop's requests, each naming the response before it where the endpoint can say how
+    /// the two differ. Starts empty with the process, so a resumed session's first request is compared with nothing.
+    pub(crate) cache_chain: xai_grok_sampling_types::CacheChain,
     /// A newer completion (or a real prompt / rewind / cancel / shutdown) aborts it; its result would describe an older turn.
     /// A completion respawns it; see `restart_turn_summary`.
     /// Cleared when the task finishes so `Some` means "still running".

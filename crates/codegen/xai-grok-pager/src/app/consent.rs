@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use crossterm::event::{Event, KeyEventKind, MouseButton, MouseEventKind};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::tlm;
 use xai_grok_shell::util::config::{ConsentAnswer, ConsentGate};
 
 use crate::app::actions::Action;
@@ -288,14 +289,14 @@ impl ConsentNotice {
             version,
             title: text_or(
                 gate.title.as_deref(),
-                "Updates to our terms",
+                tlm("Updates to our terms"),
                 MAX_CONSENT_TITLE_COLS,
             ),
             segments,
             links,
             accept_label: text_or(
                 gate.accept_label.as_deref(),
-                "Got it",
+                tlm("Got it"),
                 MAX_CONSENT_LABEL_COLS,
             ),
         })

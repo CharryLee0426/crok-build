@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 
 use super::EphemeralTip;
 use crate::theme::Theme;
+use xai_grok_i18n::tl;
 
 /// Ephemeral-tip dedup key for the word-select settings hint.
 pub(crate) const WORD_SELECT_TIP_KEY: &str = "word_select_tip";
@@ -38,11 +39,11 @@ pub fn word_select_tip() -> EphemeralTip {
         ..EphemeralTip::new(
             WORD_SELECT_TIP_KEY,
             Line::from(vec![
-                Span::styled("Want double-click to select? ", dim),
+                Span::styled(format!("{} ", tl("Want double-click to select?")), dim),
                 Span::styled("/settings", key_style),
-                Span::styled(" → Text selection · ", dim),
+                Span::styled(format!(" → {} · ", tl("Text selection")), dim),
                 Span::styled(WORD_SELECT_ACCEPT_CHORD, key_style),
-                Span::styled(": enable now", dim),
+                Span::styled(format!(": {}", tl("enable now")), dim),
             ]),
         )
         .with_session_seen_cap(WORD_SELECT_TIP_SEEN_KEY, WORD_SELECT_TIP_SEEN_CAP)

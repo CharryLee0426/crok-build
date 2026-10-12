@@ -15,6 +15,8 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Widget, Wrap};
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
 
 use crate::prompt_images::PastedImage;
 use crate::terminal::image as terminal_image;
@@ -141,30 +143,39 @@ fn render_image_overlay_inner(
 
     if !plan.show_pixels {
         let mut lines = Vec::new();
-        lines.push(Line::from(format!(
-            "Format: {}",
-            format_mime(&image.mime_type)
+        lines.push(Line::from(tlf(
+            "Format: {format}",
+            &[("format", &format_mime(&image.mime_type))],
         )));
         if let Some((w, h)) = image.preview_dimensions() {
-            lines.push(Line::from(format!("Dimensions: {} x {}", w, h)));
+            lines.push(Line::from(tlf(
+                "Dimensions: {width} x {height}",
+                &[("width", &w), ("height", &h)],
+            )));
         }
         let status = if image.preview.is_failed() {
-            Some("Preview unavailable")
+            Some(tl("Preview unavailable"))
         } else if image.preview.is_pending() && protocol.supports_images() {
-            Some("Preview pending")
+            Some(tl("Preview pending"))
         } else {
             None
         };
         lines.push(Line::from(status.map(str::to_owned).unwrap_or_else(|| {
-            format!("Size: {}", format_bytes(image.byte_len as u64))
+            tlf(
+                "Size: {size}",
+                &[("size", &format_bytes(image.byte_len as u64))],
+            )
         })));
         // Short boxes need the path in the body because no footer fits.
         if path_footer.is_none()
             && let Some(path) = plan.display_path
         {
-            lines.push(Line::from(format!(
-                "Path: {}",
-                truncate_path_for_overlay(&path.display().to_string(), inner.width as usize)
+            lines.push(Line::from(tlf(
+                "Path: {path}",
+                &[(
+                    "path",
+                    &truncate_path_for_overlay(&path.display().to_string(), inner.width as usize),
+                )],
             )));
         }
 
@@ -187,8 +198,8 @@ fn render_image_overlay_inner(
 
     if image_inner.width > 0 && image_inner.height > 0 {
         use crate::render::SafeBuf;
-        let loading = "Loading...";
-        let lw = loading.len() as u16;
+        let loading = tl("Loading...");
+        let lw = loading.width() as u16;
         let lx = image_inner.x + image_inner.width.saturating_sub(lw) / 2;
         let ly = image_inner.y + image_inner.height / 2;
         buf.set_span_safe(

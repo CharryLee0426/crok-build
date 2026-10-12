@@ -7,6 +7,7 @@ use super::{
 use super::{AgentPane, test_fixtures};
 use crate::app::actions::Action;
 use std::time::Instant;
+use xai_grok_i18n::{tl, tlf};
 
 impl AgentView {
     /// How long after the last resize event the iTerm2 prompt image preview stays hidden. Longer than `RESIZE_DEBOUNCE` (16ms) so mid-drag stutters don't flash pixels back in, short enough that the preview returns as soon as the drag visibly ends.
@@ -215,16 +216,17 @@ impl AgentView {
         // Storage keeps the scrollback form; swap the displayed text here.
         if sticky == crate::app::MOUSE_OFF_HINT_SCROLLBACK && self.active_pane == ActivePane::Prompt
         {
-            return Some(crate::app::MOUSE_OFF_HINT_PROMPT);
+            return Some(tl(crate::app::MOUSE_OFF_HINT_PROMPT));
         }
-        Some(sticky)
+        // Stored in English so the comparison above holds; the language is applied here.
+        Some(tl(sticky))
     }
 
     /// Show a transient "Switched to mode: ..." banner above the prompt.
     /// Triggered on Shift+Tab mode cycles.
     /// Renders at full visibility for 2 s, then fades out over the final 0.3 s.
     pub fn show_mode_switch_banner(&mut self, mode_name: &str) {
-        let msg = format!("Switched to mode: {}", mode_name);
+        let msg = tlf("Switched to mode: {mode}", &[("mode", &mode_name)]);
         self.mode_switch_banner = Some((msg, MODE_BANNER_TOTAL_TICKS));
     }
 
@@ -273,8 +275,8 @@ impl AgentView {
             return true;
         }
         let msg = match crate::terminal::terminal_context().graphics_protocol_skip_reason() {
-            Some("tmux") => "Inline images disabled within tmux.",
-            _ => "Image rendering not supported in this terminal",
+            Some("tmux") => tl("Inline images disabled within tmux."),
+            _ => tl("Image rendering not supported in this terminal"),
         };
         self.show_toast_ticks(msg, 60);
         false
@@ -334,7 +336,7 @@ impl AgentView {
                     .push_block(RenderBlock::system(browser_unavailable_message(url)));
                 // Best-effort clipboard so SSH/VM users can paste into a browser on another machine without selecting TUI text
                 let _ = crate::clipboard::SystemClipboard::try_set(url);
-                self.show_toast("Browser unavailable - URL shown above");
+                self.show_toast(tl("Browser unavailable - URL shown above"));
             }
         }
     }
@@ -352,7 +354,7 @@ impl AgentView {
             OpenUrlResult::BrowserUnavailable => {
                 self.scrollback
                     .push_block(RenderBlock::system(browser_unavailable_message(url)));
-                self.show_toast("Browser unavailable - URL shown above");
+                self.show_toast(tl("Browser unavailable - URL shown above"));
             }
         }
     }
@@ -368,9 +370,15 @@ impl AgentView {
         }
         let numbers = image_number_list(&unbound);
         let message = if unbound.len() == 1 {
-            format!("Image {numbers} not attached — placeholder sent as text")
+            tlf(
+                "Image {numbers} not attached — placeholder sent as text",
+                &[("numbers", &numbers)],
+            )
         } else {
-            format!("Images {numbers} not attached — placeholders sent as text")
+            tlf(
+                "Images {numbers} not attached — placeholders sent as text",
+                &[("numbers", &numbers)],
+            )
         };
         crate::unified_log::warn(
             "prompt.image_placeholder_unbound",
@@ -389,17 +397,23 @@ impl AgentView {
             return None;
         }
         let numbers = image_number_list(display_numbers);
-        let noun = if display_numbers.len() == 1 {
-            "Image"
+        let message = if display_numbers.len() == 1 {
+            tlf(
+                "Image {numbers} couldn't be read — not sent",
+                &[("numbers", &numbers)],
+            )
         } else {
-            "Images"
+            tlf(
+                "Images {numbers} couldn't be read — not sent",
+                &[("numbers", &numbers)],
+            )
         };
         crate::unified_log::warn(
             "prompt.image_send_skipped",
             self.session.session_id.as_ref().map(|s| s.0.as_ref()),
             Some(serde_json::json!({ "display_numbers": display_numbers })),
         );
-        Some(format!("{noun} {numbers} couldn't be read — not sent"))
+        Some(message)
     }
 
     /// Composer images a submission cannot carry, logged against this session; the caller releases
@@ -411,15 +425,18 @@ impl AgentView {
     ) -> String {
         let (message, ctx) = match dropped_by {
             ImagesDroppedBy::CompactCommand => (
-                "Images not sent with /compact — paste them again".to_owned(),
+                tl("Images not sent with /compact — paste them again").to_owned(),
                 serde_json::json!({ "count": count, "reason": "compact_command" }),
             ),
             ImagesDroppedBy::SkillPrompt => (
-                "Images not sent with a skill prompt — paste them again".to_owned(),
+                tl("Images not sent with a skill prompt — paste them again").to_owned(),
                 serde_json::json!({ "count": count, "reason": "skill_prompt" }),
             ),
             ImagesDroppedBy::SlashAction(command) => (
-                format!("Images not sent with /{command} — paste them again"),
+                tlf(
+                    "Images not sent with /{command} — paste them again",
+                    &[("command", &command)],
+                ),
                 serde_json::json!({
                     "count": count,
                     "reason": "slash_action",

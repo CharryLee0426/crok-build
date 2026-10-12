@@ -23,6 +23,7 @@ use std::time::Duration;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, sleep_until};
 use xai_acp_lib::{AcpClientMessage, acp_send};
+use xai_grok_i18n::{tl, tlf, tlm};
 /// During a continuous terminal drag, dozens of resize events fire per second, and each would rebuild the layout of every entry.
 /// One deferred draw runs after the size stabilizes instead.
 /// Whether authenticated interactive startup should create the unused home session.
@@ -692,8 +693,8 @@ fn defer_suspend_retry(
     *wait_reported = true;
     should_report
 }
-const EDITOR_SUSPEND_WAIT: &str = "Editor is waiting for a safe terminal handoff";
-const TRANSCRIPT_SUSPEND_WAIT: &str = "Transcript is waiting for a safe terminal handoff";
+const EDITOR_SUSPEND_WAIT: &str = tlm("Editor is waiting for a safe terminal handoff");
+const TRANSCRIPT_SUSPEND_WAIT: &str = tlm("Transcript is waiting for a safe terminal handoff");
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SuspendWaitSink {
     Toast,
@@ -818,7 +819,7 @@ fn run_pending_suspends(
                             Instant::now(),
                         );
                         if first_timeout {
-                            report_suspend_wait(app, EDITOR_SUSPEND_WAIT);
+                            report_suspend_wait(app, tl(EDITOR_SUSPEND_WAIT));
                             presenter.request_presentation(app, terminal, false);
                         }
                         return Ok(());
@@ -892,7 +893,7 @@ fn run_pending_suspends(
                     Instant::now(),
                 );
                 if first_timeout {
-                    report_suspend_wait(app, TRANSCRIPT_SUSPEND_WAIT);
+                    report_suspend_wait(app, tl(TRANSCRIPT_SUSPEND_WAIT));
                     presenter.request_presentation(app, terminal, false);
                 }
                 return Ok(());
@@ -956,9 +957,9 @@ fn run_pending_mode_switch(
                 {
                     crate::app::mode_switch::push_block_behind_live_stream(
                         &mut agent.scrollback,
-                        crate::scrollback::block::RenderBlock::system(
+                        crate::scrollback::block::RenderBlock::system(tl(
                             "Switched to minimal mode · /fullscreen to go back",
-                        ),
+                        )),
                     );
                 }
             } else {
@@ -970,7 +971,7 @@ fn run_pending_mode_switch(
                 if let ActiveView::Agent(id) = app.active_view
                     && let Some(agent) = app.agents.get_mut(&id)
                 {
-                    agent.show_toast("Switched to fullscreen mode · /minimal to go back");
+                    agent.show_toast(tl("Switched to fullscreen mode · /minimal to go back"));
                 }
             }
             tracing::info!(
@@ -988,9 +989,9 @@ fn run_pending_mode_switch(
             {
                 crate::app::mode_switch::push_block_behind_live_stream(
                     &mut agent.scrollback,
-                    crate::scrollback::block::RenderBlock::system(format!(
-                        "Couldn't switch to {} mode: {reason}",
-                        target.meta_label()
+                    crate::scrollback::block::RenderBlock::system(tlf(
+                        "Couldn't switch to {mode} mode: {reason}",
+                        &[("mode", &tl(target.meta_label())), ("reason", &reason)],
                     )),
                 );
             }
@@ -1071,9 +1072,11 @@ pub(crate) async fn run(
         app.minimal_state.welcome_pending = true;
     }
     if term_state.relaunched_into_minimal && app.screen_mode.is_minimal() {
-        app.screen_mode_switch_hint = Some("Switched to minimal mode · /fullscreen to go back");
+        app.screen_mode_switch_hint =
+            Some(tlm("Switched to minimal mode · /fullscreen to go back"));
     } else if term_state.relaunched_into_fullscreen && !app.screen_mode.is_minimal() {
-        app.screen_mode_switch_hint = Some("Switched to fullscreen mode · /minimal to go back");
+        app.screen_mode_switch_hint =
+            Some(tlm("Switched to fullscreen mode · /minimal to go back"));
     }
     let remote_permission_mode = remote_settings
         .as_ref()
@@ -1651,6 +1654,9 @@ pub(crate) async fn run(
     let mut dashboard_poll_at: Option<Instant> = Some(Instant::now());
     const RECAP_POLL_INTERVAL: Duration = Duration::from_secs(20);
     let mut recap_poll_at: Option<Instant> = Some(Instant::now() + RECAP_POLL_INTERVAL);
+    // Follows `[ui].ui_language` edits made by Crok Desktop (or by hand) while running.
+    let mut ui_language_sync = super::ui_language_sync::UiLanguageSync::start();
+    let mut ui_language_poll_at = Instant::now() + super::ui_language_sync::POLL_INTERVAL;
     let mut presenter = Presenter::new();
     let mut suspend_retry_after: Option<Instant> = None;
     let mut suspend_wait_reports = SuspendWaitReports::default();
@@ -1943,7 +1949,7 @@ pub(crate) async fn run(
             } else if app.voice_cmd_tx.is_none() {
                 app.voice_reset();
                 app.voice_ui_active = false;
-                app.show_toast("Voice could not start. Restart Crok.");
+                app.show_toast(tl("Voice could not start. Restart Crok."));
             } else {
                 app.voice_reset();
             }
@@ -2065,6 +2071,7 @@ pub(crate) async fn run(
                 None => std::future::pending().await,
             }
         };
+        let ui_language_poll = sleep_until(ui_language_poll_at);
         let load_barrier_tick = async {
             match session_load_barrier.next_wakeup() {
                 Some(deadline) => {
@@ -2519,6 +2526,16 @@ pub(crate) async fn run(
 
             _ = load_barrier_tick => {}
 
+            // Another process changed `[ui].ui_language` in config.toml (Crok Desktop shares it).
+            _ = ui_language_poll => {
+                if let Some(canonical) = ui_language_sync.poll()
+                    && dispatch::apply_external_ui_language(&mut app, canonical)
+                {
+                    presenter.request(false);
+                }
+                ui_language_poll_at = Instant::now() + super::ui_language_sync::POLL_INTERVAL;
+            }
+
             // Hot-reload: config file changed (dev mode) or initial load.
             Ok(()) = config_watcher.changed() => {
                 let mut config = config_watcher.current().clone();
@@ -2593,8 +2610,9 @@ pub(crate) async fn run(
                             None,
                             Some(serde_json::json!({ "attempt": attempt })),
                         );
-                        app.show_toast(&format!(
-                            "Disconnected. Reconnecting... (attempt {attempt})"
+                        app.show_toast(&tlf(
+                            "Disconnected. Reconnecting... (attempt {attempt})",
+                            &[("attempt", &attempt)],
                         ));
                         presenter.request(false);
                     }
@@ -2778,14 +2796,14 @@ pub(crate) async fn run(
                         reconnect_abort_handle = Some(join_handle.abort_handle());
 
                         app.show_toast(if any_reload {
-                            "Reconnected. Reloading session..."
+                            tl("Reconnected. Reloading session...")
                         } else {
-                            "Reconnected. Re-initializing..."
+                            tl("Reconnected. Re-initializing...")
                         });
                         presenter.request(false);
                     }
                     ConnectionStatus::Failed { ref error } => {
-                        app.show_toast(&format!("Connection failed: {error}"));
+                        app.show_toast(&tlf("Connection failed: {error}", &[("error", &error)]));
                         presenter.request(false);
                     }
                     _ => {}
@@ -2859,11 +2877,13 @@ pub(crate) async fn run(
 
                 if pending.agent_ids.is_empty() {
                     // Nothing was reloaded (no open sessions at reconnect).
-                    app.show_toast("Reconnected.");
+                    app.show_toast(tl("Reconnected."));
                 } else if restored {
-                    app.show_toast("Session restored. In-progress tools and terminals were lost.");
+                    app.show_toast(tl(
+                        "Session restored. In-progress tools and terminals were lost.",
+                    ));
                 } else {
-                    app.show_toast("Session restore failed. Kept the existing transcript.");
+                    app.show_toast(tl("Session restore failed. Kept the existing transcript."));
                 }
 
                 // Re-trigger the queue drain suppressed during the outage
@@ -2913,7 +2933,7 @@ pub(crate) async fn run(
                         // Pipeline is gone: drop any session/interim entirely.
                         app.voice_reset();
                         if was_listening {
-                            app.show_toast("Voice stopped unexpectedly. Try again.");
+                            app.show_toast(tl("Voice stopped unexpectedly. Try again."));
                         }
                         presenter.request(false);
                     }

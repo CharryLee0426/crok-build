@@ -48,9 +48,14 @@ impl AgentSession {
         commands: Vec<acp::AvailableCommand>,
         source: CommandCatalogSource,
     ) {
-        let (added, removed) = command_name_diff(&self.available_commands, &commands);
         // Bootstrap seeds generation 1, so the first shell-sent catalog gets the full listing
         let initial = self.available_commands_generation <= 1;
+        // The shell advertises its catalog after every model response. An unchanged catalog
+        // must not bump the generation: that would rebuild the slash registry and every trigger.
+        if !initial && commands == self.available_commands {
+            return;
+        }
+        let (added, removed) = command_name_diff(&self.available_commands, &commands);
         if initial || !added.is_empty() || !removed.is_empty() {
             let names = initial.then(|| {
                 let mut names: Vec<&str> = commands.iter().map(|c| c.name.as_str()).collect();

@@ -9,6 +9,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{AppCtx, CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 /// Toggle terminal mouse reporting (mouse capture).
 /// Mirrors the `Ctrl+R` scrollback shortcut via the same `Action::ToggleMouseCapture` path.
@@ -17,7 +18,7 @@ pub struct ToggleMouseReportingCommand;
 impl SlashCommand for ToggleMouseReportingCommand {
     slash_meta! {
         name: "toggle-mouse-reporting",
-        description: "Toggle terminal mouse reporting (native click-drag copy/paste)",
+        description: tlm("Toggle terminal mouse reporting (native click-drag copy/paste)"),
         usage: "/toggle-mouse-reporting",
     }
 
@@ -31,8 +32,7 @@ impl SlashCommand for ToggleMouseReportingCommand {
             CommandResult::Action(Action::ToggleMouseCapture)
         } else {
             CommandResult::Message(
-                "Mouse reporting toggle is off. Set `[ui] mouse_reporting_toggle = true` \
-                 in ~/.crok/config.toml to enable it."
+                tl("Mouse reporting toggle is off. Set `[ui] mouse_reporting_toggle = true` in ~/.crok/config.toml to enable it.")
                     .to_string(),
             )
         }

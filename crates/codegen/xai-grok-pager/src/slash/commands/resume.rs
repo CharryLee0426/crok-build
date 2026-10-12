@@ -2,13 +2,14 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 pub struct ResumeCommand;
 
 impl SlashCommand for ResumeCommand {
     slash_meta! {
         name: "resume",
-        description: "Resume a previous session",
+        description: tlm("Resume a previous session"),
         usage: "/resume",
     }
 

@@ -98,6 +98,16 @@ pub enum TitleItem {
     ActionRequired,
 }
 
+/// The bodies below, listed once more so the catalog holds them: a notification's sender
+/// looks its body up in the interface language.
+const _EVENT_BODIES: &[&str] = &[
+    xai_grok_i18n::tlm("Turn complete"),
+    xai_grok_i18n::tlm("Approval required"),
+    xai_grok_i18n::tlm("Session ready"),
+    xai_grok_i18n::tlm("Task complete"),
+    xai_grok_i18n::tlm("Agent error"),
+];
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::AsRefStr, strum::IntoStaticStr,
 )]

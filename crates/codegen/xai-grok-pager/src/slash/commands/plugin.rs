@@ -6,6 +6,7 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::views::extensions_modal::ExtensionsTab;
+use xai_grok_i18n::tlm;
 use xai_grok_telemetry::events::ExtensionsModalTrigger;
 
 /// Open the hooks/plugins modal on the Hooks tab.
@@ -14,7 +15,7 @@ pub struct HooksCommand;
 impl SlashCommand for HooksCommand {
     slash_meta! {
         name: "hooks",
-        description: "View hooks",
+        description: tlm("View hooks"),
         usage: "/hooks",
     }
 
@@ -33,7 +34,7 @@ impl SlashCommand for PluginsCommand {
     slash_meta! {
         name: "plugins",
         aliases: ["plugin"],
-        description: "View plugins",
+        description: tlm("View plugins"),
         usage: "/plugins",
     }
 
@@ -51,7 +52,7 @@ pub struct MarketplaceCommand;
 impl SlashCommand for MarketplaceCommand {
     slash_meta! {
         name: "marketplace",
-        description: "View marketplace",
+        description: tlm("View marketplace"),
         usage: "/marketplace",
     }
 
@@ -69,7 +70,7 @@ pub struct SkillsCommand;
 impl SlashCommand for SkillsCommand {
     slash_meta! {
         name: "skills",
-        description: "View skills",
+        description: tlm("View skills"),
         usage: "/skills",
     }
 

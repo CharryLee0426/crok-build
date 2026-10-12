@@ -1,4 +1,5 @@
 use super::*;
+use xai_grok_i18n::{fill, tl, tlf, tlm};
 
 pub(super) fn handle_permission_request(
     perm: xai_acp_lib::AcpArgs<acp::RequestPermissionRequest>,
@@ -47,7 +48,7 @@ pub(super) fn handle_permission_request(
         app.notification_service.notify(NotificationEvent {
             kind: NotificationEventKind::ApprovalRequired,
             title: "Crok".into(),
-            body: NotificationEventKind::ApprovalRequired.as_ref().into(),
+            body: tl(NotificationEventKind::ApprovalRequired.as_ref()).into(),
             session_id: Some(perm.request.session_id.0.to_string()),
         });
         app.notification_service.mark_permission_notified();
@@ -180,12 +181,15 @@ fn resolve_subagent_label(agent: &AgentView, session_id: &acp::SessionId) -> Opt
         return None;
     }
     if let Some(info) = agent.subagent_sessions.get(sid) {
-        return Some(format!(
-            "Subagent \"{}\" ({}):",
-            info.description, info.subagent_type
+        return Some(tlf(
+            "Subagent \"{description}\" ({kind}):",
+            &[
+                ("description", &info.description),
+                ("kind", &info.subagent_type),
+            ],
         ));
     }
-    Some("Child session (untracked):".to_string())
+    Some(tl("Child session (untracked):").to_string())
 }
 
 pub(super) fn build_permission_display(
@@ -223,16 +227,20 @@ pub(super) fn build_permission_display(
         || req.tool_call.fields.kind == Some(acp::ToolKind::Execute)
         || raw_command.is_some();
 
+    let local = session_local_workspace;
     let title = if is_execute {
         bash_description
             .as_deref()
             .map(str::trim)
             .filter(|t| !t.is_empty())
-            .map(|t| t.to_string())
+            // The command's own description is shown as it was written
+            .map(|t| qualify_permission_title_for_local_workspace(t.to_string(), local))
             .unwrap_or_else(
                 || match bash_highlights.and_then(|h| h.highlighted_words.first()) {
-                    Some(bin) => format!("Allow `{bin}`?"),
-                    None => "Allow Execute?".to_string(),
+                    Some(bin) => {
+                        permission_title(tlm("Allow `{command}`?"), &[("command", &bin)], local)
+                    }
+                    None => permission_title(tlm("Allow Execute?"), &[], local),
                 },
             )
     } else if is_edit_permission(req) {
@@ -244,35 +252,78 @@ pub(super) fn build_permission_display(
             .and_then(|v| v.get("file_path"))
             .and_then(|v| v.as_str());
         if let Some(path) = file_path {
-            format!("Allow Edit to {}?", path)
+            permission_title(tlm("Allow Edit to {path}?"), &[("path", &path)], local)
         } else if let Some(t) = acp_title {
-            format!(
-                "Allow {}?",
-                xai_grok_workspace::permission::mcp_pretty_name_if_qualified(t)
+            permission_title(
+                tlm("Allow {tool}?"),
+                &[(
+                    "tool",
+                    &xai_grok_workspace::permission::mcp_pretty_name_if_qualified(t),
+                )],
+                local,
             )
         } else {
-            "Allow Edit?".to_string()
+            permission_title(tlm("Allow Edit?"), &[], local)
         }
     } else if let Some(t) = acp_title {
-        format!(
-            "Allow {}?",
-            xai_grok_workspace::permission::mcp_pretty_name_if_qualified(t)
+        permission_title(
+            tlm("Allow {tool}?"),
+            &[(
+                "tool",
+                &xai_grok_workspace::permission::mcp_pretty_name_if_qualified(t),
+            )],
+            local,
         )
     } else {
         match req.tool_call.fields.kind {
-            Some(acp::ToolKind::Edit) => "Allow Edit?".to_string(),
-            Some(acp::ToolKind::Execute) => "Allow Execute?".to_string(),
-            Some(acp::ToolKind::Delete) => "Allow Delete?".to_string(),
-            _ => "Allow?".to_string(),
+            Some(acp::ToolKind::Edit) => permission_title(tlm("Allow Edit?"), &[], local),
+            Some(acp::ToolKind::Execute) => permission_title(tlm("Allow Execute?"), &[], local),
+            Some(acp::ToolKind::Delete) => permission_title(tlm("Allow Delete?"), &[], local),
+            _ => permission_title(tlm("Allow?"), &[], local),
         }
     };
 
-    let title = qualify_permission_title_for_local_workspace(title, session_local_workspace);
     let description = permission_description_lines(req, ask.as_ref());
     let bash_cmd = if is_execute { raw_command } else { None };
     (title, description, bash_cmd)
 }
 
+/// A title this file words, in the interface language: the English sentence `en` with its `{name}`
+/// values. A session whose tools run on the user's own machine shows the sentence's "(on your
+/// machine)" form. The English decides which form applies, so the choice is the same in every
+/// language.
+fn permission_title(
+    en: &'static str,
+    values: &[(&str, &dyn std::fmt::Display)],
+    session_local_workspace: bool,
+) -> String {
+    if !session_local_workspace || fill(en, values).contains("on your machine") {
+        return fill(tl(en), values);
+    }
+    match local_workspace_title(en) {
+        Some(local) => fill(tl(local), values),
+        // A title with no sentence of its own still says where it runs
+        None => qualify_permission_title_for_local_workspace(fill(tl(en), values), true),
+    }
+}
+
+/// The "(on your machine)" form of each title `build_permission_display` words. One whole sentence
+/// for each, so every language places the note and its question mark where they belong.
+fn local_workspace_title(en: &str) -> Option<&'static str> {
+    Some(match en {
+        "Allow `{command}`?" => tlm("Allow `{command}` (on your machine)?"),
+        "Allow Execute?" => tlm("Allow Execute (on your machine)?"),
+        "Allow Edit to {path}?" => tlm("Allow Edit to {path} (on your machine)?"),
+        "Allow {tool}?" => tlm("Allow {tool} (on your machine)?"),
+        "Allow Edit?" => tlm("Allow Edit (on your machine)?"),
+        "Allow Delete?" => tlm("Allow Delete (on your machine)?"),
+        "Allow?" => tlm("Allow (on your machine)?"),
+        _ => return None,
+    })
+}
+
+/// The "(on your machine)" note for a title that is shown as written (a command's own description):
+/// `title` is not translated, only the pattern around it is.
 fn qualify_permission_title_for_local_workspace(
     title: String,
     session_local_workspace: bool,
@@ -284,9 +335,9 @@ fn qualify_permission_title_for_local_workspace(
         return title;
     }
     if let Some(stripped) = title.strip_suffix('?') {
-        return format!("{stripped} (on your machine)?");
+        return tlf("{title} (on your machine)?", &[("title", &stripped)]);
     }
-    format!("{title} (on your machine)")
+    tlf("{title} (on your machine)", &[("title", &title)])
 }
 
 fn permission_description_lines(
@@ -361,7 +412,7 @@ pub(super) fn mcp_args_lines(req: &acp::RequestPermissionRequest) -> Vec<String>
     if lines.len() > MCP_ARGS_MAX_LINES {
         let hidden = lines.len() - MCP_ARGS_MAX_LINES;
         lines.truncate(MCP_ARGS_MAX_LINES);
-        lines.push(format!("… (+{hidden} more lines)"));
+        lines.push(tlf("… (+{count} more lines)", &[("count", &hidden)]));
     }
     lines
 }

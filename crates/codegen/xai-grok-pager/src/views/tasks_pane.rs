@@ -25,6 +25,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::{Instant, SystemTime};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tl_parts};
 const SPINNER_DIVISOR: u64 = 4;
 /// Highlight a shell command string into styled spans. Uses syntect with the best available grammar
 /// for the platform: tries "powershell" first on Windows, falls back to "bash". Returns plain
@@ -141,10 +142,10 @@ impl GroupKind {
     /// Display label shown in the group header.
     fn label(self) -> &'static str {
         match self {
-            GroupKind::Workflows => "Workflows",
-            GroupKind::Subagents => "Subagents",
-            GroupKind::Tasks => "Tasks",
-            GroupKind::Watchers => "Watchers",
+            GroupKind::Workflows => tl("Workflows"),
+            GroupKind::Subagents => tl("Subagents"),
+            GroupKind::Tasks => tl("Tasks"),
+            GroupKind::Watchers => tl("Watchers"),
         }
     }
     fn order(self) -> u8 {
@@ -220,7 +221,7 @@ impl TaskEntry {
             let text = description
                 .map(|d| d.replace('\n', " "))
                 .unwrap_or_else(|| task.command.trim().replace('\n', " "));
-            let tag = task.display_kind();
+            let tag = tl(task.display_kind());
             let desc_style = if running {
                 Style::default().fg(theme.text_secondary)
             } else {
@@ -235,15 +236,15 @@ impl TaskEntry {
         } else if let Some(desc) = description {
             let one_line = desc.replace('\n', " ");
             let theme = Theme::current();
-            const PREFIX: &str = "Task ";
+            let prefix = format!("{} ", tl("Task"));
             let desc_style = if running {
                 Style::default().fg(theme.text_primary)
             } else {
                 Style::default().fg(theme.gray_bright)
             };
-            let label = format!("{PREFIX}{one_line}");
+            let label = format!("{prefix}{one_line}");
             let styled = Line::from(vec![
-                Span::styled(PREFIX, Style::default().fg(theme.text_secondary)),
+                Span::styled(prefix, Style::default().fg(theme.text_secondary)),
                 Span::styled(one_line, desc_style),
             ]);
             (label, styled)
@@ -382,8 +383,9 @@ impl TaskEntry {
             Style::default().fg(theme.gray_bright)
         };
         let suffix = run.activity_label();
+        let tag = tl("Workflow");
         let mut spans = vec![
-            Span::styled("Workflow ".to_string(), Style::default().fg(tag_color)),
+            Span::styled(format!("{tag} "), Style::default().fg(tag_color)),
             Span::styled(run.name.clone(), name_style),
         ];
         if !suffix.is_empty() {
@@ -392,7 +394,7 @@ impl TaskEntry {
                 Style::default().fg(theme.gray),
             ));
         }
-        let label = format!("Workflow {} {suffix}", run.name);
+        let label = format!("{tag} {} {suffix}", run.name);
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         "workflow:".hash(&mut hasher);
         run.run_id.hash(&mut hasher);
@@ -423,9 +425,9 @@ impl TaskEntry {
         };
         let is_provisional = info.task_id.starts_with("provisional-");
         let suffix = if linked_running {
-            " (running)".to_owned()
+            format!(" {}", tl("(running)"))
         } else if is_provisional {
-            " (starting)".to_owned()
+            format!(" {}", tl("(starting)"))
         } else {
             super::scheduled_next::next_suffix(info, now)
         };
@@ -1033,7 +1035,7 @@ impl TasksPane {
                 let theme = Theme::current();
                 if self.show_done {
                     let span = Span::styled(
-                        "No tasks or agents.",
+                        tl("No tasks or agents."),
                         Style::default().fg(theme.gray_bright),
                     );
                     buf.set_span(inner.x, inner.y, &span, inner.width);
@@ -1042,10 +1044,12 @@ impl TasksPane {
                     let key_style = Style::default()
                         .fg(theme.text_primary)
                         .add_modifier(Modifier::BOLD);
+                    let (before, after) =
+                        tl_parts("No running tasks. Press {key} to show all.", "key");
                     let line = Line::from(vec![
-                        Span::styled("No running tasks. Press ", muted),
+                        Span::styled(before, muted),
                         Span::styled("h", key_style),
-                        Span::styled(" to show all.", muted),
+                        Span::styled(after, muted),
                     ]);
                     buf.set_line(inner.x, inner.y, &line, inner.width);
                 }
@@ -1255,7 +1259,7 @@ impl TasksPane {
             (
                 frames.get(frame_idx).copied().unwrap_or(""),
                 Style::default().fg(theme.accent_error),
-                "killing\u{2026} ".to_string(),
+                format!("{} ", tl("killing…")),
                 Style::default().fg(theme.accent_error),
             )
         } else {
@@ -1381,7 +1385,7 @@ impl TasksPane {
             (
                 frames.get(frame_idx).copied().unwrap_or(""),
                 Style::default().fg(theme.accent_error),
-                "killing\u{2026} ".to_string(),
+                format!("{} ", tl("killing…")),
                 Style::default().fg(theme.accent_error),
             )
         } else if info.is_running() {

@@ -91,7 +91,19 @@ enum FilePreviewContent {
     case text(String, language: String?, truncated: Bool)
     case image(NSImage, bytes: Int)
     case binary(bytes: Int)
-    case failed(String)
+    case failed(FilePreviewFailure)
+}
+
+/// Why a file has no preview.
+enum FilePreviewFailure: Equatable {
+    case folder, unreadable
+
+    var message: String {
+        switch self {
+        case .folder: return L10n.t("files_is_folder", "This is a folder.")
+        case .unreadable: return L10n.t("files_unreadable", "Crok Desktop can't read this file.")
+        }
+    }
 }
 
 /// The Files tab's state: the project's file tree, the filter, and the selected file's preview.
@@ -244,13 +256,13 @@ final class FilesPanelModel: ObservableObject {
     nonisolated static func readPreview(_ path: String) -> FilePreviewContent {
         let url = URL(fileURLWithPath: path)
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .isDirectoryKey])
-        if values?.isDirectory == true { return .failed("This is a folder.") }
+        if values?.isDirectory == true { return .failed(.folder) }
         let size = values?.fileSize ?? 0
         if let type = values?.contentType, type.conforms(to: .image), type != .svg {
             if let image = NSImage(contentsOf: url), image.isValid { return .image(image, bytes: size) }
             return .binary(bytes: size)
         }
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return .failed("Crok Desktop can't read this file.") }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return .failed(.unreadable) }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: previewLimit + 1)) ?? Data()
         let sample = data.prefix(8_192)
@@ -277,6 +289,7 @@ final class FilesPanelModel: ObservableObject {
 // MARK: - View
 
 struct FilesPanelView: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var files: FilesPanelModel
     /// The directory column's width while a file is previewed beside it.
@@ -291,7 +304,7 @@ struct FilesPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             if store.project == nil {
-                SidePanelEmptyState(symbol: "folder", title: "No project", detail: "Open a project to browse its files.")
+                SidePanelEmptyState(symbol: "folder", title: L10n.t("no_project", "No project"), detail: L10n.t("files_no_project_detail", "Open a project to browse its files."))
             } else if files.selection == nil {
                 browser
             } else {
@@ -306,7 +319,7 @@ struct FilesPanelView: View {
                                 .frame(width: min(max(treeWidth, Self.minimumTreeWidth), maximum))
                                 .overlay(alignment: .trailing) {
                                     ResizeHandle(axis: .horizontal, value: $treeWidth, range: Self.minimumTreeWidth...maximum,
-                                                 defaultValue: Self.defaultTreeWidth, label: "File tree width")
+                                                 defaultValue: Self.defaultTreeWidth, label: L10n.t("files_tree_width", "File tree width"))
                                         .offset(x: 4.5)
                                 }
                                 .zIndex(1)
@@ -347,23 +360,25 @@ struct FilesPanelView: View {
                 if files.loading {
                     ProgressView().controlSize(.mini).frame(width: 26, height: 26)
                 } else {
-                    IconButton(icon: "arrow.clockwise", help: "Reload files and changes", size: 26) {
+                    IconButton(icon: "arrow.clockwise", help: L10n.t("files_reload", "Reload files and changes"), size: 26) {
                         files.load(force: true)
                         Task { await store.refreshWorkspace() }
                     }
                 }
             }
             if files.scope == .all {
-                NativeSearchField(text: $files.filter, placeholder: "Filter files", onEscape: { files.filter = "" }, focusesOnAppear: false)
+                NativeSearchField(text: $files.filter, placeholder: L10n.t("files_filter", "Filter files"), onEscape: { files.filter = "" }, focusesOnAppear: false)
             }
         }
         .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
     }
 
     private func scopePicker(showsCount: Bool, size: ControlSize) -> some View {
-        Picker("Show", selection: $files.scope) {
-            Text("All files").tag(FilesPanelModel.Scope.all)
-            Text(showsCount && !store.workspace.changes.isEmpty ? "Changes \(store.workspace.changes.count)" : "Changes").tag(FilesPanelModel.Scope.changes)
+        Picker(L10n.t("files_show", "Show"), selection: $files.scope) {
+            Text(L10n.t("files_all", "All files")).tag(FilesPanelModel.Scope.all)
+            Text(showsCount && !store.workspace.changes.isEmpty
+                 ? L10n.t("files_changes_count", "Changes {count}", ["count": String(store.workspace.changes.count)])
+                 : L10n.t("files_changes", "Changes")).tag(FilesPanelModel.Scope.changes)
         }
         .pickerStyle(.segmented).labelsHidden().controlSize(size).fixedSize()
     }
@@ -380,10 +395,10 @@ struct FilesPanelView: View {
     private var tree: some View {
         if let index = files.index {
             if index.files.isEmpty {
-                SidePanelEmptyState(symbol: "doc", title: "No files", detail: "This folder has no files Crok can list.")
+                SidePanelEmptyState(symbol: "doc", title: L10n.t("files_none", "No files"), detail: L10n.t("files_none_detail", "This folder has no files Crok can list."))
             } else if !files.filter.trimmingCharacters(in: .whitespaces).isEmpty {
                 if files.matches.isEmpty {
-                    SidePanelEmptyState(symbol: "magnifyingglass", title: "No matches", detail: "No file path contains \u{201C}\(files.filter)\u{201D}.")
+                    SidePanelEmptyState(symbol: "magnifyingglass", title: L10n.t("no_matches", "No matches"), detail: L10n.t("files_no_matches_detail", "No file path contains \u{201C}{query}\u{201D}.", ["query": files.filter]))
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 1) {
@@ -402,7 +417,8 @@ struct FilesPanelView: View {
                                         isExpanded: files.expanded.contains(row.entry.path), relativePath: row.entry.path)
                         }
                         if index.isTruncated {
-                            Text("Showing the first \(index.files.count.formatted()) files.").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            Text(L10n.t("files_truncated", "Showing the first {count} files.", ["count": index.files.count.formatted()]))
+                                .font(.system(size: 11)).foregroundStyle(Theme.muted)
                                 .padding(.horizontal, 10).padding(.vertical, 8)
                         }
                     }.padding(.horizontal, 8).padding(.vertical, 4)
@@ -416,13 +432,14 @@ struct FilesPanelView: View {
     @ViewBuilder
     private var changes: some View {
         if let error = store.workspace.error {
-            SidePanelEmptyState(symbol: "folder.badge.questionmark", title: "No Git repository", detail: error)
+            SidePanelEmptyState(symbol: "folder.badge.questionmark", title: L10n.t("files_no_git", "No Git repository"), detail: error)
         } else if store.workspace.changes.isEmpty {
-            SidePanelEmptyState(symbol: "checkmark.circle", title: "No changes", detail: "Files Crok or you change appear here.")
+            SidePanelEmptyState(symbol: "checkmark.circle", title: L10n.t("files_no_changes", "No changes"), detail: L10n.t("files_no_changes_detail", "Files Crok or you change appear here."))
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Text("\(store.workspace.changes.count) changed files").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
+                    Text(L10n.t("files_changed_count", "{count} changed files", ["count": String(store.workspace.changes.count)]))
+                        .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
                     Spacer()
                     Text("+\(store.workspace.changes.reduce(0) { $0 + $1.additions })").foregroundStyle(Theme.green)
                     Text("−\(store.workspace.changes.reduce(0) { $0 + $1.deletions })").foregroundStyle(Theme.red)
@@ -440,6 +457,7 @@ struct FilesPanelView: View {
 
 /// One row of the file tree, or of the filtered list when `detail` names the folder.
 private struct FileTreeRow: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var files: FilesPanelModel
     let name: String
     let detail: String?
@@ -483,12 +501,13 @@ private struct FileTreeRow: View {
         .onDrag { NSItemProvider(object: URL(fileURLWithPath: absolute) as NSURL) }
         .contextMenu { FileActions(path: absolute, isDirectory: isDirectory) }
         .simultaneousGesture(TapGesture(count: 2).onEnded { if !isDirectory { files.open(absolute) } })
-        .accessibilityLabel(isDirectory ? "\(name) folder" : name)
-        .accessibilityValue(isDirectory ? (isExpanded ? "Expanded" : "Collapsed") : (change.map { FileStatusBadge.description($0.status) } ?? ""))
+        .accessibilityLabel(isDirectory ? L10n.t("files_folder_named", "{name} folder", ["name": name]) : name)
+        .accessibilityValue(isDirectory ? (isExpanded ? L10n.t("expanded", "Expanded") : L10n.t("collapsed", "Collapsed")) : (change.map { FileStatusBadge.description($0.status) } ?? ""))
     }
 }
 
 private struct ChangedFileRow: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var files: FilesPanelModel
     let change: GitFileChange
     @State private var hovered = false
@@ -508,7 +527,7 @@ private struct ChangedFileRow: View {
                 }
                 Spacer(minLength: 4)
                 Group {
-                    if change.isBinary { Text("binary").foregroundStyle(Theme.muted) }
+                    if change.isBinary { Text(L10n.t("files_binary", "binary")).foregroundStyle(Theme.muted) }
                     else {
                         Text("+\(change.additions)").foregroundStyle(Theme.green)
                         Text("−\(change.deletions)").foregroundStyle(Theme.red)
@@ -529,22 +548,24 @@ private struct ChangedFileRow: View {
 }
 
 private struct FileActions: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var files: FilesPanelModel
     let path: String
     let isDirectory: Bool
 
     var body: some View {
-        Button("Attach to Prompt", systemImage: "paperclip") { files.attach(path) }
-        if !isDirectory { Button("Open", systemImage: "arrow.up.forward.app") { files.open(path) } }
-        Button("Reveal in Finder", systemImage: "folder") { files.revealInFinder(path) }
+        Button(L10n.t("files_attach_menu", "Attach to Prompt"), systemImage: "paperclip") { files.attach(path) }
+        if !isDirectory { Button(L10n.t("open", "Open"), systemImage: "arrow.up.forward.app") { files.open(path) } }
+        Button(L10n.t("reveal_in_finder", "Reveal in Finder"), systemImage: "folder") { files.revealInFinder(path) }
         Divider()
-        Button("Copy Path", systemImage: "doc.on.doc") { files.copyPath(path, relative: false) }
-        Button("Copy Relative Path") { files.copyPath(path, relative: true) }
+        Button(L10n.t("copy_path", "Copy Path"), systemImage: "doc.on.doc") { files.copyPath(path, relative: false) }
+        Button(L10n.t("copy_relative_path", "Copy Relative Path")) { files.copyPath(path, relative: true) }
     }
 }
 
 /// Git's status letter for a file, coloured by kind.
 struct FileStatusBadge: View {
+    @ObservedObject private var language = L10n.state
     let status: String
 
     var body: some View {
@@ -570,12 +591,12 @@ struct FileStatusBadge: View {
 
     static func description(_ status: String) -> String {
         switch letter(status) {
-        case "U": return "Untracked"
-        case "A": return "Added"
-        case "D": return "Deleted"
-        case "R": return "Renamed"
-        case "C": return "Copied"
-        default: return "Modified"
+        case "U": return L10n.t("files_status_untracked", "Untracked")
+        case "A": return L10n.t("files_status_added", "Added")
+        case "D": return L10n.t("files_status_deleted", "Deleted")
+        case "R": return L10n.t("files_status_renamed", "Renamed")
+        case "C": return L10n.t("files_status_copied", "Copied")
+        default: return L10n.t("files_status_modified", "Modified")
         }
     }
 }
@@ -611,6 +632,7 @@ enum FileIconCache {
 
 /// The selected file beside the directory: its diff or its contents, with actions.
 private struct FilePreviewPane: View {
+    @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var files: FilesPanelModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -624,7 +646,7 @@ private struct FilePreviewPane: View {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     if canShowTree {
-                        IconButton(icon: "sidebar.left", help: showsTree ? "Hide file tree" : "Show file tree", size: 24) {
+                        IconButton(icon: "sidebar.left", help: showsTree ? L10n.t("files_hide_tree", "Hide file tree") : L10n.t("files_show_tree", "Show file tree"), size: 24) {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { showsTree.toggle() }
                         }
                     }
@@ -637,14 +659,14 @@ private struct FilePreviewPane: View {
                     if let change { FileStatusBadge(status: change.status) }
                     Spacer(minLength: 4)
                     if change != nil {
-                        Picker("View", selection: $files.showsDiff) {
-                            Text("Diff").tag(true)
-                            Text("File").tag(false)
+                        Picker(L10n.t("files_view", "View"), selection: $files.showsDiff) {
+                            Text(L10n.t("files_diff", "Diff")).tag(true)
+                            Text(L10n.t("files_file", "File")).tag(false)
                         }.pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
                     }
-                    IconButton(icon: "paperclip", help: "Attach to prompt", size: 24) { files.attach(path) }
-                    IconButton(icon: "arrow.up.forward.app", help: "Open", size: 24) { files.open(path) }
-                    IconButton(icon: "xmark", help: "Close preview", size: 24) { files.select(nil) }
+                    IconButton(icon: "paperclip", help: L10n.t("files_attach", "Attach to prompt"), size: 24) { files.attach(path) }
+                    IconButton(icon: "arrow.up.forward.app", help: L10n.t("open", "Open"), size: 24) { files.open(path) }
+                    IconButton(icon: "xmark", help: L10n.t("files_close_preview", "Close preview"), size: 24) { files.select(nil) }
                 }
                 .padding(.horizontal, 10).frame(height: 40)
                 Divider().overlay(Theme.line.opacity(0.4))
@@ -678,7 +700,7 @@ private struct FilePreviewPane: View {
                 ReadOnlyTextView(text: text, style: .code(language: language), wrapsLines: false, sizing: .fill)
                     .padding(.leading, 12)
                 if truncated {
-                    Text("Showing the first 1 MB.").font(.system(size: 11)).foregroundStyle(Theme.muted).padding(6)
+                    Text(L10n.t("files_first_mb", "Showing the first 1 MB.")).font(.system(size: 11)).foregroundStyle(Theme.muted).padding(6)
                 }
             }
         case .image(let image, let bytes):
@@ -689,9 +711,9 @@ private struct FilePreviewPane: View {
                     .font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.bottom, 8)
             }
         case .binary(let bytes):
-            SidePanelEmptyState(symbol: "doc.zipper", title: "Binary file", detail: ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
-        case .failed(let message):
-            SidePanelEmptyState(symbol: "exclamationmark.triangle", title: "No preview", detail: message)
+            SidePanelEmptyState(symbol: "doc.zipper", title: L10n.t("files_binary_file", "Binary file"), detail: ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+        case .failed(let failure):
+            SidePanelEmptyState(symbol: "exclamationmark.triangle", title: L10n.t("files_no_preview", "No preview"), detail: failure.message)
         }
     }
 }

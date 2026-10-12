@@ -22,6 +22,7 @@ use ratatui::text::{Line, Span};
 use super::EphemeralTip;
 use crate::input::key::KeyShortcut;
 use crate::theme::Theme;
+use xai_grok_i18n::{tl, tl_parts};
 
 /// Ephemeral-tip dedup key for the clipboard-image hint.
 pub const CLIPBOARD_IMAGE_TIP_KEY: &str = "clipboard_image_tip";
@@ -51,12 +52,13 @@ pub fn clipboard_image_tip() -> EphemeralTip {
     let chord = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);
+    let (before, after) = tl_parts("{chord} to paste", "chord");
     EphemeralTip::new(
         CLIPBOARD_IMAGE_TIP_KEY,
         Line::from(vec![
-            Span::styled("Image in clipboard · ", dim),
+            Span::styled(format!("{} · {before}", tl("Image in clipboard")), dim),
             Span::styled(paste_label(), chord),
-            Span::styled(" to paste", dim),
+            Span::styled(after, dim),
         ]),
     )
 }

@@ -7,6 +7,7 @@ use crate::app::actions::Action;
 use crate::app::bundle::BundleState;
 use crate::slash::mode_support::ModeSupport;
 use agent_client_protocol as acp;
+use xai_grok_i18n::tl;
 
 /// Provisional scheduled task info for immediate display in the tasks pane.
 ///
@@ -202,8 +203,10 @@ impl CommandProvenance {
     /// Shell commands render as `built-in` too: the badge only has to separate a skill from whoever kept the bare name.
     pub fn badge(&self) -> std::borrow::Cow<'static, str> {
         match self {
-            Self::Builtin | Self::Shell => std::borrow::Cow::Borrowed("built-in"),
-            Self::Skill { source } => std::borrow::Cow::Owned(format!("skill · {source}")),
+            Self::Builtin | Self::Shell => std::borrow::Cow::Borrowed(tl("built-in")),
+            Self::Skill { source } => {
+                std::borrow::Cow::Owned(format!("{} · {source}", tl("skill")))
+            }
         }
     }
 }

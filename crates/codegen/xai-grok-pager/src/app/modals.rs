@@ -16,6 +16,7 @@ use super::app_view::InputOutcome;
 
 use crate::theme::Theme;
 use crate::views::modal::{self, ActiveModal};
+use xai_grok_i18n::{tl, tlm};
 
 impl AgentView {
     /// `suggest_args` falls back to model rows when `picked` is not a sub-phase; window and effort rows all extend it.
@@ -314,7 +315,7 @@ impl AgentView {
                 shortcuts_help::modal_footer(*filter_active)
             };
             let chrome_cfg = mw::ModalWindowConfig {
-                title: "Keyboard Shortcuts",
+                title: tl("Keyboard Shortcuts"),
                 tabs: None,
                 shortcuts: &footer,
                 sizing: crate::views::shortcuts_help::modal_sizing(
@@ -1024,8 +1025,9 @@ impl AgentView {
 
                 // Chat-mode picker lists conversations only: the source filter and local-disk delete are dead weight there
                 let chat_mode = self.app_chat_mode;
+                let delete_action = [('d', tlm("delete"))];
                 let config = PickerConfig {
-                    title: Some("Resume session"),
+                    title: Some(tl("Resume session")),
                     show_search_hint: true,
                     expandable: true,
                     esc_clears_query: true,
@@ -1043,7 +1045,7 @@ impl AgentView {
                     action_keys: if chat_mode || focused_is_foreign {
                         &[]
                     } else {
-                        &[('d', "delete")]
+                        &delete_action
                     },
                     disable_search: false,
                     compact_bottom_bar: false,
@@ -1313,7 +1315,7 @@ impl AgentView {
                 })
                 .collect();
             let config = PickerConfig {
-                title: Some("How-to Guides"),
+                title: Some(tl("How-to Guides")),
                 show_search_hint: false,
                 expandable: false,
                 esc_clears_query: true,
@@ -1750,17 +1752,17 @@ impl AgentView {
             // Standard footer shortcuts for picker-style modals.
             let mut picker_shortcuts: Vec<Shortcut> = vec![
                 Shortcut {
-                    label: "\u{2191}/\u{2193} nav",
+                    label: tl("↑/↓ nav"),
                     clickable: false,
                     id: 0,
                 },
                 Shortcut {
-                    label: "Enter select",
+                    label: tl("Enter select"),
                     clickable: false,
                     id: 0,
                 },
                 Shortcut {
-                    label: "Esc close",
+                    label: tl("Esc close"),
                     clickable: false,
                     id: 0,
                 },
@@ -1789,10 +1791,12 @@ impl AgentView {
                     .enumerate()
                     .map(|(i, e)| {
                         if matches!(e.command, modal::PaletteCommand::SectionHeader(_)) {
-                            PickerEntry::Header { label: &e.label }
+                            PickerEntry::Header {
+                                label: tl(&e.label),
+                            }
                         } else {
                             PickerEntry::Row(PickerRow {
-                                label: &e.label,
+                                label: tl(&e.label),
                                 right_label: &e.shortcut,
                                 selected: state.hovered == Some(i)
                                     || (state.hovered.is_none() && i == state.selected),
@@ -1814,7 +1818,7 @@ impl AgentView {
                 // Surface `i search` in the footer when vim nav mode is active.
                 mw::push_vim_nav_search_hint(&mut picker_shortcuts, state.search_active);
                 let modal_config = ModalWindowConfig {
-                    title: "Commands",
+                    title: tl("Commands"),
                     tabs: None,
                     shortcuts: &picker_shortcuts,
                     sizing: ModalSizing {
@@ -1858,8 +1862,8 @@ impl AgentView {
                         &self.session.models,
                         args_query,
                     ),
-                    "theme" | "t" => "Pick theme",
-                    _ => "Pick option",
+                    "theme" | "t" => tl("Pick theme"),
+                    _ => tl("Pick option"),
                 };
                 let picker_entries: Vec<PickerEntry> = items
                     .iter()
@@ -1943,12 +1947,12 @@ impl AgentView {
                 let session_shortcuts: Vec<Shortcut> = if pending_delete.is_some() {
                     vec![
                         Shortcut {
-                            label: "y confirm delete",
+                            label: tl("y confirm delete"),
                             clickable: false,
                             id: 0,
                         },
                         Shortcut {
-                            label: "n cancel",
+                            label: tl("n cancel"),
                             clickable: false,
                             id: 0,
                         },
@@ -1957,31 +1961,31 @@ impl AgentView {
                     let external =
                         *source_filter == crate::views::session_picker::SourceFilter::External;
                     let mut shortcuts = vec![Shortcut {
-                        label: "\u{2191}\u{2193} nav",
+                        label: tl("↑↓ nav"),
                         clickable: false,
                         id: 0,
                     }];
                     if !external {
                         shortcuts.push(Shortcut {
-                            label: "e expand",
+                            label: tl("e expand"),
                             clickable: false,
                             id: 0,
                         });
                     }
                     shortcuts.push(Shortcut {
-                        label: "/ search",
+                        label: tl("/ search"),
                         clickable: false,
                         id: 0,
                     });
                     if !chat_mode {
                         shortcuts.push(Shortcut {
-                            label: "f filter",
+                            label: tl("f filter"),
                             clickable: false,
                             id: 0,
                         });
                         if !external {
                             shortcuts.push(Shortcut {
-                                label: "d delete",
+                                label: tl("d delete"),
                                 clickable: false,
                                 id: 0,
                             });
@@ -1991,7 +1995,7 @@ impl AgentView {
                 };
                 let compact = self.scrollback.appearance().prompt.compact;
                 let modal_config = ModalWindowConfig {
-                    title: "Resume session",
+                    title: tl("Resume session"),
                     tabs: None,
                     shortcuts: &session_shortcuts,
                     sizing: ModalSizing {
@@ -2154,7 +2158,7 @@ impl AgentView {
                             summary_lines: &[],
                             dimmed: false,
                             indent: 1,
-                            badge: if has_snippet { "match" } else { "" },
+                            badge: if has_snippet { tl("match") } else { "" },
                             badge_color: Some(theme.accent_user),
                             collapsible: true,
                             underline_last_desc: false,
@@ -2268,21 +2272,21 @@ impl AgentView {
 
                 let has_enhanced = enhanced_content.is_some();
                 let tab_label = if showing_enhanced {
-                    "Tab raw"
+                    tl("Tab raw")
                 } else if has_enhanced {
-                    "Tab enhanced"
+                    tl("Tab enhanced")
                 } else {
-                    "enhancing\u{2026}"
+                    tl("enhancing…")
                 };
 
                 let shortcuts: Vec<Shortcut> = vec![
                     Shortcut {
-                        label: "\u{2191}/\u{2193} scroll",
+                        label: tl("↑/↓ scroll"),
                         clickable: false,
                         id: 0,
                     },
                     Shortcut {
-                        label: "Enter save",
+                        label: tl("Enter save"),
                         clickable: false,
                         id: 0,
                     },
@@ -2292,7 +2296,7 @@ impl AgentView {
                         id: 0,
                     },
                     Shortcut {
-                        label: "Esc cancel",
+                        label: tl("Esc cancel"),
                         clickable: false,
                         id: 0,
                     },
@@ -2300,7 +2304,7 @@ impl AgentView {
 
                 let compact = self.scrollback.appearance().prompt.compact;
                 let modal_config = mw::ModalWindowConfig {
-                    title: "Memory Note",
+                    title: tl("Memory Note"),
                     tabs: None,
                     shortcuts: &shortcuts,
                     sizing: mw::ModalSizing {
@@ -2381,7 +2385,7 @@ impl AgentView {
                 let non_sel: Vec<bool> = vec![false; picker_entries.len()];
                 let footer = shortcuts_help::modal_footer(*filter_active);
                 let modal_config = mw::ModalWindowConfig {
-                    title: "Keyboard Shortcuts",
+                    title: tl("Keyboard Shortcuts"),
                     tabs: None,
                     shortcuts: &footer,
                     sizing: shortcuts_help::modal_sizing(compact),
@@ -2436,9 +2440,9 @@ impl AgentView {
             ) {
                 // Render settings modal with reset-confirm overlay.
                 let prompt = crate::views::modal::reset_confirm_prompt(active_modal)
-                    .unwrap_or_else(|| "Reset setting to default?".to_owned());
+                    .unwrap_or_else(|| tl("Reset setting to default?").to_owned());
                 let breadcrumb = crate::views::modal::reset_confirm_breadcrumb(active_modal)
-                    .unwrap_or_else(|| "Reset setting".to_owned());
+                    .unwrap_or_else(|| tl("Reset setting").to_owned());
                 if let modal::ActiveModal::ResetSettingsConfirm { settings_state, .. } =
                     active_modal
                 {

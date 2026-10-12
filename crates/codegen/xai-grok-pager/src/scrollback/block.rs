@@ -6,6 +6,7 @@ use ratatui::text::{Span, Text};
 use crate::appearance::AppearanceConfig;
 use crate::inline_media_ffmpeg::inline_media_reserved_rows;
 use crate::prompt_images::{InlineMediaInfo, ScrollbackImageRef, ScrollbackVideoRef};
+use xai_grok_i18n::tlm;
 use xai_grok_pager_diff::DiffHunk;
 
 use super::blocks::mermaid_content::DiagramAffordance;
@@ -591,7 +592,7 @@ impl RenderBlock {
         if let ToolCallBlock::Other(ref mut b) = block
             && !success
         {
-            b.error = Some("Tool call failed".to_string());
+            b.error = Some(tlm("Tool call failed").to_string());
         }
         RenderBlock::ToolCall(block)
     }
@@ -605,7 +606,7 @@ impl RenderBlock {
     ) -> Self {
         let mut block = OtherToolCallBlock::new(kind, summary).with_output(output);
         if !success {
-            block = block.with_error("Tool call failed");
+            block = block.with_error(tlm("Tool call failed"));
         }
         RenderBlock::ToolCall(ToolCallBlock::Other(block))
     }
@@ -824,8 +825,9 @@ impl RenderBlock {
             "ExitPlanMode",
             "enter_plan_mode",
             "exit_plan_mode",
-            "Plan: Enter",
-            "Plan: Exit",
+            // The titles the harness gives the two calls; a tool row looks its title up when it draws
+            tlm("Plan: Enter"),
+            tlm("Plan: Exit"),
         ];
         matches!(
             self,
@@ -1068,12 +1070,12 @@ impl RenderBlock {
     /// Returns `None` for blocks without copyable metadata.
     pub fn copy_meta_label(&self) -> Option<&'static str> {
         match self {
-            RenderBlock::ToolCall(ToolCallBlock::Execute(_)) => Some("copy cmd"),
-            RenderBlock::ToolCall(ToolCallBlock::Read(_)) => Some("copy path"),
-            RenderBlock::ToolCall(ToolCallBlock::Edit(_)) => Some("copy path"),
-            RenderBlock::ToolCall(ToolCallBlock::WebFetch(_)) => Some("copy url"),
-            RenderBlock::ToolCall(ToolCallBlock::WebSearch(_)) => Some("copy query"),
-            RenderBlock::ToolCall(ToolCallBlock::Search(_)) => Some("copy pattern"),
+            RenderBlock::ToolCall(ToolCallBlock::Execute(_)) => Some(tlm("copy cmd")),
+            RenderBlock::ToolCall(ToolCallBlock::Read(_)) => Some(tlm("copy path")),
+            RenderBlock::ToolCall(ToolCallBlock::Edit(_)) => Some(tlm("copy path")),
+            RenderBlock::ToolCall(ToolCallBlock::WebFetch(_)) => Some(tlm("copy url")),
+            RenderBlock::ToolCall(ToolCallBlock::WebSearch(_)) => Some(tlm("copy query")),
+            RenderBlock::ToolCall(ToolCallBlock::Search(_)) => Some(tlm("copy pattern")),
             _ => None,
         }
     }

@@ -142,10 +142,40 @@ pub struct SkillManager {
     last_emitted_listing_hash: Option<u64>,
 }
 
+/// How long a skill path's canonical form is trusted. The catalog is reconciled and advertised
+/// after every model response, and resolving every skill's symlinks each time is a syscall per skill.
+const CANONICAL_PATH_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Canonicalize a skill path, falling back to the raw path for not-yet-created
-/// files or symlink-resolution failures.
+/// files or symlink-resolution failures. Results are kept for [`CANONICAL_PATH_TTL`].
 fn canonical_path(path: &str) -> PathBuf {
-    dunce::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path))
+    static CACHE: std::sync::LazyLock<
+        std::sync::Mutex<(
+            std::time::Instant,
+            std::collections::HashMap<String, PathBuf>,
+        )>,
+    > = std::sync::LazyLock::new(|| {
+        std::sync::Mutex::new((std::time::Instant::now(), std::collections::HashMap::new()))
+    });
+    let mut guard = CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (filled_at, cache) = &mut *guard;
+    if filled_at.elapsed() > CANONICAL_PATH_TTL {
+        cache.clear();
+        *filled_at = std::time::Instant::now();
+    }
+    if let Some(canonical) = cache.get(path) {
+        return canonical.clone();
+    }
+    match dunce::canonicalize(path) {
+        Ok(canonical) => {
+            cache.insert(path.to_string(), canonical.clone());
+            canonical
+        }
+        // A path that does not resolve yet is not remembered: it may appear a moment later.
+        Err(_) => PathBuf::from(path),
+    }
 }
 
 fn lexical_path(path: &Path) -> Vec<std::ffi::OsString> {
@@ -186,8 +216,7 @@ fn dedup_by_canonical_path(primary: &[SkillInfo], secondary: &[SkillInfo]) -> Ve
     let mut seen_paths = HashSet::new();
     let mut result = Vec::with_capacity(primary.len() + secondary.len());
     for skill in primary.iter().chain(secondary.iter()) {
-        let canonical =
-            dunce::canonicalize(&skill.path).unwrap_or_else(|_| PathBuf::from(&skill.path));
+        let canonical = canonical_path(&skill.path);
         if seen_paths.insert(canonical) {
             result.push(skill.clone());
         }
@@ -217,8 +246,7 @@ fn dedupe_by_canonical_path_and_name(
     let mut seen_names = HashSet::new();
     let mut result = Vec::with_capacity(primary.len() + secondary.len());
     for skill in primary.iter().chain(secondary.iter()) {
-        let canonical =
-            dunce::canonicalize(&skill.path).unwrap_or_else(|_| PathBuf::from(&skill.path));
+        let canonical = canonical_path(&skill.path);
         if !seen_paths.insert(canonical) {
             continue;
         }

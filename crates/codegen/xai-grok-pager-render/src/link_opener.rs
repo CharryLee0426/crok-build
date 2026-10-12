@@ -4,6 +4,8 @@
 
 use std::collections::HashMap;
 
+use xai_grok_i18n::{tl, tlf, tlm};
+
 use crate::terminal::hyperlinks::SchemeFilter;
 
 /// Outcome of attempting to open a URL in the system browser/handler.
@@ -38,20 +40,24 @@ pub fn browser_open_likely_available() -> bool {
     browser_open_likely_available_from_env(&env)
 }
 
-const BROWSER_UNAVAILABLE_NOTICE: &str = "Could not open a browser. Open this URL manually";
+const BROWSER_UNAVAILABLE_NOTICE: &str = tlm("Could not open a browser. Open this URL manually");
 
 /// Multi-line copy for agent scrollback: notice, then the full URL alone so it is easy to select/copy in the TUI.
 pub fn browser_unavailable_message(url: &str) -> String {
-    format!("{BROWSER_UNAVAILABLE_NOTICE}:\n{url}")
+    tlf(
+        "Could not open a browser. Open this URL manually:\n{url}",
+        &[("url", &url)],
+    )
 }
 
 /// Single-line welcome toast: URL first so prefix truncation keeps the destination.
 /// `copied` is true only when clipboard delivery reported success, so the toast never claims a copy that did not happen.
 pub fn browser_unavailable_line(url: &str, copied: bool) -> String {
+    let notice = tl(BROWSER_UNAVAILABLE_NOTICE);
     if copied {
-        format!("{url} \u{00b7} {BROWSER_UNAVAILABLE_NOTICE} (URL copied)")
+        format!("{url} \u{00b7} {notice} ({})", tl("URL copied"))
     } else {
-        format!("{url} \u{00b7} {BROWSER_UNAVAILABLE_NOTICE}")
+        format!("{url} \u{00b7} {notice}")
     }
 }
 

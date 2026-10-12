@@ -7,6 +7,7 @@ use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand, slash_meta,
 };
 use crate::slash::commands::effort_levels::build_effort_arg_items;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 /// Set reasoning effort for the active model.
 pub struct EffortCommand;
@@ -14,13 +15,13 @@ pub struct EffortCommand;
 impl SlashCommand for EffortCommand {
     slash_meta! {
         name: "effort",
-        description: "Set reasoning effort for the current model",
+        description: tlm("Set reasoning effort for the current model"),
         // Levels are model-specific; empty-args and UnknownToken errors list the active model's offered option ids instead of a hardcoded set.
         usage: "/effort <level>",
         takes_args: true,
         args_required: true,
         session_scoped: true,
-        arg_placeholder: "<level>",
+        arg_placeholder: tlm("<level>"),
     }
 
     fn suggest_args(&self, ctx: &AppCtx, _args_query: &str) -> Option<Vec<ArgItem>> {
@@ -39,7 +40,7 @@ impl SlashCommand for EffortCommand {
     fn run(&self, ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         let trimmed = args.trim();
         let Some(model_id) = ctx.models.current.clone() else {
-            return CommandResult::Error("No active model".into());
+            return CommandResult::Error(tl("No active model").into());
         };
 
         if trimmed.is_empty() {
@@ -52,14 +53,17 @@ impl SlashCommand for EffortCommand {
             let current = ctx
                 .models
                 .reasoning_effort
-                .map(|e| format!(" (current: {e})"))
+                .map(|e| format!(" {}", tlf("(current: {value})", &[("value", &e)])))
                 .unwrap_or_default();
             let levels = if offered.is_empty() {
-                "<level>".to_string()
+                tl("<level>").to_string()
             } else {
                 offered.join("|")
             };
-            return CommandResult::Error(format!("Usage: /effort <{levels}>{current}"));
+            return CommandResult::Error(format!(
+                "{}{current}",
+                tlf("Usage: /effort <{levels}>", &[("levels", &levels)])
+            ));
         }
 
         match ctx.models.resolve_effort_for_model(&model_id, trimmed) {

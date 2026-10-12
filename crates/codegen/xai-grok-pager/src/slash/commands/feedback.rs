@@ -2,6 +2,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 /// Bare `/feedback` opens the feedback modal in every screen mode; `/feedback <text>` sends immediately,
 /// without a model turn and without waiting on the prompt queue.
@@ -10,15 +11,15 @@ pub struct FeedbackCommand;
 impl SlashCommand for FeedbackCommand {
     slash_meta! {
         name: "feedback",
-        description: "Send feedback about the current session",
+        description: tlm("Send feedback about the current session"),
         usage: "/feedback [text]",
         takes_args: true,
-        arg_placeholder: "[feedback text]",
+        arg_placeholder: tlm("[feedback text]"),
     }
 
     fn submission_refusal(&self, args: &str, voice_owns_prompt: bool) -> Option<&'static str> {
         if args.trim().is_empty() && voice_owns_prompt {
-            Some("Stop voice input before opening the feedback form")
+            Some(tl("Stop voice input before opening the feedback form"))
         } else {
             None
         }

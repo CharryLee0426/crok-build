@@ -5,6 +5,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 pub struct SettingsCommand;
 
@@ -12,7 +13,7 @@ impl SlashCommand for SettingsCommand {
     slash_meta! {
         name: "settings",
         aliases: ["config", "preferences", "prefs"],
-        description: "Open the settings modal",
+        description: tlm("Open the settings modal"),
         usage: "/settings",
     }
 

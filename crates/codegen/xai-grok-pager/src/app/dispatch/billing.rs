@@ -7,6 +7,7 @@ use crate::app::agent_view::AgentView;
 use crate::app::app_view::AppView;
 use crate::scrollback::block::RenderBlock;
 use std::time::Duration;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_telemetry::events::{SuperGrokUpsell, SuperGrokUpsellClicked};
 use xai_grok_telemetry::session_ctx::log_event;
 
@@ -103,26 +104,26 @@ pub(super) fn open_credit_limit_upsell(
 
     let copy = match mode {
         CreditLimitUpsellMode::UnifiedCredits => CreditLimitCopy {
-            heading: "You hit your weekly limit.",
-            upgrade_tier_desc: "Upgrade to a higher tier for more usage",
-            secondary_label: "Buy more credits",
-            secondary_desc: "Purchase credits to keep using Crok Build",
+            heading: tl("You hit your weekly limit."),
+            upgrade_tier_desc: tl("Upgrade to a higher tier for more usage"),
+            secondary_label: tl("Buy more credits"),
+            secondary_desc: tl("Purchase credits to keep using Crok Build"),
             second_choice: xai_grok_telemetry::events::CreditLimitChoice::PurchaseCredits,
             payg_telemetry: false,
         },
         CreditLimitUpsellMode::LegacyPayg { enabled: true } => CreditLimitCopy {
-            heading: "You\u{2019}ve hit your spending cap.",
-            upgrade_tier_desc: "Upgrade to a higher tier for more credits",
-            secondary_label: "Increase limit",
-            secondary_desc: "Raise your pay-as-you-go spending cap",
+            heading: tl("You\u{2019}ve hit your spending cap."),
+            upgrade_tier_desc: tl("Upgrade to a higher tier for more credits"),
+            secondary_label: tl("Increase limit"),
+            secondary_desc: tl("Raise your pay-as-you-go spending cap"),
             second_choice: xai_grok_telemetry::events::CreditLimitChoice::PayAsYouGo,
             payg_telemetry: true,
         },
         CreditLimitUpsellMode::LegacyPayg { enabled: false } => CreditLimitCopy {
-            heading: "You\u{2019}ve hit the credit limit for your plan.",
-            upgrade_tier_desc: "Upgrade to a higher tier for more credits",
-            secondary_label: "Pay as you go",
-            secondary_desc: "Enable pay-as-you-go credits for on-demand usage",
+            heading: tl("You\u{2019}ve hit the credit limit for your plan."),
+            upgrade_tier_desc: tl("Upgrade to a higher tier for more credits"),
+            secondary_label: tl("Pay as you go"),
+            secondary_desc: tl("Enable pay-as-you-go credits for on-demand usage"),
             second_choice: xai_grok_telemetry::events::CreditLimitChoice::PayAsYouGo,
             payg_telemetry: false,
         },
@@ -140,7 +141,7 @@ pub(super) fn open_credit_limit_upsell(
     let mut choices = Vec::new();
     if !max_tier {
         options.push(QuestionOption {
-            label: "Upgrade tier".into(),
+            label: tl("Upgrade tier").into(),
             description: copy.upgrade_tier_desc.into(),
             preview: None,
             id: Some(UPSELL_URL_UPGRADE.into()),
@@ -155,8 +156,8 @@ pub(super) fn open_credit_limit_upsell(
     });
     choices.push(copy.second_choice);
     options.push(QuestionOption {
-        label: "Try Again".into(),
-        description: "Resubmit the last prompt once you have usage again".into(),
+        label: tl("Try Again").into(),
+        description: tl("Resubmit the last prompt once you have usage again").into(),
         preview: None,
         id: Some(CREDIT_LIMIT_RETRY_OPTION_ID.into()),
     });
@@ -227,12 +228,12 @@ fn open_supergrok_upsell(
 
     let (heading, source, modal_id_prefix) = match reason {
         UpsellReason::FreeUsageLimit => (
-            "You hit your free usage limit.",
+            tl("You hit your free usage limit."),
             SuperGrokUpsell::FreeUsagePaywall,
             "free-usage-upsell",
         ),
         UpsellReason::RestrictedCommand => (
-            "Unlock all features with SuperGrok.",
+            tl("Unlock all features with SuperGrok."),
             SuperGrokUpsell::RestrictedCommand,
             "restricted-command-upsell",
         ),
@@ -246,20 +247,20 @@ fn open_supergrok_upsell(
     // /supergrok lists all plans; every upgrade option lands there.
     let options = vec![
         QuestionOption {
-            label: "Upgrade to SuperGrok".into(),
-            description: "For everyday coding and productivity tasks".into(),
+            label: tl("Upgrade to SuperGrok").into(),
+            description: tl("For everyday coding and productivity tasks").into(),
             preview: None,
             id: Some(UPSELL_URL_UPGRADE.into()),
         },
         QuestionOption {
-            label: "Upgrade to SuperGrok Plus".into(),
-            description: "Significantly higher usage and rate limits".into(),
+            label: tl("Upgrade to SuperGrok Plus").into(),
+            description: tl("Significantly higher usage and rate limits").into(),
             preview: None,
             id: Some(UPSELL_URL_UPGRADE.into()),
         },
         QuestionOption {
-            label: "Upgrade to SuperGrok Heavy".into(),
-            description: "Get the most out of Crok Build. Highest usage limits.".into(),
+            label: tl("Upgrade to SuperGrok Heavy").into(),
+            description: tl("Get the most out of Crok Build. Highest usage limits.").into(),
             preview: None,
             id: Some(UPSELL_URL_UPGRADE.into()),
         },
@@ -342,7 +343,7 @@ pub(super) fn handle_billing_fetched(
                 Some(bal) => {
                     crate::views::credit_bar::format_usage_summary(bal, summary_topup.as_ref())
                 }
-                None => "No billing data available.".to_string(),
+                None => tl("No billing data available.").to_string(),
             };
             agent.scrollback.push_block(RenderBlock::System(
                 crate::scrollback::blocks::SystemMessageBlock::new(msg),
@@ -475,9 +476,13 @@ pub(super) fn handle_credit_limit_recheck_complete(
 
     if tier_changed && !user_moved_on {
         if let Some(prompt) = agent.credit_limit_stashed_prompt.take() {
-            let tier_name = app.subscription_tier.as_deref().unwrap_or("a higher tier");
-            agent.scrollback.push_block(RenderBlock::system(format!(
-                "Subscription upgraded to {tier_name}. Retrying\u{2026}"
+            let tier_name = app
+                .subscription_tier
+                .as_deref()
+                .unwrap_or(tl("a higher tier"));
+            agent.scrollback.push_block(RenderBlock::system(tlf(
+                "Subscription upgraded to {tier}. Retrying\u{2026}",
+                &[("tier", &tier_name)],
             )));
             agent.session.enqueue_in_flight_prompt_front(prompt);
         }
@@ -516,10 +521,10 @@ pub(super) fn dispatch_retry_credit_limit_prompt(app: &mut AppView) -> Vec<Effec
         return vec![];
     };
     let Some(prompt) = agent.credit_limit_stashed_prompt.take() else {
-        agent.show_toast("No prompt to retry.");
+        agent.show_toast(tl("No prompt to retry."));
         agent
             .scrollback
-            .push_block(RenderBlock::system("No prompt to retry."));
+            .push_block(RenderBlock::system(tl("No prompt to retry.")));
         return vec![];
     };
     agent.session.enqueue_in_flight_prompt_front(prompt);
@@ -534,7 +539,7 @@ pub(super) fn dispatch_retry_credit_limit_prompt(app: &mut AppView) -> Vec<Effec
     }) {
         agent
             .scrollback
-            .push_block(RenderBlock::system("Trying again\u{2026}"));
+            .push_block(RenderBlock::system(tl("Trying again\u{2026}")));
     }
     note_peek_page_flip(app, agent_id, drain.page_flip_entry);
     drain.effects

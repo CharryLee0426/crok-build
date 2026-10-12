@@ -7,6 +7,7 @@
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 use crate::app::agent::{QueueEntryKind, QueuedPrompt};
 use crate::app::prompt_queue::QueueEntryWire;
@@ -89,6 +90,13 @@ fn synth_server_id(prompt_id: &str) -> u64 {
 
 /// Suffix on a row the pane cannot edit, delete, reorder, or send.
 const PROTECTED_MARKER: &str = " · protected";
+/// The word in `PROTECTED_MARKER`, on its own so it can be translated.
+const PROTECTED_WORD: &str = tlm("protected");
+
+/// `PROTECTED_MARKER` in the interface language.
+fn protected_marker() -> String {
+    PROTECTED_MARKER.replace(PROTECTED_WORD, tl(PROTECTED_WORD))
+}
 
 /// Map a shared-queue wire `kind` string to the local display kind only.
 /// Server-only capabilities are projected separately by [`ServerRowCapabilities`].
@@ -197,19 +205,20 @@ impl QueuedPromptEntry {
         // Build the suffix for multiline prompts: " (+N lines)" or " (+1 line)"
         let mut suffix = if extra_lines > 0 {
             if extra_lines == 1 {
-                " (+1 line)".to_string()
+                format!(" {}", tl("(+1 line)"))
             } else {
-                format!(" (+{extra_lines} lines)")
+                format!(" {}", tlf("(+{count} lines)", &[("count", &extra_lines)]))
             }
         } else {
             String::new()
         };
-        let marker_width = PROTECTED_MARKER.width();
+        let marker = protected_marker();
+        let marker_width = marker.width();
         if capabilities.is_protected()
             && max_width
                 .is_none_or(|w| w.saturating_sub(suffix.width() + marker_width) >= marker_width)
         {
-            suffix.push_str(PROTECTED_MARKER);
+            suffix.push_str(&marker);
         }
         let suffix_width = suffix.width();
 
@@ -953,8 +962,8 @@ impl QueuePane {
                 let mut right = inner.x + inner.width;
                 let fits = |right: u16, w: u16| right.checked_sub(w).filter(|&x| x >= inner.x);
 
-                let cancel_label = "[cancel]";
-                let cancel_w = cancel_label.len() as u16;
+                let cancel_label = format!("[{}]", tl("cancel"));
+                let cancel_w = cancel_label.width() as u16;
                 if entry.capabilities.can_delete()
                     && let Some(cancel_x) = fits(right, cancel_w)
                 {
@@ -964,20 +973,20 @@ impl QueuePane {
                     } else {
                         btn_style
                     };
-                    buf.set_string_safe(cancel_x, screen_y, cancel_label, cancel_style);
+                    buf.set_string_safe(cancel_x, screen_y, &cancel_label, cancel_style);
                     self.delete_button
                         .bind(Rect::new(cancel_x, screen_y, cancel_w, 1), entry.id);
                 }
 
-                let interject_label = "[Send now]";
-                let interject_w = interject_label.len() as u16;
+                let interject_label = format!("[{}]", tl("Send now"));
+                let interject_w = interject_label.width() as u16;
                 let show_send_now = can_send_now && entry.capabilities.can_send_now();
 
                 // [edit] always paints; keyboard `e` works either way. Flush to
                 // neighbours so the queued message cannot leak through a gap.
                 // Drop [edit] if [Send now] fits alone but not with [edit].
-                let edit_label = "[edit]";
-                let edit_w = edit_label.len() as u16;
+                let edit_label = format!("[{}]", tl("edit"));
+                let edit_w = edit_label.width() as u16;
                 let send_now_fits_alone = show_send_now && fits(right, interject_w).is_some();
                 if entry.capabilities.can_edit()
                     && (!send_now_fits_alone || fits(right, interject_w + edit_w).is_some())
@@ -989,7 +998,7 @@ impl QueuePane {
                     } else {
                         btn_style
                     };
-                    buf.set_string_safe(edit_x, screen_y, edit_label, edit_style);
+                    buf.set_string_safe(edit_x, screen_y, &edit_label, edit_style);
                     self.edit_button
                         .bind(Rect::new(edit_x, screen_y, edit_w, 1), entry.id);
                 }
@@ -1001,7 +1010,7 @@ impl QueuePane {
                     } else {
                         btn_style
                     };
-                    buf.set_string_safe(interject_x, screen_y, interject_label, interject_style);
+                    buf.set_string_safe(interject_x, screen_y, &interject_label, interject_style);
                     self.send_now
                         .bind(Rect::new(interject_x, screen_y, interject_w, 1), entry.id);
                 }

@@ -10,6 +10,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Widget};
+use xai_grok_i18n::tlf;
 
 use super::line_utils::{truncate_line, truncate_str};
 use super::safe_buf::SafeBuf;
@@ -188,7 +189,7 @@ fn render_content_lines(
         // Dots separator
         if row < max_rows {
             let omitted = total - preview_lines * 2;
-            let dots_text = format!("⋮ ({omitted} more lines)");
+            let dots_text = format!("⋮ ({})", tlf("{count} more lines", &[("count", &omitted)]));
             buf.set_span_safe(
                 inner.x,
                 inner.y + row,

@@ -15,6 +15,7 @@ use crate::scrollback::entry::ScrollbackEntry;
 use crate::scrollback::layout::HorizontalLayout;
 use crate::scrollback::types::{AccentStyle, BlockBackground, DisplayMode, Selectable};
 use crate::theme::{self, Theme};
+use xai_grok_i18n::tlf;
 
 /// Animation speed for running blocks (radians per tick).
 /// ~0.15 gives a smooth wave that travels the block in ~40 ticks.
@@ -277,9 +278,9 @@ impl<'a> EntryRenderer<'a> {
             spans.extend(label.line.spans.iter().cloned());
         } else {
             let label = if self.group_collapse_header {
-                format!("{n} tool calls & thoughts")
+                tlf("{count} tool calls & thoughts", &[("count", &n)])
             } else {
-                format!("{n} more")
+                tlf("{count} more", &[("count", &n)])
             };
             spans.push(ratatui::text::Span::styled(label, text_style));
         }

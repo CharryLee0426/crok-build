@@ -13,6 +13,7 @@ use crate::slash::command::{
 };
 use crate::slash::{ModeSupport, Remedy};
 use crate::theme::{Theme, ThemeKind, cache as theme_cache};
+use xai_grok_i18n::{tl, tlf, tlm};
 
 pub struct ThemeCommand;
 
@@ -28,14 +29,14 @@ impl SlashCommand for ThemeCommand {
     slash_meta! {
         name: "theme",
         aliases: ["t"],
-        description: "Switch the color theme",
+        description: tlm("Switch the color theme"),
         usage: "/theme <name>",
         takes_args: true,
         args_required: false,
         mode_support: ModeSupport::FullscreenOnly(Remedy::SwitchMode {
-            why: "minimal renders with your terminal's own palette",
+            why: tlm("minimal renders with your terminal's own palette"),
         }),
-        arg_placeholder: "<theme>",
+        arg_placeholder: tlm("<theme>"),
     }
 
     fn supports_preview(&self) -> bool {
@@ -68,20 +69,24 @@ impl SlashCommand for ThemeCommand {
         let current = Theme::current_kind();
         let is_auto = theme_cache::is_auto_mode();
         let available = ThemeKind::available();
+        let active_suffix = format!(" {}", tl("(active)"));
 
         // Prepend "auto" as the first option. It is always dark here; only Crok Desktop follows the system.
-        let auto_active = if is_auto { " (active)" } else { "" };
+        let auto_active = if is_auto { active_suffix.as_str() } else { "" };
         let mut items = vec![ArgItem {
             display: "auto".to_string(),
             match_text: picker_match_text(ThemeKind::Auto),
             insert_text: "auto".to_string(),
-            description: format!("auto (dark; follows system in Crok Desktop){auto_active}"),
+            description: format!(
+                "{}{auto_active}",
+                tl("auto (dark; follows system in Crok Desktop)")
+            ),
         }];
 
         // Concrete themes: only show "(active)" when not in auto mode
         items.extend(available.iter().map(|kind| {
             let active = if *kind == current && !is_auto {
-                " (active)"
+                active_suffix.as_str()
             } else {
                 ""
             };
@@ -109,7 +114,7 @@ impl SlashCommand for ThemeCommand {
                 .and_then(|i| i.checked_rem(available.len()))
                 .and_then(|i| available.get(i))
             else {
-                return CommandResult::Error("No themes available".into());
+                return CommandResult::Error(tl("No themes available").into());
             };
 
             return CommandResult::Action(Action::SetTheme(next.display_name().to_string()));
@@ -127,10 +132,12 @@ impl SlashCommand for ThemeCommand {
                     .iter()
                     .map(|k| k.display_name())
                     .collect();
-                CommandResult::Error(format!(
-                    "Unknown theme: {}. Available: auto, {}",
-                    trimmed,
-                    all_names.join(", ")
+                CommandResult::Error(tlf(
+                    "Unknown theme: {name}. Available: {themes}",
+                    &[
+                        ("name", &trimmed),
+                        ("themes", &format!("auto, {}", all_names.join(", "))),
+                    ],
                 ))
             }
         }

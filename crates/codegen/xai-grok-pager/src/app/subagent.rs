@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use serde::Deserialize;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::session::storage::{
     ReplayEmission, ReplayLookupFallback, ReplayPathHint, ReplayedUpdate, replay_would_emit,
     stream_replay_updates_at_hinted,
@@ -911,8 +912,8 @@ fn dedup_persona_role<'a, 'b>(
 
 pub(crate) fn format_context_badge(info: &SubagentInfo) -> &str {
     match info.attempt.context_source.as_deref() {
-        Some("resumed") => "resumed",
-        Some("forked") => "forked",
+        Some("resumed") => tl("resumed"),
+        Some("forked") => tl("forked"),
         _ => "",
     }
 }
@@ -973,7 +974,7 @@ pub(crate) fn format_subagent_label(info: &SubagentInfo) -> (String, String) {
     } else if let Some(tag) = tag {
         tag.to_string()
     } else {
-        "subagent".to_string()
+        tl("subagent").to_string()
     };
 
     // Iterating handles uppercase mappings that span several codepoints (`ß` becomes `SS`)
@@ -1005,8 +1006,9 @@ pub(crate) fn format_subagent_meta(
 pub(crate) fn format_activity_label(activity: &crate::acp::tracker::TurnActivity) -> String {
     use crate::acp::tracker::TurnActivity;
     match activity {
-        TurnActivity::Thinking => "Thinking".to_string(),
-        TurnActivity::Responding => "Responding".to_string(),
+        // The label is rebuilt on every activity change, so it takes the interface language here
+        TurnActivity::Thinking => tl("Thinking").to_string(),
+        TurnActivity::Responding => tl("Responding").to_string(),
         TurnActivity::ToolRunning { title, description } => {
             if let Some(desc) = description
                 .as_deref()
@@ -1015,25 +1017,28 @@ pub(crate) fn format_activity_label(activity: &crate::acp::tracker::TurnActivity
             {
                 crate::acp::tracker::format_waiting_for_subject(desc)
             } else if title.is_empty() {
-                "Running tool".to_string()
+                tl("Running tool").to_string()
             } else {
                 let first_line = title.lines().next().unwrap_or(title);
                 let max_len = crate::acp::tracker::MAX_ACTIVITY_SUBJECT_CHARS;
                 // Byte length is the char count for ASCII, so this skips the char walk for the common title
                 if first_line.len() <= max_len {
-                    format!("Running: {first_line}")
+                    tlf("Running: {title}", &[("title", &first_line)])
                 } else {
                     let char_count = first_line.chars().count();
                     if char_count <= max_len {
-                        format!("Running: {first_line}")
+                        tlf("Running: {title}", &[("title", &first_line)])
                     } else {
                         let truncated: String = first_line.chars().take(max_len).collect();
-                        format!("Running: {truncated}\u{2026}")
+                        tlf(
+                            "Running: {title}",
+                            &[("title", &format!("{truncated}\u{2026}"))],
+                        )
                     }
                 }
             }
         }
-        TurnActivity::AutoCompacting => "Compacting".to_string(),
+        TurnActivity::AutoCompacting => tl("Compacting").to_string(),
         TurnActivity::Retrying {
             attempt,
             max_retries,

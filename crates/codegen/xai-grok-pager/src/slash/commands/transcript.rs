@@ -7,6 +7,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 /// View the full conversation transcript in `$PAGER`.
 pub struct TranscriptCommand;
@@ -15,14 +16,14 @@ impl SlashCommand for TranscriptCommand {
     slash_meta! {
         name: "transcript",
         aliases: ["log"],
-        description: "View the conversation transcript in your pager ($PAGER)",
+        description: tlm("View the conversation transcript in your pager ($PAGER)"),
         usage: "/transcript",
         session_scoped: true,
     }
 
     fn run(&self, ctx: &mut CommandExecCtx, _args: &str) -> CommandResult {
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session to view".to_string());
+            return CommandResult::Error(tl("No active session to view").to_string());
         }
         CommandResult::Action(Action::OpenTranscriptPager)
     }

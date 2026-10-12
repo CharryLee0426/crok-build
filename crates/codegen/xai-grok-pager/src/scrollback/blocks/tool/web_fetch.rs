@@ -9,6 +9,8 @@ use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode, Selectable,
 };
 use crate::theme::Theme;
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
 
 const MAX_INLINE_LINES: usize = 10;
 const TRUNCATED_INLINE_LINES: usize = 3;
@@ -110,9 +112,9 @@ impl WebFetchToolCallBlock {
             theme.fg(theme.command)
         };
 
-        let prefix = "Fetch ";
+        let prefix = format!("{} ", tl("Fetch"));
         let display_url = match max_width {
-            Some(w) => truncate_str(&self.url, w.saturating_sub(prefix.len())),
+            Some(w) => truncate_str(&self.url, w.saturating_sub(prefix.width())),
             None => self.url.clone(),
         };
 
@@ -143,19 +145,19 @@ impl WebFetchToolCallBlock {
 
         if let Some(code) = self.status_code {
             parts.push(vec![
-                Span::styled("status: ", label_style),
+                Span::styled(format!("{}: ", tl("status")), label_style),
                 Span::styled(code.to_string(), value_style),
             ]);
         }
         if let Some(ref ct) = self.content_type {
             parts.push(vec![
-                Span::styled("content_type: ", label_style),
+                Span::styled(format!("{}: ", tl("content_type")), label_style),
                 Span::styled(ct.clone(), value_style),
             ]);
         }
         if let Some(bytes) = self.bytes {
             parts.push(vec![
-                Span::styled("size: ", label_style),
+                Span::styled(format!("{}: ", tl("size")), label_style),
                 Span::styled(crate::util::format_bytes(bytes as u64), value_style),
             ]);
         }
@@ -243,8 +245,11 @@ impl BlockContent for WebFetchToolCallBlock {
                             lines.push(
                                 BlockLine::from(Line::from(Span::styled(
                                     format!(
-                                        "{indent}... ({} more lines, press Enter to view)",
-                                        total_lines - max_inline
+                                        "{indent}... ({})",
+                                        tlf(
+                                            "{count} more lines, press Enter to view",
+                                            &[("count", &(total_lines - max_inline))]
+                                        ),
                                     ),
                                     theme.dim(),
                                 )))
@@ -267,7 +272,11 @@ impl BlockContent for WebFetchToolCallBlock {
                 } else if self.error.is_none() {
                     lines.push(Line::from("").into());
                     lines.push(
-                        Line::from(Span::styled("  (no content)".to_owned(), theme.muted())).into(),
+                        Line::from(Span::styled(
+                            format!("  ({})", tl("no content")),
+                            theme.muted(),
+                        ))
+                        .into(),
                     );
                 }
 

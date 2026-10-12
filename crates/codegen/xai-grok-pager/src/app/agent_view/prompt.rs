@@ -13,6 +13,7 @@ use crate::key;
 use crate::scrollback::block::RenderBlock;
 use crate::views::prompt_widget::PromptEvent;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use xai_grok_i18n::{tl, tlf, tlm};
 
 impl AgentView {
     pub fn prompt_history_loading(&self) -> bool {
@@ -478,7 +479,7 @@ impl AgentView {
                         if let Some(viewer) = crate::prompt_images::ImageViewerState::open(img) {
                             self.image_viewer = Some(viewer);
                         } else {
-                            self.show_toast("Couldn't load image preview");
+                            self.show_toast(tl("Couldn't load image preview"));
                         }
                     }
                     return InputOutcome::Changed;
@@ -784,7 +785,10 @@ impl AgentView {
                 && let Some(cancel_key) = registry.key_for(ActionId::CancelTurn)
             {
                 let cancel_key = cancel_key.display();
-                self.show_cancel_key_hint(&format!("Press {cancel_key} to cancel the turn"));
+                self.show_cancel_key_hint(&tlf(
+                    "Press {key} to cancel the turn",
+                    &[("key", &cancel_key)],
+                ));
             }
             self.suppress_rewind_arm(std::time::Instant::now());
             return Some(InputOutcome::Changed);
@@ -800,7 +804,7 @@ impl AgentView {
             return Some(InputOutcome::ArmPending {
                 action: Action::ClearPrompt,
                 shortcut: crate::input::key::KeyShortcut::from(*key),
-                label: Some("clear"),
+                label: Some(tlm("clear")),
                 ttl: crate::app::app_view::esc_double_press_ttl(),
             });
         }

@@ -23,6 +23,7 @@ pub use xai_grok_tools::implementations::grok_build::ask_user_question::{
 };
 
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tl_parts};
 
 use crate::input::key::RowWalk;
 use crate::render::line_utils::{byte_offset_at_width, truncate_line, truncate_str};
@@ -1496,7 +1497,7 @@ fn build_freeform_line(
     } else {
         // Empty: show placeholder
         (
-            "Type your answer here".to_string(),
+            tl("Type your answer here").to_string(),
             Style::default().fg(fg(theme.gray)).bg(row_bg),
         )
     };
@@ -1737,13 +1738,14 @@ pub fn render_question_scrollbar(
 /// Render a truncation indicator line: `... Ctrl-F to expand`.
 fn render_truncation_indicator(buf: &mut Buffer, x: u16, y: u16, width: u16, theme: &Theme) {
     let style = Style::default().fg(theme.gray).bg(theme.bg_light);
+    let (before, after) = tl_parts("{key} to expand", "key");
     let indicator = Line::from(vec![
-        Span::styled("... ", style),
+        Span::styled(format!("... {before}"), style),
         Span::styled(
             "Ctrl-F",
             Style::default().fg(theme.accent_user).bg(theme.bg_light),
         ),
-        Span::styled(" to expand", style),
+        Span::styled(after, style),
     ]);
     buf.set_line(x, y, &indicator, width);
 }

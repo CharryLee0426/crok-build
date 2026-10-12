@@ -26,10 +26,59 @@ use crate::app::dispatch::turn::apply_cancel_subagents_preference_global;
 use crate::scrollback::block::RenderBlock;
 use agent_client_protocol as acp;
 
-/// Format a "✓ Label: value" success toast.
+/// Format a "✓ Label: value" success toast. Callers pass both parts already in the interface language.
+pub(in crate::app::dispatch) fn value_toast(label: &str, value: &str) -> String {
+    // The punctuation between the two is the language's own (a full-width colon, a space before it)
+    xai_grok_i18n::tr("settings.toast.format", "\u{2713} {label}: {value}")
+        .replace("{label}", label)
+        .replace("{value}", value)
+}
+
+/// Format a "✓ Label: on" / "✓ Label: off" success toast.
 pub(in crate::app::dispatch) fn save_success_toast(label: &str, on: bool) -> String {
-    let value = if on { "on" } else { "off" };
-    format!("\u{2713} {label}: {value}")
+    value_toast(label, crate::settings::bool_value_label(on))
+}
+
+/// Add the "(restart to apply)" cue to the toast of a change that waits for the next start.
+pub(in crate::app::dispatch) fn restart_to_apply(toast: &str) -> String {
+    format!(
+        "{toast} {}",
+        xai_grok_i18n::tr("settings.toast.restart_suffix", "(restart to apply)")
+    )
+}
+
+/// Apply an interface language that another process (Crok Desktop, an editor) wrote to
+/// `[ui].ui_language` in `config.toml`. Returns `true` when the setting changed and a redraw is due.
+/// Nothing is persisted: the value already came from disk.
+pub(crate) fn apply_external_ui_language(app: &mut AppView, canonical: &'static str) -> bool {
+    let prev = crate::settings::canonical_ui_language(app.current_ui.ui_language.as_deref());
+    if prev == canonical {
+        return false;
+    }
+    let prev_locale = xai_grok_i18n::current_locale();
+    set_ui_language_inner(app, canonical);
+    refresh_open_settings_modals(app);
+    tracing::info!(target: "settings", key = "ui_language", value = canonical, "setting changed on disk");
+    if xai_grok_i18n::current_locale() != prev_locale {
+        app.show_toast(&ui_language_toast(canonical));
+    }
+    true
+}
+
+/// "✓ Interface language: 简体中文", worded in the language just applied; `auto` also names the
+/// locale it resolved to.
+pub(crate) fn ui_language_toast(canonical: &str) -> String {
+    let label = xai_grok_i18n::settings_label("ui_language").unwrap_or("Interface language");
+    let key = format!("choice.ui_language.{canonical}");
+    let choice = xai_grok_i18n::t_or(&key, canonical);
+    if canonical == "auto" {
+        format!(
+            "\u{2713} {label}: {choice} ({})",
+            xai_grok_i18n::locale_code()
+        )
+    } else {
+        format!("\u{2713} {label}: {choice}")
+    }
 }
 
 /// Refresh every open settings modal's `ui_snapshot` and `pager_snapshot` so the next render reads the latest live state.
@@ -405,7 +454,17 @@ pub(in crate::app::dispatch) fn dispatch_confirm_reset_setting(
                     "reset skipped — setting already at default",
                 );
                 with_active_agent(app, |agent| {
-                    agent.show_toast(&format!("{}: already at default", meta.display_label()));
+                    agent.show_toast(
+                        &xai_grok_i18n::tr("settings.toast.plain", "{label}: {value}")
+                            .replace("{label}", meta.display_label())
+                            .replace(
+                                "{value}",
+                                xai_grok_i18n::tr(
+                                    "settings.toast.value.already_default",
+                                    "already at default",
+                                ),
+                            ),
+                    );
                 });
                 return vec![];
             }
@@ -455,9 +514,9 @@ pub(in crate::app::dispatch) fn dispatch_toggle_vim_mode(app: &mut AppView) -> V
     set_vim_mode_inner(app, enabled);
     refresh_open_settings_modals(app);
     let msg = if enabled {
-        "Vim mode: on"
+        xai_grok_i18n::tr("settings.toast.vim_mode_on", "Vim mode: on")
     } else {
-        "Vim mode: off"
+        xai_grok_i18n::tr("settings.toast.vim_mode_off", "Vim mode: off")
     };
     tracing::info!(vim_mode = enabled, "Vim mode toggled");
     match app.active_view {
@@ -541,7 +600,10 @@ pub(in crate::app::dispatch) fn dispatch_toggle_mouse_capture(app: &mut AppView)
         }
         with_active_agent(app, |agent| {
             toast_applied = true;
-            agent.show_toast("Mouse reporting on");
+            agent.show_toast(xai_grok_i18n::tr(
+                "settings.toast.mouse_reporting_on",
+                "Mouse reporting on",
+            ));
         });
     } else {
         for agent in app.agents.values_mut() {
@@ -833,8 +895,12 @@ pub(in crate::app::dispatch) fn action_for_reset(
 
 /// Toast shown by the [`apply_setting_rollback`] catch-all when a persisted setting has no rollback arm.
 /// Shared with `every_persisting_setting_has_rollback_arm` so the guard can't be silently defeated by a wording edit.
-pub(crate) const ROLLBACK_NO_ARM_TOAST: &str =
-    "Settings rolled back, but local state may be out of sync: restart to reload";
+pub(crate) fn rollback_no_arm_toast() -> &'static str {
+    xai_grok_i18n::tr(
+        "settings.toast.rollback_no_arm",
+        "Settings rolled back, but local state may be out of sync: restart to reload",
+    )
+}
 
 /// Does not re-emit `PersistSetting` (that would loop forever on a persistent failure); can emit companion effects (e.g. a reverse `SwitchModel`).
 /// New settings must add an arm here.
@@ -1137,7 +1203,7 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
                 "rollback path has no arm for this setting key; in-memory cache is now \
                  inconsistent with the on-disk state (which already failed to write)"
             );
-            app.show_toast(ROLLBACK_NO_ARM_TOAST);
+            app.show_toast(rollback_no_arm_toast());
             return companion_effects;
         }
     }

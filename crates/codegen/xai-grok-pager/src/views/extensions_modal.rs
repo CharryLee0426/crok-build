@@ -18,6 +18,7 @@ use crate::views::modal_window::{
     fill_overlay_content, overlay_content_rect, word_wrap,
 };
 use crate::views::picker;
+use xai_grok_i18n::{tl, tlf, tlm};
 use xai_grok_shell::extensions::skills::SkillsListResponse;
 use xai_grok_tools::implementations::skills::types::SkillInfo;
 
@@ -200,11 +201,11 @@ fn skill_group(skill: &SkillInfo) -> SkillGroup {
         return match cs {
             ConfigSource::Project { .. } => SkillGroup {
                 rank: 0,
-                label: "Project".into(),
+                label: tlm("Project").into(),
             },
             ConfigSource::User { .. } => SkillGroup {
                 rank: 1,
-                label: "User".into(),
+                label: tlm("User").into(),
             },
             ConfigSource::Plugin { plugin_name, .. } => SkillGroup {
                 rank: 2,
@@ -212,11 +213,11 @@ fn skill_group(skill: &SkillInfo) -> SkillGroup {
             },
             ConfigSource::Bundled { .. } => SkillGroup {
                 rank: 3,
-                label: "Bundled".into(),
+                label: tlm("Bundled").into(),
             },
             ConfigSource::Server { .. } => SkillGroup {
                 rank: 4,
-                label: "Server".into(),
+                label: tlm("Server").into(),
             },
             ConfigSource::Builtin
             | ConfigSource::ConfigToml { .. }
@@ -225,18 +226,18 @@ fn skill_group(skill: &SkillInfo) -> SkillGroup {
             | ConfigSource::Cli { .. }
             | ConfigSource::Managed { .. } => SkillGroup {
                 rank: 5,
-                label: "Config".into(),
+                label: tlm("Config").into(),
             },
         };
     }
     match skill.scope {
         SkillScope::Local | SkillScope::Repo => SkillGroup {
             rank: 0,
-            label: "Project".into(),
+            label: tlm("Project").into(),
         },
         SkillScope::User => SkillGroup {
             rank: 1,
-            label: "User".into(),
+            label: tlm("User").into(),
         },
         SkillScope::Plugin => SkillGroup {
             rank: 2,
@@ -247,12 +248,21 @@ fn skill_group(skill: &SkillInfo) -> SkillGroup {
         },
         SkillScope::Bundled => SkillGroup {
             rank: 3,
-            label: "Bundled".into(),
+            label: tlm("Bundled").into(),
         },
         SkillScope::Server => SkillGroup {
             rank: 4,
-            label: "Server".into(),
+            label: tlm("Server").into(),
         },
+    }
+}
+
+/// Header text for a skill group. [`SkillGroup::label`] itself stays English, because it keys the
+/// collapsed set and the header rows; this is its translation for display.
+fn skill_group_display(label: &str) -> String {
+    match label.strip_prefix("Plugin: ") {
+        Some(name) => tlf("Plugin: {name}", &[("name", &name)]),
+        None => tl(label).to_string(),
     }
 }
 
@@ -333,9 +343,9 @@ type GroupedPlugins<'a> = std::collections::BTreeMap<
 /// Header count suffix: `1 plugin`, `2 plugins`.
 fn plugin_count_label(n: usize) -> String {
     if n == 1 {
-        "1 plugin".to_string()
+        tl("1 plugin").to_string()
     } else {
-        format!("{n} plugins")
+        tlf("{count} plugins", &[("count", &n)])
     }
 }
 
@@ -353,7 +363,7 @@ fn mcp_row_badge(
             Some(server.status.theme_color(theme)),
         )
     } else {
-        ("[disabled]".to_string(), Some(theme.accent_error))
+        (format!("[{}]", tl("disabled")), Some(theme.accent_error))
     }
 }
 
@@ -364,14 +374,14 @@ pub fn plugin_group(plugin: &xai_hooks_plugins_types::PluginInfo) -> PluginGroup
     use xai_hooks_plugins_types::{PluginOrigin, PluginScope};
 
     match &plugin.origin {
-        Some(PluginOrigin::ProjectGrok) => PluginGroup::new(0, "origin:project", "Project"),
+        Some(PluginOrigin::ProjectGrok) => PluginGroup::new(0, "origin:project", tl("Project")),
         Some(PluginOrigin::ProjectClaude) => {
-            PluginGroup::new(1, "origin:project-claude", "Project (Claude)")
+            PluginGroup::new(1, "origin:project-claude", tl("Project (Claude)"))
         }
-        Some(PluginOrigin::UserGrok) => PluginGroup::new(2, "origin:user", "User"),
+        Some(PluginOrigin::UserGrok) => PluginGroup::new(2, "origin:user", tl("User")),
         Some(PluginOrigin::UserClaude)
         | Some(PluginOrigin::ClaudeInstalled { marketplace: None }) => {
-            PluginGroup::new(3, "origin:user-claude", "User (Claude)")
+            PluginGroup::new(3, "origin:user-claude", tl("User (Claude)"))
         }
         Some(PluginOrigin::ClaudeMarketplace { marketplace })
         | Some(PluginOrigin::ClaudeInstalled {
@@ -391,24 +401,24 @@ pub fn plugin_group(plugin: &xai_hooks_plugins_types::PluginInfo) -> PluginGroup
         },
         Some(PluginOrigin::MarketplaceInstall {
             source_name: None, ..
-        }) => PluginGroup::new(6, "origin:direct", "Direct installs"),
-        Some(PluginOrigin::CliOverride) => PluginGroup::new(7, "origin:cli", "CLI override"),
-        Some(PluginOrigin::ConfigPath) => PluginGroup::new(8, "origin:config", "Custom paths"),
+        }) => PluginGroup::new(6, "origin:direct", tl("Direct installs")),
+        Some(PluginOrigin::CliOverride) => PluginGroup::new(7, "origin:cli", tl("CLI override")),
+        Some(PluginOrigin::ConfigPath) => PluginGroup::new(8, "origin:config", tl("Custom paths")),
         Some(PluginOrigin::Unknown) | None => match plugin.scope {
-            PluginScope::Project => PluginGroup::new(0, "origin:project", "Project"),
+            PluginScope::Project => PluginGroup::new(0, "origin:project", tl("Project")),
             PluginScope::User => match plugin.marketplace_source.as_deref() {
                 Some(source) if source.starts_with("git: ") => {
-                    PluginGroup::new(6, "origin:direct", "Direct installs")
+                    PluginGroup::new(6, "origin:direct", tl("Direct installs"))
                 }
                 Some(source) => PluginGroup {
                     rank: 5,
                     key: format!("grok-mp:{source}"),
                     label: source.to_string(),
                 },
-                None => PluginGroup::new(2, "origin:user", "User"),
+                None => PluginGroup::new(2, "origin:user", tl("User")),
             },
-            PluginScope::Cli => PluginGroup::new(7, "origin:cli", "CLI override"),
-            PluginScope::Config => PluginGroup::new(8, "origin:config", "Custom paths"),
+            PluginScope::Cli => PluginGroup::new(7, "origin:cli", tl("CLI override")),
+            PluginScope::Config => PluginGroup::new(8, "origin:config", tl("Custom paths")),
         },
     }
 }
@@ -501,12 +511,12 @@ impl ExtensionsTab {
     /// Display label for the tab bar.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Hooks => "Hooks",
-            Self::Plugins => "Plugins",
-            Self::Marketplace => "Marketplace",
-            Self::Skills => "Skills",
-            Self::Workflows => "Workflows",
-            Self::McpServers => "MCP Servers",
+            Self::Hooks => tl("Hooks"),
+            Self::Plugins => tl("Plugins"),
+            Self::Marketplace => tl("Marketplace"),
+            Self::Skills => tl("Skills"),
+            Self::Workflows => tl("Workflows"),
+            Self::McpServers => tl("MCP Servers"),
         }
     }
 
@@ -576,9 +586,9 @@ pub enum StatusFilter {
 impl StatusFilter {
     pub fn label(self) -> &'static str {
         match self {
-            Self::All => "All",
-            Self::Enabled => "Enabled",
-            Self::Disabled => "Disabled",
+            Self::All => tl("All"),
+            Self::Enabled => tl("Enabled"),
+            Self::Disabled => tl("Disabled"),
         }
     }
 
@@ -811,10 +821,13 @@ impl ModalInput {
                     .filter(|(i, f)| {
                         f.required() && field_texts.get(*i).is_none_or(|t| t.trim().is_empty())
                     })
-                    .map(|(_, f)| f.label())
+                    .map(|(_, f)| tl(f.label()))
                     .collect();
                 if !empty_required.is_empty() {
-                    self.error = Some(format!("Required: {}", empty_required.join(", ")));
+                    self.error = Some(tlf(
+                        "Required: {fields}",
+                        &[("fields", &empty_required.join(", "))],
+                    ));
                     return ModalInputOutcome::Changed;
                 }
                 ModalInputOutcome::Submit {
@@ -1003,7 +1016,7 @@ impl McpSetupFormState {
             }
             KeyCode::Enter => {
                 if self.selected_value().is_none() {
-                    self.error = Some("Select an option".to_string());
+                    self.error = Some(tl("Select an option").to_string());
                     McpSetupOutcome::Changed
                 } else {
                     McpSetupOutcome::Submit
@@ -1074,15 +1087,15 @@ pub const RESULT_NOTICE_TICKS: u16 = 75;
 /// Single source of truth for the McpServers tab action keys.
 /// Consumed by the renderer (hint bar), the picker (`PickerConfig::action_keys`), and `resolve_key` (must have a matching arm for every entry).
 pub const MCP_SERVERS_ACTION_KEYS: &[(char, &str)] = &[
-    (MCP_SERVERS_REFRESH_KEY, "refresh"),
-    ('a', "add"),
-    ('i', "auth"),
-    (' ', "toggle"),
-    ('x', "remove"),
+    (MCP_SERVERS_REFRESH_KEY, tlm("refresh")),
+    ('a', tlm("add")),
+    ('i', tlm("auth")),
+    (' ', tlm("toggle")),
+    ('x', tlm("remove")),
 ];
 
 /// Footer label for the MCP tab Ctrl+O shortcut (not in [`MCP_SERVERS_ACTION_KEYS`]).
-pub const MCP_SERVERS_OPEN_CONNECTORS_FOOTER: &str = "ctrl-o open";
+pub const MCP_SERVERS_OPEN_CONNECTORS_FOOTER: &str = tlm("ctrl-o open");
 
 /// Map an action key character to its display string for shortcut hints. Single source of truth
 /// shared by [`render_extensions_modal`] (footer shortcuts) and
@@ -1116,11 +1129,11 @@ pub enum ActionVerb {
 impl ActionVerb {
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Install => "install",
-            Self::Update => "update",
-            Self::Uninstall => "uninstall",
-            Self::RemoveSource => "remove source",
-            Self::EnableDisable => "enable/disable",
+            Self::Install => tlm("install"),
+            Self::Update => tlm("update"),
+            Self::Uninstall => tlm("uninstall"),
+            Self::RemoveSource => tlm("remove source"),
+            Self::EnableDisable => tlm("enable/disable"),
         }
     }
 }
@@ -1131,28 +1144,32 @@ impl ActionVerb {
 pub fn extensions_action_keys(tab: ExtensionsTab) -> Vec<(char, &'static str)> {
     match tab {
         ExtensionsTab::Hooks => vec![
-            ('r', "reload"),
-            ('a', "add"),
-            (' ', "toggle"),
-            ('x', "remove"),
+            ('r', tlm("reload")),
+            ('a', tlm("add")),
+            (' ', tlm("toggle")),
+            ('x', tlm("remove")),
         ],
         ExtensionsTab::Plugins => vec![
-            ('r', "reload"),
+            ('r', tlm("reload")),
             ('u', ActionVerb::Update.label()),
             ('a', ActionVerb::Install.label()),
-            (' ', "toggle"),
+            (' ', tlm("toggle")),
             ('x', ActionVerb::Uninstall.label()),
         ],
         ExtensionsTab::Marketplace => vec![
             ('i', ActionVerb::Install.label()),
-            ('r', "refresh"),
+            ('r', tlm("refresh")),
             ('u', ActionVerb::Update.label()),
-            ('a', "add source"),
+            ('a', tlm("add source")),
             ('d', ActionVerb::Uninstall.label()),
             ('x', ActionVerb::RemoveSource.label()),
         ],
-        ExtensionsTab::Skills => vec![(' ', "toggle"), ('f', "filter"), ('r', "reload")],
-        ExtensionsTab::Workflows => vec![('r', "reload")],
+        ExtensionsTab::Skills => vec![
+            (' ', tlm("toggle")),
+            ('f', tlm("filter")),
+            ('r', tlm("reload")),
+        ],
+        ExtensionsTab::Workflows => vec![('r', tlm("reload"))],
         ExtensionsTab::McpServers => MCP_SERVERS_ACTION_KEYS.to_vec(),
     }
 }
@@ -1186,8 +1203,8 @@ fn action_key_footer_desc_for_mapping(
 ) -> &'static str {
     if ch == ' ' && desc == "toggle" {
         match selected_item_enabled_at(state, entry_data_indices, entry_group_keys, selected) {
-            Some(true) => "disable",
-            Some(false) => "enable",
+            Some(true) => tlm("disable"),
+            Some(false) => tlm("enable"),
             None => ActionVerb::EnableDisable.label(),
         }
     } else {
@@ -1450,18 +1467,22 @@ pub fn tab_all_hints(tab: ExtensionsTab) -> Vec<crate::views::shortcuts_bar::Hin
     let mut hints: Vec<HintItem> = Vec::new();
     for (ch, label) in extensions_action_keys(tab) {
         let display_key = KeyShortcut::new(KeyCode::Char(ch), KeyModifiers::NONE);
-        let mut item = HintItem::new(display_key, action_key_cheatsheet_desc(ch, label));
+        let mut item = HintItem::new(display_key, tl(action_key_cheatsheet_desc(ch, label)));
         if ch == ' ' {
             item.custom_display = Some("Space");
         }
         hints.push(item);
     }
     // Common navigation.
-    hints.push(HintItem::paired(crate::key!('j'), crate::key!('k'), "nav"));
-    hints.push(HintItem::new(crate::key!(Tab), "switch tab"));
-    hints.push(HintItem::new(crate::key!('/'), "search"));
-    hints.push(HintItem::new(crate::key!(Enter), "expand"));
-    hints.push(HintItem::new(crate::key!(Esc), "close"));
+    hints.push(HintItem::paired(
+        crate::key!('j'),
+        crate::key!('k'),
+        tl("nav"),
+    ));
+    hints.push(HintItem::new(crate::key!(Tab), tl("switch tab")));
+    hints.push(HintItem::new(crate::key!('/'), tl("search")));
+    hints.push(HintItem::new(crate::key!(Enter), tl("expand")));
+    hints.push(HintItem::new(crate::key!(Esc), tl("close")));
     hints
 }
 
@@ -1485,9 +1506,9 @@ pub fn resolve_key(tab: ExtensionsTab, ch: char) -> Option<ButtonAction> {
         (ExtensionsTab::Plugins, 'a') => Some(ButtonAction::StartInput {
             command_prefix: "plugins_install".into(),
             fields: vec![FieldSpec {
-                label: "Source".into(),
+                label: tlm("Source").into(),
                 required: true,
-                placeholder: Some("owner/repo, URL, or local path".into()),
+                placeholder: Some(tlm("owner/repo, URL, or local path").into()),
             }],
         }),
         // Toggle enable/disable on the selected plugin.
@@ -1498,7 +1519,7 @@ pub fn resolve_key(tab: ExtensionsTab, ch: char) -> Option<ButtonAction> {
         (ExtensionsTab::Hooks, 'a') => Some(ButtonAction::StartInput {
             command_prefix: "hooks_add".into(),
             fields: vec![FieldSpec {
-                label: "Path".into(),
+                label: tlm("Path").into(),
                 required: true,
                 placeholder: None,
             }],
@@ -1518,9 +1539,9 @@ pub fn resolve_key(tab: ExtensionsTab, ch: char) -> Option<ButtonAction> {
         (ExtensionsTab::Marketplace, 'a') => Some(ButtonAction::StartInput {
             command_prefix: "marketplace_add_source".into(),
             fields: vec![FieldSpec {
-                label: "Source".into(),
+                label: tlm("Source").into(),
                 required: true,
-                placeholder: Some("owner/repo, git URL, or local path".into()),
+                placeholder: Some(tlm("owner/repo, git URL, or local path").into()),
             }],
         }),
         (ExtensionsTab::Marketplace, 'x') => Some(ButtonAction::RemoveSelectedMarketplaceSource),
@@ -1535,14 +1556,14 @@ pub fn resolve_key(tab: ExtensionsTab, ch: char) -> Option<ButtonAction> {
             // `build_action_from_input` reads matching indices.
             fields: vec![
                 FieldSpec {
-                    label: "URL / Command".into(),
+                    label: tlm("URL / Command").into(),
                     required: true,
-                    placeholder: Some("https://... or command [args...]".into()),
+                    placeholder: Some(tlm("https://... or command [args...]").into()),
                 },
                 FieldSpec {
-                    label: "Name".into(),
+                    label: tlm("Name").into(),
                     required: false,
-                    placeholder: Some("Auto generated by URL".into()),
+                    placeholder: Some(tlm("Auto generated by URL").into()),
                 },
             ],
         }),
@@ -2235,11 +2256,18 @@ impl ExtensionsModalState {
             .get(sel)
             .and_then(|key| key.as_deref())
             .is_some_and(|key| !self.is_group_expanded(sel, key));
-        let verb = verb.label();
+        let verb = tl(verb.label());
+        let noun = tl(noun);
         self.modal_message = Some(ModalMessage::Info(if collapsed_header {
-            format!("Expand this row (Enter), then select a {noun} row to {verb}.")
+            tlf(
+                "Expand this row (Enter), then select a {noun} row to {verb}.",
+                &[("noun", &noun), ("verb", &verb)],
+            )
         } else {
-            format!("Select a {noun} row to {verb}.")
+            tlf(
+                "Select a {noun} row to {verb}.",
+                &[("noun", &noun), ("verb", &verb)],
+            )
         }));
     }
 
@@ -2507,7 +2535,7 @@ fn classify_hook_source(source_dir: &str) -> HookSourceMeta {
     };
     if let Some(name) = plugin_name("plugins").or_else(|| plugin_name("installed-plugins")) {
         return HookSourceMeta {
-            label: format!("Plugin: {name}"),
+            label: tlf("Plugin: {name}", &[("name", &name)]),
             kind: HookSourceKind::Plugin,
         };
     }
@@ -2516,21 +2544,21 @@ fn classify_hook_source(source_dir: &str) -> HookSourceMeta {
     let global_str = global_hooks.display().to_string();
     if source_dir == global_str || source_dir.starts_with(&format!("{global_str}/")) {
         return HookSourceMeta {
-            label: "Global hooks".into(),
+            label: tl("Global hooks").into(),
             kind: HookSourceKind::Global,
         };
     }
     // Settings under .claude/
     if source_dir.contains("/.claude/") {
         return HookSourceMeta {
-            label: "Claude settings".into(),
+            label: tl("Claude settings").into(),
             kind: HookSourceKind::Claude,
         };
     }
     // Project hooks
     if source_dir.ends_with("/.grok/hooks") || source_dir.contains("/.grok/hooks/") {
         return HookSourceMeta {
-            label: "Project hooks".into(),
+            label: tl("Project hooks").into(),
             kind: HookSourceKind::Project,
         };
     }
@@ -2540,22 +2568,28 @@ fn classify_hook_source(source_dir: &str) -> HookSourceMeta {
             let prefix = crate::util::display_grok_home_prefix();
             let rest_str = rest.to_string_lossy();
             let rest_trimmed = rest_str.strip_prefix('/').unwrap_or(&rest_str);
-            format!("Custom: {prefix}/{rest_trimmed}")
+            tlf(
+                "Custom: {path}",
+                &[("path", &format!("{prefix}/{rest_trimmed}"))],
+            )
         } else if let Some(home) = xai_dirs::home_dir() {
             // Path::strip_prefix, not a string prefix: USERPROFILE `C:\Users\foo` must not collapse `C:\Users\foobar`
             if !home.as_os_str().is_empty()
                 && let Ok(rest) = source_path.strip_prefix(&home)
             {
                 if rest.as_os_str().is_empty() {
-                    "Custom: ~".into()
+                    tlf("Custom: {path}", &[("path", &"~")])
                 } else {
-                    format!("Custom: ~/{}", rest.display())
+                    tlf(
+                        "Custom: {path}",
+                        &[("path", &format!("~/{}", rest.display()))],
+                    )
                 }
             } else {
-                format!("Custom: {source_dir}")
+                tlf("Custom: {path}", &[("path", &source_dir)])
             }
         } else {
-            format!("Custom: {source_dir}")
+            tlf("Custom: {path}", &[("path", &source_dir)])
         }
     };
     HookSourceMeta {
@@ -2645,6 +2679,22 @@ fn filter_and_sort_skills(
     SkillsEntryData { matches }
 }
 
+/// Where a server or workflow comes from, as the harness names it, in parentheses. The names it is
+/// known to send are listed so the catalog holds them; any other (a plugin's name) shows as sent.
+pub(crate) fn source_tag(source: &str) -> String {
+    const _SOURCE_NAMES: [&str; 8] = [
+        tlm("builtin"),
+        tlm("local"),
+        tlm("user"),
+        tlm("project"),
+        tlm("managed"),
+        tlm("plugin"),
+        tlm("global"),
+        tlm("workspace"),
+    ];
+    format!("({})", tl(source))
+}
+
 fn skill_source_str(skill: &SkillInfo) -> String {
     if let Some(ref cs) = skill.config_source {
         match cs {
@@ -2654,7 +2704,7 @@ fn skill_source_str(skill: &SkillInfo) -> String {
                 } else if path.display().to_string().contains("/.claude/") {
                     "~/.claude/skills".into()
                 } else {
-                    "user".into()
+                    tl("user").into()
                 }
             }
             xai_grok_tools::types::config_source::ConfigSource::Project { path } => {
@@ -2664,11 +2714,11 @@ fn skill_source_str(skill: &SkillInfo) -> String {
                 } else if s.contains("/.claude/") {
                     ".claude/skills".into()
                 } else {
-                    "project".into()
+                    tl("project").into()
                 }
             }
             xai_grok_tools::types::config_source::ConfigSource::Plugin { plugin_name, .. } => {
-                format!("plugin: {}", plugin_name)
+                tlf("plugin: {name}", &[("name", &plugin_name)])
             }
             _ => format!("{:?}", skill.scope).to_lowercase(),
         }
@@ -2682,24 +2732,36 @@ fn build_plugin_fields(plugin: &xai_hooks_plugins_types::PluginInfo) -> Vec<Stri
     use xai_hooks_plugins_types::McpStatus;
     let mut components = Vec::new();
     if !plugin.skill_names.is_empty() {
-        components.push(format!("skills: {}", plugin.skill_names.join(", ")));
+        components.push(tlf(
+            "skills: {names}",
+            &[("names", &plugin.skill_names.join(", "))],
+        ));
     } else if plugin.skill_count > 0 {
-        components.push(format!("{} skills", plugin.skill_count));
+        components.push(tlf("{count} skills", &[("count", &plugin.skill_count)]));
     }
     if !plugin.agent_names.is_empty() {
-        components.push(format!("agents: {}", plugin.agent_names.join(", ")));
+        components.push(tlf(
+            "agents: {names}",
+            &[("names", &plugin.agent_names.join(", "))],
+        ));
     } else if plugin.agent_count > 0 {
-        components.push(format!("{} agents", plugin.agent_count));
+        components.push(tlf("{count} agents", &[("count", &plugin.agent_count)]));
     }
     if plugin.hook_count > 0 {
-        components.push(format!("{} hooks", plugin.hook_count));
+        components.push(tlf("{count} hooks", &[("count", &plugin.hook_count)]));
     }
     match plugin.mcp_status {
         McpStatus::Active | McpStatus::ActiveInline => {
-            components.push(format!("{} MCP servers", plugin.mcp_server_count));
+            components.push(tlf(
+                "{count} MCP servers",
+                &[("count", &plugin.mcp_server_count)],
+            ));
         }
         McpStatus::Blocked => {
-            components.push(format!("{} MCP: blocked", plugin.mcp_server_count));
+            components.push(tlf(
+                "{count} MCP: blocked",
+                &[("count", &plugin.mcp_server_count)],
+            ));
         }
         McpStatus::None => {}
     }
@@ -2710,7 +2772,7 @@ fn build_plugin_fields(plugin: &xai_hooks_plugins_types::PluginInfo) -> Vec<Stri
 const COMPONENT_ITEMS_CAP: usize = 8;
 
 /// Copy for a catalog entry verified to provide nothing detectable.
-const NO_DETECTABLE_COMPONENTS: &str = "no detectable components";
+const NO_DETECTABLE_COMPONENTS: &str = tlm("no detectable components");
 
 fn component_categories(
     components: &xai_hooks_plugins_types::PluginComponents,
@@ -2718,12 +2780,12 @@ fn component_categories(
     use xai_hooks_plugins_types::ComponentCategory;
     components.categories().map(|(category, items)| {
         let label = match category {
-            ComponentCategory::Skills => "skills",
-            ComponentCategory::Commands => "commands",
-            ComponentCategory::Agents => "agents",
-            ComponentCategory::McpServers => "mcp servers",
-            ComponentCategory::Hooks => "hooks",
-            ComponentCategory::LspServers => "lsp servers",
+            ComponentCategory::Skills => tl("skills"),
+            ComponentCategory::Commands => tl("commands"),
+            ComponentCategory::Agents => tl("agents"),
+            ComponentCategory::McpServers => tl("mcp servers"),
+            ComponentCategory::Hooks => tl("hooks"),
+            ComponentCategory::LspServers => tl("lsp servers"),
         };
         (label, items)
     })
@@ -2745,7 +2807,8 @@ pub(crate) fn render_components_fields(
             .collect();
         let mut value = names.join(", ");
         if items.len() > COMPONENT_ITEMS_CAP {
-            value.push_str(&format!(" +{} more", items.len() - COMPONENT_ITEMS_CAP));
+            let more = items.len() - COMPONENT_ITEMS_CAP;
+            value.push_str(&format!(" {}", tlf("+{count} more", &[("count", &more)])));
         }
         fields.push((label.to_string(), value));
     }
@@ -2869,10 +2932,14 @@ pub fn render_extensions_modal(
                         let collapsed =
                             !searching && state.skills_collapsed_groups.contains(group_label);
                         let count = members.len();
+                        let group_name = skill_group_display(group_label);
                         entry_labels.push(if count == 1 {
-                            format!("{group_label} (1 skill)")
+                            tlf("{group} (1 skill)", &[("group", &group_name)])
                         } else {
-                            format!("{group_label} ({count} skills)")
+                            tlf(
+                                "{group} ({count} skills)",
+                                &[("group", &group_name), ("count", &count)],
+                            )
                         });
                         entry_right_labels.push(String::new());
                         entry_desc_lines.push(vec![]);
@@ -2911,16 +2978,16 @@ pub fn render_extensions_modal(
                                 entry_desc_lines.push(vec![desc.to_string()]);
                             }
                             entry_summary_lines.push(vec![]);
-                            let mut fields = vec![("path".to_string(), skill.path.clone())];
+                            let mut fields = vec![(tl("path").to_string(), skill.path.clone())];
                             if let Some(ref a) = skill.author
                                 && !a.is_empty()
                             {
-                                fields.push(("author".to_string(), a.clone()));
+                                fields.push((tl("author").to_string(), a.clone()));
                             }
                             if let Some(ref tools) = skill.allowed_tools
                                 && !tools.is_empty()
                             {
-                                fields.push(("tools".to_string(), tools.join(", ")));
+                                fields.push((tl("tools").to_string(), tools.join(", ")));
                             }
                             entry_fields.push(fields);
                             entry_is_header.push(false);
@@ -2929,7 +2996,7 @@ pub fn render_extensions_modal(
                             entry_data_indices.push(Some(si));
                             entry_group_keys.push(None);
                             if !skill.enabled {
-                                entry_badge_text.push("[disabled]".into());
+                                entry_badge_text.push(format!("[{}]", tl("disabled")));
                                 entry_badge_color.push(Some(theme.accent_error));
                             } else {
                                 entry_badge_text.push(String::new());
@@ -2954,7 +3021,7 @@ pub fn render_extensions_modal(
                         entry_badge_color.push(None);
                     }
                 } else if let TabDataState::Error(ref msg) = state.skills_data {
-                    entry_labels.push(format!("Error: {}", msg));
+                    entry_labels.push(tlf("Error: {message}", &[("message", &msg)]));
                     entry_right_labels.push(String::new());
                     entry_desc_lines.push(vec![]);
                     entry_summary_lines.push(vec![]);
@@ -3056,9 +3123,9 @@ pub fn render_extensions_modal(
                             if let Some(ref desc) = plugin.description
                                 && !desc.is_empty()
                             {
-                                fields.push(("description".to_string(), desc.clone()));
+                                fields.push((tl("description").to_string(), desc.clone()));
                             }
-                            fields.push(("path".to_string(), plugin.root.clone()));
+                            fields.push((tl("path").to_string(), plugin.root.clone()));
                             entry_fields.push(fields);
                             entry_is_header.push(false);
                             entry_dimmed.push(!plugin.enabled);
@@ -3066,7 +3133,7 @@ pub fn render_extensions_modal(
                             entry_data_indices.push(Some(pi));
                             entry_group_keys.push(None);
                             entry_badge_text.push(if !plugin.enabled {
-                                "[disabled]".into()
+                                format!("[{}]", tl("disabled"))
                             } else {
                                 String::new()
                             });
@@ -3078,7 +3145,7 @@ pub fn render_extensions_modal(
                         }
                     }
                 } else if let TabDataState::Error(ref msg) = state.plugins_data {
-                    entry_labels.push(format!("Error: {}", msg));
+                    entry_labels.push(tlf("Error: {message}", &[("message", &msg)]));
                     entry_right_labels.push(String::new());
                     entry_desc_lines.push(vec![]);
                     entry_summary_lines.push(vec![]);
@@ -3108,8 +3175,14 @@ pub fn render_extensions_modal(
                         let collapsed =
                             !searching && state.hooks_collapsed_groups.contains(source_dir);
                         let count = indices.len();
-                        let noun = if count == 1 { "hook" } else { "hooks" };
-                        entry_labels.push(format!("{label} ({count} {noun})"));
+                        entry_labels.push(if count == 1 {
+                            tlf("{group} (1 hook)", &[("group", &label)])
+                        } else {
+                            tlf(
+                                "{group} ({count} hooks)",
+                                &[("group", &label), ("count", &count)],
+                            )
+                        });
                         entry_right_labels.push(String::new());
                         entry_desc_lines.push(vec![]);
                         entry_summary_lines.push(vec![]);
@@ -3132,7 +3205,7 @@ pub fn render_extensions_modal(
                             let cmd = hook
                                 .command
                                 .as_deref()
-                                .unwrap_or(hook.url.as_deref().unwrap_or("(no command)"));
+                                .unwrap_or(hook.url.as_deref().unwrap_or(tl("(no command)")));
                             entry_right_labels.push(String::new());
                             entry_desc_lines.push(vec![format!("\u{2192} {}", cmd)]);
                             entry_summary_lines.push(vec![]);
@@ -3145,9 +3218,9 @@ pub fn render_extensions_modal(
                             // Pinned (managed-policy) hooks show their state up front, so a refused Disable isn't the first signal
                             // A pinned hook never shows [disabled]
                             entry_badge_text.push(if hook.pinned {
-                                "[policy]".into()
+                                format!("[{}]", tl("policy"))
                             } else if hook.disabled {
-                                "[disabled]".into()
+                                format!("[{}]", tl("disabled"))
                             } else {
                                 String::new()
                             });
@@ -3161,7 +3234,7 @@ pub fn render_extensions_modal(
                         }
                     }
                 } else if let TabDataState::Error(ref msg) = state.hooks_data {
-                    entry_labels.push(format!("Error: {}", msg));
+                    entry_labels.push(tlf("Error: {message}", &[("message", &msg)]));
                     entry_right_labels.push(String::new());
                     entry_desc_lines.push(vec![]);
                     entry_summary_lines.push(vec![]);
@@ -3196,7 +3269,7 @@ pub fn render_extensions_modal(
                         entry_desc_lines.push(vec![]);
                         entry_summary_lines.push(vec![]);
                         if let Some(ref err) = source.error {
-                            entry_fields.push(vec![("error".to_string(), err.clone())]);
+                            entry_fields.push(vec![(tl("error").to_string(), err.clone())]);
                         } else {
                             entry_fields.push(vec![]);
                         }
@@ -3206,7 +3279,7 @@ pub fn render_extensions_modal(
                         entry_data_indices.push(None);
                         entry_group_keys.push(Some(si.to_string()));
                         if source.error.is_some() {
-                            entry_badge_text.push("[error]".into());
+                            entry_badge_text.push(format!("[{}]", tl("error")));
                             entry_badge_color.push(Some(theme.accent_error));
                         } else {
                             entry_badge_text.push(String::new());
@@ -3223,16 +3296,19 @@ pub fn render_extensions_modal(
                                 continue;
                             }
                             let status_label = match plugin.install_status.as_str() {
-                                "installed" => "[installed]",
-                                "update_available" => "[update available]",
-                                _ => "",
+                                "installed" => format!("[{}]", tl("installed")),
+                                "update_available" => format!("[{}]", tl("update available")),
+                                _ => String::new(),
                             };
                             entry_labels.push(plugin.name.clone());
                             let right = match (plugin.version.as_deref(), plugin.author.as_deref())
                             {
-                                (Some(v), Some(a)) => format!("v{v} by {a}"),
+                                (Some(v), Some(a)) => tlf(
+                                    "v{version} by {author}",
+                                    &[("version", &v), ("author", &a)],
+                                ),
                                 (Some(v), None) => format!("v{v}"),
-                                (None, Some(a)) => format!("by {a}"),
+                                (None, Some(a)) => tlf("by {author}", &[("author", &a)]),
                                 (None, None) => String::new(),
                             };
                             entry_right_labels.push(right);
@@ -3249,16 +3325,16 @@ pub fn render_extensions_modal(
                             // Fields for expanded view.
                             let mut fields = Vec::new();
                             if let Some(ref version) = plugin.version {
-                                fields.push(("version".to_string(), version.clone()));
+                                fields.push((tl("version").to_string(), version.clone()));
                             }
                             if let Some(ref author) = plugin.author {
-                                fields.push(("author".to_string(), author.clone()));
+                                fields.push((tl("author").to_string(), author.clone()));
                             }
                             if let Some(ref category) = plugin.category {
-                                fields.push(("category".to_string(), category.clone()));
+                                fields.push((tl("category").to_string(), category.clone()));
                             }
                             if !plugin.tags.is_empty() {
-                                fields.push(("tags".to_string(), plugin.tags.join(", ")));
+                                fields.push((tl("tags").to_string(), plugin.tags.join(", ")));
                             }
                             match &plugin.components {
                                 Some(components) if !components.is_empty() => {
@@ -3266,23 +3342,26 @@ pub fn render_extensions_modal(
                                 }
                                 Some(_) => {
                                     fields.push((
-                                        "provides".to_string(),
-                                        NO_DETECTABLE_COMPONENTS.to_string(),
+                                        tl("provides").to_string(),
+                                        tl(NO_DETECTABLE_COMPONENTS).to_string(),
                                     ));
                                 }
                                 None => {
                                     if plugin.remote_url.is_some() {
                                         fields.push((
-                                            "provides".to_string(),
-                                            "contents shown after install".to_string(),
+                                            tl("provides").to_string(),
+                                            tl("contents shown after install").to_string(),
                                         ));
                                     }
                                 }
                             }
                             if plugin.install_status != "not_installed" {
-                                fields.push(("status".to_string(), plugin.install_status.clone()));
+                                fields.push((
+                                    tl("status").to_string(),
+                                    plugin.install_status.clone(),
+                                ));
                                 if let Some(ref iv) = plugin.installed_version {
-                                    fields.push(("installed".to_string(), iv.clone()));
+                                    fields.push((tl("installed").to_string(), iv.clone()));
                                 }
                             }
                             entry_fields.push(fields);
@@ -3291,7 +3370,7 @@ pub fn render_extensions_modal(
                             entry_indent.push(1);
                             entry_data_indices.push(Some(si));
                             entry_group_keys.push(None);
-                            entry_badge_text.push(status_label.to_string());
+                            entry_badge_text.push(status_label);
                             entry_badge_color.push(match plugin.install_status.as_str() {
                                 "installed" => Some(theme.accent_success),
                                 "update_available" => Some(theme.warning),
@@ -3300,7 +3379,7 @@ pub fn render_extensions_modal(
                         }
                     }
                 } else if let TabDataState::Error(ref msg) = state.marketplace_data {
-                    entry_labels.push(format!("Error: {}", msg));
+                    entry_labels.push(tlf("Error: {message}", &[("message", &msg)]));
                     entry_right_labels.push(String::new());
                     entry_desc_lines.push(vec![]);
                     entry_summary_lines.push(vec![]);
@@ -3378,39 +3457,49 @@ pub fn render_extensions_modal(
                                     .clone()
                                     .unwrap_or_else(|| server.name.clone()),
                             );
-                            entry_right_labels.push(format!("({})", server.source));
+                            entry_right_labels.push(source_tag(&server.source));
                             // Summary line: name the actual cause of an empty tool list instead of guessing at connection state.
                             if server.tools.is_empty() {
                                 let line =
                                     if server.status == McpServerDisplayStatus::BlockedByPolicy {
                                         // The reason already carries its source in parentheses.
                                         match server.blocked_reason.as_deref() {
-                                            Some(reason) => format!("blocked by policy — {reason}"),
-                                            None => "blocked by policy".to_string(),
+                                            Some(reason) => tlf(
+                                                "blocked by policy — {reason}",
+                                                &[("reason", &reason)],
+                                            ),
+                                            None => tl("blocked by policy").to_string(),
                                         }
                                     } else if !server.enabled {
-                                        "no tools — server is disabled".to_string()
+                                        tl("no tools — server is disabled").to_string()
                                     } else if matches!(
                                         server.status,
                                         McpServerDisplayStatus::SetupRequired
                                             | McpServerDisplayStatus::NeedsAuth
                                     ) {
-                                        format!("no tools — {}", server.status.label())
+                                        tlf(
+                                            "no tools — {status}",
+                                            &[("status", &server.status.label())],
+                                        )
                                     } else {
-                                        "no tools (server may not be connected)".to_string()
+                                        tl("no tools (server may not be connected)").to_string()
                                     };
                                 entry_desc_lines.push(vec![line]);
                             } else {
                                 let enabled_count =
                                     server.tools.iter().filter(|t| t.enabled).count();
                                 if enabled_count == server.tools.len() {
-                                    entry_desc_lines
-                                        .push(vec![format!("{} tools", server.tools.len())]);
+                                    entry_desc_lines.push(vec![tlf(
+                                        "{count} tools",
+                                        &[("count", &server.tools.len())],
+                                    )]);
                                 } else {
-                                    entry_desc_lines.push(vec![format!(
-                                        "{} tools ({} enabled)",
-                                        server.tools.len(),
-                                        enabled_count
+                                    entry_desc_lines.push(vec![tlf(
+                                        "{count} tools ({enabled} enabled)",
+                                        &[
+                                            ("count", &server.tools.len()),
+                                            ("enabled", &enabled_count),
+                                        ],
                                     )]);
                                 }
                             }
@@ -3445,7 +3534,7 @@ pub fn render_extensions_modal(
                                     entry_data_indices.push(Some(si));
                                     entry_group_keys.push(None);
                                     let tool_badge = if !t.enabled {
-                                        ("[disabled]".to_string(), Some(theme.accent_error))
+                                        (format!("[{}]", tl("disabled")), Some(theme.accent_error))
                                     } else {
                                         (String::new(), None)
                                     };
@@ -3456,7 +3545,7 @@ pub fn render_extensions_modal(
                         }
                     }
                 } else if let TabDataState::Error(ref msg) = state.mcps_data {
-                    entry_labels.push(format!("Error: {}", msg));
+                    entry_labels.push(tlf("Error: {message}", &[("message", &msg)]));
                     entry_right_labels.push(String::new());
                     entry_desc_lines.push(vec![]);
                     entry_summary_lines.push(vec![]);
@@ -3581,7 +3670,7 @@ pub fn render_extensions_modal(
                 &entry_group_keys,
                 selected,
             );
-            Some((i, format!("{key_str} {verb}")))
+            Some((i, format!("{key_str} {}", tl(verb))))
         })
         .collect();
 
@@ -3610,12 +3699,12 @@ pub fn render_extensions_modal(
         }
         // Same non-clickable hint as the list footer; the painted URL is the mouse target.
         shortcuts.push(Shortcut {
-            label: MCP_SERVERS_OPEN_CONNECTORS_FOOTER,
+            label: tl(MCP_SERVERS_OPEN_CONNECTORS_FOOTER),
             clickable: false,
             id: 0,
         });
         shortcuts.push(Shortcut {
-            label: "esc back",
+            label: tl("esc back"),
             clickable: true,
             id: WAIT_BACK_SHORTCUT_ID,
         });
@@ -3629,17 +3718,17 @@ pub fn render_extensions_modal(
         // Input-mode is handled below; it owns its own footer.
     } else if state.mcp_setup.is_some() {
         shortcuts.push(Shortcut {
-            label: "Enter save and authenticate",
+            label: tl("Enter save and authenticate"),
             clickable: false,
             id: 0,
         });
         shortcuts.push(Shortcut {
-            label: "↑/↓ select",
+            label: tl("↑/↓ select"),
             clickable: false,
             id: 0,
         });
         shortcuts.push(Shortcut {
-            label: "Esc cancel",
+            label: tl("Esc cancel"),
             clickable: false,
             id: 0,
         });
@@ -3647,21 +3736,21 @@ pub fn render_extensions_modal(
         // "Add"/input mode: show the keys the input form actually handles
         // Tab is either path completion (single-field) or field navigation (multi-field)
         shortcuts.push(Shortcut {
-            label: "Enter submit",
+            label: tl("Enter submit"),
             clickable: false,
             id: 0,
         });
         shortcuts.push(Shortcut {
             label: if input.is_multi_field() {
-                "Tab/Shift+Tab field"
+                tl("Tab/Shift+Tab field")
             } else {
-                "Tab complete"
+                tl("Tab complete")
             },
             clickable: false,
             id: 0,
         });
         shortcuts.push(Shortcut {
-            label: "Esc cancel",
+            label: tl("Esc cancel"),
             clickable: false,
             id: 0,
         });
@@ -3669,7 +3758,7 @@ pub fn render_extensions_modal(
         // Tab/Shift+Tab cycles tabs (handled in picker.rs). Click on the hint cycles to the next tab only
         // (sentinel id 98, dispatched in `handle_extensions_modal_mouse`).
         shortcuts.push(Shortcut {
-            label: "Tab tabs",
+            label: tl("Tab tabs"),
             clickable: true,
             id: 98,
         });
@@ -3682,7 +3771,7 @@ pub fn render_extensions_modal(
         }
         if state.active_tab == ExtensionsTab::McpServers {
             shortcuts.push(Shortcut {
-                label: MCP_SERVERS_OPEN_CONNECTORS_FOOTER,
+                label: tl(MCP_SERVERS_OPEN_CONNECTORS_FOOTER),
                 clickable: false,
                 id: 0,
             });
@@ -3691,7 +3780,7 @@ pub fn render_extensions_modal(
         // The hint is omitted from the footer to save space; the cheatsheet still lists it
         // ID 99 is the close action, handled in the mouse handler
         shortcuts.push(Shortcut {
-            label: "Esc close",
+            label: tl("Esc close"),
             clickable: true,
             id: 99,
         });
@@ -3940,7 +4029,10 @@ pub fn render_extensions_modal(
             popup_rect.y + popup_rect.height.saturating_sub(1),
         )
     {
-        let label = state.pending_action.as_deref().unwrap_or("Processing...");
+        let label = state
+            .pending_action
+            .as_deref()
+            .unwrap_or(tl("Processing..."));
         let frames = crate::glyphs::braille_spinner_frames();
         let frame_idx = (tick / SPINNER_DIVISOR) as usize % frames.len();
         let display = format!("{} {label}", frames.get(frame_idx).copied().unwrap_or(""));
@@ -3990,13 +4082,19 @@ pub fn render_extensions_modal(
 
     // Custom render (not via Shortcut) is needed because dismissal keys ("any key") are multi-word.
     if let Some(kind) = modal_msg_kind {
-        let segments: &[(&str, &str)] = match kind {
-            ModalMsgKind::Error => &[("any key", " back")],
-            ModalMsgKind::Confirm => &[("y", " confirm"), ("any other key", " cancel")],
-            ModalMsgKind::ConnectorsWait => &[],
+        let back = format!(" {}", tl("back"));
+        let confirm = format!(" {}", tl("confirm"));
+        let cancel = format!(" {}", tl("cancel"));
+        let segments: Vec<(&str, &str)> = match kind {
+            ModalMsgKind::Error => vec![(tl("any key"), back.as_str())],
+            ModalMsgKind::Confirm => vec![
+                ("y", confirm.as_str()),
+                (tl("any other key"), cancel.as_str()),
+            ],
+            ModalMsgKind::ConnectorsWait => Vec::new(),
         };
         if !segments.is_empty() {
-            render_footer_hint_segments(buf, footer_area, segments, &theme);
+            render_footer_hint_segments(buf, footer_area, &segments, &theme);
         }
     } else if let Some(ref n) = state.result_notice
         && footer_area.height > 0
@@ -4063,7 +4161,7 @@ fn render_mcp_setup_form(buf: &mut Buffer, area: Rect, setup: &McpSetupFormState
             .bg(theme.bg_base)
             .add_modifier(Modifier::BOLD),
     );
-    let hint = "Save and authenticate";
+    let hint = tl("Save and authenticate");
     buf.set_string(
         x,
         top.saturating_add(1),
@@ -4214,7 +4312,7 @@ fn render_input_form(buf: &mut Buffer, area: Rect, input: &ModalInput, theme: &T
         } else {
             label_dim_style
         };
-        buf.set_string(label_x, cur_y, field.label(), ls);
+        buf.set_string(label_x, cur_y, tl(field.label()), ls);
         cur_y += 1;
 
         // Rows 2-4: Rounded border around the single-line input.
@@ -4252,7 +4350,7 @@ fn render_input_form(buf: &mut Buffer, area: Rect, input: &ModalInput, theme: &T
             // Placeholder only renders when the field is NOT focused
             // This matches the prompt widget convention so the cursor isn't overlapping placeholder text on the active row
             if !is_focused && let Some(ph) = field.placeholder() {
-                let display: String = take_by_width(ph, max_text_w);
+                let display: String = take_by_width(tl(ph), max_text_w);
                 buf.set_string(text_x, content_y, &display, placeholder_style);
             }
             if is_focused && let Some(cell) = buf.cell_mut((text_x, content_y)) {

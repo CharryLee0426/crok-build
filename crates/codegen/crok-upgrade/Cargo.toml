@@ -1,0 +1,31 @@
+[package]
+name = "crok-upgrade"
+version = "0.1.0"
+edition.workspace = true
+license = "Apache-2.0"
+description = "Self-update for crok and Crok Desktop from the fork's GitHub releases"
+
+[dependencies]
+anyhow = { workspace = true }
+base64 = { workspace = true }
+dunce = { workspace = true }
+flate2 = { workspace = true }
+futures-util = { workspace = true }
+reqwest = { workspace = true }
+ring = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+xai-dirs = { workspace = true }
+xai-grok-extra-ca = { workspace = true }
+xai-grok-i18n = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[lints]
+workspace = true

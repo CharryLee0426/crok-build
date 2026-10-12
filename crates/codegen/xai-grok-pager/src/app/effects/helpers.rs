@@ -9,6 +9,7 @@ use super::actions::{
 };
 use super::agent::AgentId;
 use crate::unified_log as ulog;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::sampling::error::{
     RATE_LIMITED_ERROR_CODE, error_detail_from_data, error_kind_str_from_error,
     format_rate_limited_user_message, http_status_from_error,
@@ -41,12 +42,10 @@ impl std::fmt::Display for SessionRpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TimedOut { action, timeout } => {
-                write!(
-                f,
-                "{action} timed out after {}s. It may still finish in the background; \
-                 retrying right away can run into the same delay.",
-                timeout.as_secs()
-            )
+                f.write_str(&tlf(
+                    "{action} timed out after {seconds}s. It may still finish in the background; retrying right away can run into the same delay.",
+                    &[("action", &tl(action)), ("seconds", &timeout.as_secs())],
+                ))
             }
             Self::Rpc(e) => write!(f, "{e}"),
         }
@@ -82,11 +81,31 @@ where
         }
     }
 }
+/// The steps `xai_grok_shell`'s `SessionSetupPhase` names. That crate words them; listing them here
+/// keeps them in the catalog, and [`timed_out_while`] looks up the one it is given.
+const _SETUP_STEPS: &[&str] = &[
+    xai_grok_i18n::tlm("signing you in"),
+    xai_grok_i18n::tlm("preparing your workspace"),
+    xai_grok_i18n::tlm("checking whether this folder is trusted"),
+    xai_grok_i18n::tlm("loading your plugins"),
+    xai_grok_i18n::tlm("setting up your tools"),
+    xai_grok_i18n::tlm("starting your workspace"),
+    xai_grok_i18n::tlm("opening your history"),
+    xai_grok_i18n::tlm("starting the agent"),
+    xai_grok_i18n::tlm("waiting for your workspace"),
+    xai_grok_i18n::tlm("switching to your model"),
+    xai_grok_i18n::tlm("switching you to an available model"),
+    xai_grok_i18n::tlm("scanning your repository"),
+    xai_grok_i18n::tlm("finishing up"),
+    xai_grok_i18n::tlm("applying your tool settings"),
+    xai_grok_i18n::tlm("getting your session ready"),
+];
+
 /// Timeout message naming the step a create stalled on.
 pub(crate) fn timed_out_while(step: &str) -> String {
-    format!(
-        "Couldn't start the session: it timed out while {step}. It may still finish in the \
-         background, so give it a moment before trying again."
+    tlf(
+        "Couldn't start the session: it timed out while {step}. It may still finish in the background, so give it a moment before trying again.",
+        &[("step", &tl(step))],
     )
 }
 /// Typed progress message for session restore.
@@ -254,10 +273,11 @@ pub(super) async fn fetch_plugin_cta_mcps(
                 crate::views::mcps_modal::McpsListResponse,
             >(inner.clone())
                 .map(crate::views::mcps_modal::convert_list_response)
-                .map_err(|_| "couldn't load server list".to_string())
+                .map_err(|_| tl("couldn't load server list").to_string())
         }
-        Err(e) => Err(sanitize_user_error(&format!(
-            "couldn't load server list: {e}"
+        Err(e) => Err(sanitize_user_error(&tlf(
+            "couldn't load server list: {error}",
+            &[("error", &e)],
         ))),
     };
     TaskResult::PluginCtaMcpsLoaded {
@@ -349,7 +369,7 @@ pub(super) async fn memory_command_request<T: serde::de::DeserializeOwned>(
     match acp_send(req, tx).await {
         Ok(resp) => {
             serde_json::from_str::<T>(resp.0.get())
-                .map_err(|_| "Couldn't read the shell's reply.".to_string())
+                .map_err(|_| tl("Couldn't read the shell's reply.").to_string())
         }
         Err(e) => Err(sanitize_user_error(&e.to_string())),
     }

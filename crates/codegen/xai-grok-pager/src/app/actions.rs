@@ -1059,9 +1059,9 @@ impl PermissionLabel {
     /// The text the info-line flags and the scrollback rows show. It can differ from the config id.
     pub fn display_name(self) -> &'static str {
         match self {
-            Self::Ask => "ask",
-            Self::Auto => "auto-review",
-            Self::AlwaysApprove => "always-approve",
+            Self::Ask => xai_grok_i18n::tlm("ask"),
+            Self::Auto => xai_grok_i18n::tlm("auto-review"),
+            Self::AlwaysApprove => xai_grok_i18n::tlm("always-approve"),
         }
     }
 }

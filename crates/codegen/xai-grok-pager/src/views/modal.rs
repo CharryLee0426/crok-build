@@ -12,6 +12,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf, tlm};
 /// A blocking confirmation dialog with typed results. `R` is the result type; each dialog use-case
 /// defines its own enum. Key-matching is generic; labels are computed per-variant at render time.
 pub struct ModalConfirmation<R> {
@@ -47,12 +48,12 @@ impl EditConfirmResult {
     /// Dynamic label based on whether the agent is waiting to drain.
     pub fn label(&self, drain_blocked: bool) -> &'static str {
         match (self, drain_blocked) {
-            (Self::Save, false) => "save",
-            (Self::Save, true) => "save & send",
-            (Self::Discard, false) => "discard changes",
-            (Self::Discard, true) => "discard & send",
-            (Self::Delete, _) => "delete prompt",
-            (Self::Cancel, _) => "cancel",
+            (Self::Save, false) => tl("save"),
+            (Self::Save, true) => tl("save & send"),
+            (Self::Discard, false) => tl("discard changes"),
+            (Self::Discard, true) => tl("discard & send"),
+            (Self::Delete, _) => tl("delete prompt"),
+            (Self::Cancel, _) => tl("cancel"),
         }
     }
 }
@@ -91,8 +92,8 @@ impl ResetSettingsResult {
     /// Label for the y/n buttons rendered in the modal footer.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Reset => "reset",
-            Self::Cancel => "cancel",
+            Self::Reset => tl("reset"),
+            Self::Cancel => tl("cancel"),
         }
     }
 }
@@ -132,10 +133,10 @@ impl CancelTurnChoice {
     ];
     pub fn label(&self) -> &'static str {
         match self {
-            Self::StopRunning => "Stop running",
-            Self::ContinueToRun => "Continue to run",
-            Self::AlwaysStop => "Always stop",
-            Self::AlwaysContinue => "Always continue",
+            Self::StopRunning => tl("Stop running"),
+            Self::ContinueToRun => tl("Continue to run"),
+            Self::AlwaysStop => tl("Always stop"),
+            Self::AlwaysContinue => tl("Always continue"),
         }
     }
 }
@@ -390,179 +391,179 @@ pub(crate) fn default_palette_entries(
     let screen_mode = slash.screen_mode();
     let mut entries = vec![
         PaletteEntry {
-            label: "Session".into(),
+            label: tlm("Session").into(),
             shortcut: String::new(),
             command: PaletteCommand::SectionHeader("Session".into()),
         },
         PaletteEntry {
-            label: "New Session".into(),
+            label: tlm("New Session").into(),
             shortcut: "Ctrl+N".into(),
             command: PaletteCommand::NewSession,
         },
         PaletteEntry {
-            label: "New Session in Worktree".into(),
+            label: tlm("New Session in Worktree").into(),
             shortcut: "Ctrl+P → worktree".into(),
             command: PaletteCommand::NewSessionInWorktree,
         },
         PaletteEntry {
-            label: "Agent Dashboard".into(),
+            label: tlm("Agent Dashboard").into(),
             shortcut: "/dashboard".into(),
             command: PaletteCommand::SlashCommand("/dashboard".into()),
         },
         PaletteEntry {
-            label: "Back to Home".into(),
+            label: tlm("Back to Home").into(),
             shortcut: "/home".into(),
             command: PaletteCommand::Home,
         },
         PaletteEntry {
-            label: "Delete This Session".into(),
+            label: tlm("Delete This Session").into(),
             shortcut: "/delete".into(),
             command: PaletteCommand::SlashCommand("/delete".into()),
         },
         PaletteEntry {
-            label: "Resume Session".into(),
+            label: tlm("Resume Session").into(),
             shortcut: "/resume".into(),
             command: PaletteCommand::SlashCommand("/resume".into()),
         },
         PaletteEntry {
-            label: "Share Session".into(),
+            label: tlm("Share Session").into(),
             shortcut: "/share".into(),
             command: PaletteCommand::SlashCommand("/share".into()),
         },
         PaletteEntry {
-            label: "Rename Session".into(),
+            label: tlm("Rename Session").into(),
             shortcut: "/rename ".into(),
             command: PaletteCommand::SlashCommand("/rename ".into()),
         },
         PaletteEntry {
-            label: "Session Info".into(),
+            label: tlm("Session Info").into(),
             shortcut: "/session-info".into(),
             command: PaletteCommand::SlashCommand("/session-info".into()),
         },
         PaletteEntry {
-            label: "Send Feedback".into(),
+            label: tlm("Send Feedback").into(),
             shortcut: "/feedback".into(),
             command: PaletteCommand::OpenFeedbackModal,
         },
         PaletteEntry {
-            label: "Context".into(),
+            label: tlm("Context").into(),
             shortcut: String::new(),
             command: PaletteCommand::SectionHeader("Context".into()),
         },
         PaletteEntry {
-            label: "Compact History".into(),
+            label: tlm("Compact History").into(),
             shortcut: "/compact".into(),
             command: PaletteCommand::SlashCommand("/compact".into()),
         },
         PaletteEntry {
-            label: "Context Usage".into(),
+            label: tlm("Context Usage").into(),
             shortcut: "/context".into(),
             command: PaletteCommand::SlashCommand("/context".into()),
         },
         PaletteEntry {
-            label: "View Plan".into(),
+            label: tlm("View Plan").into(),
             shortcut: "/view-plan".into(),
             command: PaletteCommand::SlashCommand("/view-plan".into()),
         },
         PaletteEntry {
-            label: "Memory".into(),
+            label: tlm("Memory").into(),
             shortcut: "/memory".into(),
             command: PaletteCommand::Memory,
         },
         PaletteEntry {
-            label: "Model & Input".into(),
+            label: tlm("Model & Input").into(),
             shortcut: String::new(),
             command: PaletteCommand::SectionHeader("Model & Input".into()),
         },
         PaletteEntry {
-            label: "Switch Model".into(),
+            label: tlm("Switch Model").into(),
             shortcut: "/model".into(),
             command: PaletteCommand::SlashCommand("/model ".into()),
         },
         PaletteEntry {
-            label: "Always Approve Mode".into(),
+            label: tlm("Always Approve Mode").into(),
             shortcut: "/always-approve".into(),
             command: PaletteCommand::SlashCommand("/always-approve".into()),
         },
         PaletteEntry {
-            label: "Multiline Input".into(),
+            label: tlm("Multiline Input").into(),
             shortcut: "/multiline".into(),
             command: PaletteCommand::SlashCommand("/multiline".into()),
         },
         PaletteEntry {
-            label: "Edit Prompt in External Editor".into(),
+            label: tlm("Edit Prompt in External Editor").into(),
             shortcut: "Ctrl+G".into(),
             command: PaletteCommand::EditPromptExternal,
         },
         PaletteEntry {
-            label: "Tools".into(),
+            label: tlm("Tools").into(),
             shortcut: String::new(),
             command: PaletteCommand::SectionHeader("Tools".into()),
         },
         PaletteEntry {
-            label: "Hooks".into(),
+            label: tlm("Hooks").into(),
             shortcut: "/hooks".into(),
             command: PaletteCommand::OpenExtensionsTab(
                 crate::views::extensions_modal::ExtensionsTab::Hooks,
             ),
         },
         PaletteEntry {
-            label: "Plugins".into(),
+            label: tlm("Plugins").into(),
             shortcut: "/plugins".into(),
             command: PaletteCommand::OpenExtensionsTab(
                 crate::views::extensions_modal::ExtensionsTab::Plugins,
             ),
         },
         PaletteEntry {
-            label: "Marketplace".into(),
+            label: tlm("Marketplace").into(),
             shortcut: "/marketplace".into(),
             command: PaletteCommand::OpenExtensionsTab(
                 crate::views::extensions_modal::ExtensionsTab::Marketplace,
             ),
         },
         PaletteEntry {
-            label: "Skills".into(),
+            label: tlm("Skills").into(),
             shortcut: "/skills".into(),
             command: PaletteCommand::OpenExtensionsTab(
                 crate::views::extensions_modal::ExtensionsTab::Skills,
             ),
         },
         PaletteEntry {
-            label: "Workflows".into(),
+            label: tlm("Workflows").into(),
             shortcut: "/workflows".into(),
             command: PaletteCommand::OpenExtensionsTab(
                 crate::views::extensions_modal::ExtensionsTab::Workflows,
             ),
         },
         PaletteEntry {
-            label: "MCP Servers".into(),
+            label: tlm("MCP Servers").into(),
             shortcut: "/mcps".into(),
             command: PaletteCommand::OpenExtensionsTab(
                 crate::views::extensions_modal::ExtensionsTab::McpServers,
             ),
         },
         PaletteEntry {
-            label: "Manage Agents".into(),
+            label: tlm("Manage Agents").into(),
             shortcut: "/config-agents".into(),
             command: PaletteCommand::OpenAgentsModal,
         },
         PaletteEntry {
-            label: "Other".into(),
+            label: tlm("Other").into(),
             shortcut: String::new(),
             command: PaletteCommand::SectionHeader("Other".into()),
         },
         PaletteEntry {
-            label: "Switch Theme".into(),
+            label: tlm("Switch Theme").into(),
             shortcut: "/theme".into(),
             command: PaletteCommand::SlashCommand("/theme ".into()),
         },
         PaletteEntry {
-            label: "Settings".into(),
+            label: tlm("Settings").into(),
             shortcut: "F2".into(),
             command: PaletteCommand::OpenSettings,
         },
         PaletteEntry {
-            label: "Keyboard Shortcuts".into(),
+            label: tlm("Keyboard Shortcuts").into(),
             shortcut: if crate::actions::ctrl_dot_unreliable() {
                 "Ctrl+X".into()
             } else {
@@ -571,17 +572,17 @@ pub(crate) fn default_palette_entries(
             command: PaletteCommand::KeyboardShortcuts,
         },
         PaletteEntry {
-            label: "How-to Guides".into(),
+            label: tlm("How-to Guides").into(),
             shortcut: "/docs".into(),
             command: PaletteCommand::HowTo,
         },
         PaletteEntry {
-            label: "Tutorial".into(),
+            label: tlm("Tutorial").into(),
             shortcut: "/tutorial".into(),
             command: PaletteCommand::SlashCommand("/tutorial".into()),
         },
         PaletteEntry {
-            label: "Quit".into(),
+            label: tlm("Quit").into(),
             shortcut: "Ctrl+Q".into(),
             command: PaletteCommand::Quit,
         },
@@ -637,7 +638,11 @@ pub(crate) fn filter_palette_entries(
             pending_header = Some(entry);
             section_has_match = false;
         } else {
+            // The row shows the label in the interface language: match what is shown, and the English too
             let matches = entry.label.to_lowercase().contains(&query_lower)
+                || xai_grok_i18n::tl(&entry.label)
+                    .to_lowercase()
+                    .contains(&query_lower)
                 || entry.shortcut.to_lowercase().contains(&query_lower);
             if matches {
                 if let Some(h) = pending_header.take() {
@@ -686,33 +691,35 @@ impl ActiveModal {
         match self {
             ActiveModal::EditConfirm { .. } => {
                 if drain_blocked {
-                    "Save and send?"
+                    tl("Save and send?")
                 } else {
-                    "Save changes?"
+                    tl("Save changes?")
                 }
             }
-            ActiveModal::CommandPalette { .. } => "Commands",
-            ActiveModal::SessionPicker { .. } => "Resume session",
+            ActiveModal::CommandPalette { .. } => tl("Commands"),
+            ActiveModal::SessionPicker { .. } => tl("Resume session"),
             ActiveModal::ArgPicker {
                 command,
                 args_query,
                 ..
             } => match command.as_str() {
-                "model" | "m" if !args_query.is_empty() => "Pick reasoning effort",
-                "model" | "m" => "Pick model",
-                "theme" | "t" => "Pick theme",
-                _ => "Pick option",
+                "model" | "m" if !args_query.is_empty() => tl("Pick reasoning effort"),
+                "model" | "m" => tl("Pick model"),
+                "theme" | "t" => tl("Pick theme"),
+                _ => tl("Pick option"),
             },
-            ActiveModal::DocPicker { .. } => "How-to Guides",
+            ActiveModal::DocPicker { .. } => tl("How-to Guides"),
             ActiveModal::DocViewer { title, .. } => title.as_str(),
-            ActiveModal::ShortcutsHelp { .. } => "Keyboard Shortcuts",
-            ActiveModal::MemoryBrowser { .. } => "Memory",
-            ActiveModal::Settings { .. } => crate::views::settings_modal::MODAL_TITLE,
-            ActiveModal::ResetSettingsConfirm { .. } => "Reset setting?",
-            ActiveModal::RememberNoteReview { .. } => "Memory Note",
-            ActiveModal::UsageInfo { .. } => "Usage",
-            ActiveModal::Trace { .. } => "Trace",
-            ActiveModal::GitGraph { .. } => "Git graph",
+            ActiveModal::ShortcutsHelp { .. } => tl("Keyboard Shortcuts"),
+            ActiveModal::MemoryBrowser { .. } => tl("Memory"),
+            ActiveModal::Settings { .. } => crate::views::settings_modal::modal_title(),
+            ActiveModal::ResetSettingsConfirm { .. } => {
+                xai_grok_i18n::tr("settings.reset.title", "Reset setting?")
+            }
+            ActiveModal::RememberNoteReview { .. } => tl("Memory Note"),
+            ActiveModal::UsageInfo { .. } => tl("Usage"),
+            ActiveModal::Trace { .. } => tl("Trace"),
+            ActiveModal::GitGraph { .. } => tl("Git graph"),
         }
     }
 }
@@ -729,11 +736,14 @@ pub fn reset_confirm_prompt(modal: &ActiveModal) -> Option<String> {
     };
     let meta = settings_state.registry.find(key)?;
     let default = crate::settings::default_value_for(meta);
-    Some(format!(
-        "Reset '{}' to default ({})?",
-        meta.label,
-        format_default_for_prompt(&meta.kind, &default),
-    ))
+    Some(
+        xai_grok_i18n::tr(
+            "settings.reset.prompt",
+            "Reset '{label}' to default ({value})?",
+        )
+        .replace("{label}", meta.display_label())
+        .replace("{value}", &format_default_for_prompt(meta, &default)),
+    )
 }
 /// Abbreviated title breadcrumb for the reset-confirm dialog, e.g. "Reset 'Compact mode'".
 pub fn reset_confirm_breadcrumb(modal: &ActiveModal) -> Option<String> {
@@ -746,22 +756,24 @@ pub fn reset_confirm_breadcrumb(modal: &ActiveModal) -> Option<String> {
         return None;
     };
     let meta = settings_state.registry.find(key)?;
-    Some(format!("Reset '{}'", meta.label))
+    Some(
+        xai_grok_i18n::tr("settings.reset.breadcrumb", "Reset '{label}'")
+            .replace("{label}", meta.display_label()),
+    )
 }
 /// Format a `SettingValue` for the prompt's `(<default>)` display.
 fn format_default_for_prompt(
-    kind: &crate::settings::SettingKind,
+    meta: &crate::settings::SettingMeta,
     value: &crate::settings::SettingValue,
 ) -> String {
     use crate::settings::{SettingKind, SettingValue};
     match value {
-        SettingValue::Bool(true) => "on".to_owned(),
-        SettingValue::Bool(false) => "off".to_owned(),
+        SettingValue::Bool(on) => crate::settings::bool_value_label(*on).to_owned(),
         SettingValue::Enum(canonical) => {
-            if let SettingKind::Enum { choices, .. } = kind {
+            if let SettingKind::Enum { choices, .. } = &meta.kind {
                 for c in *choices {
                     if c.canonical == *canonical {
-                        return c.display.to_owned();
+                        return c.display_label(meta.key).to_owned();
                     }
                 }
             }
@@ -908,16 +920,19 @@ pub fn render_cancel_turn_panel(
         content_x,
         y,
         &Line::from(Span::styled(
-            "Subagents are still running. Stop them?",
+            tl("Subagents are still running. Stop them?"),
             title_style,
         )),
         content_w as u16,
     );
     y += 1;
     let count_text = if state.running_count == 1 {
-        "1 subagent running".to_string()
+        tl("1 subagent running").to_string()
     } else {
-        format!("{} subagents running", state.running_count)
+        tlf(
+            "{count} subagents running",
+            &[("count", &state.running_count)],
+        )
     };
     buf.set_line(
         content_x,
@@ -1041,25 +1056,31 @@ fn fit_docs_ask_grok_tip(docs_path: &str, width: usize) -> String {
     if width == 0 {
         return String::new();
     }
-    let long =
-        format!("Tip · Ask Crok about the docs ({docs_path}), e.g. \"how do I set up MCP?\"");
+    let tip = tl("Tip");
+    let long = format!(
+        "{tip} · {}",
+        tlf(
+            "Ask Crok about the docs ({path}), e.g. \"how do I set up MCP?\"",
+            &[("path", &docs_path)],
+        )
+    );
     if long.width() <= width {
         return long;
     }
-    let short = format!("Tip · Ask Crok about the docs · {docs_path}");
+    let short = format!("{tip} · {} · {docs_path}", tl("Ask Crok about the docs"));
     if short.width() <= width {
         return short;
     }
-    let path_only = format!("Tip · {docs_path}");
+    let path_only = format!("{tip} · {docs_path}");
     if path_only.width() <= width {
         return path_only;
     }
-    const PREFIX: &str = "Tip · ";
-    let budget = width.saturating_sub(PREFIX.width());
+    let prefix = format!("{tip} · ");
+    let budget = width.saturating_sub(prefix.width());
     if budget == 0 {
-        return truncate_str("Tip", width);
+        return truncate_str(tip, width);
     }
-    format!("{PREFIX}{}", truncate_str(docs_path, budget))
+    format!("{prefix}{}", truncate_str(docs_path, budget))
 }
 pub fn render_doc_picker_overlay(
     buf: &mut ratatui::buffer::Buffer,
@@ -1090,17 +1111,17 @@ pub fn render_doc_picker_overlay(
     let non_sel = vec![false; filtered.len()];
     let mut picker_shortcuts: Vec<Shortcut<'_>> = vec![
         Shortcut {
-            label: "\u{2191}/\u{2193} nav",
+            label: tl("↑/↓ nav"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "Enter select",
+            label: tl("Enter select"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "Esc close",
+            label: tl("Esc close"),
             clickable: false,
             id: 0,
         },
@@ -1121,7 +1142,7 @@ pub fn render_doc_picker_overlay(
         ..base_sizing
     };
     let modal_config = ModalWindowConfig {
-        title: "How-to Guides",
+        title: tl("How-to Guides"),
         tabs: None,
         shortcuts: &picker_shortcuts,
         sizing,
@@ -1202,12 +1223,12 @@ pub fn render_doc_viewer_overlay(
 ) {
     let doc_shortcuts = [
         super::modal_window::Shortcut {
-            label: "\u{2191}/\u{2193} scroll",
+            label: tl("↑/↓ scroll"),
             clickable: false,
             id: 0,
         },
         super::modal_window::Shortcut {
-            label: "Esc back",
+            label: tl("Esc back"),
             clickable: false,
             id: 0,
         },

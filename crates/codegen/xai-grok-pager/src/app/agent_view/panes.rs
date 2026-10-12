@@ -6,6 +6,7 @@ use crate::app::app_view::InputOutcome;
 use crate::key;
 use crate::scrollback::ScrollbackSearchState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use xai_grok_i18n::{tl, tlm};
 /// Kill target behind a dock Watchers row.
 pub(crate) enum DockWatcherId {
     /// Running `monitor` bg task (bg-task id).
@@ -293,7 +294,7 @@ impl AgentView {
                 (
                     run.run_id.clone(),
                     crate::views::dock::DockRow {
-                        kind: "Workflow".into(),
+                        kind: tl("Workflow").into(),
                         description: run.name.clone(),
                         activity: (!activity.is_empty()).then_some(activity),
                         meta: crate::views::dock::fmt_elapsed(run.live_elapsed_ms() / 1000),
@@ -369,7 +370,7 @@ impl AgentView {
                 (
                     t.task_id.clone(),
                     crate::views::dock::DockRow {
-                        kind: "Run".into(),
+                        kind: tl("Run").into(),
                         description,
                         activity: None,
                         meta: crate::views::dock::fmt_elapsed(elapsed),
@@ -421,7 +422,7 @@ impl AgentView {
             (
                 DockWatcherId::Loop(s.task_id.clone()),
                 crate::views::dock::DockRow {
-                    kind: "Loop".into(),
+                    kind: tl("Loop").into(),
                     description: s.prompt.clone(),
                     activity: None,
                     meta: format!(
@@ -617,11 +618,11 @@ impl AgentView {
         use crate::views::dock::{DockItem, Section};
         match self.dock_items().get(self.dock_cursor) {
             Some(DockItem::Header(sec)) => Some(if self.is_dock_section_expanded(*sec) {
-                "collapse"
+                tlm("collapse")
             } else {
-                "expand"
+                tlm("expand")
             }),
-            Some(DockItem::RevealRemaining(_)) => Some("show all"),
+            Some(DockItem::RevealRemaining(_)) => Some(tlm("show all")),
             Some(DockItem::Row(section, i)) => {
                 let openable = match section {
                     Section::Workflows => self
@@ -642,7 +643,7 @@ impl AgentView {
                         .is_some_and(|(_, row)| row.openable),
                     Section::Queued => true,
                 };
-                openable.then_some("open")
+                openable.then_some(tlm("open"))
             }
             _ => None,
         }

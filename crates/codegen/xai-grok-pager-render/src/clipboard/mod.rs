@@ -12,6 +12,7 @@ pub use xai_ratatui_textarea::{ClipboardProvider, InternalClipboard};
 
 use std::sync::OnceLock;
 
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_telemetry::events::ClipboardProbeDropReason;
 
 use crate::terminal::{MultiplexerKind, TerminalContext};
@@ -325,30 +326,30 @@ impl ClipboardFeedback {
     /// Must start with [`Self::message_lead`] (asserted in tests) so the path-bearing toast built from the lead never rewords the static copy.
     fn message(self) -> &'static str {
         match self {
-            Self::Copied => "Copied!",
-            Self::CopiedTmux => "Copied to tmux buffer, paste with prefix + ]",
-            Self::CopiedOscContainer => "Copied via OSC 52 from the container.",
-            Self::CopiedOscRemote => "Copied via OSC 52.",
+            Self::Copied => tl("Copied!"),
+            Self::CopiedTmux => tl("Copied to tmux buffer, paste with prefix + ]"),
+            Self::CopiedOscContainer => tl("Copied via OSC 52 from the container."),
+            Self::CopiedOscRemote => tl("Copied via OSC 52."),
             Self::UnverifiedOscRemote | Self::UnverifiedOscContainer => {
-                "Copy sent. If paste fails, use crok wrap or /minimal."
+                tl("Copy sent. If paste fails, use crok wrap or /minimal.")
             }
             Self::VsCodeSshNonAscii => {
-                "Copied. VS Code over SSH may garble non-ASCII; use /minimal if needed."
+                tl("Copied. VS Code over SSH may garble non-ASCII; use /minimal if needed.")
             }
-            Self::FailedRemote | Self::Failed => "Copy failed. Try /doctor or /minimal.",
+            Self::FailedRemote | Self::Failed => tl("Copy failed. Try /doctor or /minimal."),
         }
     }
 
     /// Compact lead of [`Self::message`] (no trailing guidance sentence).
     fn message_lead(self) -> &'static str {
         match self {
-            Self::Copied => "Copied!",
-            Self::CopiedTmux => "Copied to tmux buffer, paste with prefix + ]",
-            Self::CopiedOscContainer => "Copied via OSC 52 from the container",
-            Self::CopiedOscRemote => "Copied via OSC 52",
-            Self::UnverifiedOscRemote | Self::UnverifiedOscContainer => "Copy sent",
-            Self::VsCodeSshNonAscii => "Copied",
-            Self::FailedRemote | Self::Failed => "Copy failed",
+            Self::Copied => tl("Copied!"),
+            Self::CopiedTmux => tl("Copied to tmux buffer, paste with prefix + ]"),
+            Self::CopiedOscContainer => tl("Copied via OSC 52 from the container"),
+            Self::CopiedOscRemote => tl("Copied via OSC 52"),
+            Self::UnverifiedOscRemote | Self::UnverifiedOscContainer => tl("Copy sent"),
+            Self::VsCodeSshNonAscii => tl("Copied"),
+            Self::FailedRemote | Self::Failed => tl("Copy failed"),
         }
     }
 
@@ -442,16 +443,18 @@ impl CopyDelivery {
         use std::borrow::Cow;
         match self {
             Self::Clipboard { result, file } => match (result.delivery, file) {
-                (ClipboardDelivery::Unverified, Some(path)) => Cow::Owned(format!(
-                    "{}, saved to {}",
-                    result.message_lead,
-                    display_copy_path(path)
+                (ClipboardDelivery::Unverified, Some(path)) => Cow::Owned(tlf(
+                    "{message}, saved to {path}",
+                    &[
+                        ("message", &result.message_lead),
+                        ("path", &display_copy_path(path)),
+                    ],
                 )),
                 _ => Cow::Borrowed(result.message),
             },
-            Self::File { path } => Cow::Owned(format!(
-                "Clipboard unreachable: wrote {}",
-                display_copy_path(path)
+            Self::File { path } => Cow::Owned(tlf(
+                "Clipboard unreachable: wrote {path}",
+                &[("path", &display_copy_path(path))],
             )),
             Self::Failed { clipboard, .. } => Cow::Borrowed(clipboard.message),
         }
@@ -634,12 +637,18 @@ fn log_clipboard_copy_event(
 pub fn clipboard_stats_suffix(text: &str) -> String {
     let chars = text.len();
     let lines = text.lines().count();
-    format!(
-        " ({} chars, {} {})",
-        chars,
-        lines,
-        if lines == 1 { "line" } else { "lines" }
-    )
+    let stats = if lines == 1 {
+        tlf(
+            "{chars} chars, {lines} line",
+            &[("chars", &chars), ("lines", &lines)],
+        )
+    } else {
+        tlf(
+            "{chars} chars, {lines} lines",
+            &[("chars", &chars), ("lines", &lines)],
+        )
+    };
+    format!(" ({stats})")
 }
 
 /// CLIPBOARD text read failed.

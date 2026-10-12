@@ -2,6 +2,8 @@
 //!
 //! Turns raw ACP / `RetryState` dumps (`API error (status 500): {"error":…}`) into the same kind of short warning banner used for 401 re-auth.
 
+use xai_grok_i18n::{tl, tlf, tlm};
+
 /// Wire `RetryState::Failed.error_type` values the pager understands.
 /// The vocabulary is the shell's `SamplingErrorKind::as_str` tags plus its special-cased tags (`context_length`, `legacy_auth`, …).
 /// Unknown strings map to [`WireErrorType::Other`] rather than being matched as raw `&str` at call sites.
@@ -131,8 +133,11 @@ pub(crate) fn format_retry_activity_label(
 pub(crate) fn retry_clause(attempt: u32, max_retries: u32, style: RetryLabelStyle) -> String {
     // Longer headline plus U+2026 wraps this status row into the prompt.
     match style {
-        RetryLabelStyle::Status => format!("Retrying (attempt {attempt})..."),
-        RetryLabelStyle::Compact => format!("Retrying ({attempt}/{max_retries})"),
+        RetryLabelStyle::Status => tlf("Retrying (attempt {attempt})...", &[("attempt", &attempt)]),
+        RetryLabelStyle::Compact => tlf(
+            "Retrying ({attempt}/{max_retries})",
+            &[("attempt", &attempt), ("max_retries", &max_retries)],
+        ),
     }
 }
 
@@ -181,7 +186,7 @@ pub(crate) fn format_request_failure(
     let detail = compose_detail(why.as_deref(), class.action);
     FormattedRequestFailure {
         status,
-        headline: class.headline,
+        headline: class.shown,
         detail,
         wire,
     }
@@ -218,7 +223,10 @@ fn http_wire_from_dump(raw: &str) -> Option<WireErrorType> {
 }
 
 struct Classified {
+    /// English: the server's text is compared against it.
     headline: String,
+    /// The headline in the interface language, as drawn.
+    shown: String,
     /// What the user can do. Omitted when we have no real next step.
     action: Option<&'static str>,
     /// Used only when the server body added nothing.
@@ -229,116 +237,122 @@ fn classify(status: Option<u16>, wire: WireErrorType) -> Classified {
     if let Some(code) = status {
         let (prefix, action, default_why) = match code {
             400 | 422 => (
-                "Bad request",
+                tlm("Bad request"),
                 None,
-                Some("The server rejected this request."),
+                Some(tlm("The server rejected this request.")),
             ),
             403 => (
-                "Request denied",
+                tlm("Request denied"),
                 None,
-                Some("You don't have permission to do this."),
+                Some(tlm("You don't have permission to do this.")),
             ),
             404 => (
-                "Not found",
-                Some("Run /model to pick another."),
-                Some("This model isn't available."),
+                tlm("Not found"),
+                Some(tlm("Run /model to pick another.")),
+                Some(tlm("This model isn't available.")),
             ),
             408 | 504 => (
-                "Request timed out",
-                Some("Try again shortly."),
-                Some("The server took too long to respond."),
+                tlm("Request timed out"),
+                Some(tlm("Try again shortly.")),
+                Some(tlm("The server took too long to respond.")),
             ),
             409 => (
-                "Conflict",
-                Some("Try again."),
-                Some("The request conflicted with the current state."),
+                tlm("Conflict"),
+                Some(tlm("Try again.")),
+                Some(tlm("The request conflicted with the current state.")),
             ),
             413 => (
-                "Request too large",
-                Some("Try a smaller prompt or run /compact."),
+                tlm("Request too large"),
+                Some(tlm("Try a smaller prompt or run /compact.")),
                 None,
             ),
             429 => (
-                "Rate limited",
-                Some("Try again later."),
-                Some("You've hit the rate limit for your plan."),
+                tlm("Rate limited"),
+                Some(tlm("Try again later.")),
+                Some(tlm("You've hit the rate limit for your plan.")),
             ),
             502 | 503 => (
-                "Service unavailable",
-                Some("The service is busy. Wait a minute and send again."),
+                tlm("Service unavailable"),
+                Some(tlm("The service is busy. Wait a minute and send again.")),
                 None,
             ),
             100..=399 => (
-                "Request failed",
+                tlm("Request failed"),
                 None,
-                Some("The request did not complete successfully."),
+                Some(tlm("The request did not complete successfully.")),
             ),
             400..=499 => (
-                "Request failed",
+                tlm("Request failed"),
                 None,
-                Some("The server rejected this request."),
+                Some(tlm("The server rejected this request.")),
             ),
             _ => (
-                "Server error",
-                Some("Something went wrong on our side. Wait a minute and send again."),
+                tlm("Server error"),
+                Some(tlm(
+                    "Something went wrong on our side. Wait a minute and send again.",
+                )),
                 None,
             ),
         };
         return Classified {
             headline: format!("{prefix} ({code})"),
+            shown: format!("{} ({code})", tl(prefix)),
             action,
             default_why,
         };
     }
     let (headline, action, default_why) = match wire {
         WireErrorType::IdleTimeout => (
-            "No response from the model",
-            Some("Try sending again."),
-            Some("It may be stuck."),
+            tlm("No response from the model"),
+            Some(tlm("Try sending again.")),
+            Some(tlm("It may be stuck.")),
         ),
         WireErrorType::EmptyResponse => (
-            "Empty response",
-            Some("Try sending again."),
-            Some("The model returned no content."),
+            tlm("Empty response"),
+            Some(tlm("Try sending again.")),
+            Some(tlm("The model returned no content.")),
         ),
         WireErrorType::Serialization => (
-            "Couldn't read the response",
-            Some("Try sending again."),
+            tlm("Couldn't read the response"),
+            Some(tlm("Try sending again.")),
             None,
         ),
         WireErrorType::Http => (
-            "Connection failed",
-            Some("Check your network and try again."),
+            tlm("Connection failed"),
+            Some(tlm("Check your network and try again.")),
             None,
         ),
         WireErrorType::MaxTokensTruncation => (
-            "Response truncated",
+            tlm("Response truncated"),
             None,
-            Some("The model hit its output limit."),
+            Some(tlm("The model hit its output limit.")),
         ),
         WireErrorType::RateLimited => (
-            "Rate limited",
-            Some("Try again later."),
-            Some("You've hit the rate limit for your plan."),
+            tlm("Rate limited"),
+            Some(tlm("Try again later.")),
+            Some(tlm("You've hit the rate limit for your plan.")),
         ),
         WireErrorType::Api => (
-            "Server error",
-            Some("Something went wrong on our side. Wait a minute and send again."),
+            tlm("Server error"),
+            Some(tlm(
+                "Something went wrong on our side. Wait a minute and send again.",
+            )),
             None,
         ),
         WireErrorType::AuthTransient => (
-            "Authentication temporarily unavailable",
-            Some("Try sending again in a moment."),
+            tlm("Authentication temporarily unavailable"),
+            Some(tlm("Try sending again in a moment.")),
             None,
         ),
         _ => (
-            "Request failed",
-            Some("Try sending again."),
-            Some("Something went wrong."),
+            tlm("Request failed"),
+            Some(tlm("Try sending again.")),
+            Some(tlm("Something went wrong.")),
         ),
     };
     Classified {
         headline: headline.to_string(),
+        shown: tl(headline).to_string(),
         action,
         default_why,
     }
@@ -348,15 +362,24 @@ fn classify(status: Option<u16>, wire: WireErrorType) -> Classified {
 fn compose_detail(why: Option<&str>, action: Option<&str>) -> String {
     match (why, action) {
         (None, None) => String::new(),
-        (None, Some(one)) | (Some(one), None) => one.to_string(),
+        (None, Some(one)) | (Some(one), None) => tl(one).to_string(),
         (Some(why), Some(action)) => {
+            // Compared in English, shown in the interface language.
             let (w, a) = (normalize_phrase(why), normalize_phrase(action));
             if w.contains(&a) {
-                why.to_string()
+                tl(why).to_string()
             } else if a.contains(&w) {
-                action.to_string()
+                tl(action).to_string()
             } else {
-                format!("{}. {action}", why.trim_end_matches('.').trim_end())
+                let (why, action) = (tl(why), tl(action));
+                // Chinese and Japanese close a sentence with `。`, and the next one follows it directly.
+                let wide_stop = why.ends_with('。')
+                    && !matches!(xai_grok_i18n::current_locale(), xai_grok_i18n::Locale::En);
+                if wide_stop {
+                    format!("{why}{action}")
+                } else {
+                    format!("{}. {action}", why.trim_end_matches('.').trim_end())
+                }
             }
         }
     }
@@ -430,6 +453,24 @@ pub(crate) fn parse_http_status(raw: &str) -> Option<u16> {
     ];
     for marker in MARKERS {
         if let Some(i) = find_ignore_ascii_case(raw, marker)
+            && let Some(code) = raw
+                .get(i + marker.len()..)
+                .and_then(|s| parse_status_digits(s, true))
+        {
+            return Some(code);
+        }
+    }
+    // Our own banner in another interface language: `classify` writes `{headline} ({code})` with the headline translated.
+    for marker in MARKERS {
+        let Some(english) = marker.strip_suffix(" (") else {
+            continue;
+        };
+        let shown = tl(english);
+        if shown == english {
+            continue;
+        }
+        let marker = format!("{shown} (");
+        if let Some(i) = find_ignore_ascii_case(raw, &marker)
             && let Some(code) = raw
                 .get(i + marker.len()..)
                 .and_then(|s| parse_status_digits(s, true))

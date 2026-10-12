@@ -1,5 +1,6 @@
 use super::*;
 use crate::scrollback::blocks::KILLED_SIGNAL;
+use xai_grok_i18n::tlf;
 use xai_grok_tools::computer::types::SESSION_RESTART_SIGNAL;
 
 /// Route a `ToolCallUpdate` stdout chunk to the central bg task store.
@@ -429,10 +430,16 @@ fn expired_task_notice(info: &crate::app::agent::ScheduledTaskInfo) -> String {
     if head.len() < first_line.len() {
         head.push('\u{2026}');
     }
-    format!(
-        "Scheduled task expired: \"{head}\" ({}). Recurring tasks auto-expire after {} days; re-create it if still needed.",
-        info.human_schedule,
-        xai_grok_tools::implementations::grok_build::scheduler::types::RECURRING_TASK_TTL_DAYS,
+    tlf(
+        "Scheduled task expired: \"{task}\" ({schedule}). Recurring tasks auto-expire after {days} days; re-create it if still needed.",
+        &[
+            ("task", &head),
+            ("schedule", &info.human_schedule),
+            (
+                "days",
+                &xai_grok_tools::implementations::grok_build::scheduler::types::RECURRING_TASK_TTL_DAYS,
+            ),
+        ],
     )
 }
 /// Derive the effective CWD and worktree flag for a child session.

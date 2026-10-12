@@ -8,13 +8,14 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use strum::IntoEnumIterator as _;
+use xai_grok_i18n::{tl, tlm};
 
+use super::render::FooterHint;
 use super::{
     FeedbackFailureMode, FeedbackModalMetadata, FeedbackModalOutcome, FeedbackModalState,
     FeedbackTaskCategory, FeedbackType, MetadataField,
 };
 use crate::theme::Theme;
-use crate::views::modal_window::Shortcut;
 use crate::views::picker::{
     self, PickerConfig, PickerEntry, PickerOutcome, PickerRow, PickerState,
 };
@@ -36,12 +37,15 @@ impl MetadataField {
     }
 
     /// Declaration-order indices whose labels contain `query` (case-insensitive); no variant is invented.
+    /// A label matches as it is written in English and as the picker shows it.
     fn filtered_variants(self, query: &str) -> Vec<usize> {
         let query = query.to_lowercase();
         self.variant_labels()
             .iter()
             .enumerate()
-            .filter(|(_, label)| label.to_lowercase().contains(&query))
+            .filter(|(_, label)| {
+                label.to_lowercase().contains(&query) || tl(label).to_lowercase().contains(&query)
+            })
             .map(|(index, _)| index)
             .collect()
     }
@@ -92,27 +96,11 @@ impl FeedbackModalMetadata {
 
 impl FeedbackModalState {
     // Esc closes the picker back to the label rows, never the modal, so no cancel hint here.
-    pub(super) const PICKER_SHORTCUTS: &[Shortcut<'static>] = &[
-        Shortcut {
-            label: "↑↓ move",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "type filter",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "Enter select",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "Esc back",
-            clickable: false,
-            id: 0,
-        },
+    pub(super) const PICKER_SHORTCUTS: &[FooterHint] = &[
+        ("↑↓", tlm("move"), false, 0),
+        ("", tlm("type filter"), false, 0),
+        ("Enter", tlm("select"), false, 0),
+        ("Esc", tlm("back"), false, 0),
     ];
 
     /// One full-width row per supplied enum, stacked above the composer, in `fields`. (`field_order`)
@@ -252,7 +240,7 @@ impl FeedbackModalState {
             .enumerate()
             .map(|(vis, &variant)| {
                 PickerEntry::Row(PickerRow {
-                    label: labels.get(variant).copied().unwrap_or(""),
+                    label: tl(labels.get(variant).copied().unwrap_or("")),
                     right_label: "",
                     selected: picker.state.hovered == Some(vis)
                         || (picker.state.hovered.is_none() && vis == picker.state.selected),
