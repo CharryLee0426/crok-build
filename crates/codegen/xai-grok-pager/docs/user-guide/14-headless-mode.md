@@ -545,6 +545,7 @@ Key environment variables that affect headless mode:
 | `OPENROUTER_API_KEY`            | OpenRouter API key (the simplest credential for CI)           |
 | `ANTHROPIC_API_KEY`             | Claude API key (`anthropic/...` models)                       |
 | `CROK_ANTHROPIC_CACHE_TTL`      | `5m` or `1h` (default): how long Anthropic keeps the prompt cache between requests. `5m` is cheaper when requests follow each other without a pause |
+| `CROK_ANTHROPIC_CACHE_DIAGNOSTICS` | `off` stops requests from asking Anthropic where they differ from the one before (see [Cache diagnostics](02-authentication.md#cache-diagnostics)) |
 | `DEEPSEEK_API_KEY`              | DeepSeek API key                                              |
 | `ZAI_API_KEY`                   | GLM Coding Plan key from z.ai (`glm/...` models)              |
 | `ZHIPU_API_KEY`                 | GLM Coding Plan key from bigmodel.cn (`glm-cn/...` models)    |

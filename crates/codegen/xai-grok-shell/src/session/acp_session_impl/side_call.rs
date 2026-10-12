@@ -128,6 +128,9 @@ impl SessionActor {
             x_grok_session_id: Some(session_id.clone()),
             x_grok_agent_id: Some(xai_grok_telemetry::id::agent_id()),
             prompt_cache_key: Some(session_id),
+            // Compared with the turn loop's latest request, which this one is meant to extend, and not
+            // followed: the loop's next request continues from the loop, not from here.
+            cache_chain: Some(self.cache_chain.reader()),
             // Side calls persist text and never execute tools (the attached tools only align the prompt-cache prefix)
             // A Length sample must fail rather than salvage
             length_policy: xai_grok_sampling_types::LengthPolicy::Fail,

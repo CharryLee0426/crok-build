@@ -306,6 +306,10 @@ pub(super) fn handle_session_notification_with_origin(
         | XaiSessionUpdate::AutoCompactCancelled { .. }
         | XaiSessionUpdate::RetryState(_)
         | XaiSessionUpdate::ImageDropped { .. }
+        | XaiSessionUpdate::ResponseStarted {
+            cache_miss: Some(_),
+            ..
+        }
         | XaiSessionUpdate::MemoryFlushCompleted { .. }
         | XaiSessionUpdate::MemoryCaptureActivity { .. }
         | XaiSessionUpdate::MemoryDreamCompleted { .. }
@@ -1826,6 +1830,17 @@ pub(super) fn apply_session_event(
             let message = notes.join("\n");
             tracing::info!("Image dropped: {message}");
             scrollback.push_block(RenderBlock::system(message));
+            true
+        }
+        // Anthropic's cache diagnostics: this request could not read all of what the previous one cached.
+        XaiSessionUpdate::ResponseStarted {
+            cache_miss: Some(miss),
+            ..
+        } => {
+            tracing::info!(?miss, "Prompt cache miss");
+            scrollback.push_block(RenderBlock::system(
+                crate::app::status_blocks::prompt_cache_miss_text(miss),
+            ));
             true
         }
         XaiSessionUpdate::MemoryCaptureActivity {

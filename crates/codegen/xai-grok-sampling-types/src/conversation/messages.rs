@@ -400,6 +400,7 @@ pub fn build_messages_request(req: &ConversationRequest) -> crate::messages::Mes
         thinking,
         output_config,
         metadata: None,
+        diagnostics: None, // The sampler sets this for Anthropic's own endpoint
     }
 }
 

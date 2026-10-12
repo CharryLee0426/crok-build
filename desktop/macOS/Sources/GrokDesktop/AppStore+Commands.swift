@@ -269,6 +269,11 @@ extension AppStore {
             updateSubagent(update, id: id)
             if state.selectedConversationID == id, featurePanel == .agents { featureRows = runs[id]?.subagents.map(\.row) ?? [] }
             return true
+        case "response_started":
+            // Anthropic's cache diagnostics: this request differs from the one before it, so only part of the cache was read.
+            guard let miss = PromptCacheMiss(update["cache_miss"]) else { return false }
+            append(Message(kind: .system, text: miss.text, createdAt: Date()), to: id)
+            return true
         default: return false
         }
     }

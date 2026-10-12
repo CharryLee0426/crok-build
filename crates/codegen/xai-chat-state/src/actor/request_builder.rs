@@ -102,6 +102,7 @@ impl ChatStateActor {
             trace,
             traceparent: None,
             prompt_cache_key: None,
+            cache_chain: None,
             reasoning_effort: self.state.sampling_config.reasoning_effort,
             json_schema: None,
             // Execute completed tool calls on a Length-truncated turn instead

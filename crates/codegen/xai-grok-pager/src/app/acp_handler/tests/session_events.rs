@@ -278,6 +278,49 @@
         }
     }
 
+    /// Anthropic's cache diagnostics: a response whose request differed from the one before it says
+    /// what changed in the scrollback. One that matched, or came from a provider with nothing to
+    /// say, adds nothing.
+    #[test]
+    fn a_prompt_cache_miss_is_written_into_the_scrollback() {
+        use crate::scrollback::block::RenderBlock;
+        use xai_grok_shell::extensions::notification::{PromptCacheChange, PromptCacheMiss};
+        let response_started = |cache_miss| XaiSessionUpdate::ResponseStarted {
+            message_id: Some("msg_1".into()),
+            model: Some("claude-opus-5-5".into()),
+            input_tokens: 42,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 41_850,
+            cache_miss,
+        };
+        // Through the notification handler, as the update arrives from the shell.
+        let mut app = make_app_with_agent("sess-1");
+        let before = app.agents.get(&AgentId(0)).unwrap().scrollback.len();
+        let _ = handle(make_ext_session_notification("sess-1", response_started(None)), &mut app);
+        assert_eq!(app.agents.get(&AgentId(0)).unwrap().scrollback.len(), before);
+
+        let miss = PromptCacheMiss { changed: PromptCacheChange::System, missed_input_tokens: 41_850 };
+        let _ = handle(make_ext_session_notification("sess-1", response_started(Some(miss))), &mut app);
+        let scrollback = &mut app.agents.get_mut(&AgentId(0)).unwrap().scrollback;
+        assert_eq!(scrollback.len(), before + 1);
+        match &scrollback.entries_mut().last().expect("entry pushed").block {
+            RenderBlock::System(b) => assert_eq!(
+                b.text,
+                "Prompt cache: the system prompt changed since the previous request. \
+                 About 41,850 input tokens after the change were not read from the cache."
+            ),
+            other => panic!("expected System block, got {other:?}"),
+        }
+
+        // Each part of the request is named, and a miss with no size says only what changed.
+        let text = |changed, missed_input_tokens| {
+            crate::app::status_blocks::prompt_cache_miss_text(&PromptCacheMiss { changed, missed_input_tokens })
+        };
+        assert_eq!(text(PromptCacheChange::Model, 0), "Prompt cache: the model changed since the previous request.");
+        assert_eq!(text(PromptCacheChange::Tools, 0), "Prompt cache: the tool list changed since the previous request.");
+        assert_eq!(text(PromptCacheChange::Messages, 0), "Prompt cache: earlier messages changed since the previous request.");
+    }
+
     /// A successful compression needs no user action: log-only, no toast, no scrollback block, no redraw.
     /// The same holds live and on session replay.
     #[test]

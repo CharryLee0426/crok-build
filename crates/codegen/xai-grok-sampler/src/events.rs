@@ -75,6 +75,9 @@ pub enum SamplingEvent {
         input_tokens: u64,
         cache_read_input_tokens: u64,
         cache_creation_input_tokens: u64,
+        /// Set when the provider compared this request with the conversation's previous one and
+        /// found where they differ (Anthropic's cache diagnostics).
+        cache_miss: Option<xai_grok_sampling_types::PromptCacheMiss>,
     },
 
     /// The reasoning (thinking) block finished and its encrypted signature is known (Messages thinking `content_block_stop`).

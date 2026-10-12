@@ -158,6 +158,75 @@ async fn narration_token_sends_message_chunk_and_skips_capture() {
         .await;
 }
 
+/// Cache diagnostics: what the provider found reaches the client on `response_started`, in the
+/// shape both the terminal and Crok Desktop read. A response with nothing found carries no such key.
+#[tokio::test(flavor = "current_thread")]
+async fn a_prompt_cache_miss_rides_response_started_to_the_client() {
+    use xai_grok_sampler::{RequestId, SamplingEvent};
+    use xai_grok_sampling_types::{PromptCacheChange, PromptCacheMiss};
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let mut fixture = make_replay_send_update_fixture().await;
+            let actor = Arc::new(fixture.actor);
+            let req = RequestId::random();
+            own_request(&actor, &req);
+
+            let mut sent = Vec::new();
+            for cache_miss in [
+                Some(PromptCacheMiss {
+                    changed: PromptCacheChange::System,
+                    missed_input_tokens: 41_850,
+                }),
+                None,
+            ] {
+                actor
+                    .handle_sampling_event(SamplingEvent::ResponseStarted {
+                        request_id: req.clone(),
+                        message_id: "msg_1".to_string(),
+                        model: "claude-opus-5-5".to_string(),
+                        input_tokens: 42,
+                        cache_read_input_tokens: 0,
+                        cache_creation_input_tokens: 41_850,
+                        cache_miss,
+                    })
+                    .await;
+                let event = fixture
+                    .event_rx
+                    .try_recv()
+                    .expect("response_started must enter the client event queue");
+                let SessionEvent::Notification(SessionNotification::Xai(notification)) = event
+                else {
+                    panic!("expected an xAI notification event");
+                };
+                sent.push(serde_json::to_value(&notification.update).expect("serializable"));
+            }
+            assert_eq!(
+                sent,
+                [
+                    serde_json::json!({
+                        "sessionUpdate": "response_started",
+                        "message_id": "msg_1",
+                        "model": "claude-opus-5-5",
+                        "input_tokens": 42,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 41_850,
+                        "cache_miss": {"changed": "system", "missed_input_tokens": 41_850},
+                    }),
+                    serde_json::json!({
+                        "sessionUpdate": "response_started",
+                        "message_id": "msg_1",
+                        "model": "claude-opus-5-5",
+                        "input_tokens": 42,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 41_850,
+                    }),
+                ]
+            );
+        })
+        .await;
+}
+
 /// A same-prompt `StreamStarted` restart (a doomloop retry) must accumulate a second generation rather than wipe the first.
 /// This guards the `if cap.prompt_id != prompt_id` branch in the `StreamStarted` arm, which the pure-struct tests bypass.
 #[tokio::test(flavor = "current_thread")]
