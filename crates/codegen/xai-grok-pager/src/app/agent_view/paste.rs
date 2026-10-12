@@ -12,6 +12,7 @@ use crate::theme::Theme;
 use crate::views::prompt_widget::{PromptEvent, PromptWidget};
 #[cfg(test)]
 use crossterm::event::{Event, KeyEvent};
+use xai_grok_i18n::tl;
 impl AgentView {
     /// Insert a plain-text (caption) clipboard paste into the prompt, matching the bracketed arm's whitespace policy and slash/suggestion refresh.
     /// The image/file-url portion of a paste is handled by the deferred probe.
@@ -83,7 +84,9 @@ impl AgentView {
             crate::prompt_images::SessionPathPolicy::Preserve,
             pasted,
         );
-        self.show_toast("Images can't be attached when editing a shared queued prompt");
+        self.show_toast(tl(
+            "Images can't be attached when editing a shared queued prompt",
+        ));
         true
     }
     /// Enqueue attachment probing off-thread so a paste followed by a send still lands in that order.
@@ -209,7 +212,7 @@ impl AgentView {
                 }
             }
             ProbedAttachment::PersistFailed(_) => {
-                self.show_toast("Couldn't save pasted image");
+                self.show_toast(tl("Couldn't save pasted image"));
                 ClipboardPasteCompletion::Failed(ClipboardPasteFailure::AlreadyReported)
             }
             ProbedAttachment::NoRaster => ClipboardPasteCompletion::FullMiss,
@@ -296,7 +299,7 @@ impl AgentView {
                 }
             },
             ProbedAttachment::PersistFailed(_) => {
-                modal.set_error("Couldn't save pasted image".to_string());
+                modal.set_error(tl("Couldn't save pasted image").to_string());
                 ClipboardPasteCompletion::Failed(ClipboardPasteFailure::AlreadyReported)
             }
             ProbedAttachment::NoRaster
@@ -509,7 +512,7 @@ impl AgentView {
         ) && let Err(e) = crate::prompt_images::persist_to_session(&mut pasted, &images_dir)
         {
             tracing::warn!("failed to persist pasted image: {e}");
-            self.show_toast("Couldn't save pasted image");
+            self.show_toast(tl("Couldn't save pasted image"));
             return false;
         }
         if let Err(msg) = self.prompt.insert_image(pasted) {

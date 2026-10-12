@@ -10,6 +10,8 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
+use xai_grok_i18n::{tl, tlf};
+
 use crate::app::agent_view::AgentView;
 use crate::scrollback::block::RenderBlock;
 
@@ -26,9 +28,9 @@ pub fn entry_title(agent: &AgentView) -> String {
     match agent.session.session_id.as_ref() {
         Some(sid) => {
             let short: String = sid.0.chars().take(8).collect();
-            format!("session {short}")
+            tlf("session {id}", &[("id", &short)])
         }
-        None => "loading...".to_string(),
+        None => tl("loading...").to_string(),
     }
 }
 
@@ -183,21 +185,21 @@ pub(crate) fn sanitize_display_text(s: &str) -> Cow<'_, str> {
 pub(crate) fn format_relative_time(elapsed: Duration) -> String {
     let secs = elapsed.as_secs();
     if secs < 1 {
-        return "now".to_string();
+        return tl("now").to_string();
     }
     if secs < 60 {
-        return format!("{secs}s ago");
+        return tlf("{count}s ago", &[("count", &secs)]);
     }
     let mins = secs / 60;
     if mins < 60 {
-        return format!("{mins}m ago");
+        return tlf("{count}m ago", &[("count", &mins)]);
     }
     let hours = mins / 60;
     if hours < 24 {
-        return format!("{hours}h ago");
+        return tlf("{count}h ago", &[("count", &hours)]);
     }
     let days = hours / 24;
-    format!("{days}d ago")
+    tlf("{count}d ago", &[("count", &days)])
 }
 
 #[cfg(test)]

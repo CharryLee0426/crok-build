@@ -5,6 +5,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 /// Open the command palette.
 pub struct HelpCommand;
@@ -12,7 +13,7 @@ pub struct HelpCommand;
 impl SlashCommand for HelpCommand {
     slash_meta! {
         name: "help",
-        description: "Browse commands and keyboard shortcuts",
+        description: tlm("Browse commands and keyboard shortcuts"),
         usage: "/help",
     }
 

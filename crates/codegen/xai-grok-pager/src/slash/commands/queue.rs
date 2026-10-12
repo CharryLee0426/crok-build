@@ -7,20 +7,21 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 pub struct QueueCommand;
 
 impl SlashCommand for QueueCommand {
     slash_meta! {
         name: "queue",
-        description: "List the prompts queued behind the running turn",
+        description: tlm("List the prompts queued behind the running turn"),
         usage: "/queue",
         session_scoped: true,
     }
 
     fn run(&self, ctx: &mut CommandExecCtx, _args: &str) -> CommandResult {
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session".to_string());
+            return CommandResult::Error(tl("No active session").to_string());
         }
         CommandResult::Action(Action::ShowQueue)
     }

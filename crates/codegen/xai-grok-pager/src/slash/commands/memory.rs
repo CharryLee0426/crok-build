@@ -7,6 +7,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 pub struct MemoryCommand;
 
@@ -14,7 +15,7 @@ impl SlashCommand for MemoryCommand {
     slash_meta! {
         name: "memory",
         aliases: ["mem"],
-        description: "Browse, view, and manage your memories",
+        description: tlm("Browse, view, and manage your memories"),
         usage: "/memory",
         session_scoped: true,
     }
@@ -24,7 +25,7 @@ impl SlashCommand for MemoryCommand {
             CommandResult::Action(Action::OpenMemoryModal)
         } else {
             CommandResult::Error(
-                "/memory takes no arguments. Open it, then press t to turn memory on or off and s for status."
+                tl("/memory takes no arguments. Open it, then press t to turn memory on or off and s for status.")
                     .to_string(),
             )
         }

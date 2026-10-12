@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use xai_grok_i18n::tlf;
 use xai_grok_status_line::{StatusLineContext, StatusLineItem};
 
 use super::fit_columns;
@@ -95,7 +96,10 @@ pub fn compose_builtin(
                 } else {
                     SegmentTone::Dim
                 };
-                Some(StatusSegment::toned(format!("{pct}% ctx"), tone))
+                Some(StatusSegment::toned(
+                    tlf("{percent} ctx", &[("percent", &format!("{pct}%"))]),
+                    tone,
+                ))
             }
             StatusLineItem::Cost => ctx
                 .cost

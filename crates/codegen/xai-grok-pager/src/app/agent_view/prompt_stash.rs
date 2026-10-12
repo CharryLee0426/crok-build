@@ -8,6 +8,7 @@ use super::{AgentView, PromptInputMode, PromptMode};
 use crate::app::app_view::InputOutcome;
 use crate::views::prompt_widget::StashedPrompt;
 use crossterm::event::KeyEvent;
+use xai_grok_i18n::{tl, tlm};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StashCause {
@@ -42,7 +43,7 @@ pub(in crate::app) fn prompt_history_text(text: &str, input_mode: PromptInputMod
 }
 
 /// Top-border caption shown while a draft sits in the stash.
-const STASH_CAPTION: &str = "Stashed";
+const STASH_CAPTION: &str = tlm("Stashed");
 
 impl AgentView {
     /// The prompt's top-border caption: the stash label, the `/rename` title, or both joined the way the bottom info line joins its parts.
@@ -54,8 +55,8 @@ impl AgentView {
             .map(|s| crate::views::session_title::sanitize_display_text(s).into_owned());
 
         match (self.prompt_stash.is_some(), title) {
-            (true, Some(title)) => Some(format!("{STASH_CAPTION} · {title}")),
-            (true, None) => Some(STASH_CAPTION.to_owned()),
+            (true, Some(title)) => Some(format!("{} · {title}", tl(STASH_CAPTION))),
+            (true, None) => Some(tl(STASH_CAPTION).to_owned()),
             (false, title) => title,
         }
     }
@@ -79,9 +80,9 @@ impl AgentView {
         // A second stash discards the draft in the slot
         self.prompt_stash = Some(entry);
 
-        self.note_stash_change_in_minimal(
+        self.note_stash_change_in_minimal(tl(
             "Draft stashed. Press the stash key again to restore it.",
-        );
+        ));
     }
 
     /// An explicit stash means "get this out of my way", so the composer drops its `!`/`#` mode too.
@@ -115,7 +116,7 @@ impl AgentView {
         };
 
         self.restore_stash_entry(entry);
-        self.note_stash_change_in_minimal("Stashed draft restored.");
+        self.note_stash_change_in_minimal(tl("Stashed draft restored."));
     }
 
     /// A browse that commits the stashed draft is a pop: two live copies means the next send restores what the user just sent.
@@ -162,7 +163,7 @@ impl AgentView {
         };
 
         self.restore_stash_entry(entry);
-        self.note_stash_change_in_minimal("Stashed draft restored.");
+        self.note_stash_change_in_minimal(tl("Stashed draft restored."));
         InputOutcome::Changed
     }
 

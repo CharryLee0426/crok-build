@@ -1,4 +1,5 @@
 use agent_client_protocol as acp;
+use xai_grok_i18n::{tl, tlm};
 use xai_grok_tools::implementations::grok_build::{
     IMAGE_GEN_TOOL_NAME, IMAGINE_COMMAND_NAME, imagine_instruction, imagine_usage_message,
 };
@@ -12,18 +13,22 @@ pub struct ImagineCommand;
 impl SlashCommand for ImagineCommand {
     slash_meta! {
         name: IMAGINE_COMMAND_NAME,
-        description: "Generate an image from a text description",
+        description: tlm("Generate an image from a text description"),
         usage: "/imagine <description>",
         takes_args: true,
         args_required: true,
-        arg_placeholder: "description of the image to generate",
+        arg_placeholder: tlm("description of the image to generate"),
         required_tools: REQUIRED_TOOLS,
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         let prompt = args.trim();
         if prompt.is_empty() {
-            return CommandResult::Message(imagine_usage_message().to_string());
+            // Worded in xai-grok-tools-api; the marker keeps the text in the catalog
+            const _USAGE: &str = xai_grok_i18n::tlm(
+                "Usage: /imagine <description>\nProvide a text description to generate an image.",
+            );
+            return CommandResult::Message(tl(imagine_usage_message()).to_string());
         }
 
         CommandResult::InjectSkill {

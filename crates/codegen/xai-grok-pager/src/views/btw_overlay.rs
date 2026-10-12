@@ -11,6 +11,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Widget};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::tl;
 
 use crate::render::osc8::{LinkOverlay, scan_lines_for_url_overlays};
 use crate::scrollback::blocks::markdown_content::MarkdownContent;
@@ -356,7 +357,7 @@ pub fn render_btw_panel(
             let loading_style = Style::default().fg(theme.gray).bg(bg);
             let line = Line::from(vec![
                 Span::styled(format!("{spinner} "), loading_style),
-                Span::styled("Answering\u{2026}", loading_style),
+                Span::styled(tl("Answering…"), loading_style),
             ]);
             buf.set_line(content_x, body_y, &line, content_width as u16);
         }

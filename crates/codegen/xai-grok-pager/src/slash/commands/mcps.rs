@@ -1,12 +1,13 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 pub struct McpsCommand;
 
 impl SlashCommand for McpsCommand {
     slash_meta! {
         name: "mcps",
-        description: "Show MCP server status",
+        description: tlm("Show MCP server status"),
         usage: "/mcps",
     }
 

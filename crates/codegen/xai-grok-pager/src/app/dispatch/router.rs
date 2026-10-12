@@ -123,6 +123,7 @@ use crate::app::app_view::{ActiveView, AppView, AuthState};
 use crate::app::consent::ConsentState;
 use crate::scrollback::types::DisplayMode;
 use crate::views::session_picker::CONTENT_EXPAND_OFFSET;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_telemetry::session_ctx::log_event;
 pub(super) fn dispatch_copy_auth_url(
     app: &mut AppView,
@@ -260,7 +261,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                 }
                 Err(err) => {
                     tracing::warn!("welcome local-workspace ack: {err}");
-                    app.show_toast(&format!("Local workspace: {err}"));
+                    app.show_toast(&tlf("Local workspace: {error}", &[("error", &err)]));
                     vec![]
                 }
             }
@@ -668,8 +669,11 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         }
         Action::ToggleScrollLog => {
             let msg = match app.scroll_state.toggle_scroll_log() {
-                Some(path) => format!("scroll log: recording to {}", path.display()),
-                None => "scroll log: off".to_string(),
+                Some(path) => tlf(
+                    "scroll log: recording to {path}",
+                    &[("path", &path.display())],
+                ),
+                None => tl("scroll log: off").to_string(),
             };
             if let Some(agent) = get_active_agent_mut(app) {
                 agent
@@ -679,12 +683,14 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             vec![]
         }
         Action::ShowDebugStatus => {
-            let on = |b: bool| if b { "on" } else { "off" };
-            let msg = format!(
-                "debug toggles: scroll {} \u{00b7} fps {} \u{00b7} log {}. Toggle with /debug <scroll|fps|log>",
-                on(app.scroll_debug_hud.enabled()),
-                on(app.fps_hud.enabled()),
-                on(app.scroll_state.scroll_log_active()),
+            let on = |b: bool| if b { tl("on") } else { tl("off") };
+            let msg = tlf(
+                "debug toggles: scroll {scroll} \u{00b7} fps {fps} \u{00b7} log {log}. Toggle with /debug <scroll|fps|log>",
+                &[
+                    ("scroll", &on(app.scroll_debug_hud.enabled())),
+                    ("fps", &on(app.fps_hud.enabled())),
+                    ("log", &on(app.scroll_state.scroll_log_active())),
+                ],
             );
             if let Some(agent) = get_active_agent_mut(app) {
                 agent
@@ -973,9 +979,9 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             if choice.context_window_selection.is_some() && agent.session.model_switch_pending {
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(
+                    .push_block(crate::scrollback::block::RenderBlock::system(tl(
                         "Model switch in progress; retry once it completes",
-                    ));
+                    )));
                 return vec![];
             }
             let models = &agent.session.models;
@@ -988,9 +994,9 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                     agent
                         .scrollback
                         .push_block(
-                            crate::scrollback::block::RenderBlock::system(
+                            crate::scrollback::block::RenderBlock::system(tl(
                                 "Context window applies once the session starts; run /context-window then",
-                            ),
+                            )),
                         );
                 }
                 let ModelChoice {
@@ -1231,9 +1237,9 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                     .and_then(|u| u.to_file_path().ok())
                     .is_some_and(|path| crate::app::link_opener::open_path(&path));
                 app.show_toast(if opened {
-                    "Opening in default app\u{2026}"
+                    tl("Opening in default app\u{2026}")
                 } else {
-                    "Could not open file"
+                    tl("Could not open file")
                 });
             } else {
                 open_url_or_show(app, &url);
@@ -1246,9 +1252,9 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                 Some(LinkTarget::File(path)) => {
                     let opened = crate::app::link_opener::open_path(&path);
                     app.show_toast(if opened {
-                        "Opening in default app\u{2026}"
+                        tl("Opening in default app\u{2026}")
                     } else {
-                        "Could not open file"
+                        tl("Could not open file")
                     });
                 }
                 Some(LinkTarget::Url(url)) => {
@@ -1320,11 +1326,11 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                 return vec![];
             }
             if crate::app::foreign_sessions::is_foreign_picker_source(&source) {
-                app.show_toast("External sessions can't be deleted");
+                app.show_toast(tl("External sessions can't be deleted"));
                 return vec![];
             }
             if source == "conversation" {
-                app.show_toast("Deleting chat conversations isn't supported yet");
+                app.show_toast(tl("Deleting chat conversations isn't supported yet"));
                 return vec![];
             }
             if !matches!(source.as_str(), "local" | "remote" | "both")
@@ -1333,10 +1339,12 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                 return vec![];
             }
             if crate::app::workspace_sync::permanent_delete_blocked(app, &session_id) {
-                app.show_toast("Cannot delete session: dashboard workspace is read-only");
+                app.show_toast(tl(
+                    "Cannot delete session: dashboard workspace is read-only",
+                ));
                 return vec![];
             }
-            app.show_toast("Deleting session\u{2026}");
+            app.show_toast(tl("Deleting session\u{2026}"));
             vec![Effect::DeleteSession {
                 source,
                 session_id,
@@ -1381,17 +1389,19 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                 super::task_result::deliver_doctor_message(
                     app,
                     target.agent_id,
-                    "This fix was cancelled because the session changed. Run `/doctor fix` again."
-                        .to_owned(),
+                    tl(
+                        "This fix was cancelled because the session changed. Run `/doctor fix` again.",
+                    )
+                    .to_owned(),
                 );
                 return vec![];
             };
             if let Some(agent) = app.agents.get_mut(&target.agent_id) {
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                        "Applying {}…",
-                        plan.id()
+                    .push_block(crate::scrollback::block::RenderBlock::system(tlf(
+                        "Applying {fix}…",
+                        &[("fix", &plan.id())],
                     )));
             }
             vec![Effect::ApplyDoctorFix { target, plan }]
@@ -1400,7 +1410,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             super::task_result::deliver_doctor_message(
                 app,
                 target.agent_id,
-                "Fix cancelled.".to_owned(),
+                tl("Fix cancelled.").to_owned(),
             );
             vec![]
         }
@@ -1510,7 +1520,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::DashboardStop => dispatch_dashboard_stop(app),
         Action::DashboardDelete => dispatch_dashboard_delete(app),
         Action::DashboardCycleMode => {
-            let policy_block = app.yolo_policy_block;
+            let policy_block = app.yolo_policy_block.map(xai_grok_i18n::tl);
             let auto_mode_gate = app.auto_mode_gate;
             if let Some(d) = app.dashboard.as_mut() {
                 d.pending_mode = d.pending_mode.cycle(auto_mode_gate);

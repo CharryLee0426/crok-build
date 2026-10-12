@@ -13,6 +13,7 @@ use crate::app::actions::Action;
 use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand, slash_meta,
 };
+use xai_grok_i18n::{tl, tlm};
 
 /// Export the current conversation to a file or clipboard.
 pub struct ExportCommand;
@@ -20,12 +21,12 @@ pub struct ExportCommand;
 impl SlashCommand for ExportCommand {
     slash_meta! {
         name: "export",
-        description: "Export the current conversation to a file or clipboard",
+        description: tlm("Export the current conversation to a file or clipboard"),
         usage: "/export [filename]",
         takes_args: true,
         args_required: false,
         session_scoped: true,
-        arg_placeholder: "[filename]",
+        arg_placeholder: tlm("[filename]"),
     }
 
     fn suggest_args(&self, ctx: &AppCtx, args_query: &str) -> Option<Vec<ArgItem>> {
@@ -35,7 +36,7 @@ impl SlashCommand for ExportCommand {
 
     fn run(&self, ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session to export".to_string());
+            return CommandResult::Error(tl("No active session to export").to_string());
         }
 
         let trimmed = args.trim();
@@ -108,9 +109,9 @@ fn list_path_completions(cwd: &Path, query: &str) -> Vec<ArgItem> {
             match_text: format!("{typed_prefix}{name_str}"),
             insert_text: format!("{typed_prefix}{name_str}{suffix}"),
             description: if is_dir {
-                "directory".to_string()
+                tl("directory").to_string()
             } else {
-                "file".to_string()
+                tl("file").to_string()
             },
         });
 

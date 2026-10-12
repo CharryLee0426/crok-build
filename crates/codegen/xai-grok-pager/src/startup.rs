@@ -2,7 +2,7 @@
 //!
 //! Any subsystem (terminal diagnostics, auth, config migration, etc.) can produce [`StartupWarning`]s.
 
-pub(crate) const DOCTOR_ACTION: &str = "Run /doctor for details and fixes.";
+pub(crate) const DOCTOR_ACTION: &str = xai_grok_i18n::tlm("Run /doctor for details and fixes.");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionableStartupWarning {

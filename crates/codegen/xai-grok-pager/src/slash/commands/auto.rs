@@ -9,6 +9,7 @@
 
 use crate::app::actions::{Action, PermissionModeKind};
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 /// Toggle auto permission mode (LLM classifier).
 pub struct AutoCommand;
@@ -16,7 +17,7 @@ pub struct AutoCommand;
 impl SlashCommand for AutoCommand {
     slash_meta! {
         name: "auto",
-        description: "Toggle Auto-review (classifier approves safe tools)",
+        description: tlm("Toggle Auto-review (classifier approves safe tools)"),
         usage: "/auto",
     }
 

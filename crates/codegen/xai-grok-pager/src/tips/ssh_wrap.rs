@@ -10,6 +10,7 @@ use ratatui::text::{Line, Span};
 
 use super::EphemeralTip;
 use crate::theme::Theme;
+use xai_grok_i18n::tl_parts;
 
 /// Ephemeral-tip dedup key for the SSH doctor hint.
 pub(crate) const SSH_WRAP_TIP_KEY: &str = "ssh_wrap_tip";
@@ -34,14 +35,15 @@ pub fn ssh_wrap_tip() -> EphemeralTip {
     let command = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);
+    let (before, after) = tl_parts("Run {command} for details and fixes.", "command");
     EphemeralTip {
         ticks_remaining: SSH_WRAP_TIP_TICKS,
         ..EphemeralTip::new(
             SSH_WRAP_TIP_KEY,
             Line::from(vec![
-                Span::styled("Run ", dim),
+                Span::styled(before, dim),
                 Span::styled("/doctor", command),
-                Span::styled(" for details and fixes.", dim),
+                Span::styled(after, dim),
             ]),
         )
         .with_session_seen_cap(SSH_WRAP_TIP_SEEN_KEY, SSH_WRAP_TIP_SEEN_CAP)

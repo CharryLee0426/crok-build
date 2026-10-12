@@ -1,8 +1,9 @@
 use super::{TabDataState, WorkflowInfo, cmp_str_ci, fuzzy_matches};
+use xai_grok_i18n::{tl, tlf, tlm};
 
 /// Placeholder row when the catalog comes back empty (also what a disabled workflows feature looks like on the wire, hence the hedged phrasing).
 pub(super) const WORKFLOWS_EMPTY_PLACEHOLDER: &str =
-    "No workflows available. Ask Crok to help make you one!";
+    tlm("No workflows available. Ask Crok to help make you one!");
 
 /// One picker row for the Workflows tab (flat, browse-only catalog).
 #[derive(Debug)]
@@ -35,12 +36,19 @@ pub(super) fn build_workflows_picker_rows(
 ) -> Vec<WorkflowRow> {
     let workflows = match data {
         TabDataState::Loaded(workflows) => workflows,
-        TabDataState::Error(msg) => return vec![WorkflowRow::notice(format!("Error: {msg}"))],
+        TabDataState::Error(msg) => {
+            return vec![WorkflowRow::notice(tlf(
+                "Error: {message}",
+                &[("message", &msg)],
+            ))];
+        }
         // The render path never builds entries while the tab loads; it shows a spinner instead
         TabDataState::Loading => return Vec::new(),
     };
     if workflows.is_empty() {
-        return vec![WorkflowRow::notice(WORKFLOWS_EMPTY_PLACEHOLDER.to_string())];
+        return vec![WorkflowRow::notice(
+            tl(WORKFLOWS_EMPTY_PLACEHOLDER).to_string(),
+        )];
     }
     let mut visible: Vec<&WorkflowInfo> = workflows
         .iter()
@@ -52,14 +60,14 @@ pub(super) fn build_workflows_picker_rows(
         .map(|wf| {
             let mut fields = Vec::new();
             if let Some(ref p) = wf.path {
-                fields.push(("path".to_string(), p.clone()));
+                fields.push((tl("path").to_string(), p.clone()));
             }
             if let Some(ref w) = wf.when_to_use {
-                fields.push(("when to use".to_string(), w.clone()));
+                fields.push((tl("when to use").to_string(), w.clone()));
             }
             WorkflowRow {
                 label: wf.name.clone(),
-                right_label: format!("({})", wf.source),
+                right_label: crate::views::extensions_modal::source_tag(&wf.source),
                 desc_lines: if wf.description.is_empty() {
                     Vec::new()
                 } else {

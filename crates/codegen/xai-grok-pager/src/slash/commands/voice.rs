@@ -12,6 +12,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 pub struct VoiceCommand;
 
@@ -30,9 +31,9 @@ impl SlashCommand for VoiceCommand {
         // Without key releases hold-to-talk is impossible, so the label says "Toggle"
         // With them the mode is configurable (toggle or hold via `voice_capture_mode`), so the label leaves the behavior unspecified
         if crate::app::kitty_releases_reported() {
-            "Dictation (Ctrl+Space/F8; Esc/Enter to stop)"
+            tlm("Dictation (Ctrl+Space/F8; Esc/Enter to stop)")
         } else {
-            "Toggle dictation (Ctrl+Space/F8; Esc/Enter to stop)"
+            tlm("Toggle dictation (Ctrl+Space/F8; Esc/Enter to stop)")
         }
     }
 

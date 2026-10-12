@@ -1,4 +1,5 @@
 use super::*;
+use xai_grok_i18n::{tl, tlf};
 
 /// Resolve a superseded elicitation's reverse-request with `Cancel` so the awaiting MCP server is released before a replacement takes the slot.
 fn cancel_elicitation_request(
@@ -159,13 +160,13 @@ pub(crate) fn handle_ask_user_question(
             match kind {
                 LocalQuestionKind::DoctorFix { .. } => {
                     agent.scrollback.push_block(RenderBlock::system(
-                        "/doctor fix was cancelled because another question opened.".to_owned(),
+                        tl("/doctor fix was cancelled because another question opened.").to_owned(),
                     ));
                 }
                 // The hold and the requeued front row survive the displaced card, so the queue stays parked; only the card is lost
                 LocalQuestionKind::PromptBlocked { .. } => {
                     agent.scrollback.push_block(RenderBlock::system(
-                        "The blocked-prompt card was replaced by another question. Your prompt is still held at the front of the queue.".to_owned(),
+                        tl("The blocked-prompt card was replaced by another question. Your prompt is still held at the front of the queue.").to_owned(),
                     ));
                 }
                 kind => {
@@ -173,16 +174,17 @@ pub(crate) fn handle_ask_user_question(
                     let cmd = match kind {
                         LocalQuestionKind::Fork { .. } => "/fork",
                         LocalQuestionKind::NewSession => "/new",
-                        LocalQuestionKind::CreditLimitUpsell { .. } => "credit-limit upsell",
-                        LocalQuestionKind::FreeUsageUpsell { .. } => "SuperGrok upsell",
-                        LocalQuestionKind::AgentTypeMismatch { .. } => "model switch",
+                        LocalQuestionKind::CreditLimitUpsell { .. } => tl("credit-limit upsell"),
+                        LocalQuestionKind::FreeUsageUpsell { .. } => tl("SuperGrok upsell"),
+                        LocalQuestionKind::AgentTypeMismatch { .. } => tl("model switch"),
                         LocalQuestionKind::DeleteCurrentSession => "/delete",
                         LocalQuestionKind::DoctorFix { .. } => "/doctor fix",
                         // The dedicated arm above owns this variant; the label is kept for exhaustiveness
-                        LocalQuestionKind::PromptBlocked { .. } => "blocked prompt",
+                        LocalQuestionKind::PromptBlocked { .. } => tl("blocked prompt"),
                     };
-                    agent.scrollback.push_block(RenderBlock::system(format!(
-                        "{cmd} cancelled because another question opened."
+                    agent.scrollback.push_block(RenderBlock::system(tlf(
+                        "{what} cancelled because another question opened.",
+                        &[("what", &cmd)],
                     )));
                 }
             }

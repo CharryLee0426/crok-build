@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span};
 use super::EphemeralTip;
 use crate::input::key::KeyShortcut;
 use crate::theme::Theme;
+use xai_grok_i18n::{tl, tl_parts};
 
 /// Ephemeral-tip dedup key for the undo hint.
 pub(crate) const UNDO_TIP_KEY: &str = "undo_tip";
@@ -40,12 +41,13 @@ pub fn undo_tip() -> EphemeralTip {
     let chord = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);
+    let (before, after) = tl_parts("{chord} to undo", "chord");
     EphemeralTip::new(
         UNDO_TIP_KEY,
         Line::from(vec![
-            Span::styled("Input cleared · ", dim),
+            Span::styled(format!("{} · {before}", tl("Input cleared")), dim),
             Span::styled(undo_chord_label(), chord),
-            Span::styled(" to undo", dim),
+            Span::styled(after, dim),
         ]),
     )
     .with_session_seen_cap(UNDO_TIP_SEEN_KEY, UNDO_TIP_SEEN_CAP)

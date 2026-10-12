@@ -9,6 +9,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
+use xai_grok_i18n::{tl, tl_parts};
 
 impl AgentView {
     /// Refresh the gate for the predicted-next-prompt ghost (tab autocomplete): it only shows on an idle session's normal prompt.
@@ -118,48 +119,64 @@ impl AgentView {
                     self.plugin_cta.hit_dismiss.clear();
                     return;
                 }
-                CtaPhase::Matched { name, .. } => (
-                    vec![
-                        Span::styled("Install ", secondary),
-                        Span::styled(name.clone(), name_style),
-                        Span::styled(" plugin?", secondary),
-                    ],
-                    Some("[Install]"),
-                ),
-                CtaPhase::Installing { name, .. } => (
-                    vec![
-                        Span::styled(format!("{spinner} Installing "), secondary),
-                        Span::styled(name.clone(), name_style),
-                        Span::styled(" plugin\u{2026}", secondary),
-                    ],
-                    None,
-                ),
-                CtaPhase::AwaitingReload { name } | CtaPhase::AwaitingMcps { name } => (
-                    vec![
-                        Span::styled(format!("{spinner} Setting up "), secondary),
-                        Span::styled(name.clone(), name_style),
-                        Span::styled(" plugin\u{2026}", secondary),
-                    ],
-                    None,
-                ),
-                CtaPhase::Installed { name } => (
-                    vec![
-                        Span::styled(name.clone(), name_style),
-                        Span::styled(
-                            format!(" plugin installed {}", crate::glyphs::check_mark()),
-                            secondary,
-                        ),
-                    ],
-                    None,
-                ),
-                CtaPhase::Error { name, .. } => (
-                    vec![
-                        Span::styled("Couldn't install ", secondary),
-                        Span::styled(name.clone(), name_style),
-                        Span::styled(" plugin", secondary),
-                    ],
-                    Some("[Retry]"),
-                ),
+                CtaPhase::Matched { name, .. } => {
+                    let (before, after) = tl_parts("Install {name} plugin?", "name");
+                    (
+                        vec![
+                            Span::styled(before, secondary),
+                            Span::styled(name.clone(), name_style),
+                            Span::styled(after, secondary),
+                        ],
+                        Some(tl("[Install]")),
+                    )
+                }
+                CtaPhase::Installing { name, .. } => {
+                    let (before, after) = tl_parts("Installing {name} plugin…", "name");
+                    (
+                        vec![
+                            Span::styled(format!("{spinner} {before}"), secondary),
+                            Span::styled(name.clone(), name_style),
+                            Span::styled(after, secondary),
+                        ],
+                        None,
+                    )
+                }
+                CtaPhase::AwaitingReload { name } | CtaPhase::AwaitingMcps { name } => {
+                    let (before, after) = tl_parts("Setting up {name} plugin…", "name");
+                    (
+                        vec![
+                            Span::styled(format!("{spinner} {before}"), secondary),
+                            Span::styled(name.clone(), name_style),
+                            Span::styled(after, secondary),
+                        ],
+                        None,
+                    )
+                }
+                CtaPhase::Installed { name } => {
+                    let (before, after) = tl_parts("{name} plugin installed", "name");
+                    (
+                        vec![
+                            Span::styled(before, secondary),
+                            Span::styled(name.clone(), name_style),
+                            Span::styled(
+                                format!("{after} {}", crate::glyphs::check_mark()),
+                                secondary,
+                            ),
+                        ],
+                        None,
+                    )
+                }
+                CtaPhase::Error { name, .. } => {
+                    let (before, after) = tl_parts("Couldn't install {name} plugin", "name");
+                    (
+                        vec![
+                            Span::styled(before, secondary),
+                            Span::styled(name.clone(), name_style),
+                            Span::styled(after, secondary),
+                        ],
+                        Some(tl("[Retry]")),
+                    )
+                }
             };
 
         use unicode_width::UnicodeWidthStr;

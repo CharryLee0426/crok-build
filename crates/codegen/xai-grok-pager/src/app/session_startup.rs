@@ -4,6 +4,7 @@
 //! Resume, new-with-id, and fork are thus not re-derived in three places.
 use super::cli::PagerArgs;
 use std::path::{Path, PathBuf};
+use xai_grok_i18n::{tlf, tlm};
 pub(crate) fn stamp_phase_traceparent(meta: &mut Option<agent_client_protocol::Meta>) {
     let Some(span) = xai_grok_telemetry::startup::current_phase_span() else {
         return;
@@ -307,8 +308,10 @@ impl PagerArgs {
     }
 }
 /// User-facing refusal when process-wide `--chat` would open a local Build disk row.
-pub const CHAT_MODE_LOCAL_BUILD_REFUSAL: &str = "cannot open a local Build session while --chat is active; \
-resume a conversation or start a new chat (/chat)";
+/// Also shown as a toast inside the TUI, where it is translated (`tl`) at the call site.
+pub const CHAT_MODE_LOCAL_BUILD_REFUSAL: &str = tlm(
+    "cannot open a local Build session while --chat is active; resume a conversation or start a new chat (/chat)",
+);
 /// User-facing error when `--chat` is combined with leader mode.
 pub const CHAT_MODE_LEADER_CONFLICT: &str = "gateway chat mode (--chat) cannot run with leader mode; \
 pass --no-leader or disable [cli] use_leader in config";
@@ -833,11 +836,24 @@ pub(crate) const WORKTREE_NO_RESTORE_CODE_NOTICE: &str =
 /// Preflight: preferred id must be a UUID and not a persisted session under `cwd`.
 /// Agent `session/new` rejects non-UUID `_meta.sessionId`; fail fast here so CLI users get a clear error before ACP.
 pub fn ensure_session_id_available(session_id: &str, cwd: &str) -> anyhow::Result<()> {
+    // Also the reason shown when the TUI's own session create fails this check, so it is translated.
     if uuid::Uuid::try_parse(session_id).is_err() {
-        anyhow::bail!("Error: --session-id must be a valid UUID (got '{session_id}').");
+        anyhow::bail!(
+            "{}",
+            tlf(
+                "Error: --session-id must be a valid UUID (got '{session_id}').",
+                &[("session_id", &session_id)],
+            )
+        );
     }
     if xai_grok_shell::session::persistence::session_exists_for_cwd(session_id, cwd) {
-        anyhow::bail!("Error: Session ID {session_id} is already in use.");
+        anyhow::bail!(
+            "{}",
+            tlf(
+                "Error: Session ID {session_id} is already in use.",
+                &[("session_id", &session_id)],
+            )
+        );
     }
     Ok(())
 }

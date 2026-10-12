@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use tracing::debug;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::session::storage::chunk_meta_flag;
 use xai_grok_tools::types::output::{BashOutput, ToolOutput};
 use xai_grok_tools::types::output::{ReadFileOutput, SearchToolOutput, WebFetchOutput};
@@ -92,9 +93,9 @@ pub fn clamp_activity_subject(s: &str) -> String {
 pub fn waiting_on_subagents_subject(n: usize) -> String {
     let n = n.max(1);
     if n == 1 {
-        "Waiting for subagent".to_string()
+        tl("Waiting for subagent").to_string()
     } else {
-        format!("Waiting for {n} subagents")
+        tlf("Waiting for {count} subagents", &[("count", &n)])
     }
 }
 /// Shared in-progress subject label (clamped description/command) used by turn-status, title bar, and dashboard/subagent activity columns.
@@ -103,7 +104,7 @@ pub fn waiting_on_subagents_subject(n: usize) -> String {
 pub fn format_waiting_for_subject(subject: &str) -> String {
     let clamped = clamp_activity_subject(subject);
     if clamped.is_empty() {
-        "Waiting on task output…".to_string()
+        tl("Waiting on task output…").to_string()
     } else {
         format!("{clamped}…")
     }
@@ -124,7 +125,7 @@ impl WaitingReason {
     /// User-facing spinner label.
     pub fn label(&self) -> String {
         match self {
-            Self::Model => "Waiting for response…".to_string(),
+            Self::Model => tl("Waiting for response…").to_string(),
             Self::Subagent { display } => {
                 let subject = display
                     .as_deref()
@@ -137,14 +138,17 @@ impl WaitingReason {
                 subject: Some(subject),
                 ..
             } => format_waiting_for_subject(subject),
-            Self::TaskOutput { .. } => "Waiting on task output…".to_string(),
-            Self::TasksComplete => "Waiting on tasks…".to_string(),
-            Self::Sleep => "Sleeping…".to_string(),
-            Self::Hooks { event_name, count } if *count > 1 => {
-                format!("Running {count} {event_name} hooks…")
+            Self::TaskOutput { .. } => tl("Waiting on task output…").to_string(),
+            Self::TasksComplete => tl("Waiting on tasks…").to_string(),
+            Self::Sleep => tl("Sleeping…").to_string(),
+            Self::Hooks { event_name, count } if *count > 1 => tlf(
+                "Running {count} {event_name} hooks…",
+                &[("count", count), ("event_name", event_name)],
+            ),
+            Self::Hooks { event_name, .. } => {
+                tlf("Running {event_name} hook…", &[("event_name", event_name)])
             }
-            Self::Hooks { event_name, .. } => format!("Running {event_name} hook…"),
-            Self::PromptAck => "Waiting for the agent to accept the prompt…".to_string(),
+            Self::PromptAck => tl("Waiting for the agent to accept the prompt…").to_string(),
         }
     }
     /// Short, stable snake_case label for telemetry / phase-transition logs.
@@ -186,30 +190,30 @@ impl WritingToolCall {
         };
         match self.tool_name.as_deref() {
             Some(name) if xai_grok_tools::is_task_tool_id(name) => {
-                format!("Writing subagent prompt{ordinal}…")
+                format!("{}{ordinal}…", tl("Writing subagent prompt"))
             }
             Some(xai_grok_tools::USE_TOOL_NAME) => {
-                format!("Preparing MCP tool{ordinal}…")
+                format!("{}{ordinal}…", tl("Preparing MCP tool"))
             }
             Some(xai_grok_tools::SEARCH_TOOL_NAME) => {
-                format!("Searching MCP tools{ordinal}…")
+                format!("{}{ordinal}…", tl("Searching MCP tools"))
             }
             Some(name) => {
                 use xai_grok_tools::types::tool::ToolKind;
                 let copy =
                     xai_grok_tools::tool_taxonomy::writing_tool_kind(name).and_then(|kind| {
                         match kind {
-                            ToolKind::Write => Some("Writing file"),
-                            ToolKind::Edit => Some("Writing edit"),
-                            ToolKind::Execute => Some("Writing command"),
-                            ToolKind::Plan => Some("Updating todo list"),
-                            ToolKind::Workflow => Some("Writing workflow"),
-                            ToolKind::Feedback => Some("Writing feedback draft"),
-                            ToolKind::ImageGen => Some("Writing image prompt"),
+                            ToolKind::Write => Some(tl("Writing file")),
+                            ToolKind::Edit => Some(tl("Writing edit")),
+                            ToolKind::Execute => Some(tl("Writing command")),
+                            ToolKind::Plan => Some(tl("Updating todo list")),
+                            ToolKind::Workflow => Some(tl("Writing workflow")),
+                            ToolKind::Feedback => Some(tl("Writing feedback draft")),
+                            ToolKind::ImageGen => Some(tl("Writing image prompt")),
                             ToolKind::ImageToVideo | ToolKind::ReferenceToVideo => {
-                                Some("Writing video prompt")
+                                Some(tl("Writing video prompt"))
                             }
-                            ToolKind::AskUser => Some("Preparing question"),
+                            ToolKind::AskUser => Some(tl("Preparing question")),
                             _ => None,
                         }
                     });
@@ -218,11 +222,15 @@ impl WritingToolCall {
                     None => {
                         let name =
                             xai_grok_workspace::permission::mcp_pretty_name_if_qualified(name);
-                        format!("Preparing {}{ordinal}…", clamp_activity_subject(&name))
+                        let subject = clamp_activity_subject(&name);
+                        format!(
+                            "{}{ordinal}…",
+                            tlf("Preparing {tool}", &[("tool", &subject)])
+                        )
                     }
                 }
             }
-            None => format!("Preparing tool call{ordinal}…"),
+            None => format!("{}{ordinal}…", tl("Preparing tool call")),
         }
     }
 }
@@ -1960,7 +1968,7 @@ fn tool_call_block_without_images(
                     } else if bash.exit_code != 0 {
                         format!("exit code {}", bash.exit_code)
                     } else {
-                        "Command failed".into()
+                        xai_grok_i18n::tlm("Command failed").into()
                     };
                     block = block.with_error(error_msg);
                 }
@@ -1975,7 +1983,7 @@ fn tool_call_block_without_images(
                 if !success {
                     let text = content_text(tc);
                     let error_msg = if text.is_empty() {
-                        "Command failed".to_string()
+                        xai_grok_i18n::tlm("Command failed").to_string()
                     } else {
                         text
                     };
@@ -2032,7 +2040,7 @@ fn tool_call_block_without_images(
                 _ if !success => {
                     let text = content_text(tc);
                     block = block.with_error(if text.is_empty() {
-                        "Read failed".to_string()
+                        xai_grok_i18n::tlm("Read failed").to_string()
                     } else {
                         text
                     });
@@ -2123,7 +2131,7 @@ fn tool_call_block_without_images(
             if is_backend {
                 let variant = extract_raw_field(tc, "variant").unwrap_or_default();
                 if variant == "XSearch" {
-                    block.label = Some("X Search ".to_string());
+                    block.label = Some(format!("{} ", xai_grok_i18n::tlm("X Search")));
                     block.is_x_search = true;
                 }
                 if let Some(ref raw) = tc.raw_output {
@@ -2225,7 +2233,8 @@ fn tool_call_block_without_images(
                 }
             }
             if !success {
-                block = block.with_error(failure_reason(tc, "Web search failed"));
+                block =
+                    block.with_error(failure_reason(tc, xai_grok_i18n::tlm("Web search failed")));
             }
             RenderBlock::ToolCall(ToolCallBlock::WebSearch(block))
         }
@@ -2244,7 +2253,7 @@ fn tool_call_block_without_images(
             block.file_matches = grep.file_matches;
             block.file_paths = grep.file_paths;
             if !success {
-                block.error = Some(failure_reason(tc, "Search failed"));
+                block.error = Some(failure_reason(tc, xai_grok_i18n::tlm("Search failed")));
             }
             RenderBlock::ToolCall(ToolCallBlock::Search(block))
         }
@@ -2308,7 +2317,7 @@ fn tool_call_block_without_images(
                     .content
                     .take()
                     .filter(|_| block.results.is_empty())
-                    .unwrap_or_else(|| "Search failed".to_owned());
+                    .unwrap_or_else(|| xai_grok_i18n::tlm("Search failed").to_owned());
                 block = block.with_error(error);
             }
             RenderBlock::ToolCall(ToolCallBlock::IntegrationSearch(block))
@@ -2332,7 +2341,7 @@ fn tool_call_block_without_images(
                     block
                         .output
                         .take()
-                        .unwrap_or_else(|| "Tool call failed".into()),
+                        .unwrap_or_else(|| xai_grok_i18n::tlm("Tool call failed").into()),
                 );
             }
             RenderBlock::ToolCall(ToolCallBlock::UseTool(block))
@@ -2343,11 +2352,12 @@ fn tool_call_block_without_images(
         _ if canonical_tool_name(tc)
             == Some(xai_grok_tools::implementations::grok_build::SEND_FEEDBACK_TOOL_NAME) =>
         {
-            let mut block = OtherToolCallBlock::new("Feedback drafted", String::new());
+            let mut block =
+                OtherToolCallBlock::new(xai_grok_i18n::tlm("Feedback drafted"), String::new());
             if !success {
                 let error = content_text(tc);
                 block.error = Some(if error.is_empty() {
-                    "Failed".to_owned()
+                    xai_grok_i18n::tlm("Failed").to_owned()
                 } else {
                     error
                 });
@@ -2374,7 +2384,7 @@ fn tool_call_block_without_images(
                     crate::scrollback::blocks::tool::memory_search::parse_memory_results(&text);
             }
             if !success {
-                block.error = Some("Memory search failed".into());
+                block.error = Some(xai_grok_i18n::tlm("Memory search failed").into());
             }
             RenderBlock::ToolCall(ToolCallBlock::MemorySearch(block))
         }
@@ -2396,7 +2406,7 @@ fn tool_call_block_without_images(
                         } else if bash.exit_code != 0 {
                             format!("exit code {}", bash.exit_code)
                         } else {
-                            "Command failed".into()
+                            xai_grok_i18n::tlm("Command failed").into()
                         };
                         block = block.with_error(error_msg);
                     }
@@ -2410,7 +2420,7 @@ fn tool_call_block_without_images(
                 if !success {
                     let text = content_text(tc);
                     block = block.with_error(if text.is_empty() {
-                        "Command failed".to_string()
+                        xai_grok_i18n::tlm("Command failed").to_string()
                     } else {
                         text
                     });
@@ -2435,8 +2445,8 @@ fn tool_call_block_without_images(
                 let label = name
                     .find(':')
                     .and_then(|i| name.get(i..))
-                    .map(|rest| format!("Skill{rest}"))
-                    .unwrap_or_else(|| "Skill".into());
+                    .map(|rest| format!("{}{rest}", xai_grok_i18n::tlm("Skill")))
+                    .unwrap_or_else(|| xai_grok_i18n::tlm("Skill").into());
                 (label, ToolCallBlock::Skill)
             } else {
                 (name.into_owned(), ToolCallBlock::Other)
@@ -2449,7 +2459,11 @@ fn tool_call_block_without_images(
                 ct = extracted;
             }
             if !success {
-                block.error = Some(if ct.is_empty() { "Failed".into() } else { ct });
+                block.error = Some(if ct.is_empty() {
+                    xai_grok_i18n::tlm("Failed").into()
+                } else {
+                    ct
+                });
             } else if !ct.is_empty() {
                 block.set_output_text(ct);
             }
@@ -2484,7 +2498,11 @@ fn media_gen_block(tc: &acp::ToolCall, success: bool) -> RenderBlock {
     let mut block = OtherToolCallBlock::new(tool_call_title(tc), String::new());
     if !success {
         let err = content_text(tc);
-        block.error = Some(if err.is_empty() { "Failed".into() } else { err });
+        block.error = Some(if err.is_empty() {
+            xai_grok_i18n::tlm("Failed").into()
+        } else {
+            err
+        });
     } else if let Some((path, is_video)) = media_gen_ref(tc) {
         block = block.with_media_ref(path, is_video);
     } else if let Some(text) = media_gen_text(tc) {
@@ -2770,17 +2788,25 @@ fn extract_edit_error(tc: &acp::ToolCall) -> String {
         && let Ok(ToolOutput::SearchReplace(sr)) = serde_json::from_value::<ToolOutput>(raw.clone())
     {
         return match sr {
-            SearchReplaceOutput::InvalidInput(_) => "Invalid input".to_owned(),
-            SearchReplaceOutput::FileNotFound(_) => "File not found".to_owned(),
-            SearchReplaceOutput::MultipleMatchesFound(_) => "Multiple matches found".to_owned(),
-            SearchReplaceOutput::FileAlreadyExists(_) => "File already exists".to_owned(),
-            SearchReplaceOutput::FilenameTooLong(_) => "Filename too long".to_owned(),
-            SearchReplaceOutput::NoMatchesFound(_) => "No matches found".to_owned(),
-            SearchReplaceOutput::EditsApplied(_) => "Edit failed".to_owned(),
+            SearchReplaceOutput::InvalidInput(_) => xai_grok_i18n::tlm("Invalid input").to_owned(),
+            SearchReplaceOutput::FileNotFound(_) => xai_grok_i18n::tlm("File not found").to_owned(),
+            SearchReplaceOutput::MultipleMatchesFound(_) => {
+                xai_grok_i18n::tlm("Multiple matches found").to_owned()
+            }
+            SearchReplaceOutput::FileAlreadyExists(_) => {
+                xai_grok_i18n::tlm("File already exists").to_owned()
+            }
+            SearchReplaceOutput::FilenameTooLong(_) => {
+                xai_grok_i18n::tlm("Filename too long").to_owned()
+            }
+            SearchReplaceOutput::NoMatchesFound(_) => {
+                xai_grok_i18n::tlm("No matches found").to_owned()
+            }
+            SearchReplaceOutput::EditsApplied(_) => xai_grok_i18n::tlm("Edit failed").to_owned(),
         };
     }
     match content_text(tc) {
-        text if text.is_empty() => "Edit failed".to_owned(),
+        text if text.is_empty() => xai_grok_i18n::tlm("Edit failed").to_owned(),
         text => text,
     }
 }

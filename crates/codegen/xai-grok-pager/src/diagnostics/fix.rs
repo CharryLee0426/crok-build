@@ -12,6 +12,7 @@ use crate::diagnostics::{
     DiagnosticId, DiagnosticReport, TmuxColorPassthrough, TmuxOptionFact, TmuxSupportFact,
 };
 use crate::terminal::{ByobuBackend, TerminalContext};
+use xai_grok_i18n::{tl, tlf, tlm};
 
 pub const SSH_WRAP_ID: DiagnosticId = DiagnosticId::new("terminal", "ssh-wrap");
 pub const TMUX_CLIPBOARD_ID: DiagnosticId = DiagnosticId::new("terminal", "tmux-clipboard");
@@ -24,7 +25,9 @@ pub const SSH_WRAP_ONE_OFF: &str = "crok wrap ssh <host>";
 const MANAGED_NAMESPACE: &str = "crok doctor";
 const SSH_WRAP_ALIAS_POSIX: &str = "alias ssh='crok wrap ssh'";
 const SSH_WRAP_ALIAS_FISH: &str = "alias ssh 'crok wrap ssh'";
-const TMUX_SCANNER_CAVEAT: &str = "Crok checks this file for direct global assignments of this option. Review sourced files, conditionals, plugins, and generated tmux setup yourself.";
+const TMUX_SCANNER_CAVEAT: &str = tlm(
+    "Crok checks this file for direct global assignments of this option. Review sourced files, conditionals, plugins, and generated tmux setup yourself.",
+);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AutomaticRemediation {
@@ -309,60 +312,66 @@ pub enum FixError {
 impl std::fmt::Display for FixError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnknownId(id) => write!(
-                formatter,
-                "`{id}` is not an available Doctor fix. Run `crok doctor fix` to list available fixes."
-            ),
-            Self::PlatformUnsupported => write!(
-                formatter,
-                "Automatic SSH setup is not available on Windows. Run `{SSH_WRAP_ONE_OFF}` when needed."
-            ),
-            Self::HomeUnavailable => formatter.write_str("Crok could not find your home directory."),
-            Self::NotApplicable => formatter
-                .write_str("This fix does not apply to VS Code Remote sessions."),
-            Self::TmuxNotApplicable => formatter
-                .write_str("This fix is not applicable to the current report."),
-            Self::RemoteSession => formatter
-                .write_str("Run this fix on your local computer, not in the SSH session."),
-            Self::UnsupportedShell => write!(
-                formatter,
-                "Automatic setup supports Bash, zsh, and fish. For another shell, run `{SSH_WRAP_ONE_OFF}` when needed."
-            ),
-            Self::ByobuConfigUnavailable => formatter.write_str(
+            Self::UnknownId(id) => formatter.write_str(&tlf(
+                "`{id}` is not an available Doctor fix. Run `crok doctor fix` to list available fixes.",
+                &[("id", id)],
+            )),
+            Self::PlatformUnsupported => formatter.write_str(&tlf(
+                "Automatic SSH setup is not available on Windows. Run `{command}` when needed.",
+                &[("command", &SSH_WRAP_ONE_OFF)],
+            )),
+            Self::HomeUnavailable => {
+                formatter.write_str(tl("Crok could not find your home directory."))
+            }
+            Self::NotApplicable => {
+                formatter.write_str(tl("This fix does not apply to VS Code Remote sessions."))
+            }
+            Self::TmuxNotApplicable => {
+                formatter.write_str(tl("This fix is not applicable to the current report."))
+            }
+            Self::RemoteSession => formatter.write_str(tl(
+                "Run this fix on your local computer, not in the SSH session.",
+            )),
+            Self::UnsupportedShell => formatter.write_str(&tlf(
+                "Automatic setup supports Bash, zsh, and fish. For another shell, run `{command}` when needed.",
+                &[("command", &SSH_WRAP_ONE_OFF)],
+            )),
+            Self::ByobuConfigUnavailable => formatter.write_str(tl(
                 "Crok could not determine Byobu's effective config directory. Keep `BYOBU_CONFIG_DIR` set in this session, then run the fix again.",
-            ),
-            Self::UnsafeDirectory { label, path } => write!(
-                formatter,
-                "Crok refused unsafe {label} `{}`. Use a non-root absolute directory without control characters, `~`, `.` or `..` components.",
-                path.display()
-            ),
+            )),
+            Self::UnsafeDirectory { label, path } => formatter.write_str(&tlf(
+                "Crok refused unsafe {label} `{path}`. Use a non-root absolute directory without control characters, `~`, `.` or `..` components.",
+                &[("label", label), ("path", &path.display())],
+            )),
+            // The detail of an SSH alias or function is matched just below, so it is kept in
+            // English and looked up here; the detail of a tmux line is translated where it is built
             Self::ExistingCustomization { path, detail }
                 if detail.starts_with("existing `alias ssh")
                     || detail.contains("`ssh` fish function") =>
             {
-                write!(
-                    formatter,
-                    "Crok found an existing SSH alias or function in {} and did not change it: {detail}",
-                    path.display()
-                )
+                formatter.write_str(&tlf(
+                    "Crok found an existing SSH alias or function in {path} and did not change it: {detail}",
+                    &[("path", &path.display()), ("detail", &tl(detail))],
+                ))
             }
-            Self::ExistingCustomization { path, detail } => write!(
-                formatter,
-                "Crok found an existing customization in {} and did not change it: {detail}",
-                path.display()
-            ),
-            Self::Managed(error) => write!(
-                formatter,
-                "Could not update your shell configuration: {error}"
-            ),
-            Self::TmuxManaged(error) => {
-                write!(formatter, "Could not update your tmux configuration: {error}")
-            }
-            Self::PostconditionFailed => formatter
-                .write_str("The configuration changed, but Crok could not verify the SSH alias."),
-            Self::TmuxPostconditionFailed => formatter.write_str(
+            Self::ExistingCustomization { path, detail } => formatter.write_str(&tlf(
+                "Crok found an existing customization in {path} and did not change it: {detail}",
+                &[("path", &path.display()), ("detail", &tl(detail))],
+            )),
+            Self::Managed(error) => formatter.write_str(&tlf(
+                "Could not update your shell configuration: {error}",
+                &[("error", error)],
+            )),
+            Self::TmuxManaged(error) => formatter.write_str(&tlf(
+                "Could not update your tmux configuration: {error}",
+                &[("error", error)],
+            )),
+            Self::PostconditionFailed => formatter.write_str(tl(
+                "The configuration changed, but Crok could not verify the SSH alias.",
+            )),
+            Self::TmuxPostconditionFailed => formatter.write_str(tl(
                 "The configuration changed, but Crok could not verify the managed tmux option.",
-            ),
+            )),
         }
     }
 }
@@ -443,7 +452,7 @@ const TMUX_CLIPBOARD_SPEC: TmuxOptionSpec = TmuxOptionSpec {
     remedy: TmuxRemedy::Assignment,
     evidence: TmuxEvidence::Clipboard,
     scope: TmuxOptionScope::Server,
-    label: "Enable tmux clipboard forwarding",
+    label: xai_grok_i18n::tlm("Enable tmux clipboard forwarding"),
 };
 const DCS_PASSTHROUGH_SPEC: TmuxOptionSpec = TmuxOptionSpec {
     id: DCS_PASSTHROUGH_ID,
@@ -453,7 +462,7 @@ const DCS_PASSTHROUGH_SPEC: TmuxOptionSpec = TmuxOptionSpec {
     remedy: TmuxRemedy::Assignment,
     evidence: TmuxEvidence::DcsPassthrough,
     scope: TmuxOptionScope::Window,
-    label: "Enable tmux DCS passthrough",
+    label: xai_grok_i18n::tlm("Enable tmux DCS passthrough"),
 };
 const TMUX_EXTENDED_KEYS_SPEC: TmuxOptionSpec = TmuxOptionSpec {
     id: TMUX_EXTENDED_KEYS_ID,
@@ -463,7 +472,7 @@ const TMUX_EXTENDED_KEYS_SPEC: TmuxOptionSpec = TmuxOptionSpec {
     remedy: TmuxRemedy::Assignment,
     evidence: TmuxEvidence::ExtendedKeys,
     scope: TmuxOptionScope::Server,
-    label: "Enable tmux extended keys",
+    label: xai_grok_i18n::tlm("Enable tmux extended keys"),
 };
 
 const TMUX_TRUECOLOR_SPEC: TmuxOptionSpec = TmuxOptionSpec {
@@ -474,14 +483,14 @@ const TMUX_TRUECOLOR_SPEC: TmuxOptionSpec = TmuxOptionSpec {
     remedy: TmuxRemedy::Accumulating,
     evidence: TmuxEvidence::ColorPassthrough,
     scope: TmuxOptionScope::Server,
-    label: "Enable tmux truecolor passthrough",
+    label: xai_grok_i18n::tlm("Enable tmux truecolor passthrough"),
 };
 
 const FIX_REGISTRY: &[FixSpec] = &[
     FixSpec {
         id: SSH_WRAP_ID,
         handle: "ssh-wrap",
-        label: "Set up local SSH wrapping",
+        label: xai_grok_i18n::tlm("Set up local SSH wrapping"),
         command: SSH_WRAP_FIX_COMMAND,
         kind: FixKind::SshWrap,
     },
@@ -600,19 +609,29 @@ pub(crate) fn format_applicable_automatic_fixes(
 ) -> String {
     let fixes = applicable_automatic_fixes(report, terminal);
     if fixes.is_empty() {
-        return "No automatic fixes are available here.\n".to_owned();
+        return format!("{}\n", tl("No automatic fixes are available here."));
     }
 
-    let mut output = String::from("Automatic fixes:\n");
+    let mut output = format!("{}\n", tl("Automatic fixes:"));
     for (id, handle, availability) in fixes {
-        let label = fix_spec(id).map_or("Apply automatic fix", |spec| spec.label);
+        let label = fix_spec(id).map_or(tl("Apply automatic fix"), |spec| tl(spec.label));
         output.push_str(&format!("  {handle:<20} {label}\n"));
+        let command = format!("crok doctor fix {handle}");
         match availability {
             AutomaticFixAvailability::Here => output.push_str(&format!(
-                "    Run: crok doctor fix {handle}\n    In Crok: /doctor fix {handle}\n"
+                "    {}\n    {}\n",
+                tlf("Run: {command}", &[("command", &command)]),
+                tlf(
+                    "In Crok: {command}",
+                    &[("command", &format!("/doctor fix {handle}"))]
+                ),
             )),
             AutomaticFixAvailability::RunLocally => output.push_str(&format!(
-                "    On your local computer, run: crok doctor fix {handle}\n"
+                "    {}\n",
+                tlf(
+                    "On your local computer, run: {command}",
+                    &[("command", &command)]
+                ),
             )),
         }
     }
@@ -622,43 +641,78 @@ pub(crate) fn format_applicable_automatic_fixes(
 pub(crate) fn format_fix_preview(plan: &FixPlan) -> String {
     use std::fmt::Write as _;
 
-    let mut output = String::from("Doctor Fix\n\n");
-    let _ = writeln!(output, "Fix: {}", plan.id);
+    let mut output = format!("{}\n\n", tl("Doctor Fix"));
+    let _ = writeln!(output, "{}", tlf("Fix: {id}", &[("id", &plan.id)]));
     if let FixPayload::SshWrap(payload) = &plan.payload {
-        let _ = writeln!(output, "Shell: {}", payload.shell.name());
+        let _ = writeln!(
+            output,
+            "{}",
+            tlf("Shell: {shell}", &[("shell", &payload.shell.name())])
+        );
     }
     let change = &plan.change;
-    let _ = writeln!(output, "File: {}", preview_path(&change.requested_path));
+    let _ = writeln!(
+        output,
+        "{}",
+        tlf(
+            "File: {path}",
+            &[("path", &preview_path(&change.requested_path))]
+        )
+    );
     if change.target_path != change.requested_path {
         let _ = writeln!(
             output,
-            "Actual file: {} (symlink target)",
-            preview_path(&change.target_path)
+            "{}",
+            tlf(
+                "Actual file: {path} (symlink target)",
+                &[("path", &preview_path(&change.target_path))]
+            )
         );
     }
     if change.will_write {
-        let _ = writeln!(output, "\nText to add:\n{}", change.block);
+        let _ = writeln!(output, "\n{}\n{}", tl("Text to add:"), change.block);
     } else {
-        output.push_str("\nText to add: None. The requested setting is already configured.\n");
+        let _ = writeln!(
+            output,
+            "\n{}",
+            tl("Text to add: None. The requested setting is already configured.")
+        );
     }
     match &change.backup_path_hint {
         Some(path) => {
             let _ = writeln!(
                 output,
-                "\nBackup will be saved to: {}\nIf that file exists, Crok will choose a unique name.",
-                preview_path(path)
+                "\n{}\n{}",
+                tlf(
+                    "Backup will be saved to: {path}",
+                    &[("path", &preview_path(path))]
+                ),
+                tl("If that file exists, Crok will choose a unique name.")
             );
         }
-        None => output.push_str("\nBackup: None. The file is new or no changes are needed.\n"),
+        None => {
+            let _ = writeln!(
+                output,
+                "\n{}",
+                tl("Backup: None. The file is new or no changes are needed.")
+            );
+        }
     }
     match &plan.payload {
         FixPayload::SshWrap(_) => {
-            output.push_str(
-                "\nWhat this changes:\n  In new interactive shells, `ssh ...` runs as `crok wrap ssh ...`.\n",
+            let _ = writeln!(
+                output,
+                "\n{}\n  {}",
+                tl("What this changes:"),
+                tl("In new interactive shells, `ssh ...` runs as `crok wrap ssh ...`.")
             );
             let _ = writeln!(
                 output,
-                "  To use once without changing config: `{SSH_WRAP_ONE_OFF}`."
+                "  {}",
+                tlf(
+                    "To use once without changing config: `{command}`.",
+                    &[("command", &SSH_WRAP_ONE_OFF)]
+                )
             );
         }
         FixPayload::TmuxOption(payload) => {
@@ -666,14 +720,21 @@ pub(crate) fn format_fix_preview(plan: &FixPlan) -> String {
                 tmux_activation_instruction(payload.spec, &plan.change.requested_path);
             let _ = writeln!(
                 output,
-                "\nWhat this changes:\n  Persists `{}`.\n  Crok does not reload or modify the live tmux server.\n  After applying, {instruction}\n  Run /doctor again to verify the live setting.",
-                payload.spec.line,
+                "\n{}\n  {}\n  {}\n  {}\n  {}",
+                tl("What this changes:"),
+                tlf("Persists `{line}`.", &[("line", &payload.spec.line)]),
+                tl("Crok does not reload or modify the live tmux server."),
+                tlf(
+                    "After applying, {instruction}",
+                    &[("instruction", &instruction)]
+                ),
+                tl("Run /doctor again to verify the live setting."),
             );
         }
     }
-    output.push_str("Caveats:\n");
+    let _ = writeln!(output, "{}", tl("Caveats:"));
     for caveat in &plan.caveats {
-        let _ = writeln!(output, "  - {caveat}");
+        let _ = writeln!(output, "  - {}", tl(caveat));
     }
     output
 }
@@ -728,12 +789,17 @@ fn plan_ssh_wrap(
     Ok(FixPlan {
         id: request.id,
         change,
+        // Kept in the plan; looked up where the preview is written
         caveats: vec![
-            "The alias loads only in new interactive shells.",
-            "Use `command ssh ...` to bypass the alias.",
-            "For manually entered `ssh -f`, ControlPersist workflows, or OpenSSH `~^Z` local suspend, use `command ssh ...`. Wrapping does not fully preserve those behaviors.",
-            "`crok wrap` starts the SSH process directly, so the alias does not loop.",
-            "Crok checks this file for direct SSH aliases and functions. Review sourced files, plugins, and generated shell setup yourself.",
+            tlm("The alias loads only in new interactive shells."),
+            tlm("Use `command ssh ...` to bypass the alias."),
+            tlm(
+                "For manually entered `ssh -f`, ControlPersist workflows, or OpenSSH `~^Z` local suspend, use `command ssh ...`. Wrapping does not fully preserve those behaviors.",
+            ),
+            tlm("`crok wrap` starts the SSH process directly, so the alias does not loop."),
+            tlm(
+                "Crok checks this file for direct SSH aliases and functions. Review sourced files, plugins, and generated shell setup yourself.",
+            ),
         ],
         payload: FixPayload::SshWrap(SshWrapPlan { shell, managed }),
     })
@@ -803,13 +869,15 @@ fn plan_tmux_option(
 fn tmux_caveats(remedy: TmuxRemedy) -> Vec<&'static str> {
     match remedy {
         TmuxRemedy::Assignment => vec![
-            "The live tmux server is unchanged until you reload this config or restart it.",
+            tlm("The live tmux server is unchanged until you reload this config or restart it."),
             TMUX_SCANNER_CAVEAT,
         ],
         // Reloading is not enough on its own: tmux fixes a client's feature set when that client attaches
         TmuxRemedy::Accumulating => vec![
-            "Reloading alone is not enough: the attached client keeps its current color depth until it reattaches.",
-            "Terminals that cannot render 24-bit color ignore the extra escape sequence.",
+            tlm(
+                "Reloading alone is not enough: the attached client keeps its current color depth until it reattaches.",
+            ),
+            tlm("Terminals that cannot render 24-bit color ignore the extra escape sequence."),
         ],
     }
 }
@@ -947,31 +1015,37 @@ fn fix_outcome(
 pub(crate) fn format_fix_success(outcome: &FixOutcome) -> String {
     let path = markdown_code_path(outcome.changed_path());
     let Some(kind) = fix_spec(outcome.id).map(|spec| spec.kind) else {
-        return "Applied the Doctor fix.".to_owned();
+        return tl("Applied the Doctor fix.").to_owned();
     };
     let status = match (kind, outcome.status) {
-        (FixKind::SshWrap, FixStatus::Applied) => format!("Set up SSH wrapping in {path}."),
-        (FixKind::SshWrap, FixStatus::AlreadyConfigured) => {
-            format!("SSH wrapping is already set up in {path}.")
+        (FixKind::SshWrap, FixStatus::Applied) => {
+            tlf("Set up SSH wrapping in {path}.", &[("path", &path)])
         }
-        (FixKind::TmuxOption(tmux), FixStatus::Applied) => {
-            format!("Added `{}` to {path}.", tmux.line)
-        }
-        (FixKind::TmuxOption(tmux), FixStatus::AlreadyConfigured) => {
-            format!("`{}` is already configured in {path}.", tmux.line)
-        }
+        (FixKind::SshWrap, FixStatus::AlreadyConfigured) => tlf(
+            "SSH wrapping is already set up in {path}.",
+            &[("path", &path)],
+        ),
+        (FixKind::TmuxOption(tmux), FixStatus::Applied) => tlf(
+            "Added `{line}` to {path}.",
+            &[("line", &tmux.line), ("path", &path)],
+        ),
+        (FixKind::TmuxOption(tmux), FixStatus::AlreadyConfigured) => tlf(
+            "`{line}` is already configured in {path}.",
+            &[("line", &tmux.line), ("path", &path)],
+        ),
     };
     let backup = outcome
         .backup_path()
-        .map(|path| format!("\nBackup: {}", path.display()))
+        .map(|path| format!("\n{}", tlf("Backup: {path}", &[("path", &path.display())])))
         .unwrap_or_default();
     let activation = match (kind, outcome.activation) {
         (FixKind::SshWrap, FixActivation::SatisfiedNow) => {
-            "\nStart a new shell to use the alias.".to_owned()
+            format!("\n{}", tl("Start a new shell to use the alias."))
         }
         (FixKind::TmuxOption(tmux), FixActivation::RequiresReload) => format!(
-            "\n{}\nRun /doctor again to verify the live setting.",
-            tmux_activation_instruction(tmux, outcome.changed_path())
+            "\n{}\n{}",
+            tmux_activation_instruction(tmux, outcome.changed_path()),
+            tl("Run /doctor again to verify the live setting.")
         ),
         _ => String::new(),
     };
@@ -992,13 +1066,13 @@ fn preview_path(path: &Path) -> String {
     path.to_str()
         .filter(|value| !value.chars().any(char::is_control))
         .map(commonmark_code_span)
-        .unwrap_or_else(|| "[path cannot be rendered safely]".to_owned())
+        .unwrap_or_else(|| tl("[path cannot be rendered safely]").to_owned())
 }
 
 fn markdown_code_path(path: &Path) -> String {
     path.to_str()
         .map(commonmark_code_span)
-        .unwrap_or_else(|| "the configured tmux file".to_owned())
+        .unwrap_or_else(|| tl("the configured tmux file").to_owned())
 }
 
 fn commonmark_code_span(value: &str) -> String {
@@ -1029,26 +1103,34 @@ fn tmux_activation_instruction(spec: &TmuxOptionSpec, path: &Path) -> String {
     match spec.remedy {
         TmuxRemedy::Assignment => reload_instruction(path),
         TmuxRemedy::Accumulating => match shell_quote_path(path) {
-            Some(shell_path) => format!(
-                "Run {}, then detach and reattach: only clients that attach after the reload get \
-                 24-bit color.",
-                commonmark_code_span(&format!("tmux source-file {shell_path}"))
+            Some(shell_path) => tlf(
+                "Run {command}, then detach and reattach: only clients that attach after the \
+                 reload get 24-bit color.",
+                &[(
+                    "command",
+                    &commonmark_code_span(&format!("tmux source-file {shell_path}")),
+                )],
             ),
-            None => "Reload your tmux config, then detach and reattach: only clients that attach \
-                     after the reload get 24-bit color."
-                .to_owned(),
+            None => tl(
+                "Reload your tmux config, then detach and reattach: only clients that attach \
+                 after the reload get 24-bit color.",
+            )
+            .to_owned(),
         },
     }
 }
 
 fn reload_instruction(path: &Path) -> String {
     let Some(shell_path) = shell_quote_path(path) else {
-        return "Reload your tmux config, or restart the tmux server, to activate the persistent setting.".to_owned();
+        return tl(
+            "Reload your tmux config, or restart the tmux server, to activate the persistent setting.",
+        )
+        .to_owned();
     };
     let command = format!("tmux source-file {shell_path}");
-    format!(
-        "Reload tmux with {}, or restart the tmux server.",
-        commonmark_code_span(&command)
+    tlf(
+        "Reload tmux with {command}, or restart the tmux server.",
+        &[("command", &commonmark_code_span(&command))],
     )
 }
 
@@ -1235,7 +1317,7 @@ fn tmux_top_level_commands(
         return Err(tmux_customization_error(
             path,
             spec,
-            "unterminated or ambiguous tmux syntax",
+            tl("unterminated or ambiguous tmux syntax"),
         ));
     }
     if conditional_depth == 0 && brace_depth == 0 && !current.trim().is_empty() {
@@ -1288,7 +1370,7 @@ fn tokenize_tmux_command<'a>(
             return Err(tmux_customization_error(
                 path,
                 spec,
-                "unterminated quoted tmux token",
+                tl("unterminated quoted tmux token"),
             ));
         }
         let Some(raw) = command.get(start..index) else {
@@ -1335,9 +1417,9 @@ fn classify_tmux_assignment(
                 || "set-window-option".starts_with(value) =>
         {
             if command_may_target(tokens, spec) {
-                return TmuxAssignment::Ambiguous(format!(
-                    "ambiguous tmux command prefix `{value}` may target `{}`",
-                    spec.option
+                return TmuxAssignment::Ambiguous(tlf(
+                    "ambiguous tmux command prefix `{prefix}` may target `{option}`",
+                    &[("prefix", &value), ("option", &spec.option)],
                 ));
             }
             return TmuxAssignment::NotTarget;
@@ -1371,7 +1453,7 @@ fn classify_tmux_assignment(
             has_target = true;
             index += 1;
             if tokens.get(index).is_none() {
-                return TmuxAssignment::Ambiguous("missing tmux target argument".to_owned());
+                return TmuxAssignment::Ambiguous(tl("missing tmux target argument").to_owned());
             }
         }
         // -F, -f, -t and similar flags take one following argument
@@ -1379,7 +1461,7 @@ fn classify_tmux_assignment(
         if flags.chars().any(|flag| matches!(flag, 'F' | 'f')) {
             index += 1;
             if tokens.get(index).is_none() {
-                return TmuxAssignment::Ambiguous("missing tmux flag argument".to_owned());
+                return TmuxAssignment::Ambiguous(tl("missing tmux flag argument").to_owned());
             }
         }
         index += 1;
@@ -1392,9 +1474,9 @@ fn classify_tmux_assignment(
     }
     if option.value != spec.option {
         if spec.option.starts_with(option.value) {
-            return TmuxAssignment::Ambiguous(format!(
-                "option prefix `{}` may target `{}`",
-                option.value, spec.option
+            return TmuxAssignment::Ambiguous(tlf(
+                "option prefix `{prefix}` may target `{option}`",
+                &[("prefix", &option.value), ("option", &spec.option)],
             ));
         }
         return TmuxAssignment::NotTarget;
@@ -1406,9 +1488,9 @@ fn classify_tmux_assignment(
             // tmux resolves known server options by option scope even when a window flag is supplied
             // A target is nonsensical/ambiguous here
             if has_target {
-                return TmuxAssignment::Ambiguous(format!(
-                    "targeted server assignment may affect `{}`",
-                    spec.option
+                return TmuxAssignment::Ambiguous(tlf(
+                    "targeted server assignment may affect `{option}`",
+                    &[("option", &spec.option)],
                 ));
             }
         }
@@ -1421,24 +1503,28 @@ fn classify_tmux_assignment(
         }
     }
     let Some(value_token) = tokens.get(index + 1) else {
-        return TmuxAssignment::Ambiguous(format!(
-            "ambiguous direct assignment of `{}`",
-            spec.option
+        return TmuxAssignment::Ambiguous(tlf(
+            "ambiguous direct assignment of `{option}`",
+            &[("option", &spec.option)],
         ));
     };
     if tokens.len() != index + 2 || value_token.quoted {
-        return TmuxAssignment::Ambiguous(format!(
-            "ambiguous direct assignment of `{}`",
-            spec.option
+        return TmuxAssignment::Ambiguous(tlf(
+            "ambiguous direct assignment of `{option}`",
+            &[("option", &spec.option)],
         ));
     }
     let value = value_token.value;
     if spec.healthy_values.contains(&value) {
         TmuxAssignment::Healthy
     } else {
-        TmuxAssignment::Conflict(format!(
-            "direct `{} {value}` conflicts with `{}`",
-            spec.option, spec.line
+        TmuxAssignment::Conflict(tlf(
+            "direct `{option} {value}` conflicts with `{line}`",
+            &[
+                ("option", &spec.option),
+                ("value", &value),
+                ("line", &spec.line),
+            ],
         ))
     }
 }
@@ -1454,7 +1540,10 @@ fn command_may_target(tokens: &[TmuxCommandToken<'_>], spec: &TmuxOptionSpec) ->
 fn tmux_customization_error(path: &Path, spec: &TmuxOptionSpec, detail: &str) -> FixError {
     FixError::ExistingCustomization {
         path: path.to_path_buf(),
-        detail: format!("{detail} for `{}`", spec.option),
+        detail: tlf(
+            "{detail} for `{option}`",
+            &[("detail", &detail), ("option", &spec.option)],
+        ),
     }
 }
 
@@ -1514,11 +1603,12 @@ fn detect_posix_ssh_customization(text: &str) -> Option<String> {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
+        // `FixError`'s `Display` matches on these, so they stay in English until they are shown
         if is_posix_ssh_alias_declaration(trimmed) {
-            return Some("existing `alias ssh=...`".to_owned());
+            return Some(tlm("existing `alias ssh=...`").to_owned());
         }
         if is_posix_ssh_function_declaration(trimmed) {
-            return Some("existing `ssh` shell function".to_owned());
+            return Some(tlm("existing `ssh` shell function").to_owned());
         }
     }
     None
@@ -1583,12 +1673,12 @@ fn detect_fish_ssh_customization(text: &str) -> Option<String> {
                     .strip_prefix("ssh")
                     .is_some_and(|rest| rest.starts_with('='))
         }) {
-            return Some("existing `alias ssh ...`".to_owned());
+            return Some(tlm("existing `alias ssh ...`").to_owned());
         }
         if after_shell_keyword(trimmed, "function")
             .is_some_and(|rest| token_is_exact_name(rest, "ssh"))
         {
-            return Some("existing `ssh` fish function".to_owned());
+            return Some(tlm("existing `ssh` fish function").to_owned());
         }
     }
     None

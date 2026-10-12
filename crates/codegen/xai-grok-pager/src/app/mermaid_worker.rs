@@ -40,6 +40,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
+use xai_grok_i18n::{tl, tlm};
 use xai_grok_mermaid::{
     MermaidTheme, RenderLimits, RenderParams, RenderedDiagram, SubprocessError, default_engine,
     render_checked, run_with_timeout,
@@ -86,7 +87,11 @@ const RENDER_TIMEOUT: Duration = Duration::from_millis(3000);
 /// Open Image rasters at 2× / min-width 2560; a tall flowchart can take ~10s (the 3s terminal budget kills it).
 const OPEN_RENDER_TIMEOUT: Duration = Duration::from_secs(20);
 /// `show_toast` expires at ~3s; mermaid_tick re-shows this while a render is still pending.
-const RENDERING_TOAST: &str = "Rendering diagram\u{2026}";
+const RENDERING_TOAST: &str = tlm("Rendering diagram…");
+/// Toast for a click that arrives before the session has a directory to cache the PNG in.
+const NOT_READY_TOAST: &str = tlm("Diagram not ready yet");
+/// Toast for a render that failed or could not be dispatched.
+const RENDER_FAILED_TOAST: &str = tlm("Could not render diagram");
 
 fn timeout_for(quality: MermaidRenderQuality) -> Duration {
     match quality {
@@ -868,7 +873,7 @@ impl AgentView {
     pub fn mermaid_tick(&mut self) -> bool {
         let changed = self.poll_mermaid_results();
         if self.mermaid_needs_tick() && self.toast.is_none() {
-            self.show_toast(RENDERING_TOAST);
+            self.show_toast(tl(RENDERING_TOAST));
             return true;
         }
         changed
@@ -966,7 +971,7 @@ impl AgentView {
                 self.session.session_id.as_ref().map(|s| s.0.as_ref()),
                 Some(serde_json::json!({ "action": action.log_label() })),
             );
-            self.show_toast("Diagram not ready yet");
+            self.show_toast(tl(NOT_READY_TOAST));
             return;
         };
 
@@ -978,7 +983,7 @@ impl AgentView {
             .as_ref()
             .is_some_and(|rt| rt.has_pending(&key, action))
         {
-            self.show_toast(RENDERING_TOAST);
+            self.show_toast(tl(RENDERING_TOAST));
             return;
         }
 
@@ -1015,7 +1020,7 @@ impl AgentView {
             if let Some(rt) = self.mermaid.as_mut() {
                 rt.pending.push(PendingMermaidAction { key, action });
             }
-            self.show_toast(RENDERING_TOAST);
+            self.show_toast(tl(RENDERING_TOAST));
         } else {
             tracing::warn!(
                 target: MERMAID_TRACING_TARGET,
@@ -1026,7 +1031,7 @@ impl AgentView {
                 self.session.session_id.as_ref().map(|s| s.0.as_ref()),
                 Some(serde_json::json!({ "action": action.log_label() })),
             );
-            self.show_toast("Could not render diagram");
+            self.show_toast(tl(RENDER_FAILED_TOAST));
         }
     }
 
@@ -1061,7 +1066,7 @@ impl AgentView {
                             self.session.session_id.as_ref().map(|s| s.0.as_ref()),
                             Some(serde_json::json!({ "action": action.log_label() })),
                         );
-                        self.show_toast("Could not render diagram");
+                        self.show_toast(tl(RENDER_FAILED_TOAST));
                     }
                 }
             }

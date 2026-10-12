@@ -13,6 +13,7 @@ use xai_grok_dashboard_store::{
     MAX_CWD_BYTES, MAX_MODEL_BYTES, MAX_SUMMARY_BYTES, MAX_TITLE_BYTES, MemberKind, MemberMetadata,
     MemberOrigin, NewMember, SessionId,
 };
+use xai_grok_i18n::tl;
 pub(crate) fn request(app: &mut AppView) {
     if app.workspace_dashboard_enabled {
         app.workspace_membership.request_sync();
@@ -37,7 +38,9 @@ pub(crate) fn request_removal(
     {
         Ok(()) => true,
         Err(RemovalRequestError::ReadOnly) => {
-            app.show_toast("Could not archive session: dashboard workspace is read-only");
+            app.show_toast(tl(
+                "Could not archive session: dashboard workspace is read-only",
+            ));
             false
         }
         Err(RemovalRequestError::InvalidSessionId) => {
@@ -45,7 +48,7 @@ pub(crate) fn request_removal(
                 session_id = raw_session_id,
                 "invalid workspace archive session id"
             );
-            app.show_toast("Could not archive session: invalid session id");
+            app.show_toast(tl("Could not archive session: invalid session id"));
             false
         }
     }

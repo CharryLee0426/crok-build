@@ -4,18 +4,19 @@ use crate::app::actions::{Action, ModelChoice};
 use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand, slash_meta,
 };
+use xai_grok_i18n::{tl, tlf, tlm};
 
 pub struct ContextWindowCommand;
 
 impl SlashCommand for ContextWindowCommand {
     slash_meta! {
         name: "context-window",
-        description: "Set the context window for the current model",
+        description: tlm("Set the context window for the current model"),
         usage: "/context-window <size>",
         takes_args: true,
         args_required: true,
         session_scoped: true,
-        arg_placeholder: "<size>",
+        arg_placeholder: tlm("<size>"),
     }
 
     fn visible(&self, ctx: &AppCtx) -> bool {
@@ -42,17 +43,19 @@ impl SlashCommand for ContextWindowCommand {
 
     fn run(&self, ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         let Some(model_id) = ctx.models.current.clone() else {
-            return CommandResult::Error("No active model".into());
+            return CommandResult::Error(tl("No active model").into());
         };
 
         // A switch queued before the session starts does not carry the window
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session yet; retry once it starts".into());
+            return CommandResult::Error(tl("No active session yet; retry once it starts").into());
         }
 
         let options = ctx.models.context_window_options();
         if !has_selectable_windows(&options) {
-            return CommandResult::Error("current model has no selectable context windows".into());
+            return CommandResult::Error(
+                tl("current model has no selectable context windows").into(),
+            );
         }
 
         let supported = |separator: &str| {
@@ -68,11 +71,19 @@ impl SlashCommand for ContextWindowCommand {
             let current = ctx
                 .models
                 .get_context_window()
-                .map(|w| format!(" (current: {})", format_window(w)))
+                .map(|w| {
+                    format!(
+                        " {}",
+                        tlf("(current: {value})", &[("value", &format_window(w))])
+                    )
+                })
                 .unwrap_or_default();
             return CommandResult::Error(format!(
-                "Usage: /context-window <{}>{current}",
-                supported("|")
+                "{}{current}",
+                tlf(
+                    "Usage: /context-window <{sizes}>",
+                    &[("sizes", &supported("|"))]
+                )
             ));
         }
 
@@ -134,14 +145,14 @@ pub(crate) fn window_arg_items(
         .map(|(idx, &window)| {
             let label = format_window(window);
             let active_suffix = if active == Some(window) {
-                " (active)"
+                format!(" {}", tl("(active)"))
             } else {
-                ""
+                String::new()
             };
             let default_prefix = if default == Some(window) {
-                "Default • "
+                format!("{} • ", tl("Default"))
             } else {
-                ""
+                String::new()
             };
             // The letter prefix keeps catalog order. The matcher sorts ties alphabetically
             let sort_prefix = char::from(b'a' + idx.min(25) as u8);
@@ -150,7 +161,10 @@ pub(crate) fn window_arg_items(
                 display: format!("{label}{active_suffix}"),
                 match_text: format!("{sort_prefix} {insert_text}"),
                 insert_text,
-                description: format!("{default_prefix}{window} tokens"),
+                description: format!(
+                    "{default_prefix}{}",
+                    tlf("{count} tokens", &[("count", &window)])
+                ),
             }
         })
         .collect()
@@ -162,7 +176,10 @@ pub(crate) fn unknown_window_error(token: &str, options: &[u64]) -> String {
         .map(|&w| format_window(w))
         .collect::<Vec<_>>()
         .join(", ");
-    format!("unknown context window '{token}'; use one of: {offered}")
+    tlf(
+        "unknown context window '{token}'; use one of: {offered}",
+        &[("token", &token), ("offered", &offered)],
+    )
 }
 
 #[cfg(test)]

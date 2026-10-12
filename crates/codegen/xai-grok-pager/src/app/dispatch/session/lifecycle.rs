@@ -28,6 +28,7 @@ use crate::scrollback::state::ScrollbackState;
 use crate::slash::commands::context_window::format_window;
 use agent_client_protocol as acp;
 use std::time::Instant;
+use xai_grok_i18n::{tl, tlf, tlm};
 use xai_grok_shell::sampling::types::ReasoningEffort;
 /// A deferred model switch to apply once the session exists, plus any effort error to report.
 /// `switch` is still populated when a `-m` model was stashed even if the effort token failed, so an invalid effort never drops the CLI model override.
@@ -198,26 +199,26 @@ pub(in crate::app::dispatch) fn open_new_session_question(app: &mut AppView) -> 
         return vec![];
     };
     if agent.question_view.is_some() {
-        app.show_toast("Finish answering the current question first");
+        app.show_toast(tl("Finish answering the current question first"));
         return vec![];
     }
     let mut options = vec![
         QuestionOption {
-            label: "Yes".into(),
-            description: "New session in a new isolated git worktree".into(),
+            label: tl("Yes").into(),
+            description: tl("New session in a new isolated git worktree").into(),
             preview: None,
             id: None,
         },
         QuestionOption {
-            label: "No".into(),
-            description: "New session in the current cwd".into(),
+            label: tl("No").into(),
+            description: tl("New session in the current cwd").into(),
             preview: None,
             id: None,
         },
     ];
     options.extend(worktree_persist_options());
     let question = Question {
-        question: "Start the new session in an isolated git worktree?".into(),
+        question: tl("Start the new session in an isolated git worktree?").into(),
         id: None,
         options,
         multi_select: Some(false),
@@ -255,22 +256,28 @@ pub(in crate::app::dispatch) fn open_agent_type_mismatch_question(
         return vec![];
     };
     if agent.question_view.is_some() {
-        app.show_toast("Finish answering the current question first");
+        app.show_toast(tl("Finish answering the current question first"));
         return vec![];
     }
     let question = Question {
-        question: format!("Switching to {model_name} requires starting a new session. Continue?"),
+        question: tlf(
+            "Switching to {model} requires starting a new session. Continue?",
+            &[("model", &model_name)],
+        ),
         id: None,
         options: vec![
             QuestionOption {
-                label: "Yes".into(),
-                description: format!("Start a new session with {model_name}"),
+                label: tl("Yes").into(),
+                description: tlf(
+                    "Start a new session with {model}",
+                    &[("model", &model_name)],
+                ),
                 preview: None,
                 id: None,
             },
             QuestionOption {
-                label: "No".into(),
-                description: "Continue the current session".into(),
+                label: tl("No").into(),
+                description: tl("Continue the current session").into(),
                 preview: None,
                 id: None,
             },
@@ -327,8 +334,9 @@ fn apply_welcome_workspace_on_new_session(app: &mut AppView) -> Result<(), Vec<E
         }
         Err(err) => {
             tracing::warn!("welcome workspace mode: {err}");
-            app.show_toast(&format!(
-                "Local workspace unavailable ({err}); using sandbox"
+            app.show_toast(&tlf(
+                "Local workspace unavailable ({error}); using sandbox",
+                &[("error", &err)],
             ));
             app.welcome_session_local_workspace = Some(None);
             app.welcome_workspace_mode = WelcomeWorkspaceMode::Sandbox;
@@ -534,34 +542,34 @@ pub(in crate::app::dispatch) fn open_delete_current_session_question(
     let delete_description = if after_delete_current_session(app, id)
         == crate::app::actions::AfterSessionDelete::Dashboard
     {
-        "Remove history and return to the dashboard"
+        tl("Remove history and return to the dashboard")
     } else {
-        "Remove history and return home"
+        tl("Remove history and return home")
     };
     let Some(agent) = app.agents.get_mut(&id) else {
         return vec![];
     };
     if agent.session.session_id.is_none() {
-        app.show_toast("No active session to delete");
+        app.show_toast(tl("No active session to delete"));
         return vec![];
     }
     if agent.question_view.is_some() {
-        app.show_toast("Finish answering the current question first");
+        app.show_toast(tl("Finish answering the current question first"));
         return vec![];
     }
     let question = Question {
-        question: "Delete this session permanently?".into(),
+        question: tl("Delete this session permanently?").into(),
         id: None,
         options: vec![
             QuestionOption {
-                label: "Delete".into(),
+                label: tl("Delete").into(),
                 description: delete_description.into(),
                 preview: None,
                 id: None,
             },
             QuestionOption {
-                label: "Cancel".into(),
-                description: "Keep the session".into(),
+                label: tl("Cancel").into(),
+                description: tl("Keep the session").into(),
                 preview: None,
                 id: None,
             },
@@ -604,13 +612,15 @@ pub(in crate::app::dispatch) fn dispatch_delete_current_session_answered(
             Some((session_id, cwd, running_bg_tasks, !agent.conversation_entry))
         })
     else {
-        app.show_toast("No active session to delete");
+        app.show_toast(tl("No active session to delete"));
         return vec![];
     };
     if build_session
         && crate::app::workspace_sync::permanent_delete_blocked(app, session_id.0.as_ref())
     {
-        app.show_toast("Cannot delete session: dashboard workspace is read-only");
+        app.show_toast(tl(
+            "Cannot delete session: dashboard workspace is read-only",
+        ));
         return vec![];
     }
     let after = after_delete_current_session(app, id);
@@ -629,7 +639,7 @@ pub(in crate::app::dispatch) fn dispatch_delete_current_session_answered(
                 source: xai_grok_shell::extensions::task::TaskKillSource::Teardown,
             }),
     );
-    app.show_toast("Deleting session\u{2026}");
+    app.show_toast(tl("Deleting session\u{2026}"));
     effects.push(Effect::DeleteSession {
         source: "current".into(),
         session_id: session_id.to_string(),
@@ -679,9 +689,9 @@ pub(in crate::app::dispatch) fn dispatch_trust_folder(app: &mut AppView) -> Vec<
     match trust_gate_outcome(outcome.resolution(), agent_location(app)) {
         TrustGateOutcome::Finish => finish_trust(app),
         TrustGateOutcome::FinishSessionLocal => {
-            app.show_toast(
+            app.show_toast(tl(
                 "Folder trusted for this session only. Run `crok --trust` here to save it for next time.",
-            );
+            ));
             finish_trust(app)
         }
         TrustGateOutcome::Quit => {
@@ -1178,9 +1188,9 @@ pub(in crate::app::dispatch) fn dispatch_new_worktree_session(
         return vec![];
     }
     if !app.cwd_has_git_ancestor {
-        let msg: String = "Not inside a git repository. Navigate to a git repo \
-                      or run 'git init' first."
-            .into();
+        let msg: String =
+            tlm("Not inside a git repository. Navigate to a git repo or run 'git init' first.")
+                .into();
         if !app.startup_warnings.iter().any(|w| w.message == msg) {
             app.startup_warnings.push(crate::startup::StartupWarning {
                 severity: crate::startup::WarningSeverity::Warning,
@@ -1356,7 +1366,9 @@ pub(in crate::app::dispatch) fn dispatch_new_session_with_id(
 /// Tear down a placeholder agent that must not proceed under sticky `--chat` (local Build refuse).
 /// Never leave a half-loaded slot with a bound session id.
 pub(in crate::app::dispatch) fn refuse_chat_mode_build_agent(app: &mut AppView, agent_id: AgentId) {
-    app.show_toast(crate::app::session_startup::CHAT_MODE_LOCAL_BUILD_REFUSAL);
+    app.show_toast(tl(
+        crate::app::session_startup::CHAT_MODE_LOCAL_BUILD_REFUSAL,
+    ));
     let fallback = app.agents.keys().copied().find(|id| *id != agent_id);
     remove_agent_and_cleanup(app, agent_id);
     if let Some(target) = fallback {
@@ -1399,14 +1411,14 @@ pub(in crate::app::dispatch) fn handle_session_created(
             && has_switch_target
             && let Some(cmd) = switch_hint
         {
-            agent.scrollback.push_block(RenderBlock::system(format!(
-                "Session {}, use {cmd} to switch between sessions",
-                session_id_clone.0,
+            agent.scrollback.push_block(RenderBlock::system(tlf(
+                "Session {id}, use {command} to switch between sessions",
+                &[("id", &session_id_clone.0), ("command", &cmd)],
             )));
         } else if agent_count > 1 {
-            agent.scrollback.push_block(RenderBlock::system(format!(
-                "Session: {}",
-                session_id_clone.0,
+            agent.scrollback.push_block(RenderBlock::system(tlf(
+                "Session: {id}",
+                &[("id", &session_id_clone.0)],
             )));
         }
         agent.bind_session_id(session_id);
@@ -1546,9 +1558,9 @@ pub(in crate::app::dispatch) fn handle_worktree_session_created(
         }
         agent.apply_session_modes(modes);
         agent.prompt.file_search.retarget(&session_cwd);
-        agent.scrollback.push_block(RenderBlock::system(format!(
-            "Worktree ready: {}",
-            worktree_path.display()
+        agent.scrollback.push_block(RenderBlock::system(tlf(
+            "Worktree ready: {path}",
+            &[("path", &worktree_path.display())],
         )));
         if let Some(summary) = strategy_summary {
             agent.scrollback.push_block(RenderBlock::system(summary));
@@ -1751,7 +1763,7 @@ pub(in crate::app::dispatch) fn handle_session_failed(
     let stuck_step = report_session_create_failed(app, agent_id, timed_out);
     let msg = match stuck_step {
         Some(step) if timed_out => crate::app::effects::timed_out_while(step),
-        Some(_) | None => format!("Session creation failed: {error}"),
+        Some(_) | None => tlf("Session creation failed: {error}", &[("error", &error)]),
     };
     let is_orphan = app
         .agents
@@ -1824,7 +1836,7 @@ pub(in crate::app::dispatch) fn handle_worktree_session_failed(
     };
     let reason = match stuck_step {
         Some(step) if timed_out => crate::app::effects::timed_out_while(step),
-        Some(_) | None => format!("Cannot create worktree: {error}"),
+        Some(_) | None => tlf("Cannot create worktree: {error}", &[("error", &error)]),
     };
     let msg = match orphaned_worktree_root {
         Some(root) => crate::app::worktree_session::note_orphaned_worktree(&reason, &root),
@@ -1920,17 +1932,23 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
                     prev_model.as_ref() == Some(&model_id) && prev_effort == resolved_effort;
                 if !unchanged {
                     let msg = if let Some(eff) = resolved_effort {
-                        format!("Switched to {display_name} ({eff} effort)")
+                        tlf(
+                            "Switched to {model} ({effort} effort)",
+                            &[
+                                ("model", &display_name),
+                                ("effort", &crate::acp::model_state::effort_name(eff)),
+                            ],
+                        )
                     } else {
-                        format!("Switched to {display_name}")
+                        tlf("Switched to {model}", &[("model", &display_name)])
                     };
                     agent.scrollback.push_block(RenderBlock::system(msg));
                 } else if let Some(selection) = context_window_selection.filter(|selection| {
                     agent.session.models.context_window_selection == Some(selection.get())
                 }) {
-                    agent.scrollback.push_block(RenderBlock::system(format!(
-                        "Context window set to {}",
-                        format_window(selection.get())
+                    agent.scrollback.push_block(RenderBlock::system(tlf(
+                        "Context window set to {size}",
+                        &[("size", &format_window(selection.get()))],
                     )));
                 }
                 if unchanged {
@@ -1948,22 +1966,20 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
                 }
                 agent.active_modal = None;
                 if context_window_selection.is_some() {
-                    agent.scrollback.push_block(RenderBlock::system(
+                    agent.scrollback.push_block(RenderBlock::system(tl(
                         "Context window applies once the session starts; run /context-window then",
-                    ));
+                    )));
                 }
                 let display_name = agent.session.models.display_name_for(&model_id);
                 return open_agent_type_mismatch_question(app, model_id, effort, &display_name);
             }
             Err(SwitchModelError::Other(msg)) => {
                 let text = match context_window_selection {
-                    Some(selection) => {
-                        format!(
-                            "Couldn't set context window to {}: {msg}",
-                            format_window(selection.get())
-                        )
-                    }
-                    None => format!("Couldn't switch model: {msg}"),
+                    Some(selection) => tlf(
+                        "Couldn't set context window to {size}: {error}",
+                        &[("size", &format_window(selection.get())), ("error", &msg)],
+                    ),
+                    None => tlf("Couldn't switch model: {error}", &[("error", &msg)]),
                 };
                 agent.scrollback.push_block(RenderBlock::system(text));
                 vec![]

@@ -23,16 +23,23 @@ use crate::scrollback::types::{
 };
 use crate::theme::Theme;
 use crate::util::format_duration;
+use xai_grok_i18n::{fill, tl, tlm};
 
 const SENT_MESSAGE_ID_RANGE: u16 = 0;
 const SENT_MESSAGE_TEXT_RANGE: u16 = 1;
-const HEADER_LABEL: &str = "Message ";
-const FALLBACK_NOUN: &str = "subagent";
-const PARENT_NOUN: &str = "parent";
+/// The row label; a space follows it where it is drawn.
+const HEADER_LABEL: &str = tlm("Message");
+const FALLBACK_NOUN: &str = tlm("subagent");
+const PARENT_NOUN: &str = tlm("parent");
 /// Trailing chars of a raw id: UUIDv7 prefixes are identical for ids minted within ~65 s, so the head would not tell two children apart.
 const SHORT_ID_CHARS: usize = 8;
 /// Admission is an in-memory call, so elapsed only shows for stalls; the floor also hides the ~0 ms a replay re-stamps.
 const MIN_SHOWN_ELAPSED_MS: i64 = 100;
+
+/// The rows on screen follow the interface language; the export line and the search text stay English.
+fn worded(en: &'static str, translated: bool) -> &'static str {
+    if translated { tl(en) } else { en }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SentMessagePresentation {
@@ -60,20 +67,21 @@ pub enum SentMessageTarget {
 impl SentMessageTarget {
     /// The label, `parent`, or `subagent …<last chars>`; an empty id is just `subagent`. The label and the id are
     /// model-authored, so both are scrubbed of characters that would split or reorder the one-line row.
-    fn noun(&self) -> Cow<'_, str> {
+    fn noun(&self, translated: bool) -> Cow<'_, str> {
         match self {
             Self::Named { label, .. } => scrub_display(label),
-            Self::Parent => Cow::Borrowed(PARENT_NOUN),
+            Self::Parent => Cow::Borrowed(worded(PARENT_NOUN, translated)),
             Self::Unresolved { subagent_id } => {
                 let id = scrub_display(subagent_id);
                 match id.char_indices().nth_back(SHORT_ID_CHARS) {
                     // The char just before the last `SHORT_ID_CHARS`; the tail starts after it.
                     Some((index, ch)) => {
                         let (_, tail) = id.split_at(index + ch.len_utf8());
-                        Cow::Owned(format!("{FALLBACK_NOUN} \u{2026}{tail}"))
+                        let noun = worded(FALLBACK_NOUN, translated);
+                        Cow::Owned(format!("{noun} \u{2026}{tail}"))
                     }
-                    None if id.is_empty() => Cow::Borrowed(FALLBACK_NOUN),
-                    None => Cow::Owned(format!("{FALLBACK_NOUN} {id}")),
+                    None if id.is_empty() => Cow::Borrowed(worded(FALLBACK_NOUN, translated)),
+                    None => Cow::Owned(format!("{} {id}", worded(FALLBACK_NOUN, translated))),
                 }
             }
         }
@@ -166,28 +174,42 @@ impl SentMessageToolCallBlock {
 
     /// One line for export and search: label, verb, target. Never the text, the reason, or a raw id behind a label.
     pub(crate) fn header_text(&self) -> String {
-        format!("{HEADER_LABEL}{}", self.verb_and_target())
+        format!("{HEADER_LABEL} {}", self.verb_and_target(false))
     }
 
     /// The collapsed verb names the outcome: a steer stays unmarked and an unrecognized delivery reads like one; a
     /// failed or unconfirmed send names no delivery mode.
-    fn verb_and_target(&self) -> String {
+    /// `translated` is true for the rows on screen and false for [`Self::header_text`].
+    fn verb_and_target(&self, translated: bool) -> String {
         let noun = self
             .input
             .as_ref()
-            .map_or(Cow::Borrowed(FALLBACK_NOUN), |input| input.target.noun());
-        match &self.presentation {
-            SentMessagePresentation::Sending => format!("sending to {noun}"),
+            .map_or(Cow::Borrowed(worded(FALLBACK_NOUN, translated)), |input| {
+                input.target.noun(translated)
+            });
+        // One sentence per outcome, with the target where the language puts it.
+        let sentence = match &self.presentation {
+            SentMessagePresentation::Sending => tlm("sending to {target}"),
             SentMessagePresentation::Sent => {
                 match self.input.as_ref().and_then(|input| input.delivery) {
-                    None | Some(SentMessageDelivery::Steer) => format!("sent to {noun}"),
-                    Some(SentMessageDelivery::Queue) => format!("queued for {noun}"),
-                    Some(SentMessageDelivery::Interject) => format!("interjected to {noun}"),
+                    None | Some(SentMessageDelivery::Steer) => tlm("sent to {target}"),
+                    Some(SentMessageDelivery::Queue) => tlm("queued for {target}"),
+                    Some(SentMessageDelivery::Interject) => tlm("interjected to {target}"),
                 }
             }
-            SentMessagePresentation::Rejected { .. } => format!("rejected \u{00b7} {noun}"),
-            SentMessagePresentation::Unconfirmed { .. } => format!("unconfirmed \u{00b7} {noun}"),
-        }
+            SentMessagePresentation::Rejected { .. } => {
+                return format!("{} \u{00b7} {noun}", worded(tlm("rejected"), translated));
+            }
+            SentMessagePresentation::Unconfirmed { .. } => {
+                return format!("{} \u{00b7} {noun}", worded(tlm("unconfirmed"), translated));
+            }
+        };
+        fill(worded(sentence, translated), &[("target", &noun)])
+    }
+
+    /// The bold row label with its space, in the interface language.
+    fn header_label() -> String {
+        format!("{} ", tl(HEADER_LABEL))
     }
 
     /// The child session this row opens; only a target that resolved through a spawn has one.
@@ -212,16 +234,19 @@ impl SentMessageToolCallBlock {
         }
         .add_modifier(Modifier::BOLD);
         Line::from(vec![
-            Span::styled(HEADER_LABEL, label_style),
-            Span::styled(self.verb_and_target(), theme.muted()),
+            Span::styled(Self::header_label(), label_style),
+            Span::styled(self.verb_and_target(true), theme.muted()),
         ])
     }
 
     /// Never muted. Suffixes name the requested delivery and, for a finished send that stalled, its admission time.
     fn expanded_header(&self, theme: &Theme) -> Line<'static> {
         let mut spans = vec![
-            Span::styled(HEADER_LABEL, theme.primary().add_modifier(Modifier::BOLD)),
-            Span::styled(self.verb_and_target(), theme.primary()),
+            Span::styled(
+                Self::header_label(),
+                theme.primary().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(self.verb_and_target(true), theme.primary()),
         ];
         if let Some(delivery) = self.input.as_ref().and_then(|input| input.delivery) {
             let delivery = <&str>::from(delivery);
@@ -355,8 +380,9 @@ impl BlockContent for SentMessageToolCallBlock {
                 MessageDetailStyle::Warning => theme.warning,
             };
             lines.push(BlockLine::separator(Line::from("")));
+            // A reason the pager words itself is in the catalog; one from the tool shows as sent
             for line in word_wrap_lines(
-                detail
+                tl(detail)
                     .split('\n')
                     .map(|line| Line::from(Span::styled(line.to_owned(), theme.fg(color)))),
                 width,
@@ -369,8 +395,10 @@ impl BlockContent for SentMessageToolCallBlock {
 
         if let Some(raw_id) = self.input.as_ref().and_then(|input| input.target.raw_id()) {
             lines.push(Line::from("").into());
-            let id_wrap = RtOptions::new(width)
-                .initial_indent(Line::from(Span::styled("Subagent ID: ", theme.muted())));
+            let id_wrap = RtOptions::new(width).initial_indent(Line::from(Span::styled(
+                format!("{}: ", tl("Subagent ID")),
+                theme.muted(),
+            )));
             let id_value = Line::from(Span::styled(raw_id.to_owned(), theme.primary()));
             let (wrapped_id, id_joiners) =
                 word_wrap_lines_with_joiners(std::iter::once(id_value), id_wrap);
@@ -417,7 +445,7 @@ impl BlockContent for SentMessageToolCallBlock {
             }
             None => {
                 let mut line =
-                    BlockLine::styled(Line::from(Span::styled("unavailable", theme.muted())));
+                    BlockLine::styled(Line::from(Span::styled(tl("unavailable"), theme.muted())));
                 line.selectable = Selectable::None;
                 lines.push(line);
             }

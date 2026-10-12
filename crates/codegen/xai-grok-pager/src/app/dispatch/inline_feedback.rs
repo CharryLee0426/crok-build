@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use xai_grok_feedback::{DraftImagePolicy, FeedbackDraftId, read_draft_images};
+use xai_grok_i18n::tlf;
 use xai_grok_shell::session::{
     MAX_FEEDBACK_IMAGE_BYTES, MAX_FEEDBACK_IMAGE_TOTAL_BYTES, MAX_FEEDBACK_IMAGES,
     feedback_image_extension,
@@ -46,30 +47,42 @@ pub(crate) fn select_feedback_images(
         const MIB: usize = 1024 * 1024;
         let mut reasons = Vec::new();
         if over_count > 0 {
-            reasons.push(format!(
-                "{over_count} over the {MAX_FEEDBACK_IMAGES}-image limit"
+            reasons.push(tlf(
+                "{count} over the {limit}-image limit",
+                &[("count", &over_count), ("limit", &MAX_FEEDBACK_IMAGES)],
             ));
         }
         if unsupported > 0 {
-            reasons.push(format!(
-                "{unsupported} in a format feedback can't carry (PNG, JPEG, or GIF only)"
+            reasons.push(tlf(
+                "{count} in a format feedback can't carry (PNG, JPEG, or GIF only)",
+                &[("count", &unsupported)],
             ));
         }
         if too_large > 0 {
-            reasons.push(format!(
-                "{too_large} over the size limit ({} MB each, {} MB combined)",
-                MAX_FEEDBACK_IMAGE_BYTES / MIB,
-                MAX_FEEDBACK_IMAGE_TOTAL_BYTES / MIB,
+            reasons.push(tlf(
+                "{count} over the size limit ({each} MB each, {combined} MB combined)",
+                &[
+                    ("count", &too_large),
+                    ("each", &(MAX_FEEDBACK_IMAGE_BYTES / MIB)),
+                    ("combined", &(MAX_FEEDBACK_IMAGE_TOTAL_BYTES / MIB)),
+                ],
             ));
         }
         if unreadable > 0 {
-            reasons.push(format!("{unreadable} unreadable"));
+            reasons.push(tlf("{count} unreadable", &[("count", &unreadable)]));
         }
-        let plural = if dropped == 1 { "" } else { "s" };
-        format!(
-            "Dropped {dropped} image{plural} from the feedback: {}.",
-            reasons.join(", ")
-        )
+        let reasons = reasons.join(", ");
+        if dropped == 1 {
+            tlf(
+                "Dropped {count} image from the feedback: {reasons}.",
+                &[("count", &dropped), ("reasons", &reasons)],
+            )
+        } else {
+            tlf(
+                "Dropped {count} images from the feedback: {reasons}.",
+                &[("count", &dropped), ("reasons", &reasons)],
+            )
+        }
     });
     (accepted, notice)
 }

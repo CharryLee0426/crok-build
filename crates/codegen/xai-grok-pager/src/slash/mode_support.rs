@@ -1,4 +1,5 @@
 use crate::app::ScreenMode;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 /// What to tell a user who typed a command the current mode cannot run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,18 +38,29 @@ impl ModeSupport {
         }
         let (remedy, current, switch) = match self {
             Self::Both => return None,
-            Self::FullscreenOnly(remedy) => (remedy, "minimal", "/fullscreen"),
-            Self::MinimalOnly(remedy) => (remedy, "fullscreen", "/minimal"),
+            Self::FullscreenOnly(remedy) => (remedy, tlm("minimal"), "/fullscreen"),
+            Self::MinimalOnly(remedy) => (remedy, tlm("fullscreen"), "/minimal"),
         };
+        let current = tl(current);
         Some(match remedy {
-            Remedy::SwitchMode { why } => format!(
-                "/{token} isn't available in {current} mode ({why}). \
-                 Run {switch} to switch this session."
+            Remedy::SwitchMode { why } => tlf(
+                "/{command} isn't available in {mode} mode ({why}). Run {switch} to switch this session.",
+                &[
+                    ("command", &token),
+                    ("mode", &current),
+                    ("why", &tl(why)),
+                    ("switch", &switch),
+                ],
             ),
-            Remedy::UseInstead(instead) => {
-                format!("/{token} isn't available in {current} mode: {instead}.")
-            }
-            Remedy::AlreadyInMode => format!("You're already in {current} mode."),
+            Remedy::UseInstead(instead) => tlf(
+                "/{command} isn't available in {mode} mode: {instead}.",
+                &[
+                    ("command", &token),
+                    ("mode", &current),
+                    ("instead", &tl(instead)),
+                ],
+            ),
+            Remedy::AlreadyInMode => tlf("You're already in {mode} mode.", &[("mode", &current)]),
         })
     }
 }

@@ -1,5 +1,6 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 pub struct ReleaseNotesCommand;
 
@@ -7,7 +8,7 @@ impl SlashCommand for ReleaseNotesCommand {
     slash_meta! {
         name: "release-notes",
         aliases: ["changelog"],
-        description: "View release notes for the current version",
+        description: tlm("View release notes for the current version"),
         usage: "/release-notes",
     }
 
@@ -15,10 +16,10 @@ impl SlashCommand for ReleaseNotesCommand {
         let changelog = xai_grok_shell::util::changelog::ChangelogManager::new().fetch();
         match changelog.markdown {
             Some(content) => CommandResult::Action(Action::ShowReleaseNotes {
-                title: "Release Notes".to_string(),
+                title: tl("Release Notes").to_string(),
                 content: content.trim().to_string(),
             }),
-            None => CommandResult::Error("No release notes available (offline).".to_string()),
+            None => CommandResult::Error(tl("No release notes available (offline).").to_string()),
         }
     }
 }

@@ -10,17 +10,18 @@ use std::path::PathBuf;
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 pub struct CopyCommand;
 
 impl SlashCommand for CopyCommand {
     slash_meta! {
         name: "copy",
-        description: "Copy last response to clipboard or file (/copy [N] [file])",
+        description: tlm("Copy last response to clipboard or file (/copy [N] [file])"),
         usage: "/copy [N] [file]",
         takes_args: true,
         session_scoped: true,
-        arg_placeholder: "[N] [file]",
+        arg_placeholder: tlm("[N] [file]"),
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
@@ -47,7 +48,7 @@ fn parse_copy_args(args: &str) -> Result<(usize, Option<PathBuf>), String> {
     let rest = parts.next().map(str::trim).filter(|s| !s.is_empty());
 
     match first.parse::<usize>() {
-        Ok(0) => Err("Usage: /copy [N] [file] where N is 1 (latest), 2, 3, ...".to_string()),
+        Ok(0) => Err(tl("Usage: /copy [N] [file] where N is 1 (latest), 2, 3, ...").to_string()),
         Ok(n) => Ok((n, rest.map(PathBuf::from))),
         Err(_) => {
             // Non-numeric first token: treat the whole args string as a path.

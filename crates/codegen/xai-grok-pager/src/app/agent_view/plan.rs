@@ -18,16 +18,17 @@ use crate::views::prompt_widget::{EnterOutcome, PromptEvent};
 use crossterm::event::KeyModifiers;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::io::Read;
+use xai_grok_i18n::{tl, tlf, tlm};
 pub(crate) const MAX_KEPT_PLAN_FILE_BYTES: u64 = crate::acp::MAX_PLAN_FILE_BYTES as u64;
 /// Shared by post-turn revise / abandon while ExecutePlan is already in flight.
 pub(crate) const BUILD_IN_FLIGHT_REVISE_NOTICE: &str =
-    "Wait for the current turn to end before revising the plan.";
+    tlm("Wait for the current turn to end before revising the plan.");
 pub(crate) const BUILD_IN_FLIGHT_ABANDON_NOTICE: &str =
-    "Wait for the current turn to end before abandoning the plan.";
+    tlm("Wait for the current turn to end before abandoning the plan.");
 pub(crate) const LEAVE_PLAN_REVISE_NOTICE: &str =
-    "Wait for plan mode to finish switching before revising the plan.";
+    tlm("Wait for plan mode to finish switching before revising the plan.");
 pub(crate) const PLAN_CHANGED_ON_DISK_NOTICE: &str =
-    "The plan changed on disk. Review the updated plan before approving.";
+    tlm("The plan changed on disk. Review the updated plan before approving.");
 pub(crate) fn capped_kept_plan_body(text: String) -> Option<String> {
     let len = u64::try_from(text.len()).ok()?;
     (len <= MAX_KEPT_PLAN_FILE_BYTES && !text.trim().is_empty()).then_some(text)
@@ -357,7 +358,8 @@ impl AgentView {
         } else if approval_empty {
             LineViewerState::open_markdown_content(
                 "plan.md",
-                crate::views::plan_approval_view::EMPTY_PLAN_PLACEHOLDER.to_owned(),
+                xai_grok_i18n::tl(crate::views::plan_approval_view::EMPTY_PLAN_PLACEHOLDER)
+                    .to_owned(),
                 None,
             )
         } else if let Some(plan_path) = self.plan_file_path() {
@@ -365,12 +367,12 @@ impl AgentView {
         } else {
             None
         }) else {
-            self.show_toast("No plan written yet.");
+            self.show_toast(tl("No plan written yet."));
             return;
         };
         viewer.kind = crate::views::file_search::line_viewer::LineViewerKind::PlanPreview;
         viewer.title_override = Some(if approval_empty {
-            "plan.md (empty)".to_string()
+            tlf("{file} (empty)", &[("file", &"plan.md")])
         } else {
             "plan.md".to_string()
         });
@@ -418,12 +420,14 @@ impl AgentView {
             && let Some(pav) = self.plan_approval_view.as_mut()
         {
             let msg = match pav.focus {
-                PlanApprovalFocus::Commenting => {
-                    "The comment in progress is a slash command: finish or discard it before approving."
-                }
+                PlanApprovalFocus::Commenting => tl(
+                    "The comment in progress is a slash command: finish or discard it before approving.",
+                ),
                 PlanApprovalFocus::Preview | PlanApprovalFocus::Prompt => {
                     pav.focus = PlanApprovalFocus::Prompt;
-                    "Run the slash command in the notes with Enter, or clear it, before approving."
+                    tl(
+                        "Run the slash command in the notes with Enter, or clear it, before approving.",
+                    )
                 }
             };
             if crate::app::minimal_mode_active() {
@@ -473,7 +477,7 @@ impl AgentView {
                     pav.has_plan = true;
                 }
                 self.show_plan_preview_if_available();
-                self.show_toast(PLAN_CHANGED_ON_DISK_NOTICE);
+                self.show_toast(tl(PLAN_CHANGED_ON_DISK_NOTICE));
                 return InputOutcome::Changed;
             }
             let notes = review_comments.as_deref();
@@ -575,7 +579,7 @@ impl AgentView {
             return InputOutcome::Changed;
         };
         if self.is_post_turn_build_starting() {
-            self.show_toast("Wait for the current turn to end before abandoning the plan.");
+            self.show_toast(tl(BUILD_IN_FLIGHT_ABANDON_NOTICE));
             return InputOutcome::Changed;
         }
         if pav.is_after_turn() {
@@ -654,7 +658,7 @@ impl AgentView {
                 pav.send_cancelled(None);
                 self.kept_plan.drop_body_if_pathed();
                 self.prompt.textarea.cancel_undo_group();
-                self.show_toast("Plan revision sent.");
+                self.show_toast(tl("Plan revision sent."));
                 log_plan_submit("revise");
             }
         }
@@ -678,15 +682,15 @@ impl AgentView {
                 .push_block(crate::scrollback::RenderBlock::user_prompt(msg.to_string()));
         }
         if post_turn && to_send.as_deref().is_none_or(|text| text.trim().is_empty()) {
-            self.show_toast("Type revision notes, or press a to approve.");
+            self.show_toast(tl("Type revision notes, or press a to approve."));
             return InputOutcome::Changed;
         }
         if self.is_post_turn_build_starting() {
-            self.show_toast(BUILD_IN_FLIGHT_REVISE_NOTICE);
+            self.show_toast(tl(BUILD_IN_FLIGHT_REVISE_NOTICE));
             return InputOutcome::Changed;
         }
         if post_turn && self.plan_mode_pending == Some(false) {
-            self.show_toast(LEAVE_PLAN_REVISE_NOTICE);
+            self.show_toast(tl(LEAVE_PLAN_REVISE_NOTICE));
             return InputOutcome::Changed;
         }
         if post_turn {
@@ -704,7 +708,7 @@ impl AgentView {
             self.kept_plan.clear_body();
         }
         self.prompt.textarea.cancel_undo_group();
-        self.show_toast("Plan revision sent.");
+        self.show_toast(tl("Plan revision sent."));
         log_plan_submit("revise");
         InputOutcome::Changed
     }
@@ -835,7 +839,7 @@ impl AgentView {
                         return InputOutcome::Action(Action::SendPrompt(text));
                     }
                     if freeform_text.trim().is_empty() && !has_comments {
-                        self.show_toast("Type revision notes, or press a to approve.");
+                        self.show_toast(tl("Type revision notes, or press a to approve."));
                         return InputOutcome::Changed;
                     }
                     let freeform = {
@@ -1120,7 +1124,7 @@ impl AgentView {
     }
     pub(super) fn send_casual_plan_comments(&mut self) -> InputOutcome {
         if self.plan_comments.is_empty() {
-            self.show_toast("No comments to send.");
+            self.show_toast(tl("No comments to send."));
             return InputOutcome::Changed;
         }
         let plan_content = self.inline_plan_content().map(str::to_owned).or_else(|| {
@@ -1135,7 +1139,7 @@ impl AgentView {
         self.plan_comments.clear();
         self.plan_next_comment_id = 0;
         self.cancel_line_viewer();
-        self.show_toast("Plan feedback sent.");
+        self.show_toast(tl("Plan feedback sent."));
         InputOutcome::Action(Action::SendPrompt(text))
     }
 }

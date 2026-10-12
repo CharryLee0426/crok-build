@@ -10,6 +10,7 @@ use crate::views::feedback_modal::{FeedbackModalDisplacement, FeedbackModalOutco
 use crate::views::file_search::line_viewer::LineViewerState;
 use crate::views::managed_connectors_wait::{ManagedConnectorsWaitOutcome, WAIT_BACK_SHORTCUT_ID};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
+use xai_grok_i18n::{tl, tlf, tlm};
 use xai_grok_telemetry::events::ExtensionsInputMethod;
 
 const MAX_CONCURRENT_FEEDBACK_TRACE_UPLOADS: usize = 8;
@@ -19,18 +20,18 @@ impl AgentView {
     /// `None` means nothing on this view owns input ahead of the modal; the dispatcher still checks session and screen mode.
     pub(crate) fn feedback_modal_open_blocker(&self) -> Option<&'static str> {
         if self.feedback_modal.is_some() {
-            Some("The feedback form is already open")
+            Some(tlm("The feedback form is already open"))
         } else if self.active_subagent.is_some() {
             // A fullscreen subagent view hides everything behind it, so the modal would render nowhere while swallowing every key.
-            Some("Close the subagent view before sending feedback")
+            Some(tlm("Close the subagent view before sending feedback"))
         } else if self.question_view.is_some() {
-            Some("Finish answering the current question first")
+            Some(tlm("Finish answering the current question first"))
         } else if !self.no_input_overlay_pending()
             || self.modal_owns_input()
             || self.key_owner() != super::KeyOwner::Pane
         {
             // A permission, plan approval, cancel prompt, peer modal, or viewer owns input, even parked in the scrollback.
-            Some("Close or answer what's open before sending feedback")
+            Some(tlm("Close or answer what's open before sending feedback"))
         } else {
             None
         }
@@ -98,9 +99,9 @@ impl AgentView {
             return false;
         };
         let draft_disposition = if modal.is_draft_submit_pending() {
-            "The feedback send is still in progress; its outcome will appear here."
+            tl("The feedback send is still in progress; its outcome will appear here.")
         } else {
-            "Your draft was discarded."
+            tl("Your draft was discarded.")
         };
         let reason_text = reason.notice();
         let notice = format!("{reason_text} {draft_disposition}");
@@ -318,7 +319,7 @@ impl AgentView {
                     && let Some(ref mut modal) = self.agents_modal
                 {
                     modal.message = Some(crate::views::agents_modal::AgentsModalMessage::error(
-                        format!("Failed to load persona '{name}'"),
+                        tlf("Failed to load persona '{name}'", &[("name", &name)]),
                     ));
                 }
                 self.persona_detail = detail;
@@ -1070,12 +1071,15 @@ impl AgentView {
             }
             McpSetupOutcome::Submit => {
                 let Some(values) = setup.values() else {
-                    setup.error = Some("Select an option".to_string());
+                    setup.error = Some(tl("Select an option").to_string());
                     return InputOutcome::Changed;
                 };
                 let server_name = setup.server_name.clone();
                 state.mcp_setup = None;
-                state.pending_action = Some(format!("Authenticating {server_name}..."));
+                state.pending_action = Some(tlf(
+                    "Authenticating {server}...",
+                    &[("server", &server_name)],
+                ));
                 state.pending_entry_index = None;
                 InputOutcome::Action(Action::McpSetupSubmit {
                     server_name,
@@ -1696,13 +1700,13 @@ impl AgentView {
                     state.modal_message = None;
                     if matches!(hooks_action, xai_hooks_plugins_types::HooksAction::Reload) {
                         // Reload rebuilds the entire plugin registry; show tab-level "Loading..." instead of a single-entry badge
-                        state.pending_action = Some("Reloading...".into());
+                        state.pending_action = Some(tl("Reloading...").into());
                         state.pending_entry_index = None;
                         state.hooks_data = TabDataState::Loading;
                         state.plugins_data = TabDataState::Loading;
                         state.marketplace_data = TabDataState::Loading;
                     } else {
-                        state.pending_action = Some("Processing...".into());
+                        state.pending_action = Some(tl("Processing...").into());
                         state.pending_entry_index = Some(state.picker_state.selected);
                     }
                 }
@@ -1717,7 +1721,7 @@ impl AgentView {
                         xai_hooks_plugins_types::PluginsAction::Reload
                     ) {
                         // Reload rebuilds the entire plugin registry; show tab-level "Loading..." instead of a single-entry badge
-                        state.pending_action = Some("Reloading...".into());
+                        state.pending_action = Some(tl("Reloading...").into());
                         state.pending_entry_index = None;
                         state.plugins_data = TabDataState::Loading;
                         state.marketplace_data = TabDataState::Loading;
@@ -1729,9 +1733,9 @@ impl AgentView {
                             plugins_action,
                             xai_hooks_plugins_types::PluginsAction::Update { .. }
                         ) {
-                            "Updating..."
+                            tl("Updating...")
                         } else {
-                            "Processing..."
+                            tl("Processing...")
                         };
                         state.pending_action = Some(label.into());
                         state.pending_entry_index = Some(state.picker_state.selected);
@@ -1766,7 +1770,7 @@ impl AgentView {
                         {
                             return InputOutcome::Unchanged;
                         }
-                        state.pending_action = Some("authenticating...".into());
+                        state.pending_action = Some(tl("authenticating...").into());
                         state.pending_entry_index = Some(sel);
                         return InputOutcome::Action(Action::McpAuthTrigger {
                             server_name: server.name.clone(),
@@ -1792,9 +1796,9 @@ impl AgentView {
                                 && let Some(tool) = server.tools.get(ti)
                             {
                                 let label = if !tool.enabled {
-                                    "enabling..."
+                                    tl("enabling...")
                                 } else {
-                                    "disabling..."
+                                    tl("disabling...")
                                 };
                                 state.pending_action = Some(label.into());
                                 state.pending_entry_index = Some(state.picker_state.selected);
@@ -1810,9 +1814,9 @@ impl AgentView {
                             && let Some(server) = servers.get(idx)
                         {
                             let label = if !server.enabled {
-                                "enabling..."
+                                tl("enabling...")
                             } else {
-                                "disabling..."
+                                tl("disabling...")
                             };
                             state.pending_action = Some(label.into());
                             state.pending_entry_index = Some(state.picker_state.selected);
@@ -1828,7 +1832,7 @@ impl AgentView {
             ButtonAction::AddMcpServer { name, config } => {
                 if let Some(ref mut state) = self.extensions_modal {
                     // No pending_entry_index: the new row doesn't exist yet, so any index would decorate an unrelated existing row
-                    state.pending_action = Some("adding...".into());
+                    state.pending_action = Some(tl("adding...").into());
                 }
                 InputOutcome::Action(Action::UpsertMcpServer { name, config })
             }
@@ -1851,14 +1855,15 @@ impl AgentView {
                     Some(Err(name)) => {
                         if let Some(ref mut s) = self.extensions_modal {
                             s.modal_message =
-                                Some(crate::views::extensions_modal::ModalMessage::Error(
-                                    format!("Cannot remove managed server '{name}'"),
-                                ));
+                                Some(crate::views::extensions_modal::ModalMessage::Error(tlf(
+                                    "Cannot remove managed server '{name}'",
+                                    &[("name", &name)],
+                                )));
                         }
                         InputOutcome::Changed
                     }
                     Some(Ok(server_name)) => self.prompt_extensions_confirm(
-                        format!("Remove MCP server \"{server_name}\"?"),
+                        tlf("Remove MCP server \"{name}\"?", &[("name", &server_name)]),
                         crate::views::extensions_modal::ConfirmationAction::DeleteMcpServer {
                             server_name,
                         },
@@ -1880,14 +1885,14 @@ impl AgentView {
                         }
                         // No pending_entry_index: the new source doesn't exist yet, so any index would decorate an unrelated row
                         xai_hooks_plugins_types::MarketplaceAction::AddSource { .. } => {
-                            state.pending_action = Some("Adding source...".into());
+                            state.pending_action = Some(tl("Adding source...").into());
                         }
                         xai_hooks_plugins_types::MarketplaceAction::Uninstall { .. } => {
-                            state.pending_action = Some("Uninstalling...".into());
+                            state.pending_action = Some(tl("Uninstalling...").into());
                             state.pending_entry_index = Some(state.picker_state.selected);
                         }
                         _ => {
-                            state.pending_action = Some("Processing...".into());
+                            state.pending_action = Some(tl("Processing...").into());
                             state.pending_entry_index = Some(state.picker_state.selected);
                         }
                     }
@@ -1930,9 +1935,9 @@ impl AgentView {
                 // Refuse up front with the covering view instead of a confirm that can only fail
                 if source_pinned || !removable {
                     let message = if source_pinned {
-                        "This hook source is enforced by managed policy and cannot be removed."
+                        tl("This hook source is enforced by managed policy and cannot be removed.")
                     } else {
-                        "Only user-added hook directories can be removed here."
+                        tl("Only user-added hook directories can be removed here.")
                     };
                     if let Some(ref mut state) = self.extensions_modal {
                         state.modal_message = Some(
@@ -1943,7 +1948,7 @@ impl AgentView {
                 } else {
                     let (label, _) = crate::views::extensions_modal::derive_source_label(&path);
                     self.prompt_extensions_confirm(
-                        format!("Remove hook source \"{label}\"?"),
+                        tlf("Remove hook source \"{label}\"?", &[("label", &label)]),
                         crate::views::extensions_modal::ConfirmationAction::Hooks(
                             xai_hooks_plugins_types::HooksAction::Remove { path },
                         ),
@@ -1963,7 +1968,7 @@ impl AgentView {
                     .selected_data_index()
                     .and_then(|idx| data.hooks.get(idx))
                 else {
-                    state.post_select_row_hint("hook", ActionVerb::EnableDisable);
+                    state.post_select_row_hint(tlm("hook"), ActionVerb::EnableDisable);
                     return InputOutcome::Changed;
                 };
                 let source = &hook.source_dir;
@@ -2018,12 +2023,12 @@ impl AgentView {
                 };
                 let Some(skill) = state.selected_data_index().and_then(|idx| skills.get(idx))
                 else {
-                    state.post_select_row_hint("skill", ActionVerb::EnableDisable);
+                    state.post_select_row_hint(tlm("skill"), ActionVerb::EnableDisable);
                     return InputOutcome::Changed;
                 };
                 let skill_name = skill.name.clone();
                 let enabled = !skill.enabled;
-                state.pending_action = Some("toggling...".into());
+                state.pending_action = Some(tl("toggling...").into());
                 state.pending_entry_index = Some(state.picker_state.selected);
                 InputOutcome::Action(Action::ToggleSkill {
                     skill_name,
@@ -2033,7 +2038,7 @@ impl AgentView {
             ButtonAction::UninstallSelectedPlugin => {
                 if let Some(plugin) = self.selected_plugin_for_action(ActionVerb::Uninstall) {
                     return self.prompt_extensions_confirm(
-                        format!("Uninstall plugin \"{}\"?", plugin.name),
+                        tlf("Uninstall plugin \"{name}\"?", &[("name", &plugin.name)]),
                         crate::views::extensions_modal::ConfirmationAction::Plugins(
                             xai_hooks_plugins_types::PluginsAction::Uninstall {
                                 plugin_id: plugin.id,
@@ -2210,7 +2215,7 @@ impl AgentView {
             }
             ButtonAction::InstallSelectedMarketplacePlugin => self
                 .execute_selected_marketplace_plugin_action(
-                    "Installing...",
+                    tl("Installing..."),
                     ActionVerb::Install,
                     |plugin| xai_hooks_plugins_types::MarketplaceAction::Install {
                         source_url_or_path: plugin.source_url_or_path,
@@ -2219,7 +2224,7 @@ impl AgentView {
                 ),
             ButtonAction::UpdateSelectedMarketplacePlugin => self
                 .execute_selected_marketplace_plugin_action(
-                    "Updating...",
+                    tl("Updating..."),
                     ActionVerb::Update,
                     |plugin| xai_hooks_plugins_types::MarketplaceAction::Update {
                         source_url_or_path: plugin.source_url_or_path,
@@ -2241,7 +2246,10 @@ impl AgentView {
                     self.selected_marketplace_plugin_for_action(ActionVerb::Uninstall)
                 {
                     return self.prompt_extensions_confirm(
-                        format!("Uninstall marketplace plugin \"{}\"?", plugin.name),
+                        tlf(
+                            "Uninstall marketplace plugin \"{name}\"?",
+                            &[("name", &plugin.name)],
+                        ),
                         crate::views::extensions_modal::ConfirmationAction::Marketplace(
                             xai_hooks_plugins_types::MarketplaceAction::Uninstall {
                                 source_url_or_path: plugin.source_url_or_path,
@@ -2259,9 +2267,9 @@ impl AgentView {
                     return InputOutcome::Changed;
                 };
                 self.prompt_extensions_confirm(
-                    format!(
-                        "Remove source \"{}\" and uninstall all its plugins?",
-                        source.name
+                    tlf(
+                        "Remove source \"{name}\" and uninstall all its plugins?",
+                        &[("name", &source.name)],
                     ),
                     crate::views::extensions_modal::ConfirmationAction::Marketplace(
                         xai_hooks_plugins_types::MarketplaceAction::RemoveSource {
@@ -2311,7 +2319,7 @@ impl AgentView {
                 .execute_modal_button_action(ButtonAction::MarketplaceAction(marketplace_action)),
             ConfirmationAction::DeleteMcpServer { server_name } => {
                 if let Some(ref mut s) = self.extensions_modal {
-                    s.pending_action = Some("removing...".into());
+                    s.pending_action = Some(tl("removing...").into());
                 }
                 InputOutcome::Action(Action::DeleteMcpServer { server_name })
             }
@@ -2365,7 +2373,7 @@ impl AgentView {
             None => {
                 // A source whose scan failed or found nothing has no plugin row to point at
                 if !source.plugins.is_empty() {
-                    state.post_select_row_hint("plugin", verb);
+                    state.post_select_row_hint(tlm("plugin"), verb);
                 }
                 None
             }
@@ -2386,7 +2394,7 @@ impl AgentView {
         let (source_index, plugin_index) =
             state.resolve_marketplace_selection(&response.sources)?;
         if plugin_index.is_some() {
-            state.post_select_row_hint("source", verb);
+            state.post_select_row_hint(tlm("source"), verb);
             return None;
         }
         let source = response.sources.get(source_index)?;
@@ -2413,7 +2421,7 @@ impl AgentView {
                 enabled: plugin.enabled,
             });
         if plugin.is_none() {
-            state.post_select_row_hint("plugin", verb);
+            state.post_select_row_hint(tlm("plugin"), verb);
         }
         plugin
     }

@@ -3,6 +3,8 @@ use std::path::Path;
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::tl_parts;
 
 use crate::prompt_images::PastedImage;
 use crate::render::SafeBuf;
@@ -18,9 +20,11 @@ pub(super) fn paint_path_line(
     bg: Color,
 ) {
     let raw = path.display().to_string();
+    let (before, after) = tl_parts("Path: {path}", "path");
+    let label_width = before.width() + after.width();
     let label = format!(
-        "Path: {}",
-        truncate_path_for_overlay(&raw, width.saturating_sub(6) as usize)
+        "{before}{}{after}",
+        truncate_path_for_overlay(&raw, (width as usize).saturating_sub(label_width))
     );
     let clipped = crate::render::line_utils::truncate_str(&label, width as usize);
     buf.set_span_safe(

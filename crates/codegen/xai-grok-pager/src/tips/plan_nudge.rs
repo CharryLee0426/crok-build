@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 
 use super::EphemeralTip;
 use crate::theme::Theme;
+use xai_grok_i18n::tl_parts;
 
 /// Ephemeral-tip dedup key for the plan-mode nudge.
 pub(crate) const PLAN_NUDGE_KEY: &str = "plan_nudge";
@@ -48,14 +49,16 @@ pub fn plan_nudge_tip() -> EphemeralTip {
     let chord = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);
-    EphemeralTip::new(
-        PLAN_NUDGE_KEY,
-        Line::from(vec![
-            Span::styled("Planning? Check out plan mode via ", dim),
-            Span::styled(plan_chord_label(), chord),
-        ]),
-    )
-    .with_session_seen_cap(PLAN_NUDGE_SEEN_KEY, PLAN_NUDGE_SEEN_CAP)
+    let (before, after) = tl_parts("Planning? Check out plan mode via {chord}", "chord");
+    let mut spans = vec![
+        Span::styled(before, dim),
+        Span::styled(plan_chord_label(), chord),
+    ];
+    if !after.is_empty() {
+        spans.push(Span::styled(after, dim));
+    }
+    EphemeralTip::new(PLAN_NUDGE_KEY, Line::from(spans))
+        .with_session_seen_cap(PLAN_NUDGE_SEEN_KEY, PLAN_NUDGE_SEEN_CAP)
 }
 
 /// Whether `text` mentions a planning intent from the tight [`PLANNING_KEYWORDS`] allowlist.

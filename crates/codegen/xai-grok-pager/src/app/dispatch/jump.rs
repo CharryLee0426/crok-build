@@ -4,6 +4,7 @@ use crate::app::actions::Effect;
 use crate::app::app_view::{ActiveView, AppView};
 use crate::scrollback::entry::EntryId;
 use crate::views::jump::{JumpRestore, JumpState};
+use xai_grok_i18n::tl;
 
 pub(super) fn dispatch_jump_show_picker(app: &mut AppView) -> Vec<Effect> {
     let ActiveView::Agent(id) = app.active_view else {
@@ -20,7 +21,7 @@ pub(super) fn dispatch_jump_show_picker(app: &mut AppView) -> Vec<Effect> {
 
     let entries = agent.scrollback.timeline_entries();
     if entries.len() < 2 {
-        app.show_toast("Nothing to jump to yet");
+        app.show_toast(tl("Nothing to jump to yet"));
         return vec![];
     }
 

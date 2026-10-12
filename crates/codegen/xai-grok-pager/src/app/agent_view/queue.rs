@@ -8,6 +8,7 @@ use crate::app::actions::Action;
 use crate::app::app_view::InputOutcome;
 use crate::views::queue_mutation::ServerRowCapabilities;
 use crossterm::event::KeyEvent;
+use xai_grok_i18n::tl;
 
 impl AgentView {
     /// Remove a local queue row: fix selection, drop the entry, hide the pane if the merged view emptied.
@@ -392,7 +393,9 @@ impl AgentView {
         }
         // Local rows: only plain prompts and raw skill rows can re-send (others would send display text, not payload)
         if self.queue_row_prompt_like(id) != Some(true) {
-            self.show_toast("Can't send this now: it runs when the current turn ends");
+            self.show_toast(tl(
+                "Can't send this now: it runs when the current turn ends",
+            ));
             return InputOutcome::Changed;
         }
         if let Some(prompt) = self.remove_local_queue_row(id) {

@@ -31,6 +31,7 @@ use crate::scrollback::blocks::SessionEvent;
 use crate::scrollback::state::ScrollbackState;
 use crate::views::session_picker_surface::SessionPickerHost;
 use agent_client_protocol as acp;
+use xai_grok_i18n::{tl, tlf};
 /// Create a placeholder agent and load an existing session by ID.
 /// `session_cwd` overrides the CWD in the `LoadSessionRequest`.
 /// This is needed when resuming a session that was created in a different CWD (e.g., a worktree).
@@ -154,7 +155,9 @@ fn dispatch_load_session_ungated(
         {
             app.welcome_history_load_as_build = false;
         }
-        app.show_toast(crate::app::session_startup::CHAT_MODE_LOCAL_BUILD_REFUSAL);
+        app.show_toast(tl(
+            crate::app::session_startup::CHAT_MODE_LOCAL_BUILD_REFUSAL,
+        ));
         return vec![];
     }
     invalidate_picker_fetch_on_dismiss(app);
@@ -173,9 +176,9 @@ fn dispatch_load_session_ungated(
     let mut scrollback = ScrollbackState::new();
     scrollback.set_appearance(app.appearance.clone());
     let loading_msg = if matches!(app.restore_code, Some(true)) {
-        format!("Restoring code for session {}...", &session_id)
+        tlf("Restoring code for session {id}...", &[("id", &session_id)])
     } else {
-        format!("Loading session {}...", &session_id)
+        tlf("Loading session {id}...", &[("id", &session_id)])
     };
     let loading_placeholder_id = scrollback.push_block(RenderBlock::system(loading_msg));
     let agent = AgentView::from_app(
@@ -435,14 +438,14 @@ pub(in crate::app::dispatch) fn dispatch_pick_session(
             }
             return vec![];
         }
-        app.show_toast("Restoring session from remote...");
+        app.show_toast(tl("Restoring session from remote..."));
         dispatch_load_session_with_restore(app, session_id, cwd)
     } else {
         #[cfg(feature = "local-workspace")]
         {
             app.welcome_history_load_as_build = false;
         }
-        app.show_toast("Session not found locally");
+        app.show_toast(tl("Session not found locally"));
         vec![]
     }
 }
@@ -478,7 +481,7 @@ pub(in crate::app::dispatch) fn dispatch_pick_session_in_worktree(
         })
         .is_some_and(|entry| crate::app::foreign_sessions::is_foreign_picker_source(&entry.source));
     if is_foreign {
-        app.show_toast("External sessions can't be resumed in a worktree");
+        app.show_toast(tl("External sessions can't be resumed in a worktree"));
         return vec![];
     }
     let mut picker_dismissed = false;
@@ -523,13 +526,13 @@ pub(in crate::app::dispatch) fn dispatch_pick_session_in_worktree(
         }
     };
     if source == "conversation" {
-        app.show_toast("Chat conversations can't be resumed in a worktree");
+        app.show_toast(tl("Chat conversations can't be resumed in a worktree"));
         return vec![];
     }
     if crate::app::is_daemon_or_remote_control_row(&source) {
-        app.show_toast(
+        app.show_toast(tl(
             "Sessions from the daemon or another machine can't be resumed in a worktree",
-        );
+        ));
         return vec![];
     }
     #[cfg(feature = "local-workspace")]
@@ -1063,7 +1066,7 @@ pub(in crate::app::dispatch) fn dispatch_pick_content_session(
     if focus_if_session_already_open(app, &session_id, false).is_some() {
         return vec![];
     }
-    app.show_toast("Restoring session from remote...");
+    app.show_toast(tl("Restoring session from remote..."));
     dispatch_load_session_with_restore(app, session_id, cwd)
 }
 /// Create a placeholder agent and restore a remote session before loading.
@@ -1089,7 +1092,9 @@ pub(in crate::app::dispatch) fn dispatch_load_session_with_restore(
         {
             app.welcome_history_load_as_build = false;
         }
-        app.show_toast(crate::app::session_startup::CHAT_MODE_LOCAL_BUILD_REFUSAL);
+        app.show_toast(tl(
+            crate::app::session_startup::CHAT_MODE_LOCAL_BUILD_REFUSAL,
+        ));
         return vec![];
     }
     if focus_if_session_already_open(app, &session_id, false).is_some() {
@@ -1103,8 +1108,9 @@ pub(in crate::app::dispatch) fn dispatch_load_session_with_restore(
     app.next_agent_id += 1;
     let mut scrollback = ScrollbackState::new();
     scrollback.set_appearance(app.appearance.clone());
-    scrollback.push_block(RenderBlock::system(format!(
-        "Restoring session {session_id} from remote..."
+    scrollback.push_block(RenderBlock::system(tlf(
+        "Restoring session {id} from remote...",
+        &[("id", &session_id)],
     )));
     let agent = AgentView::from_app(
         app,
@@ -1260,13 +1266,15 @@ pub(in crate::app::dispatch) fn handle_session_loaded(
         );
         match (code_restored, restore_summary.as_deref()) {
             (true, Some(s)) => {
-                agent
-                    .scrollback
-                    .push_block(RenderBlock::system(format!("\u{2713} Code restored: {s}")));
+                agent.scrollback.push_block(RenderBlock::system(tlf(
+                    "\u{2713} Code restored: {summary}",
+                    &[("summary", &s)],
+                )));
             }
             (false, Some(s)) => {
-                agent.scrollback.push_block(RenderBlock::system(format!(
-                    "\u{26A0} Code restore failed: {s}"
+                agent.scrollback.push_block(RenderBlock::system(tlf(
+                    "\u{26A0} Code restore failed: {summary}",
+                    &[("summary", &s)],
                 )));
             }
             _ => {}
@@ -1393,7 +1401,7 @@ pub(in crate::app::dispatch) fn handle_session_load_failed(
         agent
             .scrollback
             .push_block(RenderBlock::session_event(SessionEvent::TurnFailed {
-                error: format!("Couldn't load session: {error}"),
+                error: tlf("Couldn't load session: {error}", &[("error", &error)]),
                 elapsed: None,
             }));
     }
@@ -1450,13 +1458,16 @@ fn restore_prompts_held_during_load(agent: &mut AgentView) {
             }
         })
         .collect();
-    let images = match dropped_images {
-        0 => String::new(),
-        1 => " (1 image dropped)".to_owned(),
-        n => format!(" ({n} images dropped)"),
+    let header = match dropped_images {
+        0 => tl("Not sent, since the session didn't open:").to_owned(),
+        1 => tl("Not sent, since the session didn't open (1 image dropped):").to_owned(),
+        n => tlf(
+            "Not sent, since the session didn't open ({count} images dropped):",
+            &[("count", &n)],
+        ),
     };
     agent.scrollback.push_block(RenderBlock::system(format!(
-        "Not sent, since the session didn't open{images}:\n{}",
+        "{header}\n{}",
         lines.join("\n")
     )));
 }
@@ -1584,8 +1595,9 @@ pub(in crate::app::dispatch) fn handle_session_restored(
             agent.workspace_mode_cli_locked = cli_locked;
         }
         agent.apply_credit_balance(app.credit_balance.clone(), app.auto_topup.clone());
-        agent.scrollback.push_block(RenderBlock::system(format!(
-            "Session restored. Loading {local_session_id}..."
+        agent.scrollback.push_block(RenderBlock::system(tlf(
+            "Session restored. Loading {id}...",
+            &[("id", &local_session_id)],
         )));
     }
     identity_rebind.apply(app);
@@ -1618,7 +1630,7 @@ pub(in crate::app::dispatch) fn handle_session_restore_failed(
         agent
             .scrollback
             .push_block(RenderBlock::session_event(SessionEvent::TurnFailed {
-                error: format!("Couldn't restore session: {error}"),
+                error: tlf("Couldn't restore session: {error}", &[("error", &error)]),
                 elapsed: None,
             }));
     }
@@ -1686,7 +1698,7 @@ pub(in crate::app::dispatch) fn dispatch_pick_content_session_in_worktree(
         return vec![];
     }
     if session_picker_entry_is_conversation(app, &session_id) {
-        app.show_toast("Chat conversations can't be resumed in a worktree");
+        app.show_toast(tl("Chat conversations can't be resumed in a worktree"));
         return vec![];
     }
     app.session_picker_entries = None;

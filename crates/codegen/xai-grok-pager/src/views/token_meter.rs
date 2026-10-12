@@ -82,7 +82,7 @@ pub(crate) fn token_meter_items(readout: &TokenReadout) -> Vec<TokenMeterItem> {
             id: "cache_hit",
             parts: vec![
                 Part::Figure(format!("{pct:.0}%")),
-                Part::Unit(" cached".into()),
+                Part::Unit(format!(" {}", xai_grok_i18n::tl("cached"))),
             ],
         });
     }

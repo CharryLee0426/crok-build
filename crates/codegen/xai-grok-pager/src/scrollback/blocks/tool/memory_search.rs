@@ -9,6 +9,8 @@ use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode, Selectable,
 };
 use crate::theme::Theme;
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
 
 /// A single memory search result parsed from the tool output.
 #[derive(Debug, Clone)]
@@ -83,22 +85,27 @@ impl MemorySearchToolCallBlock {
             theme.fg(theme.command)
         };
 
-        let prefix = "Memory Search ";
+        let prefix = format!("{} ", tl("Memory Search"));
         let count = self.results.len();
         let suffix = if count > 0 {
-            let s = if count == 1 { "" } else { "s" };
-            format!(" ({count} result{s})")
+            let results = if count == 1 {
+                tlf("{count} result", &[("count", &count)])
+            } else {
+                tlf("{count} results", &[("count", &count)])
+            };
+            format!(" ({results})")
         } else {
             String::new()
         };
 
         match max_width {
             Some(w) => {
-                let suffix_fits = prefix.len() + suffix.len() < w;
+                // Terminal columns, not bytes: the label and the count are translated.
+                let suffix_fits = prefix.width() + suffix.width() < w;
                 let effective_suffix = if suffix_fits { &suffix } else { "" };
                 let query_budget = w
-                    .saturating_sub(prefix.len())
-                    .saturating_sub(effective_suffix.len());
+                    .saturating_sub(prefix.width())
+                    .saturating_sub(effective_suffix.width());
                 let display_query = truncate_str(&self.query, query_budget);
 
                 let mut spans = vec![
@@ -181,7 +188,7 @@ impl BlockContent for MemorySearchToolCallBlock {
                 if self.results.is_empty() && self.error.is_none() {
                     lines.push(BlockLine::separator(Line::from("")));
                     lines.push(BlockLine::separator(Line::from(Span::styled(
-                        "  (no results)",
+                        format!("  ({})", tl("no results")),
                         theme.muted(),
                     ))));
                 }
@@ -197,7 +204,11 @@ impl BlockContent for MemorySearchToolCallBlock {
                         theme.primary().add_modifier(Modifier::BOLD),
                     );
                     let meta_span = Span::styled(
-                        format!("  (score: {:.2}, {})", r.score, r.source),
+                        format!(
+                            "  ({}, {})",
+                            tlf("score: {score}", &[("score", &format!("{:.2}", r.score))]),
+                            r.source
+                        ),
                         theme.dim(),
                     );
                     lines.push(BlockLine::styled(Line::from(vec![
@@ -226,9 +237,10 @@ impl BlockContent for MemorySearchToolCallBlock {
 
                 if let Some(ref err) = self.error {
                     lines.push(Line::from("").into());
+                    // A fallback stored in English ("Memory search failed") is looked up when it is drawn; other errors show as they are.
                     lines.push(
                         Line::from(Span::styled(
-                            format!("  {err}"),
+                            format!("  {}", tl(err)),
                             theme.fg(theme.accent_error),
                         ))
                         .into(),

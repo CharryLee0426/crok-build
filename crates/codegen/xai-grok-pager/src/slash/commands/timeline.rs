@@ -5,16 +5,17 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::slash::{ModeSupport, Remedy};
+use xai_grok_i18n::tlm;
 
 pub struct TimelineCommand;
 
 impl SlashCommand for TimelineCommand {
     slash_meta! {
         name: "timeline",
-        description: "Toggle the timeline sidebar",
+        description: tlm("Toggle the timeline sidebar"),
         usage: "/timeline",
         mode_support: ModeSupport::FullscreenOnly(Remedy::SwitchMode {
-            why: "the timeline rail needs the interactive scrollback pane",
+            why: tlm("the timeline rail needs the interactive scrollback pane"),
         }),
     }
 

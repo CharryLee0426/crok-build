@@ -3,6 +3,8 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tl_parts};
 
 use crate::theme::Theme;
 use crate::views::prompt_widget::StashedPrompt;
@@ -350,7 +352,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 content_x,
                 y,
                 &Line::from(Span::styled(
-                    "Loading rewind points...",
+                    tl("Loading rewind points..."),
                     Style::default().fg(theme.gray),
                 )),
                 content_w,
@@ -363,13 +365,16 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 len: points.len(),
                 selected: *selected,
             }
-            .render(buf, area, "Rewind to which turn?", focused, |i, ctx| {
+            .render(buf, area, tl("Rewind to which turn?"), focused, |i, ctx| {
                 let Some(point) = points.get(i) else {
                     return Line::from("");
                 };
                 let dot_style = Style::default().fg(theme.gray).bg(ctx.row_bg);
                 let preview: String = crate::render::line_utils::truncate_str(
-                    point.prompt_preview.as_deref().unwrap_or("(no preview)"),
+                    point
+                        .prompt_preview
+                        .as_deref()
+                        .unwrap_or(tl("(no preview)")),
                     ctx.content_width.saturating_sub(8) as usize,
                 );
                 let text_style = Style::default()
@@ -393,7 +398,10 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
             buf.set_line(
                 content_x,
                 y,
-                &Line::from(Span::styled("A turn is currently running.", title_style)),
+                &Line::from(Span::styled(
+                    tl("A turn is currently running."),
+                    title_style,
+                )),
                 content_w,
             );
             y += 1;
@@ -401,7 +409,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 content_x,
                 y,
                 &Line::from(Span::styled(
-                    "Would you like to cancel it before rewinding?",
+                    tl("Would you like to cancel it before rewinding?"),
                     Style::default().fg(theme.gray),
                 )),
                 content_w,
@@ -413,7 +421,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 y,
                 content_w,
                 'y',
-                "Cancel turn and rewind",
+                tl("Cancel turn and rewind"),
                 *active_idx == 0,
                 focused,
                 &theme,
@@ -425,7 +433,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 y,
                 content_w,
                 'n',
-                "Let it finish",
+                tl("Let it finish"),
                 *active_idx == 1,
                 focused,
                 &theme,
@@ -437,7 +445,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 content_x,
                 y,
                 &Line::from(Span::styled(
-                    "Rewinding...",
+                    tl("Rewinding..."),
                     Style::default().fg(theme.gray),
                 )),
                 content_w,
@@ -449,10 +457,9 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
             ..
         } => {
             let mut y = area.y + 1;
-            let preview_text = prompt_preview.as_deref().unwrap_or("this turn");
-            let prefix = "Rewind conversation to \u{201C}";
-            let suffix = "\u{201D}?";
-            let chrome = prefix.chars().count() + suffix.chars().count();
+            let preview_text = prompt_preview.as_deref().unwrap_or(tl("this turn"));
+            let (prefix, suffix) = tl_parts("Rewind conversation to “{preview}”?", "preview");
+            let chrome = prefix.width() + suffix.width();
             let max_preview = (content_w as usize).saturating_sub(chrome + 1);
             let preview_trunc: String = if preview_text.chars().count() > max_preview {
                 let truncated: String = preview_text
@@ -477,7 +484,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 y,
                 content_w,
                 'y',
-                "Yes",
+                tl("Yes"),
                 *active_idx == 0,
                 focused,
                 &theme,
@@ -489,7 +496,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 y,
                 content_w,
                 'a',
-                "Yes, and don't ask again",
+                tl("Yes, and don't ask again"),
                 *active_idx == 1,
                 focused,
                 &theme,
@@ -501,7 +508,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 y,
                 content_w,
                 'n',
-                "No",
+                tl("No"),
                 *active_idx == 2,
                 focused,
                 &theme,
@@ -513,7 +520,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 content_x,
                 y,
                 &Line::from(Span::styled(
-                    "Rewind failed",
+                    tl("Rewind failed"),
                     Style::default()
                         .fg(theme.accent_error)
                         .add_modifier(Modifier::BOLD),
@@ -533,7 +540,15 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
             );
             y += 1;
             render_radio_row(
-                buf, content_x, y, content_w, '\x1b', "Dismiss", true, focused, &theme,
+                buf,
+                content_x,
+                y,
+                content_w,
+                '\x1b',
+                tl("Dismiss"),
+                true,
+                focused,
+                &theme,
             );
         }
     }

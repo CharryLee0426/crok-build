@@ -8,6 +8,7 @@ use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode,
 };
 use crate::theme::Theme;
+use xai_grok_i18n::tl;
 
 #[derive(Debug, Clone)]
 pub struct OtherToolCallBlock {
@@ -133,13 +134,18 @@ impl OtherToolCallBlock {
         };
         let bold_style = text_style.add_modifier(ratatui::style::Modifier::BOLD);
 
-        let mut spans = if let Some((label, content)) = self.name.split_once(": ") {
+        // The name is stored as English ("Skill", or a title the tracker supplies). A whole title the
+        // catalog knows ("Plan: Enter") is shown translated; otherwise the label before the colon is
+        // ("Skill: name" keeps the name).
+        let name = tl(&self.name);
+        let mut spans = if let Some((label, content)) = name.split_once(": ") {
+            let label = if name == self.name { tl(label) } else { label };
             vec![
                 Span::styled(format!("{} ", label), bold_style),
                 Span::styled(content.to_string(), text_style),
             ]
         } else {
-            vec![Span::styled(self.name.clone(), bold_style)]
+            vec![Span::styled(name.to_string(), bold_style)]
         };
 
         if !self.summary.is_empty() {
@@ -263,7 +269,7 @@ impl BlockContent for OtherToolCallBlock {
                             // "     → answer" or "     (no answer)"
                             let a_line = if answer.is_empty() {
                                 Line::from(Span::styled(
-                                    "     (no answer)".to_string(),
+                                    format!("     ({})", tl("no answer")),
                                     theme.dim(),
                                 ))
                             } else {
@@ -297,7 +303,8 @@ impl BlockContent for OtherToolCallBlock {
 
                 if let Some(error) = &self.error {
                     lines.push(Line::from("").into());
-                    let styled: Vec<Line<'static>> = error
+                    // A stored fallback such as "Tool call failed" is looked up when it is drawn.
+                    let styled: Vec<Line<'static>> = tl(error)
                         .lines()
                         .map(|line| {
                             Line::from(Span::styled(

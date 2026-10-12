@@ -6,20 +6,21 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::slash::{ModeSupport, Remedy};
+use xai_grok_i18n::tlm;
 
 pub struct FindCommand;
 
 impl SlashCommand for FindCommand {
     slash_meta! {
         name: "find",
-        description: "Search the conversation scrollback",
+        description: tlm("Search the conversation scrollback"),
         usage: "/find [text]",
         takes_args: true,
         session_scoped: true,
         mode_support: ModeSupport::FullscreenOnly(Remedy::SwitchMode {
-            why: "minimal has no scrollback pane: use your terminal's own search",
+            why: tlm("minimal has no scrollback pane: use your terminal's own search"),
         }),
-        arg_placeholder: "[text]",
+        arg_placeholder: tlm("[text]"),
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {

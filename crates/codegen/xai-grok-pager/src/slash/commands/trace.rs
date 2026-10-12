@@ -7,6 +7,7 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::slash::{ModeSupport, Remedy};
+use xai_grok_i18n::{tl, tlm};
 
 /// Open the trace explorer for the current session.
 pub struct TraceCommand;
@@ -14,17 +15,17 @@ pub struct TraceCommand;
 impl SlashCommand for TraceCommand {
     slash_meta! {
         name: "trace",
-        description: "Explore this session's trace: timeline, transcript, and tool I/O",
+        description: tlm("Explore this session's trace: timeline, transcript, and tool I/O"),
         usage: "/trace",
         session_scoped: true,
         mode_support: ModeSupport::FullscreenOnly(Remedy::SwitchMode {
-            why: "the trace explorer needs the full screen",
+            why: tlm("the trace explorer needs the full screen"),
         }),
     }
 
     fn run(&self, ctx: &mut CommandExecCtx, _args: &str) -> CommandResult {
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session to trace".to_string());
+            return CommandResult::Error(tl("No active session to trace").to_string());
         }
         CommandResult::Action(Action::ShowTrace)
     }

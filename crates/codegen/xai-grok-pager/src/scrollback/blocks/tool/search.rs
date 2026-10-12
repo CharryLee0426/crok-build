@@ -9,6 +9,7 @@ use crate::theme::Theme;
 
 use super::TOOL_HEADER_RANGE;
 use crate::appearance::AppearanceConfig;
+use xai_grok_i18n::{tl, tlf};
 
 #[derive(Debug, Clone)]
 pub struct SearchLineMatch {
@@ -157,40 +158,47 @@ impl SearchToolCallBlock {
     fn match_summary(&self) -> String {
         if self.match_count == 0 {
             return match self.meta.output_mode {
-                SearchOutputMode::FilesWithMatches => "(no files)".to_string(),
-                _ => "(no matches)".to_string(),
+                SearchOutputMode::FilesWithMatches => format!("({})", tl("no files")),
+                _ => format!("({})", tl("no matches")),
             };
         }
-        match self.meta.output_mode {
+        let summary = match self.meta.output_mode {
             SearchOutputMode::Content => {
                 let file_count = self.file_matches.len();
                 if file_count > 1 {
-                    format!("({} matches in {} files)", self.match_count, file_count)
+                    tlf(
+                        "{matches} matches in {files} files",
+                        &[("matches", &self.match_count), ("files", &file_count)],
+                    )
                 } else if self.match_count == 1 {
-                    "(1 match)".to_string()
+                    tlf("{count} match", &[("count", &self.match_count)])
                 } else {
-                    format!("({} matches)", self.match_count)
+                    tlf("{count} matches", &[("count", &self.match_count)])
                 }
             }
             SearchOutputMode::FilesWithMatches => {
                 let n = self.match_count; // match_count = # of files in this mode
                 if n == 1 {
-                    "(1 file)".to_string()
+                    tlf("{count} file", &[("count", &n)])
                 } else {
-                    format!("({n} files)")
+                    tlf("{count} files", &[("count", &n)])
                 }
             }
             SearchOutputMode::Count => {
                 let file_count = self.file_paths.len().max(self.file_matches.len());
                 if file_count > 1 {
-                    format!("({} matches across {} files)", self.match_count, file_count)
+                    tlf(
+                        "{matches} matches across {files} files",
+                        &[("matches", &self.match_count), ("files", &file_count)],
+                    )
                 } else if self.match_count == 1 {
-                    "(1 match)".to_string()
+                    tlf("{count} match", &[("count", &self.match_count)])
                 } else {
-                    format!("({} matches)", self.match_count)
+                    tlf("{count} matches", &[("count", &self.match_count)])
                 }
             }
-        }
+        };
+        format!("({summary})")
     }
 
     /// Whether the pattern is trivial (`"."` or empty), meaning the glob is the real search term when present.
@@ -229,7 +237,7 @@ impl SearchToolCallBlock {
             theme.fg(theme.path)
         };
 
-        let mut spans = vec![Span::styled("Search ".to_string(), bold_style)];
+        let mut spans = vec![Span::styled(format!("{} ", tl("Search")), bold_style)];
 
         // The search term: the glob when it replaces a trivial pattern, otherwise the quoted pattern
         if self.is_trivial_pattern()
@@ -243,7 +251,7 @@ impl SearchToolCallBlock {
 
             // Case 2: glob shown as the first "in" scope (string-styled, not path-styled)
             if let Some(ref glob) = self.meta.glob {
-                spans.push(Span::styled(" in ".to_string(), text_style));
+                spans.push(Span::styled(format!(" {} ", tl("in")), text_style));
                 spans.push(Span::styled(glob.to_string(), pattern_style));
             }
         }
@@ -251,7 +259,7 @@ impl SearchToolCallBlock {
         // Path scope (always after glob if both present).
         // When width is constrained, shorten the path the way the fish shell does
         if let Some(ref path) = self.meta.path {
-            spans.push(Span::styled(" in ".to_string(), text_style));
+            spans.push(Span::styled(format!(" {} ", tl("in")), text_style));
             if let Some(w) = width {
                 let used: usize = spans
                     .iter()
@@ -259,7 +267,8 @@ impl SearchToolCallBlock {
                     .sum();
                 let summary = format!(" {}", self.match_summary());
                 // Reserve space for summary; if path can't fit even without it, drop summary.
-                let path_budget = w.saturating_sub(used + summary.len());
+                let path_budget = w
+                    .saturating_sub(used + unicode_width::UnicodeWidthStr::width(summary.as_str()));
                 let shortened = crate::render::tool_paths::shorten_path(path, path_budget);
                 spans.push(Span::styled(shortened, path_style));
             } else {
@@ -275,7 +284,7 @@ impl SearchToolCallBlock {
                 .iter()
                 .map(|s| unicode_width::UnicodeWidthStr::width(s.content.as_ref()))
                 .sum();
-            if used + summary.len() <= w {
+            if used + unicode_width::UnicodeWidthStr::width(summary.as_str()) <= w {
                 spans.push(Span::styled(summary, detail_style));
             }
         } else {
@@ -325,31 +334,31 @@ impl SearchToolCallBlock {
 
         // Mode comes first so the user sees what kind of search this is
         let mode_str = match self.meta.output_mode {
-            SearchOutputMode::Content => "pattern",
-            SearchOutputMode::FilesWithMatches => "files",
-            SearchOutputMode::Count => "count",
+            SearchOutputMode::Content => tl("pattern"),
+            SearchOutputMode::FilesWithMatches => tl("files"),
+            SearchOutputMode::Count => tl("count"),
         };
         parts.push(vec![
-            Span::styled("mode: ", label_style),
+            Span::styled(format!("{}: ", tl("mode")), label_style),
             Span::styled(mode_str.to_string(), value_style),
         ]);
 
         if let Some(ref ft) = self.meta.file_type {
             parts.push(vec![
-                Span::styled("type: ", label_style),
+                Span::styled(format!("{}: ", tl("type")), label_style),
                 Span::styled(ft.to_string(), value_style),
             ]);
         }
         if self.meta.case_insensitive {
             parts.push(vec![
-                Span::styled("case-insensitive: ", label_style),
-                Span::styled("true", value_style),
+                Span::styled(format!("{}: ", tl("case-insensitive")), label_style),
+                Span::styled(tl("true"), value_style),
             ]);
         }
         if self.meta.multiline {
             parts.push(vec![
-                Span::styled("multiline: ", label_style),
-                Span::styled("true", value_style),
+                Span::styled(format!("{}: ", tl("multiline")), label_style),
+                Span::styled(tl("true"), value_style),
             ]);
         }
 
@@ -399,7 +408,8 @@ impl BlockContent for SearchToolCallBlock {
 
                 if let Some(ref error) = self.error {
                     lines.push(Line::from("").into());
-                    for line in error.lines() {
+                    // A fallback stored in English ("Search failed") is looked up when it is drawn; other errors show as they are.
+                    for line in tl(error).lines() {
                         lines.push(
                             Line::from(Span::styled(
                                 format!("  {line}"),
@@ -414,8 +424,11 @@ impl BlockContent for SearchToolCallBlock {
                     // No results: show a hint
                     lines.push(Line::from("").into());
                     lines.push(
-                        Line::from(Span::styled("  (no results)".to_string(), theme.muted()))
-                            .into(),
+                        Line::from(Span::styled(
+                            format!("  ({})", tl("no results")),
+                            theme.muted(),
+                        ))
+                        .into(),
                     );
                 }
 

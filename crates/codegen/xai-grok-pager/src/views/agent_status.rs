@@ -17,6 +17,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
+use xai_grok_i18n::{tl, tlf};
 
 use super::context_bar::SEPARATOR;
 use super::turn_status::SPINNER_DIVISOR;
@@ -229,10 +230,10 @@ fn goal_phase_label(goal: &GoalDisplayState) -> String {
         | GoalDisplayStatus::NoProgressPaused
         | GoalDisplayStatus::InfraPaused
         | GoalDisplayStatus::Blocked => goal.status.pause_label().into(),
-        GoalDisplayStatus::Failed => "Failed".into(),
-        GoalDisplayStatus::Interrupted => "Interrupted".into(),
-        GoalDisplayStatus::BudgetLimited => "Budget".into(),
-        GoalDisplayStatus::Complete => "Done".into(),
+        GoalDisplayStatus::Failed => tl("Failed").into(),
+        GoalDisplayStatus::Interrupted => tl("Interrupted").into(),
+        GoalDisplayStatus::BudgetLimited => tl("Budget").into(),
+        GoalDisplayStatus::Complete => tl("Done").into(),
         GoalDisplayStatus::Active => active_phase_label(goal),
     }
 }
@@ -244,18 +245,18 @@ pub fn active_phase_label(goal: &GoalDisplayState) -> String {
         let attempts = classifier_attempts_label(goal);
         // Omit the "(n/m)" suffix until the first counter arrives so the chip reads "Verifying" instead of a confusing "Verifying (0/0)"
         return if attempts.is_empty() {
-            "Verifying".into()
+            tl("Verifying").into()
         } else {
-            format!("Verifying ({attempts})")
+            tlf("Verifying ({attempts})", &[("attempts", &attempts)])
         };
     }
     if goal.planning {
-        return "Planning".into();
+        return tl("Planning").into();
     }
     match goal.phase {
-        GoalDisplayPhase::Idle => "Idle".into(),
-        GoalDisplayPhase::Planning => "Planning".into(),
-        GoalDisplayPhase::Executing => "Executing".into(),
+        GoalDisplayPhase::Idle => tl("Idle").into(),
+        GoalDisplayPhase::Planning => tl("Planning").into(),
+        GoalDisplayPhase::Executing => tl("Executing").into(),
     }
 }
 
@@ -287,10 +288,14 @@ pub fn goal_status_line(
     let tokens_str =
         format_tokens_compact(goal.live_tokens_used(context_used, active_subagent_tokens));
     let tokens_display = match goal.token_budget {
-        Some(budget) if budget > 0 => {
-            format!("{}/{} tokens", tokens_str, format_tokens_compact(budget))
-        }
-        _ => format!("{} tokens", tokens_str),
+        Some(budget) if budget > 0 => tlf(
+            "{used}/{budget} tokens",
+            &[
+                ("used", &tokens_str),
+                ("budget", &format_tokens_compact(budget)),
+            ],
+        ),
+        _ => tlf("{count} tokens", &[("count", &tokens_str)]),
     };
 
     let elapsed_str = format_elapsed_compact(goal.live_elapsed_ms());
@@ -316,13 +321,13 @@ pub fn goal_status_line(
 
     let is_active = matches!(goal.status, GoalDisplayStatus::Active);
 
-    let chip_name = "Goal";
+    let chip = tlf("Goal: {status}", &[("status", &label)]);
     let goal_text = if is_active {
         let frames = crate::glyphs::dot_spinner_frames();
         let frame = frames.get((tick / 4) % frames.len()).copied().unwrap_or("");
-        format!("{frame} {chip_name}: {label}")
+        format!("{frame} {chip}")
     } else {
-        format!("{chip_name}: {label}")
+        chip
     };
 
     Line::from(vec![

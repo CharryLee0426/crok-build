@@ -32,21 +32,36 @@ pub(crate) enum EffortTokenError {
 impl EffortTokenError {
     pub(crate) fn message(&self) -> String {
         match self {
-            Self::Unsupported => "current model does not support reasoning effort".to_string(),
+            Self::Unsupported => {
+                xai_grok_i18n::tl("current model does not support reasoning effort").to_string()
+            }
             Self::UnknownToken { token, offered } => {
                 if offered.is_empty() {
-                    format!(
-                        "unknown effort level '{token}'; this model has no selectable effort levels"
+                    xai_grok_i18n::tlf(
+                        "unknown effort level '{token}'; this model has no selectable effort levels",
+                        &[("token", token)],
                     )
                 } else {
-                    format!(
-                        "unknown effort level '{token}'; use one of: {}",
-                        offered.join(", ")
+                    xai_grok_i18n::tlf(
+                        "unknown effort level '{token}'; use one of: {levels}",
+                        &[("token", token), ("levels", &offered.join(", "))],
                     )
                 }
             }
-            Self::NoActiveModel => "no active model to apply effort to".to_string(),
+            Self::NoActiveModel => {
+                xai_grok_i18n::tl("no active model to apply effort to").to_string()
+            }
         }
+    }
+}
+
+/// A reasoning effort's name as shown beside a model. The level itself (`high`) is what the user
+/// types and what is stored; the catalog names each level under `effort.<level>`.
+pub(crate) fn effort_name(effort: ReasoningEffort) -> String {
+    let level = effort.to_string();
+    match xai_grok_i18n::translation_of(&format!("effort.{level}"), &level) {
+        Some(shown) => shown.to_string(),
+        None => level,
     }
 }
 
@@ -94,7 +109,7 @@ impl ModelState {
     pub fn footer_label(&self) -> Option<String> {
         let name = self.footer_model_name()?;
         Some(match self.reasoning_effort {
-            Some(effort) => format!("{name} ({effort})"),
+            Some(effort) => format!("{name} ({})", effort_name(effort)),
             None => name,
         })
     }

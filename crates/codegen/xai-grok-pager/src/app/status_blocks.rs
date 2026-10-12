@@ -6,10 +6,24 @@ use crate::app::agent::{BgTaskState, BgTaskStatus};
 use crate::app::agent_view::AgentView;
 use crate::app::subagent::format_subagent_label;
 use crate::util::{format_duration, group_thousands};
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf, tlm};
 impl BgTaskState {
     pub(crate) fn display_kind(&self) -> &'static str {
-        if self.is_monitor { "Monitor" } else { "Task" }
+        if self.is_monitor {
+            tl("Monitor")
+        } else {
+            tl("Task")
+        }
     }
+}
+/// Width of the status column that starts a `/tasks` row.
+const STATUS_CELL_WIDTH: usize = 9;
+/// A status word left-aligned in the status column.
+/// Padded by display width: `{:<9}` counts characters, which is wrong for double-width text.
+fn status_cell(status: &str) -> String {
+    let pad = STATUS_CELL_WIDTH.saturating_sub(status.width());
+    format!("{status}{}", " ".repeat(pad))
 }
 /// `/queue` body: a read-only list of the queued prompts.
 /// Rows from the server's shared queue (minus the prompt already running) come first in broadcast order, then the local queue (`pending_prompts`).
@@ -30,13 +44,14 @@ pub(crate) fn queue_block_text(agent: &AgentView) -> String {
         pos += 1;
     }
     if rows.is_empty() {
-        "Queue is empty.".to_string()
+        tl("Queue is empty.").to_string()
     } else {
-        let header = format!(
-            "Queued prompt{} ({}):",
-            if rows.len() == 1 { "" } else { "s" },
-            rows.len()
-        );
+        let count = rows.len();
+        let header = if count == 1 {
+            tlf("Queued prompt ({count}):", &[("count", &count)])
+        } else {
+            tlf("Queued prompts ({count}):", &[("count", &count)])
+        };
         join_header_rows(header, rows)
     }
 }
@@ -54,8 +69,8 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
         let active = run.active_agent_count();
         let agents = match active {
             0 => String::new(),
-            1 => " · 1 agent".to_string(),
-            n => format!(" · {n} agents"),
+            1 => format!(" · {}", tl("1 agent")),
+            n => format!(" · {}", tlf("{count} agents", &[("count", &n)])),
         };
         let phase = run
             .current_phase
@@ -64,13 +79,16 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
             .filter(|phase| !phase.is_empty())
             .map(|phase| format!(" · {phase}"))
             .unwrap_or_default();
+        // A finished run shows the status word the agent sent; `tl` translates the ones it knows.
+        let status = if run.is_active() {
+            tl("running").to_string()
+        } else {
+            crate::views::workflows::status_words(&run.status)
+        };
         rows.push(format!(
-            "  {:<9}Workflow · {}{phase}{agents}  ({})",
-            if run.is_active() {
-                "running".to_string()
-            } else {
-                run.status.replace('_', " ")
-            },
+            "  {}{} · {}{phase}{agents}  ({})",
+            status_cell(&status),
+            tl("Workflow"),
             run.name,
             format_duration(std::time::Duration::from_millis(run.live_elapsed_ms()))
         ));
@@ -89,11 +107,11 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
     for info in subs {
         let (type_label, desc) = format_subagent_label(info);
         let status = if info.attempt.pending_kill {
-            "stopping"
+            tl("stopping")
         } else if info.is_running() {
-            "running"
+            tl("running")
         } else {
-            info.attempt.status.as_deref().unwrap_or("done")
+            tl(info.attempt.status.as_deref().unwrap_or(tlm("done")))
         };
         let label = if desc.is_empty() {
             type_label
@@ -101,7 +119,8 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
             format!("{type_label} · {desc}")
         };
         rows.push(format!(
-            "  {status:<9}{label}  ({})",
+            "  {}{label}  ({})",
+            status_cell(status),
             format_duration(info.display_elapsed())
         ));
     }
@@ -124,16 +143,17 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| first_nonempty_line(&task.command));
         let status = if task.pending_kill {
-            "stopping"
+            tl("stopping")
         } else {
             match task.status {
-                BgTaskStatus::Running => "running",
-                BgTaskStatus::Done => "done",
-                BgTaskStatus::Failed => "failed",
+                BgTaskStatus::Running => tl("running"),
+                BgTaskStatus::Done => tl("done"),
+                BgTaskStatus::Failed => tl("failed"),
             }
         };
         rows.push(format!(
-            "  {status:<9}{kind} · {one_line}  ({})",
+            "  {}{kind} · {one_line}  ({})",
+            status_cell(status),
             format_duration(task.elapsed())
         ));
     }
@@ -146,21 +166,22 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
     });
     for info in sched {
         rows.push(format!(
-            "  {:<9}{} · {} · {}",
-            "scheduled",
+            "  {}{} · {} · {}",
+            status_cell(tl("scheduled")),
             info.tag,
             info.human_schedule,
             first_nonempty_line(&info.prompt)
         ));
     }
     if rows.is_empty() {
-        "No background tasks, workflows, or subagents.".to_string()
+        tl("No background tasks, workflows, or subagents.").to_string()
     } else {
-        let header = format!(
-            "Task{} ({}):",
-            if rows.len() == 1 { "" } else { "s" },
-            rows.len()
-        );
+        let count = rows.len();
+        let header = if count == 1 {
+            tlf("Task ({count}):", &[("count", &count)])
+        } else {
+            tlf("Tasks ({count}):", &[("count", &count)])
+        };
         join_header_rows(header, rows)
     }
 }
@@ -171,45 +192,74 @@ pub(crate) fn session_usage_block_text(
     let t = &usage.totals;
     if t.model_calls == 0 && usage.model_usage.is_empty() {
         return if usage.usage_is_incomplete {
-            "Session usage: none recorded, but tracking is incomplete and may under-count."
+            tl("Session usage: none recorded, but tracking is incomplete and may under-count.")
                 .to_string()
         } else {
-            "Session usage: no model calls yet in this session.".to_string()
+            tl("Session usage: no model calls yet in this session.").to_string()
         };
     }
+    let input = tl("Input tokens:");
+    let output = tl("Output tokens:");
+    let total = tl("Total tokens:");
+    let calls = tl("Model calls:");
+    let cost = tl("Cost:");
+    // The values line up two columns after the widest label, whatever the language.
+    let widest = [input, output, total, calls, cost]
+        .iter()
+        .map(|label| label.width())
+        .max();
+    let label_width = widest.unwrap_or(0) + 2;
+    let row = |label: &str, value: String| {
+        let pad = label_width.saturating_sub(label.width());
+        format!("  {label}{}{value}", " ".repeat(pad))
+    };
     let mut rows = Vec::new();
-    rows.push(format!(
-        "  Input tokens:   {} ({} cached)",
-        group_thousands(t.input_tokens),
-        group_thousands(t.cached_read_tokens),
+    rows.push(row(
+        input,
+        tlf(
+            "{count} ({cached} cached)",
+            &[
+                ("count", &group_thousands(t.input_tokens)),
+                ("cached", &group_thousands(t.cached_read_tokens)),
+            ],
+        ),
     ));
-    rows.push(format!(
-        "  Output tokens:  {} ({} reasoning)",
-        group_thousands(t.output_tokens),
-        group_thousands(t.reasoning_tokens),
+    rows.push(row(
+        output,
+        tlf(
+            "{count} ({reasoning} reasoning)",
+            &[
+                ("count", &group_thousands(t.output_tokens)),
+                ("reasoning", &group_thousands(t.reasoning_tokens)),
+            ],
+        ),
     ));
-    rows.push(format!(
-        "  Total tokens:   {}",
-        group_thousands(t.total_tokens)
+    rows.push(row(total, group_thousands(t.total_tokens)));
+    let api_time = format_duration(std::time::Duration::from_millis(t.api_duration_ms));
+    rows.push(row(
+        calls,
+        format!(
+            "{} · {}",
+            group_thousands(t.model_calls),
+            tlf("API time: {time}", &[("time", &api_time)]),
+        ),
     ));
-    rows.push(format!(
-        "  Model calls:    {} · API time: {}",
-        group_thousands(t.model_calls),
-        format_duration(std::time::Duration::from_millis(t.api_duration_ms)),
-    ));
-    rows.push(format!("  Cost:           {}", format_cost(t)));
+    rows.push(row(cost, format_cost(t)));
     if usage.model_usage.len() > 1 {
         rows.push(String::new());
-        rows.push("  By model:".to_string());
+        rows.push(format!("  {}", tl("By model:")));
         for (model, m) in &usage.model_usage {
             rows.push(format_by_model_row(model, m));
         }
     }
     if usage.usage_is_incomplete {
-        rows.push("  Note: usage is incomplete and may under-count.".to_string());
+        rows.push(format!(
+            "  {}",
+            tl("Note: usage is incomplete and may under-count.")
+        ));
     }
     join_header_rows(
-        "Session usage (since start or last resume):".to_string(),
+        tl("Session usage (since start or last resume):").to_string(),
         rows,
     )
 }
@@ -218,11 +268,14 @@ fn format_by_model_row(
     model: &str,
     m: &xai_grok_shell::extensions::notification::PromptUsageModel,
 ) -> String {
-    let tokens = group_thousands(m.total_tokens);
+    let tokens = tlf(
+        "{count} Tokens",
+        &[("count", &group_thousands(m.total_tokens))],
+    );
     if m.cost_usd_ticks.is_some() {
-        format!("    {model}: {tokens} Tokens · {}", format_cost(m))
+        format!("    {model}: {tokens} · {}", format_cost(m))
     } else {
-        format!("    {model}: {tokens} Tokens")
+        format!("    {model}: {tokens}")
     }
 }
 /// Formats the cost cell. Ticks are 1e10 per USD; a partial sum is reported as absent.
@@ -230,8 +283,8 @@ fn format_cost(m: &xai_grok_shell::extensions::notification::PromptUsageModel) -
     use xai_grok_shell::extensions::notification::ticks_to_usd;
     match m.cost_usd_ticks {
         Some(ticks) => format!("${:.4}", ticks_to_usd(ticks)),
-        None if m.cost_is_partial => "not available (not reported for some calls)".to_string(),
-        None => "not available (not reported)".to_string(),
+        None if m.cost_is_partial => tl("not available (not reported for some calls)").to_string(),
+        None => tl("not available (not reported)").to_string(),
     }
 }
 /// First non-empty, trimmed line of `text` (empty string if none). Collapses a multi-line prompt/command to a single display line.
@@ -246,10 +299,12 @@ fn format_queue_row(pos: usize, text: &str) -> String {
     let first_line = first_nonempty_line(text);
     let extra = text.lines().count().saturating_sub(1);
     if extra > 0 {
-        format!(
-            "  #{pos}  {first_line}  (+{extra} more line{})",
-            if extra == 1 { "" } else { "s" }
-        )
+        let more = if extra == 1 {
+            tlf("+{count} more line", &[("count", &extra)])
+        } else {
+            tlf("+{count} more lines", &[("count", &extra)])
+        };
+        format!("  #{pos}  {first_line}  ({more})")
     } else {
         format!("  #{pos}  {first_line}")
     }

@@ -12,6 +12,7 @@ use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode,
 };
 use crate::theme::Theme;
+use xai_grok_i18n::{tl, tlf};
 
 const MAX_INLINE_LINES: usize = 10;
 const TRUNCATED_INLINE_LINES: usize = 3;
@@ -197,7 +198,11 @@ impl BlockContent for UseToolCallBlock {
                             lines.push(
                                 BlockLine::from(Line::from(Span::styled(
                                     format!(
-                                        "{indent}... ({remaining} more lines, press Enter to view)",
+                                        "{indent}... ({})",
+                                        tlf(
+                                            "{count} more lines, press Enter to view",
+                                            &[("count", &remaining)]
+                                        ),
                                     ),
                                     theme.dim(),
                                 )))
@@ -220,9 +225,10 @@ impl BlockContent for UseToolCallBlock {
 
                 if let Some(ref err) = self.error {
                     lines.push(Line::from("").into());
+                    // A fallback stored in English ("Tool call failed") is looked up when it is drawn; other errors show as they are.
                     lines.push(
                         Line::from(Span::styled(
-                            format!("  {err}"),
+                            format!("  {}", tl(err)),
                             theme.fg(theme.accent_error),
                         ))
                         .into(),

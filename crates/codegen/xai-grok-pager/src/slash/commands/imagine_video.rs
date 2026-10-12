@@ -1,4 +1,5 @@
 use agent_client_protocol as acp;
+use xai_grok_i18n::{tl, tlm};
 use xai_grok_tools::implementations::grok_build::{
     IMAGE_TO_VIDEO_TOOL_NAME, IMAGINE_VIDEO_COMMAND_NAME, imagine_video_instruction,
     imagine_video_usage_message,
@@ -13,18 +14,22 @@ pub struct ImagineVideoCommand;
 impl SlashCommand for ImagineVideoCommand {
     slash_meta! {
         name: IMAGINE_VIDEO_COMMAND_NAME,
-        description: "Generate a video from a text description",
+        description: tlm("Generate a video from a text description"),
         usage: "/imagine-video <description>",
         takes_args: true,
         args_required: true,
-        arg_placeholder: "description of the video to generate",
+        arg_placeholder: tlm("description of the video to generate"),
         required_tools: REQUIRED_TOOLS,
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         let prompt = args.trim();
         if prompt.is_empty() {
-            return CommandResult::Message(imagine_video_usage_message().to_string());
+            // Worded in xai-grok-tools-api; the marker keeps the text in the catalog
+            const _USAGE: &str = xai_grok_i18n::tlm(
+                "Usage: /imagine-video <description>\nProvide a text description to generate a video.",
+            );
+            return CommandResult::Message(tl(imagine_video_usage_message()).to_string());
         }
 
         CommandResult::InjectSkill {

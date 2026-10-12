@@ -32,6 +32,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 use std::collections::HashSet;
 use std::time::Instant;
+use xai_grok_i18n::{tl, tlf, tlm};
 /// AppView-owned per-frame inputs to [`AgentView::draw`]: state the agent view cannot see itself (voice pipeline, Esc ownership, status row).
 /// Grouped (mirroring `WelcomeRenderParams`) so the next app-level render fact extends this struct instead of every `draw` call site.
 /// Tests take `Default` and override only what they exercise.
@@ -131,30 +132,30 @@ impl AgentView {
         match pav.focus {
             PlanApprovalFocus::Commenting => {
                 vec![
-                    HintItem::new(key!(Enter), "save comment"),
-                    HintItem::new(key!(Esc), "cancel"),
+                    HintItem::new(key!(Enter), tl("save comment")),
+                    HintItem::new(key!(Esc), tl("cancel")),
                 ]
             }
             PlanApprovalFocus::Prompt => {
                 let has_content = !pav.comments.is_empty() || !self.prompt.text().trim().is_empty();
                 if has_content {
                     vec![
-                        HintItem::new(key!(Enter), "request changes"),
-                        HintItem::new(key!(Tab), "plan"),
-                        HintItem::new(key!(Esc), "back"),
+                        HintItem::new(key!(Enter), tl("request changes")),
+                        HintItem::new(key!(Tab), tl("plan")),
+                        HintItem::new(key!(Esc), tl("back")),
                     ]
                 } else {
                     vec![
-                        HintItem::new(key!('a'), "approve"),
-                        HintItem::new(key!(Tab), "plan"),
-                        HintItem::new(key!(Esc), "back"),
+                        HintItem::new(key!('a'), tl("approve")),
+                        HintItem::new(key!(Tab), tl("plan")),
+                        HintItem::new(key!(Esc), tl("back")),
                     ]
                 }
             }
             PlanApprovalFocus::Preview => {
                 vec![
-                    HintItem::new(key!('y'), "copy plan"),
-                    HintItem::new(key!(Tab), "prompt"),
+                    HintItem::new(key!('y'), tl("copy plan")),
+                    HintItem::new(key!(Tab), tl("prompt")),
                 ]
             }
         }
@@ -167,7 +168,10 @@ impl AgentView {
     }
     /// The `Esc` hint for the focused card, named by the rung the key actually takes ([`EscStep`]).
     fn card_esc_hint(&self) -> HintItem {
-        HintItem::new(key!(Esc), self.card_esc().map_or("back", EscStep::label))
+        HintItem::new(
+            key!(Esc),
+            self.card_esc().map_or(tl("back"), EscStep::label),
+        )
     }
     /// Shortcut hints for an open `ask_user_question` card.
     fn question_shortcut_hints(
@@ -179,21 +183,21 @@ impl AgentView {
         match qv.focus {
             QuestionFocus::InputMode if self.prompt.file_search_visible() => {
                 vec![
-                    HintItem::paired(key!(Up), key!(Down), "nav"),
-                    HintItem::new(key!(Tab), "accept"),
-                    HintItem::new(key!(Right), "drill"),
+                    HintItem::paired(key!(Up), key!(Down), tl("nav")),
+                    HintItem::new(key!(Tab), tl("accept")),
+                    HintItem::new(key!(Right), tl("drill")),
                     esc,
                 ]
             }
-            QuestionFocus::InputMode => vec![HintItem::new(key!(Enter), "submit"), esc],
+            QuestionFocus::InputMode => vec![HintItem::new(key!(Enter), tl("submit")), esc],
             QuestionFocus::Navigation if qv.is_prompt_blocked() => {
-                vec![HintItem::new(key!(Tab), "next answer"), esc]
+                vec![HintItem::new(key!(Tab), tl("next answer")), esc]
             }
             QuestionFocus::Navigation => {
                 vec![
-                    HintItem::new(key!(Tab), "next answer"),
+                    HintItem::new(key!(Tab), tl("next answer")),
                     esc,
-                    HintItem::new(key!('X'), "dismiss"),
+                    HintItem::new(key!('X'), tl("dismiss")),
                 ]
             }
         }
@@ -210,21 +214,21 @@ impl AgentView {
             .saturating_sub(QUESTION_VIEW_HPAD) as usize;
         let ctrl_f_hint = perm.has_collapsible_display(perm_content_w).then(|| {
             let label = if perm.args_expanded {
-                "collapse"
+                tl("collapse")
             } else {
-                "expand"
+                tl("expand")
             };
             HintItem::new(key!('f', CONTROL), label)
         });
         match perm.focus {
             PermissionFocus::FollowupInput => {
-                let mut hints = vec![HintItem::new(key!(Enter), "send")];
+                let mut hints = vec![HintItem::new(key!(Enter), tl("send"))];
                 hints.extend(ctrl_f_hint);
                 hints.push(self.card_esc_hint());
                 hints
             }
             PermissionFocus::PatternEdit => {
-                let mut hints = vec![HintItem::new(key!(Enter), "save")];
+                let mut hints = vec![HintItem::new(key!(Enter), tl("save"))];
                 hints.extend(ctrl_f_hint);
                 hints.push(self.card_esc_hint());
                 hints
@@ -235,19 +239,19 @@ impl AgentView {
                 let n = perm.options.len().min(9) as u8;
                 let last_ch = char::from(b'0' + n.max(1));
                 let last_key = KeyShortcut::new(KeyCode::Char(last_ch), KeyModifiers::NONE);
-                let mut hints = vec![HintItem::paired(key!('1'), last_key, "select")];
+                let mut hints = vec![HintItem::paired(key!('1'), last_key, tl("select"))];
                 if perm.options.len() > 1 {
-                    hints.push(HintItem::new(key!(Tab), "next option"));
+                    hints.push(HintItem::new(key!(Tab), tl("next option")));
                 }
                 if perm.has_adjustable_scope() {
-                    hints.push(HintItem::paired(key!(Left), key!(Right), "scope"));
+                    hints.push(HintItem::paired(key!(Left), key!(Right), tl("scope")));
                 }
                 if perm.has_editable_bash_pattern() {
-                    hints.push(HintItem::new(key!('e'), "edit pattern"));
+                    hints.push(HintItem::new(key!('e'), tl("edit pattern")));
                 }
                 hints.extend(ctrl_f_hint);
-                hints.push(HintItem::new(key!('o', CONTROL), "always-approve"));
-                hints.push(HintItem::new(key!('c', CONTROL), "cancel"));
+                hints.push(HintItem::new(key!('o', CONTROL), tl("always-approve")));
+                hints.push(HintItem::new(key!('c', CONTROL), tl("cancel")));
                 hints.push(self.card_esc_hint());
                 hints
             }
@@ -296,9 +300,9 @@ impl AgentView {
                     self.plan_approval_bar(pav)
                 }),
             KeyOwner::Card(BlockingCard::CancelTurn) => ShortcutsBarContent::Surface(vec![
-                HintItem::paired(key!('1'), key!('4'), "select"),
-                HintItem::new(key!(Tab), "next choice"),
-                HintItem::new(key!(Enter), "confirm"),
+                HintItem::paired(key!('1'), key!('4'), tl("select")),
+                HintItem::new(key!(Tab), tl("next choice")),
+                HintItem::new(key!(Enter), tl("confirm")),
                 self.card_esc_hint(),
             ]),
             KeyOwner::Card(BlockingCard::Question) => ShortcutsBarContent::Surface(
@@ -307,10 +311,10 @@ impl AgentView {
                     .unwrap_or_default(),
             ),
             KeyOwner::Card(BlockingCard::McpElicitation) => ShortcutsBarContent::Surface(vec![
-                HintItem::new(key!(Enter), "accept / toggle"),
-                HintItem::new(key!('d'), "decline"),
-                HintItem::new(key!('c', CONTROL), "cancel"),
-                HintItem::new(key!(Tab), "next field"),
+                HintItem::new(key!(Enter), tl("accept / toggle")),
+                HintItem::new(key!('d'), tl("decline")),
+                HintItem::new(key!('c', CONTROL), tl("cancel")),
+                HintItem::new(key!(Tab), tl("next field")),
                 self.card_esc_hint(),
             ]),
             KeyOwner::Pane => ShortcutsBarContent::Pane(self.normal_pane_hints(registry)),
@@ -329,8 +333,8 @@ impl AgentView {
         }
         if self.is_casual_commenting() {
             return ShortcutsBarContent::Surface(vec![
-                HintItem::new(key!(Enter), "save comment"),
-                HintItem::new(key!(Esc), "cancel"),
+                HintItem::new(key!(Enter), tl("save comment")),
+                HintItem::new(key!(Esc), tl("cancel")),
             ]);
         }
         ShortcutsBarContent::Hidden
@@ -459,7 +463,7 @@ impl AgentView {
             } else {
                 self.scrollback.selected_group_header_fold_label()
             },
-            "prompt",
+            tlm("prompt"),
             thinking_label,
             if matches!(self.active_pane, ActivePane::Tasks | ActivePane::Dock) {
                 self.tasks.show_done()
@@ -504,10 +508,14 @@ impl AgentView {
             if self.overlay_can_cycle {
                 hints.insert(
                     0,
-                    HintItem::paired(key!('[', CONTROL), key!(']', CONTROL), "prev/next agent"),
+                    HintItem::paired(
+                        key!('[', CONTROL),
+                        key!(']', CONTROL),
+                        tl("prev/next agent"),
+                    ),
                 );
             }
-            hints.insert(0, HintItem::new(key!('\\', CONTROL), "dashboard"));
+            hints.insert(0, HintItem::new(key!('\\', CONTROL), tl("dashboard")));
         }
         hints
     }
@@ -520,7 +528,7 @@ impl AgentView {
                     .action()
                     .label()
             } else {
-                "stop"
+                tl("stop")
             }
         })
     }
@@ -539,16 +547,16 @@ impl AgentView {
             left_spans.push(Span::styled(counter, hint_style));
         }
         left_spans.push(Span::styled("\u{2191}/\u{2193}", hint_key));
-        left_spans.push(Span::styled(" navigate", hint_style));
+        left_spans.push(Span::styled(format!(" {}", tl("navigate")), hint_style));
         if qv.questions.len() > 1 {
             left_spans.push(Span::styled(" \u{b7} ", hint_style));
             left_spans.push(Span::styled("\u{2190}/\u{2192}", hint_key));
-            left_spans.push(Span::styled(" question", hint_style));
+            left_spans.push(Span::styled(format!(" {}", tl("question")), hint_style));
         }
         if !qv.is_prompt_blocked() {
             left_spans.push(Span::styled(" \u{b7} ", hint_style));
             left_spans.push(Span::styled("y", hint_key));
-            left_spans.push(Span::styled(" copy", hint_style));
+            left_spans.push(Span::styled(format!(" {}", tl("copy")), hint_style));
         }
         left_spans
     }
@@ -682,7 +690,7 @@ impl AgentView {
             if self.session_starting_since.is_some() {
                 String::new()
             } else {
-                "unknown".to_owned()
+                tl("unknown").to_owned()
             }
         });
         let effective_plan = self.plan_mode_pending.unwrap_or(self.plan_mode_active);
@@ -744,20 +752,20 @@ impl AgentView {
                 .prompt_input_mode
                 .placeholder_override(self.multiline_mode)
             {
-                Some(ph)
+                Some(tl(ph))
             } else if casual_commenting
                 || self
                     .plan_approval_view
                     .as_ref()
                     .is_some_and(|pav| pav.focus == PlanApprovalFocus::Commenting)
             {
-                Some("Type your comment...")
+                Some(tl("Type your comment..."))
             } else if self
                 .plan_approval_view
                 .as_ref()
                 .is_some_and(|pav| pav.focus == PlanApprovalFocus::Prompt)
             {
-                Some("Type revision notes...")
+                Some(tl("Type revision notes..."))
             } else {
                 None
             },
@@ -1268,7 +1276,7 @@ impl AgentView {
             if self.hit_plan_button.hovered {
                 plan_style = plan_style.add_modifier(ratatui::style::Modifier::BOLD);
             }
-            status.push("plan", Line::from(Span::styled("plan", plan_style)));
+            status.push("plan", Line::from(Span::styled(tl("plan"), plan_style)));
         }
         if let Some(ref goal) = self.goal_state {
             let tick = self.tasks.tick_count() as usize;
@@ -1354,7 +1362,7 @@ impl AgentView {
             status.push(
                 "dashboard",
                 Line::from(Span::styled(
-                    "[Dashboard]",
+                    format!("[{}]", tl("Dashboard")),
                     hover_or(self.hit_dashboard.hovered, bg.fg(theme.gray)),
                 )),
             );
@@ -1447,7 +1455,7 @@ impl AgentView {
         }
         if let Some(profile) = xai_grok_sandbox::profile_name() {
             location.push(Span::styled(
-                format!("sandbox:{profile} "),
+                format!("{} ", tlf("sandbox:{profile}", &[("profile", &profile)])),
                 bg.fg(theme.warning),
             ));
         }
@@ -1576,8 +1584,8 @@ impl AgentView {
                 let query = search.query();
                 let counter = match search.current_index() {
                     Some(i) => Some(format!("{}/{}", i + 1, search.match_count())),
-                    None if search.has_error() => Some("bad pattern".to_string()),
-                    None if !query.is_empty() => Some("no matches".to_string()),
+                    None if search.has_error() => Some(tl("bad pattern").to_string()),
+                    None if !query.is_empty() => Some(tl("no matches").to_string()),
                     None => None,
                 };
                 let counter_width = counter
@@ -1793,17 +1801,19 @@ impl AgentView {
         if let Some(msg) = self.active_toast_message() {
             let sb = layout.scrollback;
             if let Some(toast_text) = fit_toast_text(msg, sb.width) {
-                let w = toast_text.chars().count() as u16;
+                let w = toast_text.width() as u16;
                 if sb.height > 0 {
                     let x = sb.right().saturating_sub(w + 1);
                     let y = sb.bottom().saturating_sub(1);
-                    for (i, ch) in toast_text.chars().enumerate() {
-                        if let Some(cell) = buf.cell_mut((x + i as u16, y)) {
+                    let mut col = x;
+                    for ch in toast_text.chars() {
+                        if let Some(cell) = buf.cell_mut((col, y)) {
                             cell.set_char(ch);
                             cell.fg = theme.accent_user;
                             cell.bg = theme.bg_base;
                             cell.modifier = ratatui::prelude::Modifier::BOLD;
                         }
+                        col += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
                     }
                     self.frame_occluder_rects.push(Rect {
                         x,
@@ -2048,7 +2058,7 @@ impl AgentView {
                     &Line::from(spans),
                     turn_area.width,
                 );
-                let item_width: u16 = 2u16.saturating_add(status_label.len() as u16);
+                let item_width: u16 = 2u16.saturating_add(status_label.width() as u16);
                 self.hit_plan_approval_status.rect = Some(Rect::new(
                     turn_area.x,
                     turn_area.y,
@@ -2157,22 +2167,16 @@ impl AgentView {
                     .unwrap_or(base_fg);
                 let text = format!("  {}", msg);
                 let maxw = layout.banner.width.saturating_sub(2) as usize;
-                let display: String = if text.len() > maxw {
-                    text.chars()
-                        .take(maxw.saturating_sub(1))
-                        .collect::<String>()
-                        + "…"
-                } else {
-                    text
-                };
-                let x = layout.banner.x;
+                let display = crate::render::line_utils::truncate_str(&text, maxw);
+                let mut x = layout.banner.x;
                 let y = layout.banner.y;
-                for (i, ch) in display.chars().enumerate() {
-                    if let Some(cell) = buf.cell_mut((x + i as u16, y)) {
+                for ch in display.chars() {
+                    if let Some(cell) = buf.cell_mut((x, y)) {
                         cell.set_char(ch);
                         cell.fg = fg;
                         cell.bg = bg;
                     }
+                    x += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
                 }
             }
         } else {
@@ -2246,11 +2250,11 @@ impl AgentView {
             buf.set_string(
                 content_x + 2,
                 rec_area.y,
-                "Recording",
+                tl("Recording"),
                 Style::default().fg(theme.accent_error).bg(bg),
             );
-            let stop_str = "[stop]";
-            let stop_w = unicode_width::UnicodeWidthStr::width(stop_str) as u16;
+            let stop_str = format!("[{}]", tl("stop"));
+            let stop_w = unicode_width::UnicodeWidthStr::width(stop_str.as_str()) as u16;
             let stop_x = rec_area.x
                 + rec_area
                     .width
@@ -2263,7 +2267,7 @@ impl AgentView {
             buf.set_string(
                 stop_x,
                 rec_area.y,
-                stop_str,
+                &stop_str,
                 Style::default().fg(stop_fg).bg(bg),
             );
             self.hit_voice_stop_button.rect = Some(Rect::new(stop_x, rec_area.y, stop_w, 1));
@@ -2302,15 +2306,18 @@ impl AgentView {
             };
             Some(if approval_is_commenting || casual_commenting {
                 commenting_label = match commenting_range {
-                    Some(r) if r.len() == 1 => format!("commenting L{}", r.start),
-                    Some(r) => format!("commenting L{}-{}", r.start, r.end - 1),
-                    None => "commenting".to_string(),
+                    Some(r) if r.len() == 1 => tlf("commenting L{line}", &[("line", &r.start)]),
+                    Some(r) => tlf(
+                        "commenting L{start}-{end}",
+                        &[("start", &r.start), ("end", &(r.end - 1))],
+                    ),
+                    None => tl("commenting").to_string(),
                 };
                 commenting_label.as_str()
             } else if self.plan_approval_view.is_some() {
-                "plan approval"
+                tl("plan approval")
             } else {
-                "plan"
+                tl("plan")
             })
         } else {
             self.published_mode_label()
@@ -2339,7 +2346,7 @@ impl AgentView {
             },
             PromptMode::EditingQueued { id, .. } => {
                 let pos = self.session.queue_position(*id).map(|i| i + 1).unwrap_or(1);
-                editing_label = format!("editing queued #{pos}");
+                editing_label = tlf("editing queued #{pos}", &[("pos", &pos)]);
                 PromptInfo {
                     model_name: &editing_label,
                     flags: &flags,
@@ -2351,7 +2358,7 @@ impl AgentView {
         };
         let info = if let Some(label) = self.prompt_input_mode.prompt_info_override() {
             PromptInfo {
-                model_name: label,
+                model_name: tl(label),
                 flags: &[],
                 multiline: false,
                 usage_warning,
@@ -2676,11 +2683,11 @@ impl AgentView {
                     buf.set_line_safe(content_x, footer_y, &left_line, avail_w);
                     let is_last = qv.active_tab >= qv.questions.len().saturating_sub(1);
                     let enter_label = if qv.is_on_freeform_row() {
-                        "edit"
+                        tl("edit")
                     } else if is_last {
-                        "submit"
+                        tl("submit")
                     } else {
-                        "select"
+                        tl("select")
                     };
                     let btn_key = "Enter";
                     let btn_bg = theme.bg_base;
@@ -2690,7 +2697,7 @@ impl AgentView {
                         .add_modifier(Modifier::BOLD);
                     let blabel_style = Style::default().fg(theme.gray).bg(btn_bg);
                     let bpad_style = Style::default().bg(btn_bg);
-                    let bw = (1 + btn_key.len() + 1 + enter_label.len() + 1) as u16;
+                    let bw = (1 + btn_key.len() + 1 + enter_label.width() + 1) as u16;
                     let btn_x = footer_x + footer_w.saturating_sub(3).saturating_sub(bw);
                     if btn_x > content_x {
                         buf.set_span_safe(btn_x, footer_y, &Span::styled(" ", bpad_style), 1);
@@ -2706,10 +2713,10 @@ impl AgentView {
                             cx + 1,
                             footer_y,
                             &Span::styled(enter_label, blabel_style),
-                            enter_label.len() as u16,
+                            enter_label.width() as u16,
                         );
                         buf.set_span_safe(
-                            cx + 1 + enter_label.len() as u16,
+                            cx + 1 + enter_label.width() as u16,
                             footer_y,
                             &Span::styled(" ", bpad_style),
                             1,
@@ -3014,8 +3021,8 @@ impl AgentView {
                             hint_w,
                         );
                     }
-                    let label = " history ";
-                    let label_w = label.len() as u16;
+                    let label = format!(" {} ", tl("history"));
+                    let label_w = label.width() as u16;
                     if label_w + 2 <= panel_width {
                         buf.set_line_safe(
                             panel_x + 1,
@@ -3039,14 +3046,14 @@ impl AgentView {
                     let msg_y = top_border_y + 1;
                     if msg_y < bottom_border_y {
                         let message = if self.prompt_history_loading() {
-                            "  Loading..."
+                            tl("Loading...")
                         } else {
-                            "  no matching history"
+                            tl("no matching history")
                         };
                         buf.set_string_safe(
                             items_x,
                             msg_y,
-                            message,
+                            format!("  {message}"),
                             caption_style.bg(theme.bg_light),
                         );
                     }
@@ -3297,16 +3304,17 @@ impl AgentView {
                 && toast_area.height > 0
                 && let Some(toast_text) = fit_toast_text(msg, toast_area.width.saturating_sub(1))
             {
-                let w = toast_text.chars().count() as u16;
-                let tx = toast_area.right().saturating_sub(w + 1);
+                let w = toast_text.width() as u16;
+                let mut tx = toast_area.right().saturating_sub(w + 1);
                 let ty = toast_area.bottom().saturating_sub(1);
-                for (i, ch) in toast_text.chars().enumerate() {
-                    if let Some(cell) = buf.cell_mut((tx + i as u16, ty)) {
+                for ch in toast_text.chars() {
+                    if let Some(cell) = buf.cell_mut((tx, ty)) {
                         cell.set_char(ch);
                         cell.fg = theme.accent_user;
                         cell.bg = theme.bg_base;
                         cell.modifier = ratatui::prelude::Modifier::BOLD;
                     }
+                    tx += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
                 }
             }
             let in_plan_approval = self.plan_approval_view.is_some();
@@ -3326,34 +3334,34 @@ impl AgentView {
                     .is_some_and(|pav| !pav.comments.is_empty());
             let viewer_hints = if in_plan_approval && on_comment {
                 let mut h = vec![
-                    HintItem::new(key!(Enter), "edit"),
-                    HintItem::new(key!('x'), "delete"),
+                    HintItem::new(key!(Enter), tl("edit")),
+                    HintItem::new(key!('x'), tl("delete")),
                 ];
                 if approval_has_comments {
-                    h.push(HintItem::new(key!('s'), "send"));
+                    h.push(HintItem::new(key!('s'), tl("send")));
                 } else {
-                    h.push(HintItem::new(key!('a'), "approve"));
+                    h.push(HintItem::new(key!('a'), tl("approve")));
                 }
-                h.push(HintItem::new(key!('y'), "copy plan"));
-                h.push(HintItem::new(key!('q'), "quit plan"));
-                h.push(HintItem::new(key!(Tab), "prompt"));
+                h.push(HintItem::new(key!('y'), tl("copy plan")));
+                h.push(HintItem::new(key!('q'), tl("quit plan")));
+                h.push(HintItem::new(key!(Tab), tl("prompt")));
                 h
             } else if in_plan_approval {
                 let mut h = vec![
-                    HintItem::new(key!('c'), "comment"),
-                    HintItem::new(key!('y'), "copy plan"),
+                    HintItem::new(key!('c'), tl("comment")),
+                    HintItem::new(key!('y'), tl("copy plan")),
                 ];
                 if approval_has_comments {
-                    h.push(HintItem::new(key!('s'), "send"));
+                    h.push(HintItem::new(key!('s'), tl("send")));
                 } else {
-                    h.push(HintItem::new(key!('a'), "approve"));
+                    h.push(HintItem::new(key!('a'), tl("approve")));
                 }
-                h.push(HintItem::new(key!('q'), "quit plan"));
+                h.push(HintItem::new(key!('q'), tl("quit plan")));
                 if self.vim_mode {
-                    h.push(HintItem::paired(key!('j'), key!('k'), "nav"));
+                    h.push(HintItem::paired(key!('j'), key!('k'), tl("nav")));
                 }
-                h.push(HintItem::new(key!('v'), "select"));
-                h.push(HintItem::new(key!(Tab), "prompt"));
+                h.push(HintItem::new(key!('v'), tl("select")));
+                h.push(HintItem::new(key!(Tab), tl("prompt")));
                 h
             } else if is_plan_viewer {
                 let on_casual_comment = viewer
@@ -3366,41 +3374,41 @@ impl AgentView {
                     .is_some_and(|item| item.comment_id().is_some());
                 let mut h = if on_casual_comment {
                     vec![
-                        HintItem::new(key!(Enter), "edit"),
-                        HintItem::new(key!('x'), "delete"),
-                        HintItem::new(key!('y'), "copy plan"),
+                        HintItem::new(key!(Enter), tl("edit")),
+                        HintItem::new(key!('x'), tl("delete")),
+                        HintItem::new(key!('y'), tl("copy plan")),
                     ]
                 } else {
                     vec![
-                        HintItem::new(key!('c'), "comment"),
-                        HintItem::new(key!('y'), "copy plan"),
+                        HintItem::new(key!('c'), tl("comment")),
+                        HintItem::new(key!('y'), tl("copy plan")),
                     ]
                 };
                 if has_plan_comments {
-                    h.push(HintItem::new(key!('s'), "send"));
+                    h.push(HintItem::new(key!('s'), tl("send")));
                 }
                 if self.vim_mode {
-                    h.push(HintItem::paired(key!('j'), key!('k'), "nav"));
+                    h.push(HintItem::paired(key!('j'), key!('k'), tl("nav")));
                 }
-                h.push(HintItem::new(key!('v'), "select"));
-                h.push(HintItem::new(key!('f', CONTROL), "fullscreen"));
-                h.push(HintItem::new(key!('/'), "search"));
-                h.push(HintItem::new(key!(Esc), "close"));
+                h.push(HintItem::new(key!('v'), tl("select")));
+                h.push(HintItem::new(key!('f', CONTROL), tl("fullscreen")));
+                h.push(HintItem::new(key!('/'), tl("search")));
+                h.push(HintItem::new(key!(Esc), tl("close")));
                 h
             } else {
-                let mut h = vec![HintItem::new(key!(Enter), "confirm")];
+                let mut h = vec![HintItem::new(key!(Enter), tl("confirm"))];
                 if self.vim_mode {
-                    h.push(HintItem::paired(key!('j'), key!('k'), "nav"));
+                    h.push(HintItem::paired(key!('j'), key!('k'), tl("nav")));
                 }
-                h.push(HintItem::new(key!('v'), "select"));
-                h.push(HintItem::new(key!('x'), "clear"));
+                h.push(HintItem::new(key!('v'), tl("select")));
+                h.push(HintItem::new(key!('x'), tl("clear")));
                 if self.vim_mode {
-                    h.push(HintItem::new(key!('y'), "copy"));
-                    h.push(HintItem::new(key!('Y'), "filename"));
+                    h.push(HintItem::new(key!('y'), tl("copy")));
+                    h.push(HintItem::new(key!('Y'), tl("filename")));
                 }
-                h.push(HintItem::new(key!(':'), "goto"));
-                h.push(HintItem::new(key!('/'), "search"));
-                h.push(HintItem::new(key!(Esc), "cancel"));
+                h.push(HintItem::new(key!(':'), tl("goto")));
+                h.push(HintItem::new(key!('/'), tl("search")));
+                h.push(HintItem::new(key!(Esc), tl("cancel")));
                 h
             };
             let input_bar_active = viewer.list_state.input_mode().is_some();
@@ -3468,7 +3476,7 @@ impl AgentView {
                     String::new()
                 };
                 let title_spans: Vec<ratatui::text::Span> = if viewer.loading {
-                    let name = viewer.title.as_deref().unwrap_or("Loading...");
+                    let name = viewer.title.as_deref().unwrap_or(tl("Loading..."));
                     vec![
                         ratatui::text::Span::styled("\u{2500} ", border_style),
                         ratatui::text::Span::styled(name.to_owned(), title_style),
@@ -3524,7 +3532,7 @@ impl AgentView {
                                 .copied()
                                 .unwrap_or(""),
                         };
-                        let loading = format!("{} Loading...", frame);
+                        let loading = format!("{} {}", frame, tl("Loading..."));
                         let lw = loading.width() as u16;
                         let lx = popup_rect.x + 1 + inner_cols.saturating_sub(lw) / 2;
                         let ly = popup_rect.y + 1 + inner_rows / 2;
@@ -3566,14 +3574,17 @@ impl AgentView {
                                     viewer.image_width, viewer.image_height, viewer.mime_type,
                                 )),
                                 ratatui::text::Line::from(""),
-                                ratatui::text::Line::from("  Press Esc to close"),
+                                ratatui::text::Line::from(format!(
+                                    "  {}",
+                                    tl("Press Esc to close")
+                                )),
                             ];
                             ratatui::widgets::Paragraph::new(meta_lines)
                                 .style(Style::default().fg(theme.gray_dim).bg(theme.bg_base))
                                 .render(inner_rect, buf);
                         } else {
-                            let loading = "Loading...";
-                            let lw = loading.len() as u16;
+                            let loading = tl("Loading...");
+                            let lw = loading.width() as u16;
                             let lx = inner_rect.x + inner_cols.saturating_sub(lw) / 2;
                             let ly = inner_rect.y + inner_rows / 2;
                             buf.set_span_safe(
@@ -3593,16 +3604,16 @@ impl AgentView {
                 let clear = crate::terminal::overlay::clear_kitty();
                 prompt_post_flush = Some(clear.into());
             }
-            let mut hints = vec![HintItem::new(key!(Esc), "close")];
+            let mut hints = vec![HintItem::new(key!(Esc), tl("close"))];
             if let Some(viewer) = self.image_viewer.as_ref()
                 && !viewer.gallery.is_empty()
             {
                 if viewer.gallery.len() > 1 {
-                    hints.push(HintItem::new(key!(Left), "prev"));
-                    hints.push(HintItem::new(key!(Right), "next"));
+                    hints.push(HintItem::new(key!(Left), tl("prev")));
+                    hints.push(HintItem::new(key!(Right), tl("next")));
                 }
-                hints.push(HintItem::new(key!('o'), "open"));
-                hints.push(HintItem::new(key!('c'), "copy"));
+                hints.push(HintItem::new(key!('o'), tl("open")));
+                hints.push(HintItem::new(key!('c'), tl("copy")));
             }
             ShortcutsBar::new(&hints).render(layout.shortcuts, buf);
             self.pane_areas = layout.pane_areas();
@@ -3640,12 +3651,17 @@ impl AgentView {
                     prompt_post_flush = Some(clear.into());
                 }
             }
-            let play_label = if viewer.playing { "pause" } else { "play" };
+            let play_label = if viewer.playing {
+                tl("pause")
+            } else {
+                tl("play")
+            };
             let hints = vec![
-                HintItem::new(key!(Esc), "close"),
+                HintItem::new(key!(Esc), tl("close")),
                 HintItem::new(key!(' '), play_label),
-                HintItem::new(key!(Left), "back"),
-                HintItem::new(key!(Right), "fwd"),
+                // Seeking, not leaving: "back" alone is the way out of a view
+                HintItem::new(key!(Left), xai_grok_i18n::tr("media.seek.back", "back")),
+                HintItem::new(key!(Right), tl("fwd")),
             ];
             ShortcutsBar::new(&hints).render(layout.shortcuts, buf);
             self.pane_areas = layout.pane_areas();
@@ -3702,8 +3718,8 @@ impl AgentView {
                 prompt_post_flush = Some(clear.into());
             }
             let hints = vec![
-                HintItem::new(key!(Esc), "quit"),
-                HintItem::new(key!(' '), "fire"),
+                HintItem::new(key!(Esc), tl("quit")),
+                HintItem::new(key!(' '), tl("fire")),
             ];
             ShortcutsBar::new(&hints).render(layout.shortcuts, buf);
             self.pane_areas = layout.pane_areas();
@@ -3875,8 +3891,11 @@ impl AgentView {
                         }
                     }
                     let n = viewer.list_state.copy_range().map(|r| r.len()).unwrap_or(1);
-                    let s = if n == 1 { "" } else { "s" };
-                    let status = format!("Selected: {n} line{s}");
+                    let status = if n == 1 {
+                        tlf("Selected: {count} line", &[("count", &n)])
+                    } else {
+                        tlf("Selected: {count} lines", &[("count", &n)])
+                    };
                     let status_style = Style::default().fg(theme.text_secondary).bg(theme.bg_base);
                     buf.set_string(content_x, status_y, &status, status_style);
                 }
@@ -3885,16 +3904,17 @@ impl AgentView {
                 && popup_area.height > 2
                 && let Some(toast_text) = fit_toast_text(msg, popup_area.width.saturating_sub(1))
             {
-                let w = toast_text.chars().count() as u16;
-                let tx = popup_area.right().saturating_sub(w + 2);
+                let w = toast_text.width() as u16;
+                let mut tx = popup_area.right().saturating_sub(w + 2);
                 let ty = popup_area.bottom().saturating_sub(2);
-                for (i, ch) in toast_text.chars().enumerate() {
-                    if let Some(cell) = buf.cell_mut((tx + i as u16, ty)) {
+                for ch in toast_text.chars() {
+                    if let Some(cell) = buf.cell_mut((tx, ty)) {
                         cell.set_char(ch);
                         cell.fg = theme.accent_user;
                         cell.bg = theme.bg_base;
                         cell.modifier = ratatui::prelude::Modifier::BOLD;
                     }
+                    tx += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
                 }
             }
             let hints = viewer.shortcuts_hints();
@@ -3980,19 +4000,19 @@ impl AgentView {
             }
             if modal_state.input.is_some() {
                 let hints = vec![
-                    HintItem::new(key!(Enter), "submit"),
-                    HintItem::new(key!(Esc), "cancel"),
+                    HintItem::new(key!(Enter), tl("submit")),
+                    HintItem::new(key!(Esc), tl("cancel")),
                 ];
                 ShortcutsBar::new(&hints).render(layout.shortcuts, buf);
             } else if modal_state.pending_action.is_some() {
-                let hints = vec![HintItem::new(key!(Esc), "dismiss")];
+                let hints = vec![HintItem::new(key!(Esc), tl("dismiss"))];
                 ShortcutsBar::new(&hints).render(layout.shortcuts, buf);
             } else if modal_state.picker_state.search_active
                 && !modal_state.is_managed_connectors_wait()
             {
                 let hints = vec![
-                    HintItem::new(key!(Esc), "clear search"),
-                    HintItem::new(key!(Enter), "keep filter"),
+                    HintItem::new(key!(Esc), tl("clear search")),
+                    HintItem::new(key!(Enter), tl("keep filter")),
                 ];
                 ShortcutsBar::new(&hints).render(layout.shortcuts, buf);
             }
@@ -4035,12 +4055,8 @@ impl AgentView {
                     if placement.info.is_video && !crate::inline_media_ffmpeg::ffmpeg_available() {
                         use crate::inline_media_ffmpeg::{FFMPEG_HINT_TEXT, ffmpeg_install_cmd};
                         let warn = Style::default().fg(theme.warning);
-                        buf.set_string_safe(
-                            center_x(FFMPEG_HINT_TEXT.len()),
-                            rect.y,
-                            FFMPEG_HINT_TEXT,
-                            warn,
-                        );
+                        let hint = tl(FFMPEG_HINT_TEXT);
+                        buf.set_string_safe(center_x(hint.width()), rect.y, hint, warn);
                         if let Some(cmd) = ffmpeg_install_cmd() {
                             let dim = Style::default().fg(theme.gray_dim);
                             buf.set_string_safe(center_x(cmd.len()), rect.y + 1, cmd, dim);
@@ -4052,7 +4068,7 @@ impl AgentView {
                             0 => "",
                             n => spinner_frames.get(tick % n).copied().unwrap_or(""),
                         };
-                        let label = format!("{spinner} Loading...");
+                        let label = format!("{spinner} {}", tl("Loading..."));
                         let cy = rect.y + rect.height / 2;
                         buf.set_string_safe(
                             center_x(label.len()),
@@ -4100,11 +4116,11 @@ impl AgentView {
                                     dur_s as u32 % 60,
                                 )
                             } else {
-                                "[Play]".to_string()
+                                format!("[{}]", tl("Play"))
                             };
-                            let open_label = "[Open]";
+                            let open_label = format!("[{}]", tl("Open"));
                             let gap = 3u16;
-                            let total = play_label.len() as u16 + gap + open_label.len() as u16;
+                            let total = play_label.width() as u16 + gap + open_label.width() as u16;
                             let start_x = rect.x + rect.width.saturating_sub(total) / 2;
                             buf.set_string_safe(
                                 start_x,
@@ -4117,24 +4133,24 @@ impl AgentView {
                                     Rect {
                                         x: start_x,
                                         y: button_y,
-                                        width: play_label.len() as u16,
+                                        width: play_label.width() as u16,
                                         height: 1,
                                     },
                                     path.clone(),
                                 ));
                             }
-                            let open_x = start_x + play_label.len() as u16 + gap;
+                            let open_x = start_x + play_label.width() as u16 + gap;
                             buf.set_string_safe(
                                 open_x,
                                 button_y,
-                                open_label,
+                                &open_label,
                                 Style::default().fg(theme.gray),
                             );
                             self.inline_media_hits.open_buttons.push((
                                 Rect {
                                     x: open_x,
                                     y: button_y,
-                                    width: open_label.len() as u16,
+                                    width: open_label.width() as u16,
                                     height: 1,
                                 },
                                 path.clone(),
@@ -4145,38 +4161,38 @@ impl AgentView {
                             .media_areas
                             .push((rect, path.clone()));
                         if button_visible {
-                            let open_label = "[Open]";
-                            let copy_label = "[Copy]";
+                            let open_label = format!("[{}]", tl("Open"));
+                            let copy_label = format!("[{}]", tl("Copy"));
                             let gap = 3u16;
-                            let total = open_label.len() as u16 + gap + copy_label.len() as u16;
+                            let total = open_label.width() as u16 + gap + copy_label.width() as u16;
                             let start_x = rect.x + rect.width.saturating_sub(total) / 2;
                             buf.set_string_safe(
                                 start_x,
                                 button_y,
-                                open_label,
+                                &open_label,
                                 Style::default().fg(theme.gray),
                             );
                             self.inline_media_hits.open_buttons.push((
                                 Rect {
                                     x: start_x,
                                     y: button_y,
-                                    width: open_label.len() as u16,
+                                    width: open_label.width() as u16,
                                     height: 1,
                                 },
                                 path.clone(),
                             ));
-                            let copy_x = start_x + open_label.len() as u16 + gap;
+                            let copy_x = start_x + open_label.width() as u16 + gap;
                             buf.set_string_safe(
                                 copy_x,
                                 button_y,
-                                copy_label,
+                                &copy_label,
                                 Style::default().fg(theme.gray),
                             );
                             self.inline_media_hits.copy_image_buttons.push((
                                 Rect {
                                     x: copy_x,
                                     y: button_y,
-                                    width: copy_label.len() as u16,
+                                    width: copy_label.width() as u16,
                                     height: 1,
                                 },
                                 path.clone(),
@@ -4398,15 +4414,15 @@ fn draw_scroll_arrow(
 /// (Long clipboard toasts embed backup file paths; dropping the whole toast would hide the copy feedback entirely.)
 /// Returns `None` only when the slot is too narrow for any text.
 fn fit_toast_text(msg: &str, avail_width: u16) -> Option<String> {
-    let max_msg_chars = (avail_width as usize).saturating_sub(4);
-    if max_msg_chars == 0 {
+    let max_msg_width = (avail_width as usize).saturating_sub(4);
+    if max_msg_width == 0 {
         return None;
     }
-    let msg_chars = msg.chars().count();
-    if msg_chars <= max_msg_chars {
+    if unicode_width::UnicodeWidthStr::width(msg) <= max_msg_width {
         return Some(format!(" {msg} "));
     }
-    let truncated: String = msg.chars().take(max_msg_chars.saturating_sub(1)).collect();
+    let end = crate::util::byte_offset_at_width(msg, max_msg_width.saturating_sub(1));
+    let truncated = msg.get(..end).unwrap_or(msg);
     Some(format!(" {}… ", truncated.trim_end()))
 }
 #[cfg(test)]

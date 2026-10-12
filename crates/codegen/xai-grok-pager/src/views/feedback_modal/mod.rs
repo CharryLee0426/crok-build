@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 pub use xai_grok_feedback::{
     FeedbackDraft, FeedbackDraftId, FeedbackFailureMode, FeedbackTaskCategory, FeedbackTaxonomy,
@@ -29,13 +30,13 @@ use enum_picker::EnumPicker;
 
 static NEXT_FEEDBACK_MODAL_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_FEEDBACK_SUBMISSION_ID: AtomicU64 = AtomicU64::new(1);
-const FEEDBACK_TABS: &[&str] = &["Write", "Drafts"];
+const FEEDBACK_TABS: &[&str] = &[tlm("Write"), tlm("Drafts")];
 // One id shared by the footer `Shortcut` and the mouse `ShortcutActivated` arm; drifting them breaks click-to-cancel.
 const CANCEL_SHORTCUT_ID: usize = 1;
 const DRAFT_DOUBLE_CLICK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(300);
 /// One copy of the empty-submit refusal: the key layer and the submit dispatcher must not drift apart.
 pub(crate) const FEEDBACK_EMPTY_SUBMIT_ERROR: &str =
-    "Add feedback text or an image before sending.";
+    tlm("Add feedback text or an image before sending.");
 /// Open-generation identity: a deferred paste or submit completion applies only to the same still-open modal, never a reopened one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FeedbackModalId(u64);
@@ -89,13 +90,15 @@ pub(crate) enum FeedbackModalDisplacement {
 impl FeedbackModalDisplacement {
     pub(crate) fn notice(self) -> &'static str {
         match self {
-            Self::CancelTurn => "Feedback closed because the turn-cancel prompt needs an answer.",
-            Self::PlanApproval => "Feedback closed because a plan is ready for approval.",
-            Self::Permission => "Feedback closed because a permission request needs an answer.",
-            Self::AcpQuestion => "Feedback closed because the agent asked a question.",
-            Self::LocalQuestion => "Feedback closed because another prompt needs an answer.",
-            Self::McpElicitation => "Feedback closed because a tool needs your input.",
-            Self::HookBlockedPrompt => "Feedback closed because a hook blocked the prompt.",
+            Self::CancelTurn => {
+                tl("Feedback closed because the turn-cancel prompt needs an answer.")
+            }
+            Self::PlanApproval => tl("Feedback closed because a plan is ready for approval."),
+            Self::Permission => tl("Feedback closed because a permission request needs an answer."),
+            Self::AcpQuestion => tl("Feedback closed because the agent asked a question."),
+            Self::LocalQuestion => tl("Feedback closed because another prompt needs an answer."),
+            Self::McpElicitation => tl("Feedback closed because a tool needs your input."),
+            Self::HookBlockedPrompt => tl("Feedback closed because a hook blocked the prompt."),
         }
     }
 }
@@ -118,9 +121,9 @@ impl FeedbackTraceChoice {
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::SendThisSession => "Send this session's trace",
-            Self::FeedbackOnly => "No, just the feedback",
-            Self::NeverAsk => "No, and don't ask again",
+            Self::SendThisSession => tl("Send this session's trace"),
+            Self::FeedbackOnly => tl("No, just the feedback"),
+            Self::NeverAsk => tl("No, and don't ask again"),
         }
     }
 }
@@ -181,19 +184,19 @@ impl FeedbackModalMetadata {
     fn field_text(&self, field: MetadataField) -> Option<String> {
         match field {
             MetadataField::Type => Some(match &self.r#type {
-                Some(value) => format!("Type: {}", value.label()),
-                None if self.draft_id.is_some() => "Type: (choose)".to_string(),
+                Some(value) => tlf("Type: {value}", &[("value", &tl(value.label()))]),
+                None if self.draft_id.is_some() => tl("Type: (choose)").to_string(),
                 None => return None,
             }),
             MetadataField::Task => Some(match &self.task_category {
-                Some(value) => format!("Task: {}", value.label()),
-                None if self.draft_id.is_some() => "Task: (choose)".to_string(),
+                Some(value) => tlf("Task: {value}", &[("value", &tl(value.label()))]),
+                None if self.draft_id.is_some() => tl("Task: (choose)").to_string(),
                 None => return None,
             }),
             MetadataField::Failure => self
                 .failure_mode
                 .as_ref()
-                .map(|value| format!("Failure: {}", value.label())),
+                .map(|value| tlf("Failure: {value}", &[("value", &tl(value.label()))])),
         }
     }
 
@@ -383,8 +386,12 @@ impl FeedbackModalState {
             image_rehydrations_in_flight,
             deferred_submit: false,
             trace_outcome_reported: false,
-            error: (rejected_images > 0)
-                .then(|| format!("Dropped {rejected_images} invalid image(s).")),
+            error: (rejected_images > 0).then(|| {
+                tlf(
+                    "Dropped {count} invalid image(s).",
+                    &[("count", &rejected_images)],
+                )
+            }),
             drafts: DraftsState::Unloaded,
             open_on_drafts_if_any,
             draft_generation: 0,
@@ -611,12 +618,14 @@ impl FeedbackModalState {
     /// an absent type uses the neutral line, and user-authored text never picks it.
     fn trace_prompt(&self) -> &'static str {
         match self.metadata.r#type {
-            Some(FeedbackType::Bug) => "Attach this session's trace to help us debug this bug?",
-            Some(FeedbackType::Idea) => "Attach this session's trace to give this idea context?",
-            Some(FeedbackType::MissingCapability) => {
-                "Attach this session's trace to show what was missing?"
+            Some(FeedbackType::Bug) => tl("Attach this session's trace to help us debug this bug?"),
+            Some(FeedbackType::Idea) => {
+                tl("Attach this session's trace to give this idea context?")
             }
-            None => "Attach this session's trace to your feedback?",
+            Some(FeedbackType::MissingCapability) => {
+                tl("Attach this session's trace to show what was missing?")
+            }
+            None => tl("Attach this session's trace to your feedback?"),
         }
     }
 
@@ -636,7 +645,7 @@ impl FeedbackModalState {
             self.composer
                 .drop_image_preserving_session_file(image_identity);
             self.error = Some(
-                "Couldn't restore one feedback image; the original file was kept.".to_string(),
+                tlm("Couldn't restore one feedback image; the original file was kept.").to_string(),
             );
             return;
         };
@@ -787,7 +796,8 @@ impl FeedbackModalState {
             self.metadata_focus = Some(last);
             return FeedbackModalOutcome::Changed;
         }
-        let config = Self::window_config(&[], false, false);
+        let tabs = Self::tab_labels();
+        let config = Self::window_config(&tabs, &[], false, false);
         match modal_window::handle_modal_key(&mut self.window, key, &config) {
             ModalWindowOutcome::CloseRequested => return FeedbackModalOutcome::Cancel,
             ModalWindowOutcome::Unhandled => {}

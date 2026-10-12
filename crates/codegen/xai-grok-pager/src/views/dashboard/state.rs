@@ -17,6 +17,7 @@ use crate::app::app_view::InputOutcome;
 use crate::input::line_editor::{LineEditOutcome, LineEditor};
 use crate::key;
 use crate::views::prompt_widget::{PromptEvent, PromptWidget};
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::session::persistence::MAX_TITLE_SCALARS as MAX_RENAME_SCALARS;
 
 const PROMPT_MULTI_CLICK_MS: u128 = 300;
@@ -184,12 +185,12 @@ impl RowState {
         match self {
             // Shorter, punchier labels
             // "Done" reads cleaner as a group header than the past-tense "Completed" did
-            Self::NeedsInput => "Awaiting",
-            Self::Working => "Working",
-            Self::Idle => "Idle",
-            Self::Inactive => "Inactive",
-            Self::Completed => "Done",
-            Self::Failed => "Failed",
+            Self::NeedsInput => tl("Awaiting"),
+            Self::Working => tl("Working"),
+            Self::Idle => tl("Idle"),
+            Self::Inactive => tl("Inactive"),
+            Self::Completed => tl("Done"),
+            Self::Failed => tl("Failed"),
         }
     }
 }
@@ -204,17 +205,17 @@ pub(crate) enum DashboardStopAction {
 impl DashboardStopAction {
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::Stop => "stop",
-            Self::Archive => "archive",
-            Self::Close => "close",
+            Self::Stop => tl("stop"),
+            Self::Archive => tl("archive"),
+            Self::Close => tl("close"),
         }
     }
 
     pub(crate) fn confirmation_label(self) -> Option<&'static str> {
         match self {
             Self::Stop => None,
-            Self::Archive => Some("archive this session"),
-            Self::Close => Some("close this session"),
+            Self::Archive => Some(tl("archive this session")),
+            Self::Close => Some(tl("close this session")),
         }
     }
 }
@@ -1326,11 +1327,11 @@ impl DashboardState {
     /// `+ New Agent` with a typed draft sends it rather than creating an empty session, and the label says so.
     pub(crate) fn focused_action_label(&self) -> Option<&'static str> {
         Some(match self.actions_focus? {
-            ActionsFocus::NewAgent if self.focused_new_agent_sends_draft() => "send",
-            ActionsFocus::NewAgent => "create",
-            ActionsFocus::OpenPrevious => "open previous",
-            ActionsFocus::Worktree if self.worktree_armed() => "disable worktree",
-            ActionsFocus::Worktree => "enable worktree",
+            ActionsFocus::NewAgent if self.focused_new_agent_sends_draft() => tl("send"),
+            ActionsFocus::NewAgent => tl("create"),
+            ActionsFocus::OpenPrevious => tl("open previous"),
+            ActionsFocus::Worktree if self.worktree_armed() => tl("disable worktree"),
+            ActionsFocus::Worktree => tl("enable worktree"),
         })
     }
 
@@ -2401,7 +2402,9 @@ impl DashboardState {
         let mut attachment = match image {
             ProbedAttachment::Image(pasted) => {
                 if peek_in_question {
-                    self.set_error_toast("Pasted image discarded: reply switched to a question");
+                    self.set_error_toast(tl(
+                        "Pasted image discarded: reply switched to a question",
+                    ));
                     ClipboardPasteCompletion::Dropped
                 } else {
                     let (_, completion) = if peek {
@@ -2426,7 +2429,7 @@ impl DashboardState {
             if file_urls.as_deref().is_some_and(|urls| {
                 !crate::prompt_images::try_read_images_from_paste(urls).is_empty()
             }) {
-                self.set_error_toast("Pasted image discarded: reply switched to a question");
+                self.set_error_toast(tl("Pasted image discarded: reply switched to a question"));
             }
             attachment = ClipboardPasteCompletion::Dropped;
         }
@@ -2491,11 +2494,11 @@ impl DashboardState {
                 });
             } else if !same_row {
                 // Never reply to a row the user is no longer peeking.
-                self.set_error_toast("Reply canceled: peek panel changed");
+                self.set_error_toast(tl("Reply canceled: peek panel changed"));
             } else {
                 // A question now owns the panel (Enter answers it there, and the reply dispatch would silently queue a prompt and wipe the draft
                 // behind the dialog); drop the stash; the draft stays put
-                self.set_error_toast("Reply canceled: answer the question first");
+                self.set_error_toast(tl("Reply canceled: answer the question first"));
             }
         }
         actions
@@ -2595,7 +2598,10 @@ impl DashboardState {
             let valid = self.peek.as_ref().is_some_and(|p| idx < p.options.len());
             if !valid {
                 let n_opts = self.peek.as_ref().map(|p| p.options.len()).unwrap_or(0);
-                self.set_error_toast(&format!("No such option (only {n_opts} available)"));
+                self.set_error_toast(&tlf(
+                    "No such option (only {count} available)",
+                    &[("count", &n_opts)],
+                ));
                 return Some(InputOutcome::Changed);
             }
             if let Some(p) = self.peek.as_mut() {

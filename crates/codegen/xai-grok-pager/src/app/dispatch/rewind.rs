@@ -8,6 +8,7 @@ use crate::scrollback::block::RenderBlock;
 use crate::scrollback::state::ScrollbackState;
 use crate::views::prompt_widget::{PromptWidget, StashedPrompt};
 use crate::views::rewind::{RewindPhase, RewindState};
+use xai_grok_i18n::{tl, tlm};
 
 /// Interjections render as user prompts but the shell never numbers them, so counting them would skew the positional prompt-to-entry mapping.
 /// Known approximation: an interjection the shell converted into its own `interject-fallback-` turn IS shell-numbered.
@@ -86,7 +87,7 @@ pub(super) fn dispatch_rewind(app: &mut AppView) -> Vec<Effect> {
         return vec![];
     };
     let Some(session_id) = agent.session.session_id.clone() else {
-        app.show_toast(NO_SESSION_NOTICE);
+        app.show_toast(tl(NO_SESSION_NOTICE));
         return vec![];
     };
 
@@ -130,7 +131,7 @@ pub(super) fn dispatch_rewind_show_picker(app: &mut AppView) -> Vec<Effect> {
         return vec![];
     };
     let Some(session_id) = agent.session.session_id.clone() else {
-        app.show_toast(NO_SESSION_NOTICE);
+        app.show_toast(tl(NO_SESSION_NOTICE));
         return vec![];
     };
 
@@ -344,7 +345,7 @@ pub(super) fn dispatch_rewind_success(
     };
 
     if !response.success {
-        let err = response.error.unwrap_or_else(|| "unknown error".into());
+        let err = response.error.unwrap_or_else(|| tl("unknown error").into());
         let anchor = agent
             .rewind_state
             .as_ref()
@@ -375,14 +376,14 @@ pub(super) fn dispatch_rewind_success(
         crate::memory_release::release_retained_memory("rewind-truncate");
     }
 
-    const MSG: &str = "Reverted conversation";
+    const MSG: &str = tlm("Reverted conversation");
     if app.screen_mode.is_minimal() {
         // Minimal has no toast area and can't erase committed lines, so the confirmation stays in scrollback there
         agent
             .scrollback
-            .push_block(RenderBlock::system(MSG.to_string()));
+            .push_block(RenderBlock::system(tl(MSG).to_string()));
     } else {
-        agent.show_toast(MSG);
+        agent.show_toast(tl(MSG));
     }
 
     if let Some(ref prompt_text) = response.prompt_text {
@@ -422,7 +423,7 @@ pub(super) fn handle_rewind_points_loaded(
         if let Some(stashed) = stashed {
             agent.prompt.restore(stashed);
         }
-        app.show_toast("No undoable prompts");
+        app.show_toast(tl("No undoable prompts"));
         return vec![];
     }
 

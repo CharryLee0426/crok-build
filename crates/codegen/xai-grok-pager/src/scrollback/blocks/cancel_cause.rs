@@ -1,6 +1,7 @@
 //! Maps `_meta.cancelTrigger` / `_meta.cancellationCategory` onto cancel-banner copy.
 //! Policy categories win; unknown or missing meta is unnamed, never "by user".
 
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::session::commands::{
     CancelTrigger, HOOK_DENIED_CATEGORY, MAX_TURNS_REACHED_CATEGORY, PERMISSION_CANCELLED_CATEGORY,
     PERMISSION_REJECTED_CATEGORY,
@@ -48,6 +49,54 @@ impl CancelledBy {
             Self::PermissionDismissed => "Turn cancelled because a permission prompt was dismissed",
             Self::HostInterrupt => "Turn cancelled by the agent host",
             Self::Unspecified => "Turn cancelled",
+        }
+    }
+
+    /// The cancel banner in the interface language: `phrase()` with the elapsed time when it is known,
+    /// and the full stop. One whole sentence per cause, so each language orders and punctuates it.
+    pub fn banner(self, elapsed: Option<&str>) -> String {
+        let Some(time) = elapsed else {
+            return match self {
+                Self::User => tl("Turn cancelled by user."),
+                Self::SessionClosed => tl("Turn cancelled because the session closed."),
+                Self::Shutdown => tl("Turn cancelled because the session shut down."),
+                Self::MaxTurns => tl("Turn cancelled after reaching the turn limit."),
+                Self::PermissionDenied => tl("Turn cancelled because a permission was denied."),
+                Self::PermissionDismissed => {
+                    tl("Turn cancelled because a permission prompt was dismissed.")
+                }
+                Self::HostInterrupt => tl("Turn cancelled by the agent host."),
+                Self::Unspecified => tl("Turn cancelled."),
+            }
+            .to_string();
+        };
+        match self {
+            Self::User => tlf("Turn cancelled by user in {time}.", &[("time", &time)]),
+            Self::SessionClosed => tlf(
+                "Turn cancelled because the session closed in {time}.",
+                &[("time", &time)],
+            ),
+            Self::Shutdown => tlf(
+                "Turn cancelled because the session shut down in {time}.",
+                &[("time", &time)],
+            ),
+            Self::MaxTurns => tlf(
+                "Turn cancelled after reaching the turn limit in {time}.",
+                &[("time", &time)],
+            ),
+            Self::PermissionDenied => tlf(
+                "Turn cancelled because a permission was denied in {time}.",
+                &[("time", &time)],
+            ),
+            Self::PermissionDismissed => tlf(
+                "Turn cancelled because a permission prompt was dismissed in {time}.",
+                &[("time", &time)],
+            ),
+            Self::HostInterrupt => tlf(
+                "Turn cancelled by the agent host in {time}.",
+                &[("time", &time)],
+            ),
+            Self::Unspecified => tlf("Turn cancelled in {time}.", &[("time", &time)]),
         }
     }
 }

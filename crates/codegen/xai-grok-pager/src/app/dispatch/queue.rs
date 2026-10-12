@@ -14,6 +14,7 @@ use crate::scrollback::blocks::{MemoryCommandKind, SessionEvent};
 use crate::scrollback::state::ScrollbackState;
 use agent_client_protocol as acp;
 use std::time::Instant;
+use xai_grok_i18n::tl;
 
 fn page_flip_on_send() -> bool {
     crate::appearance::cache::load_page_flip_on_send()
@@ -1183,7 +1184,7 @@ pub(super) fn dispatch_run_edited_queued_command(
 ) -> Vec<Effect> {
     if app.reconnect_pending {
         // Nothing runs and nothing drains while reconnecting (see `dispatch_drain_queue`), so the row just stays put
-        app.show_toast(super::prompt::RECONNECTING_NOTICE);
+        app.show_toast(tl(super::prompt::RECONNECTING_NOTICE));
         preserve_queued_image_paths(app, &mut submission);
         return vec![];
     }
@@ -1191,7 +1192,7 @@ pub(super) fn dispatch_run_edited_queued_command(
     // (The dashboard popup forwards keys to an attached agent without switching it.)
     // The edit exit has already taken the composer text, so a silent bail would drop the command without a trace
     let ActiveView::Agent(agent_id) = app.active_view else {
-        app.show_toast("Open the session to run this command");
+        app.show_toast(tl("Open the session to run this command"));
         preserve_queued_image_paths(app, &mut submission);
         return vec![];
     };
@@ -1276,7 +1277,7 @@ pub(super) fn dispatch_run_edited_queued_command(
         // Row kept and nothing runs: a command that ignores the missing session (`/compact` enqueues regardless) would leave a second row
         EditedCommandGate::NeedsSession => {
             if let Some(agent) = app.agents.get_mut(&agent_id) {
-                agent.show_toast(NO_SESSION_NOTICE);
+                agent.show_toast(tl(NO_SESSION_NOTICE));
             }
             preserve_queued_image_paths(app, &mut submission);
             false

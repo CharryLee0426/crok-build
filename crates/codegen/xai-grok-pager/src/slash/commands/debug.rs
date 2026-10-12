@@ -14,6 +14,7 @@ use crate::app::actions::Action;
 use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand, slash_meta,
 };
+use xai_grok_i18n::{tl, tlf, tlm};
 
 /// Whether `/debug` is listed in the dropdown and completions.
 /// `visible()` returns this constant, so release builds hide the command through `cfg!(debug_assertions)` itself rather than a runtime check.
@@ -22,9 +23,9 @@ pub const LISTED_IN_COMPLETIONS: bool = cfg!(debug_assertions);
 
 /// Subcommand name/description pairs, one source for both `run` and `suggest_args`.
 const SUBCOMMANDS: &[(&str, &str)] = &[
-    ("scroll", "Toggle the scroll-diagnostics HUD"),
-    ("fps", "Toggle the FPS overlay"),
-    ("log", "Toggle the scroll flight recorder (JSONL)"),
+    ("scroll", tlm("Toggle the scroll-diagnostics HUD")),
+    ("fps", tlm("Toggle the FPS overlay")),
+    ("log", tlm("Toggle the scroll flight recorder (JSONL)")),
 ];
 
 /// Debug-overlay toggles; listed only on debug binaries.
@@ -33,7 +34,7 @@ pub struct DebugCommand;
 impl SlashCommand for DebugCommand {
     slash_meta! {
         name: "debug",
-        description: "Toggle debug overlays",
+        description: tlm("Toggle debug overlays"),
         usage: "/debug [scroll|fps|log]",
         takes_args: true,
         arg_placeholder: "scroll | fps | log",
@@ -52,7 +53,7 @@ impl SlashCommand for DebugCommand {
                     display: name.to_string(),
                     match_text: name.to_string(),
                     insert_text: name.to_string(),
-                    description: desc.to_string(),
+                    description: tl(desc).to_string(),
                 })
                 .collect(),
         )
@@ -65,8 +66,9 @@ impl SlashCommand for DebugCommand {
             "scroll" => CommandResult::Action(Action::ToggleScrollDebugHud),
             "fps" => CommandResult::Action(Action::ToggleFpsHud),
             "log" => CommandResult::Action(Action::ToggleScrollLog),
-            other => CommandResult::Error(format!(
-                "Unknown /debug option '{other}'. Usage: /debug [scroll|fps|log]"
+            other => CommandResult::Error(tlf(
+                "Unknown /debug option '{option}'. Usage: /debug [scroll|fps|log]",
+                &[("option", &other)],
             )),
         }
     }

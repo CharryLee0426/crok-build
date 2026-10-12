@@ -4,6 +4,7 @@ use crate::app::agent_view::AgentView;
 use crate::app::subagent::format_activity_label;
 use crate::views::dashboard::row::{RowBadge, sanitize};
 use crate::views::dashboard::state::RowState;
+use xai_grok_i18n::{tl, tlf};
 
 /// Parent turn, wake, command, pending dispatch, or replay activity.
 /// Background work alone can keep the row Working without making the parent's activity live.
@@ -26,11 +27,11 @@ pub(crate) fn top_level_secondary_line(
             if let Some(perm) = agent.permission_queue.front() {
                 let title = perm.title.trim();
                 if !title.is_empty() {
-                    return Some(format!("Pending: {}", sanitize(title)));
+                    return Some(tlf("Pending: {what}", &[("what", &sanitize(title))]));
                 }
             }
             if agent.question_view.is_some() {
-                return Some("Pending: question".to_string());
+                return Some(tlf("Pending: {what}", &[("what", &tl("question"))]));
             }
             activity.map(sanitize)
         }
@@ -79,16 +80,16 @@ fn first_nonempty_line(s: &str) -> Option<&str> {
 
 pub(crate) fn top_level_activity(agent: &AgentView, state: RowState) -> Option<String> {
     match state {
-        RowState::NeedsInput => Some("Awaiting your input".to_owned()),
+        RowState::NeedsInput => Some(tl("Awaiting your input").to_owned()),
         RowState::Working if has_live_parent_activity(agent) => {
             if let Some(cmd) = agent.session.state.command_in_flight() {
                 Some(format!("{}…", cmd.display_name()))
             } else if let Some(activity) = agent.resolve_turn_activity() {
                 Some(sanitize(&format_activity_label(&activity)))
             } else if agent.session.loading_replay {
-                Some("Loading…".to_string())
+                Some(tl("Loading…").to_string())
             } else {
-                Some("Working".to_string())
+                Some(tl("Working").to_string())
             }
         }
         RowState::Working

@@ -4,6 +4,7 @@
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::tools::{TodoItem, TodoStatus};
 
 use super::list_pane::ListItem;
@@ -142,12 +143,15 @@ impl TodoCounts {
 
 fn empty_placeholder_message(todos_empty: bool, counts: TodoCounts) -> String {
     if todos_empty {
-        return "No todo items.".into();
+        return tl("No todo items.").into();
     }
     match (counts.completed, counts.cancelled) {
-        (_, 0) => "All done.".into(),
-        (0, c) => format!("{c} cancelled."),
-        (d, c) => format!("{d} done. {c} cancelled."),
+        (_, 0) => tl("All done.").into(),
+        (0, c) => tlf("{count} cancelled.", &[("count", &c)]),
+        (d, c) => tlf(
+            "{done} done. {cancelled} cancelled.",
+            &[("done", &d), ("cancelled", &c)],
+        ),
     }
 }
 

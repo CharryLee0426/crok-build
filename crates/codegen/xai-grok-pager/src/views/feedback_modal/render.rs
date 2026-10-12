@@ -2,6 +2,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use xai_grok_i18n::{tl, tlm};
 
 use super::{
     CANCEL_SHORTCUT_ID, DraftSubmitTerminal, DraftsState, FEEDBACK_TABS, FeedbackModalRender,
@@ -10,6 +11,73 @@ use super::{
 use crate::theme::Theme;
 use crate::views::modal_window::{self, ModalSizing, ModalWindowConfig, Shortcut};
 use crate::views::prompt_widget::PromptStyle;
+
+/// The labels `xai_grok_feedback`'s taxonomy gives its choices. That crate words them; listing them
+/// here keeps them in the catalog, and the rows look up `label()` as they draw it.
+const _TAXONOMY_LABELS: &[&str] = &[
+    tlm("Bug"),
+    tlm("Idea"),
+    tlm("Missing capability"),
+    tlm("Code edit"),
+    tlm("Debug"),
+    tlm("Explain"),
+    tlm("Plan"),
+    tlm("Shell"),
+    tlm("Search"),
+    tlm("Review"),
+    tlm("Other"),
+    tlm("Doing the wrong amount of work"),
+    tlm("Wrong outputs"),
+    tlm("Style"),
+    tlm("Overeager"),
+    tlm("Stopping early"),
+    tlm("Unwanted scope"),
+    tlm("Didn't ask for help"),
+    tlm("Excessive questions"),
+    tlm("Subagent overspawn"),
+    tlm("Over correction"),
+    tlm("Instruction following"),
+    tlm("Overconfidence and hallucination"),
+    tlm("Code quality"),
+    tlm("Destructive actions"),
+    tlm("Context and memory"),
+    tlm("Repetition and looping"),
+    tlm("Model regression"),
+    tlm("Dispute or decline"),
+    tlm("Tone or preachiness"),
+    tlm("Unclear output"),
+];
+
+/// One footer hint: the keys as they are written (empty when the hint is only words), the label
+/// in English, whether a click activates it, and the id a click reports.
+pub(super) type FooterHint = (&'static str, &'static str, bool, usize);
+
+/// What each hint reads in the footer: `keys label`, the label in the interface language.
+fn footer_hint_texts(hints: &[FooterHint]) -> Vec<String> {
+    hints
+        .iter()
+        .map(|&(keys, label, ..)| {
+            if keys.is_empty() {
+                tl(label).to_owned()
+            } else {
+                format!("{keys} {}", tl(label))
+            }
+        })
+        .collect()
+}
+
+/// The footer shortcuts for `hints`, each borrowing its text from `texts`.
+fn footer_shortcuts<'a>(hints: &[FooterHint], texts: &'a [String]) -> Vec<Shortcut<'a>> {
+    hints
+        .iter()
+        .zip(texts)
+        .map(|(&(_, _, clickable, id), text)| Shortcut {
+            label: text.as_str(),
+            clickable,
+            id,
+        })
+        .collect()
+}
 
 impl FeedbackModalState {
     pub fn render(
@@ -29,7 +97,7 @@ impl FeedbackModalState {
         };
         // The order seeded at open; membership is identical to the payload's.
         let fields = self.field_order.clone();
-        let shortcuts: &[Shortcut<'static>] = match self.submit_terminal {
+        let hints: &[FooterHint] = match self.submit_terminal {
             Some(DraftSubmitTerminal::OutcomeUnknown) => Self::UNKNOWN_SUBMIT_SHORTCUTS,
             Some(DraftSubmitTerminal::CleanupFailed) => Self::TERMINAL_SUBMIT_SHORTCUTS,
             None if trace_selected.is_some() => Self::TRACE_SHORTCUTS,
@@ -38,7 +106,10 @@ impl FeedbackModalState {
             None if fields.is_empty() => Self::WRITE_SHORTCUTS,
             None => Self::WRITE_SHORTCUTS_WITH_LABELS,
         };
-        let config = Self::window_config(shortcuts, compact, trace_selected.is_some());
+        let hint_texts = footer_hint_texts(hints);
+        let shortcuts = footer_shortcuts(hints, &hint_texts);
+        let tabs = Self::tab_labels();
+        let config = Self::window_config(&tabs, &shortcuts, compact, trace_selected.is_some());
         // Stale label rects must not keep catching clicks after a failed or label-less render.
         self.metadata_row_areas.clear();
         let areas = modal_window::render_modal_window(buf, area, &mut self.window, &config, theme)?;
@@ -80,7 +151,7 @@ impl FeedbackModalState {
             buf.set_string(
                 areas.footer.x,
                 areas.footer.y,
-                error,
+                tl(error),
                 ratatui::style::Style::default().fg(theme.accent_error),
             );
         }
@@ -109,30 +180,35 @@ impl FeedbackModalState {
                 ..
             }
         );
+        let move_label = format!("↑↓/j k {}", tl("move"));
+        let search_label = format!("/ {}", tl("search"));
+        let open_label = format!("Enter {}", tl("open"));
+        let delete_label = format!("d {}", tl("delete"));
         let mut shortcuts = vec![
             Shortcut {
-                label: "↑↓/j k move",
+                label: &move_label,
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "/ search",
+                label: &search_label,
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "Enter open",
+                label: &open_label,
                 clickable: false,
                 id: 0,
             },
             Shortcut {
-                label: "d delete",
+                label: &delete_label,
                 clickable: false,
                 id: 0,
             },
         ];
         modal_window::push_vim_nav_search_hint(&mut shortcuts, is_searching);
-        let config = Self::window_config(&shortcuts, compact, false);
+        let tabs = Self::tab_labels();
+        let config = Self::window_config(&tabs, &shortcuts, compact, false);
         let areas = modal_window::render_modal_window(buf, area, &mut self.window, &config, theme)?;
         let content = areas.content;
         self.draft_search_area = None;
@@ -143,14 +219,14 @@ impl FeedbackModalState {
             buf.set_stringn(
                 content.x,
                 content.y,
-                "Discard the current Write composition and open the selected draft?",
+                tl("Discard the current Write composition and open the selected draft?"),
                 content.width as usize,
                 normal,
             );
             buf.set_stringn(
                 content.x,
                 content.y.saturating_add(2),
-                "y discard  |  n cancel",
+                format!("y {}  |  n {}", tl("discard"), tl("cancel")),
                 content.width as usize,
                 dim,
             );
@@ -161,18 +237,18 @@ impl FeedbackModalState {
         }
         if let Some(draft_id) = self.delete_confirm.as_ref() {
             let prompt = if self.metadata.draft_id.as_ref() == Some(draft_id) {
-                "Delete the stored recovery copy? Your current edits will remain."
+                tl("Delete the stored recovery copy? Your current edits will remain.")
             } else {
-                "Delete this feedback draft?"
+                tl("Delete this feedback draft?")
             };
             buf.set_stringn(content.x, content.y, prompt, content.width as usize, normal);
             buf.set_stringn(
                 content.x,
                 content.y.saturating_add(2),
                 if self.draft_delete.is_some() {
-                    "Deleting…"
+                    tl("Deleting…").to_owned()
                 } else {
-                    "y delete  |  n cancel"
+                    format!("y {}  |  n {}", tl("delete"), tl("cancel"))
                 },
                 content.width as usize,
                 dim,
@@ -191,7 +267,7 @@ impl FeedbackModalState {
                 buf.set_stringn(
                     content.x,
                     content.y,
-                    "Open Drafts to load saved feedback.",
+                    tl("Open Drafts to load saved feedback."),
                     content.width as usize,
                     dim,
                 );
@@ -200,7 +276,7 @@ impl FeedbackModalState {
                 buf.set_stringn(
                     content.x,
                     content.y,
-                    "Loading drafts…",
+                    tl("Loading drafts…"),
                     content.width as usize,
                     dim,
                 );
@@ -245,7 +321,7 @@ impl FeedbackModalState {
                     buf.set_stringn(
                         content.x,
                         y,
-                        error,
+                        tl(error),
                         content.width as usize,
                         ratatui::style::Style::default().fg(theme.accent_error),
                     );
@@ -268,10 +344,14 @@ impl FeedbackModalState {
                         .unwrap_or(draft.title.as_str());
                     let failure = draft
                         .failure_mode
-                        .map(|value| format!(" · {}", value.label()))
+                        .map(|value| format!(" · {}", tl(value.label())))
                         .unwrap_or_default();
-                    let r#type = draft.r#type.map_or("Unclassified", |value| value.label());
-                    let task = draft.task_category.map_or("Other", |value| value.label());
+                    let r#type = draft
+                        .r#type
+                        .map_or(tl("Unclassified"), |value| tl(value.label()));
+                    let task = draft
+                        .task_category
+                        .map_or(tl("Other"), |value| tl(value.label()));
                     let line = format!("{marker} {type} · {task}{failure} · {preview}");
                     let style = if is_selected {
                         ratatui::style::Style::default()
@@ -288,9 +368,9 @@ impl FeedbackModalState {
                 }
                 if rendered == 0 && y < content.bottom() {
                     let empty = if rows.is_empty() {
-                        "No drafts."
+                        tl("No drafts.")
                     } else {
-                        "No matching drafts."
+                        tl("No matching drafts.")
                     };
                     buf.set_stringn(content.x, y, empty, content.width as usize, dim);
                 }
@@ -329,7 +409,9 @@ impl FeedbackModalState {
             ratatui::style::Style::default().fg(theme.text_primary),
         );
         let disclosure = ratatui::text::Line::styled(
-            "One archive of this session is sent with this report only. Nothing is turned on for future sessions.",
+            tl(
+                "One archive of this session is sent with this report only. Nothing is turned on for future sessions.",
+            ),
             ratatui::style::Style::default().fg(theme.gray),
         );
         for wrapped in crate::render::wrapping::word_wrap_line(&disclosure, width) {
@@ -354,7 +436,7 @@ impl FeedbackModalState {
             line(
                 buf,
                 &mut y,
-                &format!("{marker} {}. {}", index + 1, choice.label()),
+                &format!("{marker} {}. {}", index + 1, tl(choice.label())),
                 style,
             );
         }
@@ -363,7 +445,7 @@ impl FeedbackModalState {
             line(
                 buf,
                 &mut y,
-                error,
+                tl(error),
                 ratatui::style::Style::default().fg(theme.accent_error),
             );
         }
@@ -373,96 +455,50 @@ impl FeedbackModalState {
         PromptStyle {
             show_prefix: false,
             placeholder_when_focused: true,
-            placeholder_override: Some("Tell us what happened"),
+            placeholder_override: Some(tl("Tell us what happened")),
             // Chips only: the fullscreen preview overlay would paint over the modal.
             image_preview: false,
             ..PromptStyle::overlay()
         }
     }
 
-    const WRITE_SHORTCUTS: &[Shortcut<'static>] = &[
-        Shortcut {
-            label: "Enter submit",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "Esc cancel",
-            clickable: true,
-            id: CANCEL_SHORTCUT_ID,
-        },
+    const WRITE_SHORTCUTS: &[FooterHint] = &[
+        ("Enter", tlm("submit"), false, 0),
+        ("Esc", tlm("cancel"), true, CANCEL_SHORTCUT_ID),
     ];
 
-    const UNKNOWN_SUBMIT_SHORTCUTS: &[Shortcut<'static>] = &[Shortcut {
-        label: "Esc close",
-        clickable: false,
-        id: 0,
-    }];
+    const UNKNOWN_SUBMIT_SHORTCUTS: &[FooterHint] = &[("Esc", tlm("close"), false, 0)];
 
-    const TERMINAL_SUBMIT_SHORTCUTS: &[Shortcut<'static>] = &[Shortcut {
-        label: "Esc close",
-        clickable: false,
-        id: 0,
-    }];
+    const TERMINAL_SUBMIT_SHORTCUTS: &[FooterHint] = &[("Esc", tlm("close"), false, 0)];
 
     /// Same as [`Self::WRITE_SHORTCUTS`] plus the label-row hint; shown only when enums were supplied.
-    const WRITE_SHORTCUTS_WITH_LABELS: &[Shortcut<'static>] = &[
-        Shortcut {
-            label: "Enter submit",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "↑/Tab labels",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "Esc cancel",
-            clickable: true,
-            id: CANCEL_SHORTCUT_ID,
-        },
+    const WRITE_SHORTCUTS_WITH_LABELS: &[FooterHint] = &[
+        ("Enter", tlm("submit"), false, 0),
+        ("↑/Tab", tlm("labels"), false, 0),
+        ("Esc", tlm("cancel"), true, CANCEL_SHORTCUT_ID),
     ];
 
     // Esc while a label row is focused returns to the composer, so no cancel hint here.
-    const METADATA_SHORTCUTS: &[Shortcut<'static>] = &[
-        Shortcut {
-            label: "↑↓ move",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "←→ value",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "Enter edit",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "Tab done",
-            clickable: false,
-            id: 0,
-        },
+    const METADATA_SHORTCUTS: &[FooterHint] = &[
+        ("↑↓", tlm("move"), false, 0),
+        ("←→", tlm("value"), false, 0),
+        ("Enter", tlm("edit"), false, 0),
+        ("Tab", tlm("done"), false, 0),
     ];
 
     // Not clickable: a click must not confirm a consent choice, and Esc here backs out instead of cancelling.
-    const TRACE_SHORTCUTS: &[Shortcut<'static>] = &[
-        Shortcut {
-            label: "Enter select",
-            clickable: false,
-            id: 0,
-        },
-        Shortcut {
-            label: "Esc back",
-            clickable: false,
-            id: 2,
-        },
+    const TRACE_SHORTCUTS: &[FooterHint] = &[
+        ("Enter", tlm("select"), false, 0),
+        ("Esc", tlm("back"), false, 2),
     ];
 
+    /// The tab labels in the interface language, in [`FEEDBACK_TABS`] order.
+    pub(super) fn tab_labels() -> Vec<&'static str> {
+        FEEDBACK_TABS.iter().copied().map(tl).collect()
+    }
+
     pub(super) fn window_config<'a>(
+        tabs: &'a [&'a str],
         shortcuts: &'a [Shortcut<'a>],
         compact: bool,
         trace_step: bool,
@@ -472,8 +508,8 @@ impl FeedbackModalState {
             sizing.v_margin = sizing.v_margin.min(3);
         }
         ModalWindowConfig {
-            title: "Feedback",
-            tabs: Some(FEEDBACK_TABS),
+            title: tl("Feedback"),
+            tabs: Some(tabs),
             shortcuts,
             sizing,
             fold_info: None,

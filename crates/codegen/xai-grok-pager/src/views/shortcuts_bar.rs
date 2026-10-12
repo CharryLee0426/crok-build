@@ -10,6 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::Span;
 use ratatui::widgets::Widget;
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
 
 use crate::input::key::KeyShortcut;
 use crate::theme::Theme;
@@ -228,7 +229,7 @@ impl Widget for ShortcutsBar<'_> {
         // If pending confirmation, show only "press again to {label}"
         if let Some(pending) = &self.pending_confirmation {
             let key_text = pending.shortcut.display();
-            let label = format!("press again to {}", pending.label);
+            let label = tlf("press again to {action}", &[("action", &tl(pending.label))]);
 
             let mut x = area.x;
 

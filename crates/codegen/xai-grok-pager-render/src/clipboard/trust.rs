@@ -64,9 +64,9 @@ impl Osc52Capability {
     #[doc(hidden)]
     pub fn label(self) -> &'static str {
         match self {
-            Self::Supported => "supported",
-            Self::Unsupported => "unsupported",
-            Self::Unknown => "unknown",
+            Self::Supported => xai_grok_i18n::tlm("supported"),
+            Self::Unsupported => xai_grok_i18n::tlm("unsupported"),
+            Self::Unknown => xai_grok_i18n::tlm("unknown"),
         }
     }
 }

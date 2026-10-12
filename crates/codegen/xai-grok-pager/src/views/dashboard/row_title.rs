@@ -6,6 +6,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 use crate::render::line_utils::truncate_str;
 use crate::theme::Theme;
@@ -25,7 +26,7 @@ impl RowTitle<'_> {
             .as_deref()
             .map_or(0, |sub| 3 + sub.width());
         let failed_width = if self.row.badges.contains(&RowBadge::Failed) {
-            FAILED_LABEL.width()
+            failed_label_width()
         } else {
             0
         };
@@ -36,12 +37,13 @@ impl RowTitle<'_> {
         if area.width > 0 {
             let label_style = Style::default().bg(bg).fg(theme.text_primary);
             // The # distinguishes the fallback from user titles beginning with "New session".
+            let new_session = tl(NEW_SESSION_LABEL);
             let dim_suffix = row
                 .label
-                .strip_prefix(NEW_SESSION_LABEL)
+                .strip_prefix(new_session)
                 .filter(|rest| rest.starts_with(" #"));
             if let Some(suffix) = dim_suffix {
-                let head = truncate_str(NEW_SESSION_LABEL, usize::from(area.width));
+                let head = truncate_str(new_session, usize::from(area.width));
                 cx = buf
                     .set_stringn(cx, area.y, head, usize::from(area.width), label_style)
                     .0;
@@ -75,7 +77,7 @@ impl RowTitle<'_> {
                     .0;
             }
             if row.badges.contains(&RowBadge::Failed)
-                && area.right().saturating_sub(cx) >= FAILED_LABEL.width() as u16
+                && area.right().saturating_sub(cx) >= failed_label_width() as u16
             {
                 paint_failed(buf, cx, area.y, theme, bg);
             }
@@ -137,7 +139,7 @@ impl RowTitle<'_> {
                 ChipLabels::Short if *count == 1 => short,
                 ChipLabels::Short => short_plural,
             };
-            spans.push(Span::styled(name, name_style));
+            spans.push(Span::styled(tl(name), name_style));
             spans.push(Span::raw(format!(" {count}")));
         }
         Line::from(spans)
@@ -179,10 +181,10 @@ impl RowTitle<'_> {
             }
         }
         if total > 0 {
-            if let Some(chips) = choose(Line::raw(format!("{total} bg"))) {
+            if let Some(chips) = choose(Line::raw(tlf("{count} bg", &[("count", &total)]))) {
                 return chips;
             }
-            if let Some(chips) = choose(Line::raw("bg")) {
+            if let Some(chips) = choose(Line::raw(tl("bg"))) {
                 return chips;
             }
         }
@@ -197,7 +199,11 @@ enum ChipLabels {
 }
 
 const CHIP_SEP: &str = " · ";
-const FAILED_LABEL: &str = " · failed";
+
+/// Columns the ` · failed` suffix takes; [`paint_failed`] draws it.
+fn failed_label_width() -> usize {
+    CHIP_SEP.width() + tl("failed").width()
+}
 
 pub(crate) fn has_counted_live_work(badges: &[RowBadge]) -> bool {
     badges.iter().any(|badge| match badge {
@@ -217,16 +223,16 @@ fn paint_failed(buf: &mut Buffer, x: u16, y: u16, theme: &Theme, bg: Color) {
     buf.set_string(
         cx,
         y,
-        "failed",
+        tl("failed"),
         Style::default().bg(bg).fg(theme.accent_error),
     );
 }
 
 const CHIP_KINDS: [(&str, &str, &str); 4] = [
-    ("Subagents", "Sub", "Subs"),
-    ("Tasks", "Task", "Tasks"),
-    ("Watchers", "Watch", "Watch"),
-    ("Workflows", "Flow", "Flows"),
+    (tlm("Subagents"), tlm("Sub"), tlm("Subs")),
+    (tlm("Tasks"), tlm("Task"), tlm("Tasks")),
+    (tlm("Watchers"), tlm("Watch"), tlm("Watch")),
+    (tlm("Workflows"), tlm("Flow"), tlm("Flows")),
 ];
 
 #[cfg(test)]

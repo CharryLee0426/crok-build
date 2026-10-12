@@ -1,17 +1,18 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::slash::{ModeSupport, Remedy};
+use xai_grok_i18n::tlm;
 
 pub struct JumpCommand;
 
 impl SlashCommand for JumpCommand {
     slash_meta! {
         name: "jump",
-        description: "Jump to a turn in the conversation",
+        description: tlm("Jump to a turn in the conversation"),
         usage: "/jump",
         session_scoped: true,
         mode_support: ModeSupport::FullscreenOnly(Remedy::SwitchMode {
-            why: "minimal scrolls with your terminal's native scrollback",
+            why: tlm("minimal scrolls with your terminal's native scrollback"),
         }),
     }
 

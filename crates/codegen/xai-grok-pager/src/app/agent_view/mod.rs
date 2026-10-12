@@ -376,9 +376,13 @@ impl PromptInputMode {
             PromptInputMode::Normal | PromptInputMode::Bash => None,
             PromptInputMode::Remember => {
                 if multiline {
-                    Some("Save a memory note... (Enter for newline, Shift+Enter to save)")
+                    Some(xai_grok_i18n::tlm(
+                        "Save a memory note... (Enter for newline, Shift+Enter to save)",
+                    ))
                 } else {
-                    Some("Save a memory note... (Shift+Enter for multiline)")
+                    Some(xai_grok_i18n::tlm(
+                        "Save a memory note... (Shift+Enter for multiline)",
+                    ))
                 }
             }
         }
@@ -386,8 +390,8 @@ impl PromptInputMode {
     pub fn prompt_info_override(self) -> Option<&'static str> {
         match self {
             PromptInputMode::Normal => None,
-            PromptInputMode::Bash => Some("Run shell command"),
-            PromptInputMode::Remember => Some("Save memory note"),
+            PromptInputMode::Bash => Some(xai_grok_i18n::tlm("Run shell command")),
+            PromptInputMode::Remember => Some(xai_grok_i18n::tlm("Save memory note")),
         }
     }
     pub fn send_action(self, text: String) -> Action {
@@ -1767,11 +1771,13 @@ pub(crate) fn render_dropdown_chrome(
         let divider_style = Style::default().fg(theme.gray_dim).bg(reset);
         let divider = Line::styled("\u{2500}".repeat(panel_width as usize), divider_style);
         buf.set_line_safe(panel_x, top_border_y, &divider, panel_width);
-        let footer = "\u{2191}/\u{2193} navigate \u{00b7} enter confirm \u{00b7} esc cancel";
-        let footer_line = Line::styled(
-            footer.to_string(),
-            Style::default().fg(theme.gray_dim).bg(reset),
+        let footer = format!(
+            "\u{2191}/\u{2193} {} \u{00b7} enter {} \u{00b7} esc {}",
+            xai_grok_i18n::tl("navigate"),
+            xai_grok_i18n::tl("confirm"),
+            xai_grok_i18n::tl("cancel")
         );
+        let footer_line = Line::styled(footer, Style::default().fg(theme.gray_dim).bg(reset));
         buf.set_line_safe(
             panel_x + 1,
             bottom_border_y,

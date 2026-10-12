@@ -10,9 +10,10 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
+use xai_grok_i18n::{tl, tlm};
 /// Title prefix for a session that has no name / generated title / prompt yet.
 /// [`RowTitle::render_wide`](crate::views::dashboard::row_title::RowTitle::render_wide) paints the trailing ` #<id>` suffix dimly.
-pub(crate) const NEW_SESSION_LABEL: &str = "New session";
+pub(crate) const NEW_SESSION_LABEL: &str = tlm("New session");
 /// A single row in the dashboard. Built per-frame from `app.agents`.
 #[derive(Debug, Clone)]
 pub struct DashboardRow {
@@ -454,9 +455,9 @@ fn top_level_label(agent: &AgentView) -> String {
     }
     if let Some(sid) = agent.session.session_id.as_ref() {
         let short: String = sid.0.chars().take(8).collect();
-        return format!("{NEW_SESSION_LABEL} #{short}");
+        return format!("{} #{short}", tl(NEW_SESSION_LABEL));
     }
-    NEW_SESSION_LABEL.to_string()
+    tl(NEW_SESSION_LABEL).to_string()
 }
 fn top_level_row(id: AgentId, agent: &AgentView, pinned: bool, home: Option<&str>) -> DashboardRow {
     let state = classify_top_level(agent);
@@ -557,7 +558,7 @@ fn top_level_subtitle(agent: &AgentView) -> Option<String> {
         return None;
     }
     if is_worktree {
-        parts.push("worktree".to_string());
+        parts.push(tl("worktree").to_string());
     }
     Some(parts.join(" "))
 }

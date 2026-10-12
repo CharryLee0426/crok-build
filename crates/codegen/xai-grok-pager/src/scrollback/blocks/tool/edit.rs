@@ -39,6 +39,7 @@ use crate::scrollback::types::{
 };
 use crate::syntax::{Syntect, get_syntect};
 use crate::theme::{Theme, ThemeKind};
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_pager_diff::{DiffHunk, diff_hunks_to_patch};
 
 /// Skip full-file HL when the post-edit file exceeds this size (2 MiB).
@@ -166,8 +167,16 @@ fn render_diff_hunks_core(
                 .and_then(|j| hunks.get(j))
                 .and_then(|prev| hunk_gap_lines(prev, hunk))
             {
-                Some(1) => format!("{} 1 unchanged line", config.hunk_separator),
-                Some(n) => format!("{} {n} unchanged lines", config.hunk_separator),
+                Some(1) => format!(
+                    "{} {}",
+                    config.hunk_separator,
+                    tlf("{count} unchanged line", &[("count", &1)])
+                ),
+                Some(n) => format!(
+                    "{} {}",
+                    config.hunk_separator,
+                    tlf("{count} unchanged lines", &[("count", &n)])
+                ),
                 None => config.hunk_separator.clone(),
             };
             let sep_line = Line::from(vec![
@@ -768,6 +777,19 @@ pub struct EditToolCallBlock {
     pub is_memory_activity: bool,
 }
 
+/// The header label for a stored [`EditToolCallBlock::prefix`], in the interface language, with its space.
+/// The field keeps the English (it is compared, and set by callers); the label is looked up when it is drawn.
+fn prefix_label(prefix: &'static str) -> String {
+    let label = match prefix {
+        "Edit " => tl("Edit"),
+        "Editing workflow " => tl("Editing workflow"),
+        "Creating " => tl("Creating"),
+        "Creating workflow " => tl("Creating workflow"),
+        other => return other.to_string(),
+    };
+    format!("{label} ")
+}
+
 fn workflow_script_name(path: &str) -> Option<String> {
     let p = Path::new(path);
     if p.extension().is_none_or(|e| e != "rhai") {
@@ -938,7 +960,7 @@ impl EditToolCallBlock {
             theme.muted()
         };
 
-        let prefix = self.prefix;
+        let prefix = prefix_label(self.prefix);
 
         // Build the suffix spans first so we can reserve space for them. The suffix (diffstat / "(N edits)") renders only
         // on the collapsed one-liner. Untrusted summaries (multi-file, title-fallback path) never show counts that would
@@ -964,7 +986,10 @@ impl EditToolCallBlock {
                 }
             } else if collapsed && self.edit_count > 1 {
                 vec![Span::styled(
-                    format!(" ({} edits)", self.edit_count),
+                    format!(
+                        " ({})",
+                        tlf("{count} edits", &[("count", &self.edit_count)])
+                    ),
                     detail_style,
                 )]
             } else {
@@ -982,7 +1007,7 @@ impl EditToolCallBlock {
                 surface,
                 cwd,
                 width,
-                prefix.len() + suffix_width,
+                unicode_width::UnicodeWidthStr::width(prefix.as_str()) + suffix_width,
             ),
         };
 
@@ -1311,7 +1336,8 @@ impl EditToolCallBlock {
                 // Error message (non-selectable decoration)
                 if let Some(err) = &self.error {
                     lines.push(BlockLine::separator(Line::from("")));
-                    for line in err.lines() {
+                    // A fallback stored in English ("Edit failed") is looked up when it is drawn; other errors show as they are.
+                    for line in tl(err).lines() {
                         lines.push(BlockLine::separator(Line::from(Span::styled(
                             line.to_string(),
                             theme.muted(),

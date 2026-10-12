@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 
 use super::EphemeralTip;
 use crate::theme::Theme;
+use xai_grok_i18n::{tl, tl_parts};
 
 pub(crate) const SEND_NOW_TIP_KEY: &str = "send_now_tip";
 pub(crate) const SEND_NOW_TIP_SEEN_KEY: &str = "send_now_tip_shown_count";
@@ -16,12 +17,13 @@ pub fn send_now_tip() -> EphemeralTip {
     let key_style = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);
+    let (before, after) = tl_parts("{key} to send now", "key");
     EphemeralTip::new(
         SEND_NOW_TIP_KEY,
         Line::from(vec![
-            Span::styled("Queued · ", dim),
+            Span::styled(format!("{} · {before}", tl("Queued")), dim),
             Span::styled("Enter", key_style),
-            Span::styled(" to send now", dim),
+            Span::styled(after, dim),
         ]),
     )
     .with_session_seen_cap(SEND_NOW_TIP_SEEN_KEY, SEND_NOW_TIP_SEEN_CAP)

@@ -9,6 +9,7 @@ use crate::docs::{all_titles, find_doc};
 use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand, slash_meta,
 };
+use xai_grok_i18n::{tl, tlf, tlm};
 
 /// The online Build docs landing page, hardcoded like other TUI deep-links; docs.x.ai can redirect if the path moves.
 pub const BUILD_DOCS_URL: &str = "https://docs.x.ai/build/overview";
@@ -19,11 +20,11 @@ impl SlashCommand for DocsCommand {
     slash_meta! {
         name: "docs",
         aliases: ["howto", "guides"],
-        description: "Open How-to Guides or online Build docs",
+        description: tlm("Open How-to Guides or online Build docs"),
         usage: "/docs [web|title]",
         takes_args: true,
         args_required: false,
-        arg_placeholder: "[web|title]",
+        arg_placeholder: tlm("[web|title]"),
     }
 
     fn suggest_args(&self, _ctx: &AppCtx, _args_query: &str) -> Option<Vec<ArgItem>> {
@@ -32,20 +33,20 @@ impl SlashCommand for DocsCommand {
                 display: "how-to".into(),
                 match_text: "how-to".into(),
                 insert_text: "how-to".into(),
-                description: "Browse in-TUI How-to Guides".into(),
+                description: tl("Browse in-TUI How-to Guides").into(),
             },
             ArgItem {
                 display: "web".into(),
                 match_text: "web".into(),
                 insert_text: "web".into(),
-                description: "Open docs.x.ai/build in the browser".into(),
+                description: tl("Open docs.x.ai/build in the browser").into(),
             },
         ];
         items.extend(all_titles().map(|title| ArgItem {
             display: title.into(),
             match_text: title.into(),
             insert_text: title.into(),
-            description: format!("Open \"{title}\""),
+            description: tlf("Open \"{title}\"", &[("title", &title)]),
         }));
         Some(items)
     }
@@ -63,8 +64,9 @@ impl SlashCommand for DocsCommand {
                 title: doc.title.into(),
                 content: doc.content.into(),
             }),
-            None => CommandResult::Error(format!(
-                "Unknown docs target {trimmed:?}. Try /docs, /docs web, or a guide title (e.g. /docs Getting Started)."
+            None => CommandResult::Error(tlf(
+                "Unknown docs target {target}. Try /docs, /docs web, or a guide title (e.g. /docs Getting Started).",
+                &[("target", &format!("{trimmed:?}"))],
             )),
         }
     }

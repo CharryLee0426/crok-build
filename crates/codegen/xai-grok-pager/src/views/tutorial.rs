@@ -18,6 +18,8 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Widget};
 
+use xai_grok_i18n::{tl, tlf, tlm};
+
 use crate::theme::Theme;
 use crate::tutorial_docs::TUTORIAL_TOPICS;
 use crate::views::modal_window::{
@@ -296,8 +298,8 @@ fn handle_list_input(ev: &Event, st: &mut TutorialState) -> TutorialOutcome {
 /// Intro copy shown above the topic list.
 /// It doesn't promise how long the tour takes, just what it is and how to leave.
 const INTRO_LINES: [&str; 2] = [
-    "Quick tips to get the most out of Crok Build.",
-    "Pick a topic. Esc when you're done.",
+    tlm("Quick tips to get the most out of Crok Build."),
+    tlm("Pick a topic. Esc when you're done."),
 ];
 
 /// Topic page body: the embedded markdown minus its leading `# ` heading.
@@ -319,12 +321,12 @@ pub fn render_tutorial(buf: &mut Buffer, area: Rect, st: &mut TutorialState, com
                 return;
             };
             let next_hint = match TUTORIAL_TOPICS.get(index + 1) {
-                Some(next) => format!("\u{2192} next: {}", next.title),
-                None => "\u{2192} done".to_owned(),
+                Some(next) => tlf("→ next: {topic}", &[("topic", &tl(next.title))]),
+                None => tl("→ done").to_owned(),
             };
             let mut shortcuts = vec![
                 Shortcut {
-                    label: "\u{2191}/\u{2193} scroll",
+                    label: tl("↑/↓ scroll"),
                     clickable: false,
                     id: 0,
                 },
@@ -336,13 +338,13 @@ pub fn render_tutorial(buf: &mut Buffer, area: Rect, st: &mut TutorialState, com
             ];
             if topic.go_deeper.is_some() {
                 shortcuts.push(Shortcut {
-                    label: "d go deeper",
+                    label: tl("d go deeper"),
                     clickable: false,
                     id: 0,
                 });
             }
             shortcuts.push(Shortcut {
-                label: "Esc list",
+                label: tl("Esc list"),
                 clickable: false,
                 id: 0,
             });
@@ -350,7 +352,7 @@ pub fn render_tutorial(buf: &mut Buffer, area: Rect, st: &mut TutorialState, com
                 buf,
                 area,
                 &mut st.window,
-                topic.title,
+                tl(topic.title),
                 topic_body(topic.content),
                 &mut st.scroll,
                 &mut st.cached_lines,
@@ -384,7 +386,13 @@ pub fn render_tutorial(buf: &mut Buffer, area: Rect, st: &mut TutorialState, com
 }
 
 fn render_list(buf: &mut Buffer, area: Rect, st: &mut TutorialState, compact: bool, theme: &Theme) {
-    let progress = format!("{}/{} explored", st.viewed.len(), TUTORIAL_TOPICS.len());
+    let progress = tlf(
+        "{done}/{total} explored",
+        &[
+            ("done", &st.viewed.len()),
+            ("total", &TUTORIAL_TOPICS.len()),
+        ],
+    );
     let shortcuts = [
         Shortcut {
             label: &progress,
@@ -392,23 +400,23 @@ fn render_list(buf: &mut Buffer, area: Rect, st: &mut TutorialState, compact: bo
             id: 0,
         },
         Shortcut {
-            label: "\u{2191}/\u{2193} navigate",
+            label: tl("↑/↓ navigate"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "Enter open",
+            label: tl("Enter open"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "Esc done",
+            label: tl("Esc done"),
             clickable: false,
             id: 0,
         },
     ];
     let modal_config = ModalWindowConfig {
-        title: "Welcome to Crok Build",
+        title: tl("Welcome to Crok Build"),
         tabs: None,
         shortcuts: &shortcuts,
         sizing: ModalSizing {
@@ -434,7 +442,7 @@ fn render_list(buf: &mut Buffer, area: Rect, st: &mut TutorialState, compact: bo
         if y >= mca.content.y + mca.content.height {
             break;
         }
-        Paragraph::new(Line::styled(line, intro_style)).render(
+        Paragraph::new(Line::styled(tl(line), intro_style)).render(
             Rect {
                 x: mca.content.x,
                 y,
@@ -460,7 +468,8 @@ fn render_list(buf: &mut Buffer, area: Rect, st: &mut TutorialState, compact: bo
     // Narrow modals can't fit title and blurb on one row; stack the blurb below
     const NARROW_THRESHOLD: u16 = 64;
     let narrow = entries_area.width < NARROW_THRESHOLD;
-    let blurb_slices: Vec<[&str; 1]> = TUTORIAL_TOPICS.iter().map(|t| [t.blurb]).collect();
+    // Titles and blurbs are defined in `tutorial_docs`; they are read in the interface language here
+    let blurb_slices: Vec<[&str; 1]> = TUTORIAL_TOPICS.iter().map(|t| [tl(t.blurb)]).collect();
 
     let picker_entries: Vec<PickerEntry<'_>> = TUTORIAL_TOPICS
         .iter()
@@ -468,8 +477,8 @@ fn render_list(buf: &mut Buffer, area: Rect, st: &mut TutorialState, compact: bo
         .map(|(i, t)| {
             let viewed = st.viewed.contains(&i);
             PickerEntry::Row(PickerRow {
-                label: t.title,
-                right_label: if narrow { "" } else { t.blurb },
+                label: tl(t.title),
+                right_label: if narrow { "" } else { tl(t.blurb) },
                 selected: i == st.picker.selected,
                 expanded: narrow,
                 fields: &[],

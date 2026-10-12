@@ -11,13 +11,13 @@ use crate::theme::Theme;
 
 /// `worktree ` painted one step fainter than the branch so the path stays the strongest word.
 pub(crate) fn worktree_badge(theme: &Theme) -> Span<'static> {
-    Span::styled("worktree ", theme.faint())
+    Span::styled(format!("{} ", xai_grok_i18n::tl("worktree")), theme.faint())
 }
 
 /// The branch as the location line shows it: git reports a detached HEAD as an empty name.
 pub(crate) fn branch_label(branch: String) -> String {
     if branch.is_empty() {
-        "detached".to_owned()
+        xai_grok_i18n::tl("detached").to_owned()
     } else {
         branch
     }

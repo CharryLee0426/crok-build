@@ -10,6 +10,7 @@ use crate::views::session_picker_surface::SessionPickerHost;
 use agent_client_protocol as acp;
 use serde_json::Value;
 use std::collections::HashSet;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::session::resolve_local_session_ids_any_cwd;
 use xai_grok_shell::session::unified_list::ListScope;
 use xai_grok_tools::implementations::skills::skill::extract_skill_display_text;
@@ -40,8 +41,8 @@ pub enum ConversationsPartial {
 impl ConversationsPartial {
     pub(crate) fn picker_notice(self) -> &'static str {
         match self {
-            Self::NoOauth => "Cloud chats need an xAI account, which isn't supported",
-            Self::Timeout | Self::Error => "Couldn't load conversations: retry",
+            Self::NoOauth => tl("Cloud chats need an xAI account, which isn't supported"),
+            Self::Timeout | Self::Error => tl("Couldn't load conversations: retry"),
         }
     }
 }
@@ -49,7 +50,7 @@ impl ConversationsPartial {
 pub(super) fn read_session_list_response(raw: &str) -> Result<Value, String> {
     let mut wrapper: Value = serde_json::from_str(raw).unwrap_or_default();
     if let Some(err) = wrapper.get("error") {
-        return Err(err.as_str().unwrap_or("unknown error").to_owned());
+        return Err(err.as_str().unwrap_or(tl("unknown error")).to_owned());
     }
     Ok(wrapper
         .get_mut("result")
@@ -90,7 +91,12 @@ pub(super) async fn parse_session_picker_entries_blocking(
         })
     })
     .await
-    .map_err(|error| format!("session list parse task failed: {error}"))?
+    .map_err(|error| {
+        tlf(
+            "session list parse task failed: {error}",
+            &[("error", &error)],
+        )
+    })?
 }
 /// Sessions older than 30 days, and sessions with no usable user prompt (empty `summary` after fallbacks), are dropped.
 ///
@@ -250,7 +256,7 @@ fn parse_session_picker_entries_with(
         .filter_map(|mut e| {
             if e.summary.is_empty() {
                 if e.source == "conversation" {
-                    e.summary = "Untitled".to_owned();
+                    e.summary = tl("Untitled").to_owned();
                 } else {
                     return None;
                 }
@@ -296,7 +302,10 @@ fn parse_session_picker_entries_with(
                 let local_ids = match resolve_local(&candidate_ids) {
                     Ok(local_ids) => local_ids,
                     Err(error) => {
-                        return Err(format!("couldn't resolve local sessions: {error}"));
+                        return Err(tlf(
+                            "couldn't resolve local sessions: {error}",
+                            &[("error", &error)],
+                        ));
                     }
                 };
                 parsed.retain_mut(|e| {

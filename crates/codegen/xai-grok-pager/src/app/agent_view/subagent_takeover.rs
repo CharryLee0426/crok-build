@@ -21,6 +21,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Span;
+use xai_grok_i18n::tl;
 /// What a subagent's fullscreen takeover inherits from a parent that sits in the dashboard overlay. The header and footer
 /// keep describing the parent, so its title, switcher, and `Ctrl+X` action come from it (its pending confirmation already
 /// arrives as `pending_hint`).
@@ -142,7 +143,9 @@ impl AgentView {
         let inner = frame.content;
         let _border_style = Style::default().fg(border_color);
         let info = self.subagent_sessions.get(child_sid);
-        let raw_description = info.map(|s| s.description.as_ref()).unwrap_or("subagent");
+        let raw_description = info
+            .map(|s| s.description.as_ref())
+            .unwrap_or(tl("subagent"));
         let is_running = info.is_some_and(|s| s.is_running());
         let elapsed = info
             .map(|s| crate::util::format_duration(s.display_elapsed()))
@@ -193,7 +196,12 @@ impl AgentView {
             self.subagent_views.get(child_sid).and_then(|cv| {
                 cv.resolve_turn_activity()
                     .map(|a| crate::app::subagent::format_activity_label(&a))
-                    .or_else(|| cv.session.state.is_busy().then(|| "Waiting".to_string()))
+                    .or_else(|| {
+                        cv.session
+                            .state
+                            .is_busy()
+                            .then(|| tl("Waiting").to_string())
+                    })
             })
         } else {
             None

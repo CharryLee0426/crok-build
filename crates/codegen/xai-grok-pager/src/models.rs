@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_shell::agent::config::Config as AgentConfig;
 use xai_grok_shell::cli_models::{AuthStatus, list_models};
 
@@ -9,13 +10,24 @@ use crate::client_identity::{PAGER_CLIENT_TYPE, PAGER_CLIENT_VERSION};
 
 pub async fn list_available_models(agent_config: &AgentConfig) -> Result<()> {
     match AuthStatus::resolve(agent_config) {
-        AuthStatus::ApiKey => println!("You are using XAI_API_KEY."),
-        AuthStatus::LoggedIn(host) => println!("You are logged in with {}.", host),
+        AuthStatus::ApiKey => println!("{}", tl("You are using XAI_API_KEY.")),
+        AuthStatus::LoggedIn(host) => println!(
+            "{}",
+            tlf("You are logged in with {host}.", &[("host", &host)])
+        ),
         AuthStatus::ModelCredentials(model) => {
-            println!("Model '{model}' is using provider credentials.");
+            println!(
+                "{}",
+                tlf(
+                    "Model '{model}' is using provider credentials.",
+                    &[("model", &model)]
+                )
+            );
         }
-        AuthStatus::DeploymentKey => println!("You are authenticated via deployment key."),
-        AuthStatus::NotAuthenticated => println!("You are not authenticated."),
+        AuthStatus::DeploymentKey => {
+            println!("{}", tl("You are authenticated via deployment key."))
+        }
+        AuthStatus::NotAuthenticated => println!("{}", tl("You are not authenticated.")),
     }
     println!();
 
@@ -28,12 +40,21 @@ pub async fn list_available_models(agent_config: &AgentConfig) -> Result<()> {
 
     let state = list_models(&spawned.channel.tx, PAGER_CLIENT_TYPE, PAGER_CLIENT_VERSION).await?;
 
-    println!("Default model: {}", state.current_model_id.0);
+    println!(
+        "{}",
+        tlf(
+            "Default model: {model}",
+            &[("model", &state.current_model_id.0)]
+        )
+    );
     println!();
-    println!("Available models:");
+    println!("{}", tl("Available models:"));
     for m in state.available_models {
         if m.model_id == state.current_model_id {
-            println!("  * {} (default)", m.model_id.0);
+            println!(
+                "  * {}",
+                tlf("{model} (default)", &[("model", &m.model_id.0)])
+            );
         } else {
             println!("  - {}", m.model_id.0);
         }

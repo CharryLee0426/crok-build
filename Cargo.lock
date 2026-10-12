@@ -14529,6 +14529,7 @@ dependencies = [
  "xai-grok-config",
  "xai-grok-env",
  "xai-grok-gboom",
+ "xai-grok-i18n",
  "xai-grok-markdown",
  "xai-grok-paths",
  "xai-grok-shared",

@@ -6,6 +6,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use xai_grok_i18n::{tl, tl_parts, tlf};
 
 use xai_grok_shell::tools::{TodoItem, TodoStatus};
 
@@ -65,16 +66,18 @@ pub(crate) fn format_elapsed(ms: u64) -> String {
 fn status_label(goal: &GoalDisplayState) -> (&'static str, Color, String) {
     let theme = Theme::current();
     match goal.status {
-        GoalDisplayStatus::Active => ("Active", theme.accent_success, active_phase_label(goal)),
+        GoalDisplayStatus::Active => (tl("Active"), theme.accent_success, active_phase_label(goal)),
         GoalDisplayStatus::UserPaused
         | GoalDisplayStatus::BackOffPaused
         | GoalDisplayStatus::NoProgressPaused
         | GoalDisplayStatus::InfraPaused
         | GoalDisplayStatus::Blocked => (goal.status.pause_label(), theme.warning, String::new()),
-        GoalDisplayStatus::Failed => ("Failed", theme.accent_error, String::new()),
-        GoalDisplayStatus::Interrupted => ("Interrupted", theme.accent_error, String::new()),
-        GoalDisplayStatus::BudgetLimited => ("Budget Limited", theme.accent_error, String::new()),
-        GoalDisplayStatus::Complete => ("Complete", theme.accent_success, String::new()),
+        GoalDisplayStatus::Failed => (tl("Failed"), theme.accent_error, String::new()),
+        GoalDisplayStatus::Interrupted => (tl("Interrupted"), theme.accent_error, String::new()),
+        GoalDisplayStatus::BudgetLimited => {
+            (tl("Budget Limited"), theme.accent_error, String::new())
+        }
+        GoalDisplayStatus::Complete => (tl("Complete"), theme.accent_success, String::new()),
     }
 }
 
@@ -202,7 +205,10 @@ fn sanitize_title(s: &str) -> String {
 /// [`wrap_pause_message_lines`] splits on the kept newlines for multi-line block reasons, so they never reach a rendered row.
 /// Shared by the height calc and the render so they wrap identical text.
 fn format_pause_reason(msg: &str) -> String {
-    format!("Reason: {}", strip_control_chars(msg, true))
+    tlf(
+        "Reason: {reason}",
+        &[("reason", &strip_control_chars(msg, true))],
+    )
 }
 
 /// True when the goal carries at least one signal from the completion classifier.
@@ -218,7 +224,7 @@ fn has_classifier_activity(goal: &GoalDisplayState) -> bool {
 fn classifier_details_display(path: Option<&str>, exists: bool) -> &str {
     match path {
         Some(p) if exists => p,
-        Some(_) => "(unavailable)",
+        Some(_) => tl("(unavailable)"),
         None => "-",
     }
 }
@@ -227,9 +233,9 @@ fn classifier_details_display(path: Option<&str>, exists: bool) -> &str {
 /// Explicit match (no wildcard) so adding a third verdict variant forces an audit of every render site.
 fn classifier_verdict_label(verdict: Option<GoalClassifierVerdict>) -> &'static str {
     match verdict {
-        Some(GoalClassifierVerdict::Achieved) => "Achieved",
-        Some(GoalClassifierVerdict::NotAchieved) => "Not Achieved",
-        None => "Not yet evaluated",
+        Some(GoalClassifierVerdict::Achieved) => tl("Achieved"),
+        Some(GoalClassifierVerdict::NotAchieved) => tl("Not Achieved"),
+        None => tl("Not yet evaluated"),
     }
 }
 
@@ -240,26 +246,26 @@ fn humanize_goal_event(event: &str, detail: Option<&str>) -> String {
     // Variable passthroughs (model/wire-derived) are control-stripped so they can't leak control bytes; the fixed labels below are `&'static`
     let phrase = |d: Option<&str>| d.map(|s| strip_control_chars(&s.replace('_', " "), false));
     match event {
-        "goal_created" => "Goal created".into(),
-        "planning_started" => "Planning started".into(),
-        "planning_completed" => "Planning completed".into(),
-        "planning_failed" => "Planning failed".into(),
-        "worker_started" => "Worker started".into(),
-        "worker_completed" => "Worker completed".into(),
-        "worker_failed" => "Worker failed".into(),
-        "context_rotated" => "Context rotated".into(),
+        "goal_created" => tl("Goal created").into(),
+        "planning_started" => tl("Planning started").into(),
+        "planning_completed" => tl("Planning completed").into(),
+        "planning_failed" => tl("Planning failed").into(),
+        "worker_started" => tl("Worker started").into(),
+        "worker_completed" => tl("Worker completed").into(),
+        "worker_failed" => tl("Worker failed").into(),
+        "context_rotated" => tl("Context rotated").into(),
         // A plain user pause has no extra cause worth showing.
         "goal_paused" => match phrase(detail).filter(|d| d != "user") {
-            Some(d) => format!("Paused: {d}"),
-            None => "Paused".into(),
+            Some(d) => tlf("Paused: {reason}", &[("reason", &d)]),
+            None => tl("Paused").into(),
         },
-        "goal_resumed" => "Resumed".into(),
-        "goal_completed" => "Completed".into(),
-        "goal_cleared" => "Cleared".into(),
-        "budget_exceeded" => "Budget exceeded".into(),
+        "goal_resumed" => tl("Resumed").into(),
+        "goal_completed" => tl("Completed").into(),
+        "goal_cleared" => tl("Cleared").into(),
+        "budget_exceeded" => tl("Budget exceeded").into(),
         "premature_stop_detected" => match phrase(detail) {
-            Some(d) => format!("Stopped early: {d}"),
-            None => "Stopped early".into(),
+            Some(d) => tlf("Stopped early: {reason}", &[("reason", &d)]),
+            None => tl("Stopped early").into(),
         },
         other => {
             let mut s = strip_control_chars(&other.replace('_', " "), false);
@@ -286,9 +292,9 @@ fn humanize_event_timestamp(ts: &str) -> String {
         .max(0) as u64;
     let ago = crate::util::format_time_ago(std::time::Duration::from_secs(secs));
     if ago == "just now" {
-        ago
+        tl("just now").to_string()
     } else {
-        format!("{ago} ago")
+        tlf("{time} ago", &[("time", &ago)])
     }
 }
 
@@ -464,7 +470,7 @@ pub fn render_goal_detail(
         .saturating_sub(2); // leading and trailing space
     let cleaned = sanitize_title(&goal.objective);
     let objective = if cleaned.is_empty() {
-        "Active Goal".to_owned()
+        tl("Active Goal").to_owned()
     } else {
         truncate_to_width(&cleaned, objective_budget)
     };
@@ -501,14 +507,16 @@ pub fn render_goal_detail(
     let w = inner.width.saturating_sub(2);
 
     let (status_text, status_color, phase_text) = status_label(goal);
+    let (status_before, status_after) = tl_parts("Status: {status}", "status");
     let mut status_spans = vec![
-        Span::styled("Status: ", Style::default().fg(theme.gray)),
+        Span::styled(status_before, Style::default().fg(theme.gray)),
         Span::styled(
             status_text,
             Style::default()
                 .fg(status_color)
                 .add_modifier(Modifier::BOLD),
         ),
+        Span::styled(status_after, Style::default().fg(theme.gray)),
     ];
     if !phase_text.is_empty() {
         status_spans.push(Span::styled(
@@ -525,9 +533,9 @@ pub fn render_goal_detail(
     }
 
     if goal.status.is_paused() {
-        let hint = format!(
-            "Status: {}. Type /goal resume to continue",
-            goal.status.pause_label()
+        let hint = tlf(
+            "Status: {status}. Type /goal resume to continue",
+            &[("status", &goal.status.pause_label())],
         );
         buf.set_line_safe(
             x,
@@ -541,11 +549,14 @@ pub fn render_goal_detail(
         GoalDisplayStatus::Failed | GoalDisplayStatus::Interrupted
     ) {
         let label = if goal.status == GoalDisplayStatus::Interrupted {
-            "Interrupted"
+            tl("Interrupted")
         } else {
-            "Failed"
+            tl("Failed")
         };
-        let hint = format!("Status: {label}. Type /goal clear, then start a new goal");
+        let hint = tlf(
+            "Status: {status}. Type /goal clear, then start a new goal",
+            &[("status", &label)],
+        );
         buf.set_line_safe(
             x,
             y,
@@ -590,16 +601,30 @@ pub fn render_goal_detail(
         let live = goal.live_tokens_used(context_used, active_subagent_tokens);
         let p = (live as f64 / budget as f64).min(1.0) as f32;
         let budget_str = format_tokens_compact(budget);
-        (p, format!("{tokens_str} / {budget_str} tokens"))
+        (
+            p,
+            tlf(
+                "{used} / {budget} tokens",
+                &[("used", &tokens_str), ("budget", &budget_str)],
+            ),
+        )
     } else {
-        (0.0, format!("{tokens_str} tokens"))
+        (0.0, tlf("{count} tokens", &[("count", &tokens_str)]))
     };
     let has_budget = goal.token_budget.is_some_and(|b| b > 0);
+    let elapsed_label = tlf("Elapsed: {time}", &[("time", &elapsed_str)]);
     let budget_label = if has_budget {
         let pct_display = format!(" ({:.0}%)", pct * 100.0);
-        format!("Budget: {budget_display}{pct_display}  Elapsed: {elapsed_str}")
+        let budget = format!("{budget_display}{pct_display}");
+        format!(
+            "{}  {elapsed_label}",
+            tlf("Budget: {budget}", &[("budget", &budget)])
+        )
     } else {
-        format!("Tokens: {budget_display}  Elapsed: {elapsed_str}")
+        format!(
+            "{}  {elapsed_label}",
+            tlf("Tokens: {tokens}", &[("tokens", &budget_display)])
+        )
     };
     buf.set_line_safe(
         x,
@@ -649,7 +674,7 @@ pub fn render_goal_detail(
             x,
             y,
             &Line::from(Span::styled(
-                "No progress items yet",
+                tl("No progress items yet"),
                 Style::default().fg(theme.gray),
             )),
             w,
@@ -660,7 +685,7 @@ pub fn render_goal_detail(
             x,
             y,
             &Line::from(Span::styled(
-                "Progress:",
+                tl("Progress:"),
                 Style::default()
                     .fg(theme.text_primary)
                     .add_modifier(Modifier::BOLD),
@@ -699,7 +724,7 @@ pub fn render_goal_detail(
                 x,
                 y,
                 &Line::from(Span::styled(
-                    format!("  +{remaining} more"),
+                    format!("  {}", tlf("+{count} more", &[("count", &remaining)])),
                     Style::default().fg(theme.gray),
                 )),
                 w,
@@ -718,19 +743,21 @@ pub fn render_goal_detail(
         if y >= inner.y + inner.height {
             return Some(close_rect);
         }
+        let (role_before, role_after) = tl_parts("Active Subagent: {role}", "role");
         let mut subagent_spans = vec![
-            Span::styled("Active Subagent: ", Style::default().fg(theme.gray)),
+            Span::styled(role_before, Style::default().fg(theme.gray)),
             Span::styled(
                 role.as_str(),
                 Style::default()
                     .fg(theme.accent_running)
                     .add_modifier(Modifier::BOLD),
             ),
+            Span::styled(role_after, Style::default().fg(theme.gray)),
         ];
         let rounds = goal.total_worker_rounds + goal.total_verify_rounds;
         if rounds > 0 {
             subagent_spans.push(Span::styled(
-                format!(" (round {rounds})"),
+                format!(" {}", tlf("(round {count})", &[("count", &rounds)])),
                 Style::default().fg(theme.gray),
             ));
         }
@@ -741,19 +768,25 @@ pub fn render_goal_detail(
             // Subagent detail line.
             let mut detail_parts: Vec<String> = Vec::new();
             if let Some(tok) = goal.live_subagent_tokens {
-                detail_parts.push(format!(
-                    "Tokens: {}",
-                    format_tokens_compact(tok.min(i64::MAX as u64) as i64)
+                detail_parts.push(tlf(
+                    "Tokens: {tokens}",
+                    &[(
+                        "tokens",
+                        &format_tokens_compact(tok.min(i64::MAX as u64) as i64),
+                    )],
                 ));
             }
             if let Some(ctx) = goal.live_context_pct {
-                detail_parts.push(format!("Context: {ctx}%"));
+                detail_parts.push(tlf(
+                    "Context: {percent}",
+                    &[("percent", &format!("{ctx}%"))],
+                ));
             }
             if let Some(turns) = goal.live_turn_count {
-                detail_parts.push(format!("Turns: {turns}"));
+                detail_parts.push(tlf("Turns: {count}", &[("count", &turns)]));
             }
             if let Some(tools) = goal.live_tool_call_count {
-                detail_parts.push(format!("Tools: {tools}"));
+                detail_parts.push(tlf("Tools: {count}", &[("count", &tools)]));
             }
             if !detail_parts.is_empty() {
                 let detail = format!("  {}", detail_parts.join("  "));
@@ -799,7 +832,7 @@ pub fn render_goal_detail(
                     x,
                     y,
                     &Line::from(Span::styled(
-                        format!("  +{remaining} more"),
+                        format!("  {}", tlf("+{count} more", &[("count", &remaining)])),
                         Style::default().fg(theme.gray),
                     )),
                     w,
@@ -824,7 +857,7 @@ pub fn render_goal_detail(
             x,
             y,
             &Line::from(Span::styled(
-                "Completion review:",
+                tl("Completion review:"),
                 Style::default()
                     .fg(theme.text_primary)
                     .add_modifier(Modifier::BOLD),
@@ -835,12 +868,14 @@ pub fn render_goal_detail(
 
         if y < inner.y + inner.height {
             let verdict_label = classifier_verdict_label(goal.last_classifier_verdict);
+            let (before, after) = tl_parts("Last verdict: {verdict}", "verdict");
             buf.set_line_safe(
                 x,
                 y,
                 &Line::from(vec![
-                    Span::styled("  Last verdict: ", Style::default().fg(theme.gray)),
+                    Span::styled(format!("  {before}"), Style::default().fg(theme.gray)),
                     Span::styled(verdict_label, Style::default().fg(theme.text_secondary)),
+                    Span::styled(after, Style::default().fg(theme.gray)),
                 ]),
                 w,
             );
@@ -855,12 +890,14 @@ pub fn render_goal_detail(
             } else {
                 attempts
             };
+            let (before, after) = tl_parts("Attempts: {attempts}", "attempts");
             buf.set_line_safe(
                 x,
                 y,
                 &Line::from(vec![
-                    Span::styled("  Attempts: ", Style::default().fg(theme.gray)),
+                    Span::styled(format!("  {before}"), Style::default().fg(theme.gray)),
                     Span::styled(attempts_display, Style::default().fg(theme.text_secondary)),
+                    Span::styled(after, Style::default().fg(theme.gray)),
                 ]),
                 w,
             );
@@ -872,15 +909,17 @@ pub fn render_goal_detail(
                 goal.last_classifier_details_path.as_deref(),
                 goal.last_classifier_details_exists,
             );
+            let (before, after) = tl_parts("Details: {path}", "path");
             buf.set_line_safe(
                 x,
                 y,
                 &Line::from(vec![
-                    Span::styled("  Details: ", Style::default().fg(theme.gray)),
+                    Span::styled(format!("  {before}"), Style::default().fg(theme.gray)),
                     Span::styled(
                         path_display.to_owned(),
                         Style::default().fg(theme.text_secondary),
                     ),
+                    Span::styled(after, Style::default().fg(theme.gray)),
                 ]),
                 w,
             );
@@ -902,7 +941,7 @@ pub fn render_goal_detail(
             x,
             y,
             &Line::from(Span::styled(
-                "Recent History:",
+                tl("Recent History:"),
                 Style::default()
                     .fg(theme.text_primary)
                     .add_modifier(Modifier::BOLD),
@@ -940,9 +979,16 @@ pub fn render_goal_detail(
             goal.status,
             GoalDisplayStatus::Failed | GoalDisplayStatus::Interrupted
         ) {
-            "Esc: close  /goal clear, then start a new goal"
+            format!(
+                "{}  {}",
+                tl("Esc: close"),
+                tl("/goal clear, then start a new goal")
+            )
         } else {
-            "Esc: close  /goal resume | pause | status | clear"
+            format!(
+                "{}  /goal resume | pause | status | clear",
+                tl("Esc: close")
+            )
         };
         buf.set_line_safe(x, y, &Line::from(Span::styled(hint, hint_style)), w);
     }

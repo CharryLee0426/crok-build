@@ -97,7 +97,7 @@ fn descriptions_are_not_left_in_english() {
 
 /// The text of a Rust string literal starting at the opening quote; `None` when `source` does not start one.
 fn string_literal(source: &str) -> Option<(String, usize)> {
-    let mut chars = source.char_indices();
+    let mut chars = source.char_indices().peekable();
     if chars.next()?.1 != '"' {
         return None;
     }
@@ -108,6 +108,12 @@ fn string_literal(source: &str) -> Option<(String, usize)> {
             '\\' => match chars.next()?.1 {
                 'n' => text.push('\n'),
                 't' => text.push('\t'),
+                // A backslash at the end of a line continues the literal after the next line's indentation
+                '\n' => {
+                    while chars.peek().is_some_and(|(_, c)| c.is_whitespace()) {
+                        chars.next();
+                    }
+                }
                 'u' => {
                     let rest = &source[at..];
                     let close = rest.find('}')?;
@@ -188,6 +194,102 @@ fn every_tr_call_matches_the_catalog() {
         seen > 100,
         "found only {seen} tr() calls: the scan is broken"
     );
+}
+
+/// The text of every call to `name` in `source` that starts with a string literal: `tl("…")`,
+/// `tlf("…", …)`. A call that passes a value (`tl(action.label)`) reads text marked elsewhere.
+fn marked_text(source: &str, name: &str) -> Vec<String> {
+    let call = format!("{name}(");
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(hit) = source[from..].find(&call) {
+        let at = from + hit;
+        from = at + call.len();
+        let before = &source[..at];
+        if before
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+        {
+            continue; // a longer name that ends the same way
+        }
+        if before.trim_end().ends_with("fn") {
+            continue; // its own definition
+        }
+        if let Some((text, _)) = string_literal(source[from..].trim_start()) {
+            found.push(text);
+        }
+    }
+    found
+}
+
+/// A comment that quotes a call is not a call.
+fn without_comment_lines(source: &str) -> String {
+    source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Most of the interface marks its text with `tl("English")` and its relatives, where the English is
+/// the catalog key. Each such string, in this crate and in the ones that draw for it, has an entry with
+/// a translation in every language: text marked but not translated would show English in the middle of
+/// another language.
+#[test]
+fn every_marked_string_has_a_translation() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    for dir in [
+        "src",
+        "../xai-grok-pager-render/src",
+        "../xai-grok-pager-bin/src",
+    ] {
+        rust_sources(&manifest.join(dir), &mut files);
+    }
+    let mut seen = 0;
+    let mut missing = std::collections::BTreeSet::new();
+    for file in files {
+        if file.ends_with("settings/i18n_tests.rs") {
+            continue;
+        }
+        let source =
+            without_comment_lines(&std::fs::read_to_string(&file).expect("readable source"));
+        for name in ["tl", "tlf", "tl_parts", "tlm"] {
+            for text in marked_text(&source, name) {
+                seen += 1;
+                for &locale in ALL_LOCALES {
+                    let entry = lookup_in(locale, &text).unwrap_or_default();
+                    let wrong_english = locale == Locale::En && entry != text;
+                    if entry.trim().is_empty() || wrong_english {
+                        missing.insert(format!("[{}] {text}", locale.code()));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "{} marked strings lack a catalog entry, starting with {:?}",
+        missing.len(),
+        missing.iter().take(12).collect::<Vec<_>>()
+    );
+    assert!(
+        seen > 1000,
+        "found only {seen} marked strings: the scan is broken"
+    );
+}
+
+#[test]
+fn the_scan_reads_marked_text() {
+    let source = without_comment_lines(
+        "// tl(\"in a comment\")\nlet a = tl(\"Copy\"); ctl(\"no\"); tl(label);\n\
+         let b = tlf(\n    \"Worked for {time}\",\n    &[(\"time\", &t)],\n);\npub const fn tlm(en: &str) {}\n\
+         let c = xai_grok_i18n::tl(\"a long \\\n          sentence\");",
+    );
+    assert_eq!(marked_text(&source, "tl"), vec!["Copy", "a long sentence"]);
+    assert_eq!(marked_text(&source, "tlf"), vec!["Worked for {time}"]);
+    assert!(marked_text(&source, "tlm").is_empty());
 }
 
 #[test]

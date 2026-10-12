@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use xai_grok_external_agent_migration::{
     ImportPlan, ImportRuleAction, ImportableItem, PathKind, find_project_root,
 };
+use xai_grok_i18n::{tl, tlf};
 
 use crate::theme::Theme;
 use crate::views::modal_window::{
@@ -113,11 +114,11 @@ impl ItemKind {
 
     fn label(&self) -> &'static str {
         match self {
-            Self::Permission => "Permissions",
-            Self::EnvVar => "Env vars",
-            Self::McpServer => "MCP servers",
-            Self::Hook => "Hooks",
-            Self::PathEntry => "Paths",
+            Self::Permission => tl("Permissions"),
+            Self::EnvVar => tl("Env vars"),
+            Self::McpServer => tl("MCP servers"),
+            Self::Hook => tl("Hooks"),
+            Self::PathEntry => tl("Paths"),
         }
     }
 
@@ -578,30 +579,33 @@ pub fn render_import_claude_modal(
     theme: &Theme,
     compact: bool,
 ) {
-    let confirm_label = format!("Enter import {}", state.selected_count());
+    let confirm_label = tlf(
+        "Enter import {count}",
+        &[("count", &state.selected_count())],
+    );
     let shortcuts = [
         Shortcut {
-            label: "\u{2191}\u{2193} navigate",
+            label: tl("↑↓ navigate"),
             clickable: false,
             id: SHORTCUT_ID_HINT,
         },
         Shortcut {
-            label: "space toggle",
+            label: tl("space toggle"),
             clickable: false,
             id: SHORTCUT_ID_HINT,
         },
         Shortcut {
-            label: "\u{2190}\u{2192} fold",
+            label: tl("←→ fold"),
             clickable: false,
             id: SHORTCUT_ID_HINT,
         },
         Shortcut {
-            label: "a all",
+            label: tl("a all"),
             clickable: true,
             id: SHORTCUT_ID_SELECT_ALL,
         },
         Shortcut {
-            label: "n none",
+            label: tl("n none"),
             clickable: true,
             id: SHORTCUT_ID_SELECT_NONE,
         },
@@ -611,13 +615,13 @@ pub fn render_import_claude_modal(
             id: SHORTCUT_ID_CONFIRM,
         },
         Shortcut {
-            label: "Esc cancel",
+            label: tl("Esc cancel"),
             clickable: true,
             id: SHORTCUT_ID_CANCEL,
         },
     ];
     let config = ModalWindowConfig {
-        title: "Import Claude settings",
+        title: tl("Import Claude settings"),
         tabs: None,
         shortcuts: &shortcuts,
         sizing: ModalSizing::default().with_compact(compact),
@@ -703,7 +707,7 @@ fn build_rows(
     if !plan.global_items.is_empty() {
         let scope_start = flat_index;
         let scope_key = format!("scope:{:?}", Scope::Global);
-        let label = "Global  ~/.crok/config.toml".to_string();
+        let label = format!("{}  ~/.crok/config.toml", tl("Global"));
         // Placeholder header; flat_indices filled after children are pushed.
         let scope_header_pos = rows.len();
         rows.push(Row::ScopeHeader {
@@ -733,7 +737,7 @@ fn build_rows(
         let project_config = find_project_root(cwd)
             .join(".grok")
             .join(xai_grok_config::USER_CONFIG_FILENAME);
-        let label = format!("Project  {}", project_config.display());
+        let label = format!("{}  {}", tl("Project"), project_config.display());
         let scope_header_pos = rows.len();
         rows.push(Row::ScopeHeader {
             label,
@@ -1024,8 +1028,8 @@ fn format_item_label(item: &ImportableItem) -> String {
         }
         ImportableItem::PathEntry { kind, path } => {
             let kind_str = match kind {
-                PathKind::Skill => "skill dir",
-                PathKind::Rule => "rule dir",
+                PathKind::Skill => tl("skill dir"),
+                PathKind::Rule => tl("rule dir"),
             };
             format!("{kind_str}: {path}")
         }

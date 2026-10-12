@@ -1,5 +1,6 @@
 use crate::app::actions::Effect;
 use crate::app::app_view::AppView;
+use xai_grok_i18n::{tl, tlf, tlm};
 
 /// Open the interactive Claude-import modal on the welcome screen.
 ///
@@ -19,7 +20,7 @@ pub(super) fn dispatch_import_claude(app: &mut AppView) -> Vec<Effect> {
             .retain(|w| !w.message.contains("Claude settings"));
         app.startup_warnings.push(crate::startup::StartupWarning {
             severity: crate::startup::WarningSeverity::Info,
-            message: "No Claude settings found to import.".into(),
+            message: tlm("No Claude settings found to import.").into(),
             action: None,
         });
         return vec![];
@@ -41,7 +42,7 @@ pub(super) fn dispatch_import_claude_confirm(app: &mut AppView) -> Vec<Effect> {
     let selected_count = filtered.global_items.len() + filtered.project_items.len();
 
     let mut summary = if selected_count == 0 {
-        "No items selected.".to_string()
+        tl("No items selected.").to_string()
     } else {
         filtered.summary(&cwd).trim_end().to_string()
     };
@@ -50,12 +51,17 @@ pub(super) fn dispatch_import_claude_confirm(app: &mut AppView) -> Vec<Effect> {
         match xai_grok_external_agent_migration::apply_import(&filtered, &cwd) {
             Ok(result) => {
                 summary.push_str(&format!(
-                    "\nImported {} of {} setting(s).",
-                    result.total(),
-                    total_in_modal
+                    "\n{}",
+                    tlf(
+                        "Imported {imported} of {total} setting(s).",
+                        &[("imported", &result.total()), ("total", &total_in_modal)],
+                    )
                 ));
                 for path in &result.modified_files {
-                    summary.push_str(&format!("\n  Updated: {}", path));
+                    summary.push_str(&format!(
+                        "\n  {}",
+                        tlf("Updated: {path}", &[("path", &path)])
+                    ));
                 }
             }
             Err(e) => {

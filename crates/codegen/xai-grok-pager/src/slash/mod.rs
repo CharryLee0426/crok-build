@@ -122,7 +122,8 @@ impl SuggestionRow {
         }
         Self {
             display: trigger.display.clone(),
-            description: trigger.description.clone(),
+            // The registry caches each description in English; a row is made per keystroke
+            description: xai_grok_i18n::tl(&trigger.description).to_string(),
             insert_text,
             indices: Vec::new(),
             tag: None,
@@ -670,7 +671,9 @@ impl SlashController {
                 snapshot.command_recognized = true;
                 snapshot.is_skill = command.is_skill();
                 if args_text_empty {
-                    snapshot.args_placeholder = command.arg_placeholder().map(|s| s.to_string());
+                    snapshot.args_placeholder = command
+                        .arg_placeholder()
+                        .map(|s| xai_grok_i18n::tl(s).to_string());
                 }
             }
         }
@@ -864,7 +867,9 @@ impl SlashController {
             .unwrap_or(0);
         snapshot.matches = suggestions.rows;
         if args_empty {
-            snapshot.args_placeholder = command.arg_placeholder().map(|s| s.to_string());
+            snapshot.args_placeholder = command
+                .arg_placeholder()
+                .map(|s| xai_grok_i18n::tl(s).to_string());
         }
 
         snapshot
@@ -1292,10 +1297,15 @@ impl SlashController {
 
 /// Label haystack. Keeps the model-name prefix when the label is not already in `match_text`.
 fn label_match_haystack(item: &ArgItem) -> String {
+    // The marker is drawn in the interface language; the English forms stay for rows built before a change
+    let active = format!(" {}", xai_grok_i18n::tl("(active)"));
+    let current = format!(" {}", xai_grok_i18n::tl("(current)"));
     let label = item
         .display
         .strip_suffix(" (active)")
         .or_else(|| item.display.strip_suffix(" (current)"))
+        .or_else(|| item.display.strip_suffix(active.as_str()))
+        .or_else(|| item.display.strip_suffix(current.as_str()))
         .unwrap_or(item.display.as_str());
     if contains_ignore_ascii_case(&item.match_text, label) {
         return label.to_string();

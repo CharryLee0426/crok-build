@@ -14,6 +14,8 @@ use std::ffi::{OsStr, OsString};
 use std::io::{self, Write};
 use std::sync::OnceLock;
 
+use xai_grok_i18n::{tl, tlf};
+
 /// Env var that forces screen-mode resolution regardless of CLI flag / config.
 /// Set only on the re-exec path so a config `[terminal] minimal = true` cannot keep a `/fullscreen` relaunch stuck in minimal, and vice-versa.
 /// Consumed (read **and removed**) exactly once at startup by [`take_screen_mode_env_override`]; not a public user interface.
@@ -204,7 +206,13 @@ pub(crate) fn exec_screen_mode_relaunch(session_id: &str, want_minimal: bool) ->
     } else {
         "/minimal"
     };
-    eprintln!("Reopening session in {mode_label} mode… (switch back with {reverse})");
+    eprintln!(
+        "{}",
+        tlf(
+            "Reopening session in {mode} mode… (switch back with {command})",
+            &[("mode", &tl(mode_label)), ("command", &reverse)],
+        )
+    );
     let _ = io::stdout().flush();
     let _ = io::stderr().flush();
 

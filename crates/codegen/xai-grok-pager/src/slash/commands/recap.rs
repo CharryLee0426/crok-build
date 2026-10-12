@@ -6,6 +6,7 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 pub struct RecapCommand;
 
@@ -13,7 +14,7 @@ impl SlashCommand for RecapCommand {
     slash_meta! {
         name: "recap",
         aliases: ["summarize"],
-        description: "Summarize the session so far",
+        description: tlm("Summarize the session so far"),
         usage: "/recap",
         session_scoped: true,
     }

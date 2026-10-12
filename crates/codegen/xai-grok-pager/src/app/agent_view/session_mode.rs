@@ -1,6 +1,7 @@
 //! Session modes an agent publishes, kept next to the plan flags every plan surface already reads.
 
 use agent_client_protocol as acp;
+use xai_grok_i18n::tlm;
 use xai_grok_tools::types::SessionMode;
 
 use crate::app::agent_view::AgentView;
@@ -44,7 +45,7 @@ impl AgentView {
     /// Same flag the prompt row uses when it is not in commenting / plan-approval chrome.
     pub(crate) fn prompt_row_mode_label(&self) -> Option<&'static str> {
         if self.plan_mode_pending.unwrap_or(self.plan_mode_active) {
-            Some("plan")
+            Some(tlm("plan"))
         } else {
             self.published_mode_label()
         }

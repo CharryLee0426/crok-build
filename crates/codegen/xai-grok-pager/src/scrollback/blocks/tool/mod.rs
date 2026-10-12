@@ -41,6 +41,7 @@ use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockOutput, DisplayMode,
 };
 use std::fmt;
+use xai_grok_i18n::{fill, tl, tlm};
 
 /// Shared selection-range id for tool-call header lines.
 /// Headers are single logical selection targets (path/query/url/command);
@@ -141,6 +142,71 @@ impl VerbGroupKind {
             VerbGroupKind::OtherTool => ("tool", "tools"),
         };
         if count == 1 { one } else { many }
+    }
+
+    /// One bucket of a verb-group row in the interface language: "Read 3 files", "Searching 1 pattern".
+    /// In English it is `verb(running)`, the count and `noun(count)`. Each combination is a whole sentence,
+    /// chosen by tense and number, so that a language can order and inflect it its own way.
+    pub fn summary(self, running: bool, count: usize) -> String {
+        let sentence = match (self, running, count == 1) {
+            (VerbGroupKind::File, false, true) => tl("Read {count} file"),
+            (VerbGroupKind::File, false, false) => tl("Read {count} files"),
+            (VerbGroupKind::File, true, true) => tl("Reading {count} file"),
+            (VerbGroupKind::File, true, false) => tl("Reading {count} files"),
+            (VerbGroupKind::Skill, false, true) => tl("Read {count} skill"),
+            (VerbGroupKind::Skill, false, false) => tl("Read {count} skills"),
+            (VerbGroupKind::Skill, true, true) => tl("Reading {count} skill"),
+            (VerbGroupKind::Skill, true, false) => tl("Reading {count} skills"),
+            (VerbGroupKind::Search, false, true) => tl("Searched {count} pattern"),
+            (VerbGroupKind::Search, false, false) => tl("Searched {count} patterns"),
+            (VerbGroupKind::Search, true, true) => tl("Searching {count} pattern"),
+            (VerbGroupKind::Search, true, false) => tl("Searching {count} patterns"),
+            (VerbGroupKind::Dir, false, true) => tl("Listed {count} dir"),
+            (VerbGroupKind::Dir, false, false) => tl("Listed {count} dirs"),
+            (VerbGroupKind::Dir, true, true) => tl("Listing {count} dir"),
+            (VerbGroupKind::Dir, true, false) => tl("Listing {count} dirs"),
+            (VerbGroupKind::WebFetch, false, true) => tl("Fetched {count} website"),
+            (VerbGroupKind::WebFetch, false, false) => tl("Fetched {count} websites"),
+            (VerbGroupKind::WebFetch, true, true) => tl("Fetching {count} website"),
+            (VerbGroupKind::WebFetch, true, false) => tl("Fetching {count} websites"),
+            (VerbGroupKind::WebSearch, false, true) => tl("Searched {count} website"),
+            (VerbGroupKind::WebSearch, false, false) => tl("Searched {count} websites"),
+            (VerbGroupKind::WebSearch, true, true) => tl("Searching {count} website"),
+            (VerbGroupKind::WebSearch, true, false) => tl("Searching {count} websites"),
+            (VerbGroupKind::MemorySearch, false, true) => tl("Searched {count} memory"),
+            (VerbGroupKind::MemorySearch, false, false) => tl("Searched {count} memories"),
+            (VerbGroupKind::MemorySearch, true, true) => tl("Searching {count} memory"),
+            (VerbGroupKind::MemorySearch, true, false) => tl("Searching {count} memories"),
+            (VerbGroupKind::IntegrationSearch, false, true) => tl("Searched {count} MCP tool"),
+            (VerbGroupKind::IntegrationSearch, false, false) => tl("Searched {count} MCP tools"),
+            (VerbGroupKind::IntegrationSearch, true, true) => tl("Searching {count} MCP tool"),
+            (VerbGroupKind::IntegrationSearch, true, false) => tl("Searching {count} MCP tools"),
+            (VerbGroupKind::Subagent, false, true) => tl("Ran {count} subagent"),
+            (VerbGroupKind::Subagent, false, false) => tl("Ran {count} subagents"),
+            (VerbGroupKind::Subagent, true, true) => tl("Running {count} subagent"),
+            (VerbGroupKind::Subagent, true, false) => tl("Running {count} subagents"),
+            (VerbGroupKind::Command, false, true) => tl("Ran {count} command"),
+            (VerbGroupKind::Command, false, false) => tl("Ran {count} commands"),
+            (VerbGroupKind::Command, true, true) => tl("Running {count} command"),
+            (VerbGroupKind::Command, true, false) => tl("Running {count} commands"),
+            (VerbGroupKind::EditFile, false, true) => tl("Edited {count} file"),
+            (VerbGroupKind::EditFile, false, false) => tl("Edited {count} files"),
+            (VerbGroupKind::EditFile, true, true) => tl("Editing {count} file"),
+            (VerbGroupKind::EditFile, true, false) => tl("Editing {count} files"),
+            (VerbGroupKind::McpCall, false, true) => tl("Called {count} MCP tool"),
+            (VerbGroupKind::McpCall, false, false) => tl("Called {count} MCP tools"),
+            (VerbGroupKind::McpCall, true, true) => tl("Calling {count} MCP tool"),
+            (VerbGroupKind::McpCall, true, false) => tl("Calling {count} MCP tools"),
+            (VerbGroupKind::Message, false, true) => tl("Sent {count} message"),
+            (VerbGroupKind::Message, false, false) => tl("Sent {count} messages"),
+            (VerbGroupKind::Message, true, true) => tl("Sending {count} message"),
+            (VerbGroupKind::Message, true, false) => tl("Sending {count} messages"),
+            (VerbGroupKind::OtherTool, false, true) => tl("Ran {count} tool"),
+            (VerbGroupKind::OtherTool, false, false) => tl("Ran {count} tools"),
+            (VerbGroupKind::OtherTool, true, true) => tl("Running {count} tool"),
+            (VerbGroupKind::OtherTool, true, false) => tl("Running {count} tools"),
+        };
+        fill(sentence, &[("count", &count)])
     }
 }
 
@@ -489,7 +555,7 @@ impl ToolCallBlock {
                 ToolCallBlock::IntegrationSearch(IntegrationSearchToolCallBlock::new(summary))
             }
             "use_tool" => ToolCallBlock::UseTool(UseToolCallBlock::new(summary)),
-            "skill" => ToolCallBlock::Skill(OtherToolCallBlock::new("Skill", summary)),
+            "skill" => ToolCallBlock::Skill(OtherToolCallBlock::new(tlm("Skill"), summary)),
             _ => ToolCallBlock::Other(OtherToolCallBlock::new(name, summary)),
         }
     }

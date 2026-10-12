@@ -10,6 +10,7 @@ use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode, Selectable,
 };
 use crate::theme::Theme;
+use xai_grok_i18n::{tl, tlf};
 
 const EXECUTE_STDOUT_RANGE_BASE: u16 = 1;
 
@@ -195,11 +196,13 @@ impl ExecuteToolCallBlock {
                 } else {
                     theme.primary().add_modifier(Modifier::BOLD)
                 };
-                let mut spans = vec![Span::styled("Run ".to_string(), label_style)];
-                let mut hang = UnicodeWidthStr::width("Run ");
+                let run = format!("{} ", tl("Run"));
+                let mut hang = UnicodeWidthStr::width(run.as_str());
+                let mut spans = vec![Span::styled(run, label_style)];
                 if self.bash_mode {
-                    spans.push(Span::styled("(user) ".to_string(), theme.muted()));
-                    hang += UnicodeWidthStr::width("(user) ");
+                    let user = format!("({}) ", tl("user"));
+                    hang += UnicodeWidthStr::width(user.as_str());
+                    spans.push(Span::styled(user, theme.muted()));
                 }
                 (spans, hang)
             }
@@ -288,10 +291,10 @@ impl ExecuteToolCallBlock {
         } else {
             theme.primary().add_modifier(Modifier::BOLD)
         };
-        let mut spans = vec![Span::styled("Run ", label_style)];
+        let mut spans = vec![Span::styled(format!("{} ", tl("Run")), label_style)];
         if self.bash_mode {
             // Same style as session event messages (e.g. "Worked for 2.3s")
-            spans.push(Span::styled("(user) ", theme.muted()));
+            spans.push(Span::styled(format!("({}) ", tl("user")), theme.muted()));
         }
         // Single ratatui Line: never pass raw newlines (callers that need multi-line command display use `push_command_soft_wrap`)
         let title_owned;
@@ -496,7 +499,8 @@ impl ExecuteToolCallBlock {
             lines.push(BlockLine::separator(Line::from("")));
             let error_style = ratatui::style::Style::default().fg(theme.accent_error);
             let err_pad = " ".repeat(result_pad);
-            for line in error.lines() {
+            // A fallback stored in English ("Command failed") is looked up when it is drawn; other errors show as they are.
+            for line in tl(error).lines() {
                 lines.push(BlockLine::separator(Line::from(Span::styled(
                     format!("{err_pad}{line}"),
                     error_style,
@@ -549,7 +553,7 @@ impl ExecuteToolCallBlock {
                     let hidden = total - threshold;
                     lines.push(apply_pad(
                         BlockLine::separator(Line::from(Span::styled(
-                            format!("\u{2026} +{hidden} lines"),
+                            format!("\u{2026} {}", tlf("+{count} lines", &[("count", &hidden)])),
                             theme.muted(),
                         )))
                         .with_panel_background(theme.bg_dark),
@@ -762,7 +766,7 @@ impl BlockContent for ExecuteToolCallBlock {
         {
             lines.push(Line::from(""));
             let error_style = ratatui::style::Style::default().fg(theme.accent_error);
-            for line in error.lines() {
+            for line in tl(error).lines() {
                 lines.push(Line::from(Span::styled(line.to_string(), error_style)));
             }
         }

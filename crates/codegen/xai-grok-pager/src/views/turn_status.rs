@@ -21,6 +21,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tl_parts, tlf};
 use xai_grok_workspace::permission::mcp_pretty_name_if_qualified;
 /// Show each spinner frame for this many animation ticks.
 /// At ~30fps, 4 ticks is ~133ms per frame, about 7.5 spinner fps.
@@ -94,7 +95,6 @@ impl Watchers {
 pub(crate) fn format_still_running<'a>(
     kinds: impl IntoIterator<Item = (usize, &'a str)>,
 ) -> Option<String> {
-    use std::fmt::Write as _;
     let mut label = String::with_capacity(48);
     for (count, noun) in kinds {
         if count == 0 {
@@ -103,14 +103,34 @@ pub(crate) fn format_still_running<'a>(
         if !label.is_empty() {
             label.push_str(" \u{00b7} ");
         }
-        let plural = if count == 1 { "" } else { "s" };
-        let _ = write!(label, "{count} {noun}{plural}");
+        label.push_str(&counted_kind(count, noun));
     }
     if label.is_empty() {
         return None;
     }
-    label.push_str(" still running");
-    Some(label)
+    Some(tlf("{items} still running", &[("items", &label)]))
+}
+/// One kind's count for the still-running cue, e.g. `"2 monitors"`: a whole phrase per number, so each language declines it its own way.
+/// A noun that has no phrases here reads as in English (plain-`s` plural).
+fn counted_kind(count: usize, noun: &str) -> String {
+    let one = count == 1;
+    let phrase = match noun {
+        "command" if one => tl("{count} command"),
+        "command" => tl("{count} commands"),
+        "monitor" if one => tl("{count} monitor"),
+        "monitor" => tl("{count} monitors"),
+        "loop" if one => tl("{count} loop"),
+        "loop" => tl("{count} loops"),
+        "subagent" if one => tl("{count} subagent"),
+        "subagent" => tl("{count} subagents"),
+        "workflow" if one => tl("{count} workflow"),
+        "workflow" => tl("{count} workflows"),
+        _ => {
+            let plural = if one { "" } else { "s" };
+            return format!("{count} {noun}{plural}");
+        }
+    };
+    xai_grok_i18n::fill(phrase, &[("count", &count)])
 }
 /// The idle watcher cue's label, e.g. `"1 command · 2 monitors · 1 loop · 1 subagent still running"`; `None` when no watchers are live.
 /// It leads with the counts (not an ambient "watching") so a glance under a "Worked for X" marker still reads as unfinished work.
@@ -216,7 +236,7 @@ pub fn render_turn_status(
                 Style::default().fg(diamond_color),
             ),
             Span::styled(
-                "agent idle ~ waiting on your edit",
+                tl("agent idle ~ waiting on your edit"),
                 Style::default().fg(theme.gray),
             ),
         ];
@@ -225,16 +245,25 @@ pub fn render_turn_status(
     }
     if state.is_idle() || parked {
         let parked_suffix = if held_queue > 0 && held_queue_top_sendable {
-            format!(" \u{00b7} {held_queue} queued, Enter to send now")
+            format!(
+                " \u{00b7} {}",
+                tlf(
+                    "{count} queued, Enter to send now",
+                    &[("count", &held_queue)]
+                )
+            )
         } else if held_queue > 0 {
-            format!(" \u{00b7} {held_queue} queued")
+            format!(
+                " \u{00b7} {}",
+                tlf("{count} queued", &[("count", &held_queue)])
+            )
         } else {
-            " \u{00b7} send a message to interrupt".to_string()
+            format!(" \u{00b7} {}", tl("send a message to interrupt"))
         };
         let cue = match (still_running_label(watchers), parked) {
             (Some(label), true) => Some(format!("{label}{parked_suffix}")),
             (Some(label), false) => Some(label),
-            (None, true) => Some(format!("waiting{parked_suffix}")),
+            (None, true) => Some(format!("{}{parked_suffix}", tl("waiting"))),
             (None, false) => None,
         };
         if let Some(cue) = cue {
@@ -297,19 +326,21 @@ pub fn render_turn_status(
         );
     let bg_str = if show_bg {
         if bg_hovered {
-            " [send to bg]"
+            format!(" [{}]", tl("send to bg"))
         } else {
-            " [\u{2193}]"
+            " [\u{2193}]".to_string()
         }
     } else {
-        ""
+        String::new()
     };
+    let bg_str = bg_str.as_str();
     let bg_width = bg_str.width();
-    let cancel_str: &str = match (show_cancel, show_bg) {
-        (false, _) => "",
-        (true, true) => "[stop]",
-        (true, false) => " [stop]",
+    let cancel_str = match (show_cancel, show_bg) {
+        (false, _) => String::new(),
+        (true, true) => format!("[{}]", tl("stop")),
+        (true, false) => format!(" [{}]", tl("stop")),
     };
+    let cancel_str: &str = cancel_str.as_str();
     let cancel_width = cancel_str.width();
     let right_width = turn_timer_width + bg_width + cancel_width;
     let spinner_str = if is_pending_user_input {
@@ -369,7 +400,7 @@ pub fn render_turn_status(
                     .strip_prefix("Ask: ")
                     .or_else(|| title.strip_prefix("Ask "))
                     .unwrap_or(title.as_str());
-                let msg = format!("Waiting on answers for {detail}");
+                let msg = tlf("Waiting on answers for {subject}", &[("subject", &detail)]);
                 let display = truncate_str(&msg, available_for_label);
                 left_spans.push(Span::styled(display, activity_style));
             } else if let Some(desc) = description
@@ -381,38 +412,53 @@ pub fn render_turn_status(
                 let display = truncate_str(&msg, available_for_label);
                 left_spans.push(Span::styled(display, activity_style));
             } else if let Some(query) = title.strip_prefix("Web search: ") {
-                let prefix = "Search ";
-                let prefix_width = prefix.width();
+                let (prefix, after) = tl_parts("Search {query}", "query");
+                let prefix_width = prefix.width() + after.width();
                 let query = query.trim_matches('"');
                 let max_query = available_for_label.saturating_sub(prefix_width).max(5);
                 let display = truncate_str(query, max_query);
                 left_spans.push(Span::styled(prefix, Style::default().fg(theme.gray)));
                 left_spans.push(Span::styled(display, Style::default().fg(theme.command)));
+                if !after.is_empty() {
+                    left_spans.push(Span::styled(after, Style::default().fg(theme.gray)));
+                }
             } else if let Some(url) = title.strip_prefix("Fetch: ") {
-                let prefix = "Fetch ";
-                let prefix_width = prefix.width();
+                let (prefix, after) = tl_parts("Fetch {url}", "url");
+                let prefix_width = prefix.width() + after.width();
                 let max_url = available_for_label.saturating_sub(prefix_width).max(5);
                 let display = truncate_str(url, max_url);
                 left_spans.push(Span::styled(prefix, Style::default().fg(theme.gray)));
                 left_spans.push(Span::styled(display, Style::default().fg(theme.command)));
+                if !after.is_empty() {
+                    left_spans.push(Span::styled(after, Style::default().fg(theme.gray)));
+                }
             } else {
-                let prefix = "Run ";
+                let (prefix, after) = tl_parts("Run {command}", "command");
                 let pretty = mcp_pretty_name_if_qualified(title.as_str());
                 let detail = pretty.as_str();
-                let prefix_width = prefix.width();
+                let prefix_width = prefix.width() + after.width();
                 let max_cmd = available_for_label.saturating_sub(prefix_width).max(5);
                 let first_line = detail.lines().next().unwrap_or(detail);
                 let display = truncate_str(first_line, max_cmd);
                 left_spans.push(Span::styled(prefix, Style::default().fg(theme.gray)));
                 left_spans.extend(crate::views::tasks_pane::highlight_bash_command(&display));
+                if !after.is_empty() {
+                    left_spans.push(Span::styled(after, Style::default().fg(theme.gray)));
+                }
             }
         }
     } else {
         let suffix = if held_queue > 0 && is_sendable_wait(activity) {
             if held_queue_top_sendable {
-                format!(" · {held_queue} queued, Enter to send now")
+                format!(
+                    " · {}",
+                    tlf(
+                        "{count} queued, Enter to send now",
+                        &[("count", &held_queue)]
+                    )
+                )
             } else {
-                format!(" · {held_queue} queued")
+                format!(" · {}", tlf("{count} queued", &[("count", &held_queue)]))
             }
         } else {
             String::new()
@@ -490,22 +536,22 @@ fn compute_activity(
     match (state, activity) {
         (AgentState::TurnCancelling | AgentState::CommandCancelling { .. }, _) => (
             Style::default().fg(theme.accent_error),
-            "Cancelling…".to_string(),
+            tl("Cancelling…").to_string(),
             false,
         ),
         (AgentState::TurnRunning, _) if goal_verifying => (
             Style::default().fg(theme.text_secondary),
-            "Verifying…".to_string(),
+            tl("Verifying…").to_string(),
             false,
         ),
         (AgentState::TurnRunning, Some(TurnActivity::Thinking)) => (
             Style::default().fg(theme.text_secondary),
-            "Thinking…".to_string(),
+            tl("Thinking…").to_string(),
             false,
         ),
         (AgentState::TurnRunning, Some(TurnActivity::Responding)) => (
             Style::default().fg(theme.text_secondary),
-            "Responding…".to_string(),
+            tl("Responding…").to_string(),
             false,
         ),
         (AgentState::TurnRunning, Some(TurnActivity::ToolRunning { title, description })) => {
@@ -523,7 +569,7 @@ fn compute_activity(
         }
         (AgentState::TurnRunning, Some(TurnActivity::AutoCompacting)) => (
             Style::default().fg(theme.text_secondary),
-            "Compacting…".to_string(),
+            tl("Compacting…").to_string(),
             false,
         ),
         (
@@ -557,12 +603,12 @@ fn compute_activity(
         ),
         (AgentState::TurnRunning, None) if is_bash_turn => (
             Style::default().fg(theme.text_secondary),
-            "Running…".to_string(),
+            tl("Running…").to_string(),
             false,
         ),
         (AgentState::TurnRunning, None) => (
             Style::default().fg(theme.text_secondary),
-            "Waiting…".to_string(),
+            tl("Waiting…").to_string(),
             false,
         ),
         (
@@ -605,7 +651,7 @@ fn render_starting_session(
     let style = Style::default().fg(theme.gray_dim);
     let spans = vec![
         Span::styled(format!("{frame} "), style),
-        Span::styled("Starting session…", style),
+        Span::styled(tl("Starting session…"), style),
         Span::styled(timer_str, style),
     ];
     buf.set_line(area.x, area.y, &Line::from(spans), area.width);

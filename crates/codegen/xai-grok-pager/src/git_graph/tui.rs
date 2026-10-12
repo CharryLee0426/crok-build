@@ -15,6 +15,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget},
 };
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tl_parts, tlf};
 
 use super::data::{self, Commit, FileStat, GraphData, RefKind, Scope};
 use super::layout::Row;
@@ -171,16 +172,20 @@ impl GitGraphOverlay {
             None => {
                 let text = match &self.error {
                     Some(error) => format!(
-                        "Could not read the commit graph.\n\n{}\n\nr retry · Esc close",
-                        clean(error)
+                        "{}\n\n{}\n\nr {} · Esc {}",
+                        tl("Could not read the commit graph."),
+                        clean(error),
+                        tl("retry"),
+                        tl("close")
                     ),
                     None => format!(
-                        "Reading the commit graph…\n\n{}",
+                        "{}\n\n{}",
+                        tl("Reading the commit graph…"),
                         clean(&self.cwd.display().to_string())
                     ),
                 };
                 Paragraph::new(text)
-                    .block(panel(" Git graph ".to_owned(), true, theme))
+                    .block(panel(format!(" {} ", tl("Git graph")), true, theme))
                     .wrap(ratatui::widgets::Wrap { trim: false })
                     .render(area, buf);
             }
@@ -461,9 +466,14 @@ impl Explorer {
 
     fn render(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme, status: Status<'_>) {
         if area.width < 30 || area.height < 8 {
-            Paragraph::new("Git graph\nResize to at least 30 × 8.\nq exits")
-                .style(Style::default().fg(theme.text_primary))
-                .render(area, buf);
+            Paragraph::new(format!(
+                "{}\n{}\n{}",
+                tl("Git graph"),
+                tl("Resize to at least 30 × 8."),
+                tlf("{key} exits", &[("key", &"q")])
+            ))
+            .style(Style::default().fg(theme.text_primary))
+            .render(area, buf);
             return;
         }
         let palette = palette(theme);
@@ -490,11 +500,36 @@ impl Explorer {
             self.render_list(content_area, buf, theme, &palette);
         }
         let hint = if self.searching {
-            " Type to search · Enter keep · Esc cancel · Ctrl-U clear"
+            format!(
+                " {} · Enter {} · Esc {} · Ctrl-U {}",
+                tl("Type to search"),
+                tl("keep"),
+                tl("cancel"),
+                tl("clear")
+            )
         } else if area.width < 80 {
-            " ↑↓ move  Tab details  / search  a scope  ? help  q close"
+            format!(
+                " ↑↓ {}  Tab {}  / {}  a {}  ? {}  q {}",
+                tl("move"),
+                tl("details"),
+                tl("search"),
+                tl("scope"),
+                tl("help"),
+                tl("close")
+            )
         } else {
-            " ↑↓/jk move  Tab details  / search  n/N match  a all/current  m more  r reload  ? help  q close"
+            format!(
+                " ↑↓/jk {}  Tab {}  / {}  n/N {}  a {}  m {}  r {}  ? {}  q {}",
+                tl("move"),
+                tl("details"),
+                tl("search"),
+                tl("match"),
+                tl("all/current"),
+                tl("more"),
+                tl("reload"),
+                tl("help"),
+                tl("close")
+            )
         };
         Paragraph::new(hint)
             .style(Style::default().fg(theme.text_secondary))
@@ -519,7 +554,7 @@ impl Explorer {
                     .fg(theme.text_primary)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("/ git graph  ", muted),
+            Span::styled(format!("/ {}  ", tl("git graph")), muted),
             Span::styled(
                 clean_line(&repo),
                 Style::default()
@@ -532,30 +567,39 @@ impl Explorer {
             .add_modifier(Modifier::BOLD);
         match (&data.branch, &data.head) {
             (Some(branch), _) => {
-                first.push(Span::styled("  on ", muted));
+                let (before, after) = tl_parts("on {branch}", "branch");
+                first.push(Span::styled(format!("  {before}"), muted));
                 first.push(Span::styled(clean_line(branch), branch_style));
+                if !after.is_empty() {
+                    first.push(Span::styled(after, muted));
+                }
             }
             (None, Some(head)) => {
-                first.push(Span::styled("  detached at ", muted));
+                let (before, after) = tl_parts("detached at {commit}", "commit");
+                first.push(Span::styled(format!("  {before}"), muted));
                 first.push(Span::styled(
                     head.get(..7).unwrap_or(head).to_owned(),
                     branch_style,
                 ));
+                if !after.is_empty() {
+                    first.push(Span::styled(after, muted));
+                }
             }
-            (None, None) => first.push(Span::styled("  no commits yet", muted)),
+            (None, None) => first.push(Span::styled(format!("  {}", tl("no commits yet")), muted)),
         }
         let commits = data
             .commits
             .iter()
             .filter(|commit| commit.uncommitted.is_none())
             .count();
+        let commit_count = format!("{commits}{}", if data.truncated { "+" } else { "" });
         let mut second = vec![Span::styled(
             format!(
-                " {commits}{} commits · {} branches · {} remote · {} tags · {}",
-                if data.truncated { "+" } else { "" },
-                data.local_branches,
-                data.remote_branches,
-                data.tags,
+                " {} · {} · {} · {} · {}",
+                tlf("{count} commits", &[("count", &commit_count)]),
+                tlf("{count} branches", &[("count", &data.local_branches)]),
+                tlf("{count} remote", &[("count", &data.remote_branches)]),
+                tlf("{count} tags", &[("count", &data.tags)]),
                 data.scope.label()
             ),
             muted,
@@ -563,16 +607,16 @@ impl Explorer {
         if !self.query.is_empty() {
             second.push(Span::styled(
                 format!(
-                    "   /{} · {} matches",
+                    "   /{} · {}",
                     clean_line(&self.query),
-                    self.matches.len()
+                    tlf("{count} matches", &[("count", &self.matches.len())])
                 ),
                 Style::default().fg(theme.fuzzy_accent),
             ));
         }
         if status.loading {
             second.push(Span::styled(
-                "   reading…",
+                format!("   {}", tl("reading…")),
                 Style::default().fg(theme.running),
             ));
         }
@@ -593,7 +637,8 @@ impl Explorer {
     fn render_list(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme, palette: &[Color]) {
         let count = self.data.commits.len();
         let title = format!(
-            " Commits · {}/{} ",
+            " {} · {}/{} ",
+            tl("Commits"),
             if count == 0 { 0 } else { self.selected + 1 },
             count
         );
@@ -606,9 +651,13 @@ impl Explorer {
         self.list_page = inner.height as usize;
         if count == 0 {
             Paragraph::new(if self.data.scope == Scope::Current {
-                "No commits yet.\na shows every branch."
+                format!(
+                    "{}\n{}",
+                    tl("No commits yet."),
+                    tlf("{key} shows every branch.", &[("key", &"a")])
+                )
             } else {
-                "No commits yet."
+                tl("No commits yet.").to_owned()
             })
             .style(Style::default().fg(theme.text_secondary))
             .render(inner, buf);
@@ -662,7 +711,7 @@ impl Explorer {
             }
             if width >= 50 {
                 right.push(Span::styled(
-                    format!("{:>4}", ago(self.now, commit.time)),
+                    right_aligned(&ago(self.now, commit.time), 4),
                     muted,
                 ));
             }
@@ -695,7 +744,12 @@ impl Explorer {
         } else {
             Style::default().fg(theme.text_primary)
         };
-        left.push(Span::styled(clean_line(&commit.subject), subject_style));
+        // The uncommitted row's subject is interface text: say it in the language of this frame
+        let subject = match commit.uncommitted {
+            Some(changed) => data::uncommitted_subject(changed),
+            None => clean_line(&commit.subject),
+        };
+        left.push(Span::styled(subject, subject_style));
         let left = truncate_line(Line::from(left), budget);
         let used: usize = left.spans.iter().map(|span| span.content.width()).sum();
         spans.extend(left.spans);
@@ -707,12 +761,16 @@ impl Explorer {
     }
 
     fn render_detail(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme, palette: &[Color]) {
-        let title = if self.detail_focus {
-            " Commit · focused "
-        } else {
-            " Commit · Tab to focus "
-        };
-        let block = panel(title.to_owned(), self.detail_focus, theme);
+        let title = format!(
+            " {} · {} ",
+            tl("Commit"),
+            if self.detail_focus {
+                tl("focused")
+            } else {
+                tl("Tab to focus")
+            }
+        );
+        let block = panel(title, self.detail_focus, theme);
         let inner = block.inner(area);
         block.render(area, buf);
         if inner.height == 0 || inner.width < 4 {
@@ -745,11 +803,19 @@ impl Explorer {
             .style(Style::default().fg(theme.text_primary))
             .render(lines_area, buf);
         if scroll_area.height > 0 && self.detail_lines.len() > self.detail_height {
+            let first = self.detail_scroll + 1;
+            let last = (self.detail_scroll + self.detail_height).min(self.detail_lines.len());
             Paragraph::new(format!(
-                " {}–{} / {} lines  ·  J/K scroll",
-                self.detail_scroll + 1,
-                (self.detail_scroll + self.detail_height).min(self.detail_lines.len()),
-                self.detail_lines.len()
+                " {}  ·  J/K {}",
+                tlf(
+                    "{first}–{last} / {total} lines",
+                    &[
+                        ("first", &first),
+                        ("last", &last),
+                        ("total", &self.detail_lines.len()),
+                    ],
+                ),
+                tl("scroll")
             ))
             .style(Style::default().fg(theme.gray))
             .render(scroll_area, buf);
@@ -759,7 +825,7 @@ impl Explorer {
     fn detail_content(&self, width: usize, theme: &Theme, palette: &[Color]) -> Vec<Line<'static>> {
         let Some(commit) = self.selected_commit() else {
             return vec![Line::styled(
-                "No commit selected.",
+                tl("No commit selected."),
                 Style::default().fg(theme.text_secondary),
             )];
         };
@@ -767,7 +833,7 @@ impl Explorer {
         let label = Style::default().fg(theme.text_secondary);
         let mut lines: Vec<Line<'static>> = Vec::new();
         let title = if commit.uncommitted.is_some() {
-            "Uncommitted changes".to_owned()
+            tl("Uncommitted changes").to_owned()
         } else {
             clean_line(&commit.subject)
         };
@@ -781,21 +847,38 @@ impl Explorer {
         }
         lines.push(Line::default());
         let field = |name: &str, value: Vec<Span<'static>>| {
-            let mut spans = vec![Span::styled(format!("{name:<8}"), label)];
+            // Eight columns for the name, and always a space after it
+            let pad = " ".repeat(8usize.saturating_sub(name.width()).max(1));
+            let mut spans = vec![Span::styled(format!("{name}{pad}"), label)];
             spans.extend(value);
             Line::from(spans)
         };
         if let Some(changed) = commit.uncommitted {
             lines.push(Line::styled(
-                format!(
-                    "{changed} {} changed in the working tree.",
-                    if changed == 1 { "path" } else { "paths" }
-                ),
+                if changed == 1 {
+                    tlf(
+                        "{count} path changed in the working tree.",
+                        &[("count", &changed)],
+                    )
+                } else {
+                    tlf(
+                        "{count} paths changed in the working tree.",
+                        &[("count", &changed)],
+                    )
+                },
                 label,
             ));
             if let Some(head) = commit.parents.first() {
+                // "on <commit>": the name is the sentence's words, whichever side of the hash
+                // they fall on
+                let (before, after) = tl_parts("on {commit}", "commit");
+                let on = if before.trim().is_empty() {
+                    after.trim()
+                } else {
+                    before.trim()
+                };
                 lines.push(field(
-                    "on",
+                    on,
                     vec![Span::styled(
                         head.get(..7).unwrap_or(head).to_owned(),
                         Style::default().fg(theme.command),
@@ -804,7 +887,7 @@ impl Explorer {
             }
         } else {
             lines.push(field(
-                "commit",
+                tl("commit"),
                 vec![Span::styled(
                     commit.hash.clone(),
                     Style::default().fg(theme.command),
@@ -818,7 +901,12 @@ impl Explorer {
                     .collect::<Vec<_>>()
                     .join(" ");
                 lines.push(field(
-                    if commit.is_merge() { "merge" } else { "parent" },
+                    if commit.is_merge() {
+                        tl("merge")
+                    } else {
+                        // A commit's parent; "parent" alone is the agent that spawned a subagent
+                        xai_grok_i18n::tr("git_graph.parent", "parent")
+                    },
                     vec![Span::styled(
                         parents,
                         Style::default().fg(theme.gray_bright),
@@ -826,28 +914,32 @@ impl Explorer {
                 ));
             }
             lines.push(field(
-                "author",
+                tl("author"),
                 vec![Span::raw(format!(
                     "{} <{}>",
                     clean_line(&commit.author),
                     clean_line(&commit.email)
                 ))],
             ));
-            lines.push(field(
-                "date",
-                vec![Span::raw(format!(
-                    "{} ({} ago)",
-                    absolute(commit.time),
-                    ago(self.now, commit.time)
-                ))],
-            ));
+            let when = if self.now - commit.time < 60 {
+                tlf("{date} (just now)", &[("date", &absolute(commit.time))])
+            } else {
+                tlf(
+                    "{date} ({age} ago)",
+                    &[
+                        ("date", &absolute(commit.time)),
+                        ("age", &ago(self.now, commit.time)),
+                    ],
+                )
+            };
+            lines.push(field(tl("date"), vec![Span::raw(when)]));
             if !commit.refs.is_empty() {
                 let color = self
                     .data
                     .rows
                     .get(self.selected)
                     .map_or(lane_color(palette, 0), |row| lane_color(palette, row.color));
-                lines.push(field("refs", badges(commit, color, theme)));
+                lines.push(field(tl("refs"), badges(commit, color, theme)));
             }
             let body = clean(&commit.body);
             if !body.trim().is_empty() {
@@ -866,11 +958,14 @@ impl Explorer {
         lines.push(Line::default());
         match self.files.get(&commit.hash) {
             None | Some(Files::Loading) => {
-                lines.push(Line::styled("Reading changed files…", label));
+                lines.push(Line::styled(tl("Reading changed files…"), label));
             }
             Some(Files::Failed(error)) => {
                 lines.push(Line::styled(
-                    format!("Could not read changed files: {}", clean_line(error)),
+                    tlf(
+                        "Could not read changed files: {error}",
+                        &[("error", &clean_line(error))],
+                    ),
                     Style::default().fg(theme.accent_error),
                 ));
             }
@@ -879,11 +974,11 @@ impl Explorer {
                 let removed: u64 = files.iter().filter_map(|file| file.removed).sum();
                 lines.push(Line::from(vec![
                     Span::styled(
-                        format!(
-                            "{} {} changed",
-                            files.len(),
-                            if files.len() == 1 { "file" } else { "files" }
-                        ),
+                        if files.len() == 1 {
+                            tlf("{count} file changed", &[("count", &files.len())])
+                        } else {
+                            tlf("{count} files changed", &[("count", &files.len())])
+                        },
                         Style::default().add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
@@ -908,10 +1003,10 @@ impl Explorer {
                             ),
                         ],
                         _ if commit.uncommitted.is_some() => vec![Span::styled(
-                            format!("{:>12}", "new"),
+                            right_aligned(tl("new"), 12),
                             Style::default().fg(theme.diff_insert_fg),
                         )],
-                        _ => vec![Span::styled(format!("{:>12}", "binary"), label)],
+                        _ => vec![Span::styled(right_aligned(tl("binary"), 12), label)],
                     };
                     let mut spans = stats;
                     spans.push(Span::raw("  "));
@@ -1190,7 +1285,42 @@ fn panel(title: String, focused: bool, theme: &Theme) -> Block<'static> {
 }
 
 fn render_help(area: Rect, buf: &mut Buffer, theme: &Theme) {
-    let width = area.width.min(64);
+    // Keys in a 15-column column, then what they do
+    let row = |keys: &str, text: &str| {
+        let pad = " ".repeat(15usize.saturating_sub(keys.width()).max(1));
+        format!("{keys}{pad}{text}")
+    };
+    let help = [
+        tl("READ THE GRAPH").to_owned(),
+        String::new(),
+        row(
+            &format!("↑/↓ {} j/k", tl("or")),
+            tl("Move in the focused pane"),
+        ),
+        row("PgUp / PgDn", tl("Page")),
+        row("g / G", tl("First / last commit")),
+        row("Tab / Enter", tl("Switch list and details")),
+        row("J / K", tl("Scroll details from either pane")),
+        row("/", tl("Search subjects, authors, hashes, refs")),
+        row("n / N", tl("Next / previous match")),
+        row("a", tl("All branches / current branch")),
+        row("m", tl("Read more history")),
+        row("r", tl("Read the graph again")),
+        row("Esc", tl("Clear the search, then close")),
+        row("q", tl("Close")),
+        String::new(),
+        format!(
+            "● {}  ○ {}  ◉ HEAD  ◌ {}",
+            tl("commit"),
+            tl("merge"),
+            tl("uncommitted changes")
+        ),
+        tl("Any key closes help.").to_owned(),
+    ]
+    .join("\n");
+    // 64 columns hold the English; a longer translation widens the popup as far as the screen allows
+    let longest = help.lines().map(UnicodeWidthStr::width).max().unwrap_or(0);
+    let width = area.width.min((longest as u16).saturating_add(4).max(64));
     let height = area.height.min(22);
     let popup = Rect::new(
         area.x + (area.width - width) / 2,
@@ -1199,9 +1329,12 @@ fn render_help(area: Rect, buf: &mut Buffer, theme: &Theme) {
         height,
     );
     Clear.render(popup, buf);
-    let help = "READ THE GRAPH\n\n↑/↓ or j/k     Move in the focused pane\nPgUp / PgDn    Page\ng / G          First / last commit\nTab / Enter    Switch list and details\nJ / K          Scroll details from either pane\n/              Search subjects, authors, hashes, refs\nn / N          Next / previous match\na              All branches / current branch\nm              Read more history\nr              Read the graph again\nEsc            Clear the search, then close\nq              Close\n\n● commit  ○ merge  ◉ HEAD  ◌ uncommitted changes\nAny key closes help.";
     Paragraph::new(help)
-        .block(panel(" Git graph · keyboard ".to_owned(), true, theme))
+        .block(panel(
+            format!(" {} · {} ", tl("Git graph"), tl("keyboard")),
+            true,
+            theme,
+        ))
         .style(Style::default().bg(theme.bg_light).fg(theme.text_primary))
         .render(popup, buf);
 }
@@ -1210,13 +1343,18 @@ fn render_help(area: Rect, buf: &mut Buffer, theme: &Theme) {
 fn ago(now: i64, time: i64) -> String {
     let seconds = (now - time).max(0);
     match seconds {
-        0..60 => "now".to_owned(),
+        0..60 => tl("now").to_owned(),
         60..3_600 => format!("{}m", seconds / 60),
         3_600..86_400 => format!("{}h", seconds / 3_600),
         86_400..2_592_000 => format!("{}d", seconds / 86_400),
         2_592_000..31_536_000 => format!("{}mo", seconds / 2_592_000),
         _ => format!("{}y", seconds / 31_536_000),
     }
+}
+
+/// `text` at the right of `width` columns.
+fn right_aligned(text: &str, width: usize) -> String {
+    format!("{}{text}", " ".repeat(width.saturating_sub(text.width())))
 }
 
 fn absolute(time: i64) -> String {

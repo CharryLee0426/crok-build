@@ -1,6 +1,8 @@
 //! MCP server data types, status enum, response conversion, and section
 //! presentation helpers (labels, description lines, connectors URLs).
 
+use xai_grok_i18n::{tl, tlf};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McpWireSource {
     Managed,
@@ -47,9 +49,12 @@ pub fn section_key(section: &McpSectionId) -> String {
 /// Display label for a section header, e.g. `"Managed by grok.com (3)"`.
 pub fn section_label(section: &McpSectionId, count: usize) -> String {
     match section {
-        McpSectionId::Managed => format!("Managed by grok.com ({count})"),
-        McpSectionId::Plugin(name) => format!("Plugin: {name} ({count})"),
-        McpSectionId::Local => format!("Local ({count})"),
+        McpSectionId::Managed => tlf("Managed by grok.com ({count})", &[("count", &count)]),
+        McpSectionId::Plugin(name) => tlf(
+            "Plugin: {name} ({count})",
+            &[("name", &name), ("count", &count)],
+        ),
+        McpSectionId::Local => tlf("Local ({count})", &[("count", &count)]),
     }
 }
 
@@ -86,7 +91,7 @@ pub fn section_description_lines(section: &McpSectionId, team_id: Option<&str>) 
         McpSectionId::Managed => {
             let url = managed_connectors_url_display(team_id);
             vec![
-                "Add, remove, or manage connectors. Ctrl+O to open or go to:".into(),
+                tl("Add, remove, or manage connectors. Ctrl+O to open or go to:").into(),
                 format!("[{url}]"),
             ]
         }
@@ -260,12 +265,12 @@ impl McpServerDisplayStatus {
     /// Short human label for the status.
     pub(crate) fn label(&self) -> &'static str {
         match self {
-            Self::Ready => "ready",
-            Self::NeedsAuth => "needs auth",
-            Self::SetupRequired => "setup required",
-            Self::Unavailable => "unavailable",
-            Self::Initializing => "initializing",
-            Self::BlockedByPolicy => "blocked by policy",
+            Self::Ready => tl("ready"),
+            Self::NeedsAuth => tl("needs auth"),
+            Self::SetupRequired => tl("setup required"),
+            Self::Unavailable => tl("unavailable"),
+            Self::Initializing => tl("initializing"),
+            Self::BlockedByPolicy => tl("blocked by policy"),
         }
     }
 }

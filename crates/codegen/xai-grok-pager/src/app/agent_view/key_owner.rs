@@ -5,6 +5,7 @@ use crate::app::app_view::InputOutcome;
 use crate::views::permission_view::{PermissionFocus, PermissionViewState};
 use crate::views::question_view::{QuestionFocus, QuestionViewState};
 use crate::views::shortcuts_bar::HintItem;
+use xai_grok_i18n::tl;
 
 /// A card that blocks the agent until the user answers it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,10 +21,10 @@ impl BlockingCard {
     /// Pinned, so a narrow bar's trim can never drop the only route back.
     pub(crate) fn focus_hint(self) -> HintItem {
         let label = match self {
-            Self::Permission => "permission",
-            Self::CancelTurn => "cancel turn",
-            Self::Question => "question",
-            Self::McpElicitation => "elicitation",
+            Self::Permission => tl("permission"),
+            Self::CancelTurn => tl("cancel turn"),
+            Self::Question => tl("question"),
+            Self::McpElicitation => tl("elicitation"),
         };
         HintItem {
             keys: vec![crate::key!(Tab), crate::key!(' ')],
@@ -78,14 +79,14 @@ pub(crate) enum EscStep {
 impl EscStep {
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::DismissFileSearch => "dismiss",
-            Self::LeaveTextInput => "back",
-            Self::DiscardPatternEdit => "cancel",
-            Self::ClearSelection => "unselect",
-            Self::BackOutOverlay => "dashboard",
-            Self::ParkFocus => "scrollback",
-            Self::KeepRunning => "keep running",
-            Self::DismissElicitWaiting => "dismiss",
+            Self::DismissFileSearch => tl("dismiss"),
+            Self::LeaveTextInput => tl("back"),
+            Self::DiscardPatternEdit => tl("cancel"),
+            Self::ClearSelection => tl("unselect"),
+            Self::BackOutOverlay => tl("dashboard"),
+            Self::ParkFocus => tl("scrollback"),
+            Self::KeepRunning => tl("keep running"),
+            Self::DismissElicitWaiting => tl("dismiss"),
         }
     }
 }

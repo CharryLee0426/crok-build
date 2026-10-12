@@ -1,4 +1,5 @@
 use super::*;
+use xai_grok_i18n::tl;
 
 /// Update the activity label on a subagent's collapsed scrollback block.
 /// Skips the write (and cache invalidation) when the label hasn't changed.
@@ -45,7 +46,7 @@ pub(super) fn sync_subagent_activity(
 pub(super) fn subagent_activity_label(child_view: &AgentView) -> Option<String> {
     match child_view.resolve_turn_activity() {
         Some(a) => Some(crate::app::subagent::format_activity_label(&a)),
-        None if child_view.session.state.is_busy() => Some("Waiting".to_string()),
+        None if child_view.session.state.is_busy() => Some(tl("Waiting").to_string()),
         None => None,
     }
 }

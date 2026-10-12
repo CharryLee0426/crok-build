@@ -7,13 +7,15 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlm};
 
 /// Shares its row with the buttons.
-const PRIVACY_BANNER_TITLE: &str = "Help improve Crok";
+const PRIVACY_BANNER_TITLE: &str = tlm("Help improve Crok");
 
-const PRIVACY_BANNER_DESC: &str = "Off by default. Opt-in to allow xAI to retain coding \
+const PRIVACY_BANNER_DESC: &str = tlm("Off by default. Opt-in to allow xAI to retain coding \
      data, e.g., prompts, traces, & metrics, for training and debugging purposes. Change \
-     anytime via settings.";
+     anytime via settings.");
 
 pub(crate) const PRIVACY_BANNER_TERMS_URL: &str = "https://x.ai/legal/terms-of-service";
 pub(crate) const PRIVACY_BANNER_POLICY_URL: &str = "https://x.ai/legal/privacy-policy";
@@ -26,25 +28,34 @@ type LegalSegment = (&'static str, Option<&'static str>);
 const PRIVACY_BANNER_LEGAL_VARIANTS: [&[LegalSegment]; 3] = [
     &[
         ("Read ", None),
-        ("Terms", Some(PRIVACY_BANNER_TERMS_URL)),
+        (tlm("Terms"), Some(PRIVACY_BANNER_TERMS_URL)),
         (" and ", None),
-        ("Privacy Policy", Some(PRIVACY_BANNER_POLICY_URL)),
+        (tlm("Privacy Policy"), Some(PRIVACY_BANNER_POLICY_URL)),
         (".", None),
     ],
     &[
-        ("Terms", Some(PRIVACY_BANNER_TERMS_URL)),
+        (tlm("Terms"), Some(PRIVACY_BANNER_TERMS_URL)),
         (" and ", None),
-        ("Privacy Policy", Some(PRIVACY_BANNER_POLICY_URL)),
+        (tlm("Privacy Policy"), Some(PRIVACY_BANNER_POLICY_URL)),
     ],
     &[
-        ("Terms", Some(PRIVACY_BANNER_TERMS_URL)),
+        (tlm("Terms"), Some(PRIVACY_BANNER_TERMS_URL)),
         (" & ", None),
-        ("Privacy", Some(PRIVACY_BANNER_POLICY_URL)),
+        (tlm("Privacy"), Some(PRIVACY_BANNER_POLICY_URL)),
     ],
 ];
 
-const OPT_OUT_LABEL: &str = "[Opt out]";
-const OPT_IN_LABEL: &str = "[Opt in]";
+/// The same three lines as whole sentences, so a translation can order the words its own way.
+/// `{terms}` and `{policy}` stand for the links, whose labels and addresses stay in
+/// `PRIVACY_BANNER_LEGAL_VARIANTS`; in English each sentence reads exactly as its variant does.
+const PRIVACY_BANNER_LEGAL_SENTENCES: [&str; 3] = [
+    tlm("Read {terms} and {policy}."),
+    tlm("{terms} and {policy}"),
+    "{terms} & {policy}",
+];
+
+const OPT_OUT_LABEL: &str = tlm("[Opt out]");
+const OPT_IN_LABEL: &str = tlm("[Opt in]");
 
 /// The title row and the legal row.
 const CHROME_ROWS: u16 = 2;
@@ -76,17 +87,54 @@ impl PrivacyBannerRects {
 }
 
 fn button_block_width() -> u16 {
-    (OPT_OUT_LABEL.len() + 1 + OPT_IN_LABEL.len()) as u16
+    (tl(OPT_OUT_LABEL).width() + 1 + tl(OPT_IN_LABEL).width()) as u16
 }
 
 fn legal_width(variant: &[LegalSegment]) -> u16 {
-    variant.iter().map(|(text, _)| text.len() as u16).sum()
+    variant.iter().map(|(text, _)| text.width() as u16).sum()
+}
+
+/// Legal variant `index` in the interface language, in drawing order: its sentence, cut at the two links.
+fn legal_segments(index: usize) -> Vec<LegalSegment> {
+    let variant = PRIVACY_BANNER_LEGAL_VARIANTS
+        .get(index)
+        .copied()
+        .unwrap_or(&[]);
+    let sentence = PRIVACY_BANNER_LEGAL_SENTENCES
+        .get(index)
+        .copied()
+        .unwrap_or("");
+    let holes = [
+        ("{terms}", PRIVACY_BANNER_TERMS_URL),
+        ("{policy}", PRIVACY_BANNER_POLICY_URL),
+    ];
+    let mut segments: Vec<LegalSegment> = Vec::with_capacity(variant.len());
+    let mut rest: &'static str = tl(sentence);
+    // The links come in the order the sentence names them, which a translation may swap
+    while let Some((at, hole, url)) = holes
+        .iter()
+        .filter_map(|&(hole, url)| rest.find(hole).map(|at| (at, hole, url)))
+        .min_by_key(|&(at, _, _)| at)
+    {
+        let before = rest.get(..at).unwrap_or("");
+        if !before.is_empty() {
+            segments.push((before, None));
+        }
+        if let Some(&(label, link)) = variant.iter().find(|(_, link)| *link == Some(url)) {
+            segments.push((tl(label), link));
+        }
+        rest = rest.get(at + hole.len()..).unwrap_or("");
+    }
+    if !rest.is_empty() {
+        segments.push((rest, None));
+    }
+    segments
 }
 
 /// Buttons render whole or not at all, and never at the cost of the title.
 /// A clipped/overflowing `[Opt in]` must not leave a click target in the blank margin (a stray click there would silently opt the user in).
 fn buttons_fit(area_width: u16) -> bool {
-    area_width >= PRIVACY_BANNER_TITLE.len() as u16 + 1 + button_block_width()
+    area_width >= tl(PRIVACY_BANNER_TITLE).width() as u16 + 1 + button_block_width()
 }
 
 fn title_width(area_width: u16) -> u16 {
@@ -102,7 +150,7 @@ fn wrap_to(width: usize) -> Vec<std::borrow::Cow<'static, str>> {
         return vec![];
     }
     let opts = textwrap::Options::new(width).wrap_algorithm(textwrap::WrapAlgorithm::FirstFit);
-    textwrap::wrap(PRIVACY_BANNER_DESC, opts)
+    textwrap::wrap(tl(PRIVACY_BANNER_DESC), opts)
 }
 
 fn body_lines(area_width: u16) -> Vec<std::borrow::Cow<'static, str>> {
@@ -121,7 +169,7 @@ fn body_lines(area_width: u16) -> Vec<std::borrow::Cow<'static, str>> {
         lines.truncate(MAX_BODY_ROWS);
         if let Some(last) = lines.last_mut() {
             let mut s = last.trim_end().to_string();
-            while s.chars().count() + 1 > area_width as usize {
+            while s.width() + 1 > area_width as usize {
                 s.pop();
             }
             s.push('\u{2026}');
@@ -154,7 +202,7 @@ pub(crate) fn render(
     buf.set_stringn(
         area.x,
         area.y,
-        PRIVACY_BANNER_TITLE,
+        tl(PRIVACY_BANNER_TITLE),
         title_width(area.width) as usize,
         Style::default().fg(theme.text_primary),
     );
@@ -181,14 +229,14 @@ pub(crate) fn render(
     let legal_y = area.y + area.height - 1;
     let mut terms_rect = Rect::default();
     let mut policy_rect = Rect::default();
-    if let Some(variant) = PRIVACY_BANNER_LEGAL_VARIANTS
-        .into_iter()
+    if let Some(variant) = (0..PRIVACY_BANNER_LEGAL_VARIANTS.len())
+        .map(legal_segments)
         .find(|v| legal_width(v) <= area.width)
     {
         let mut x = area.x;
         let mut spans = Vec::with_capacity(variant.len());
-        for (text, url) in variant {
-            let w = text.len() as u16;
+        for (text, url) in &variant {
+            let w = text.width() as u16;
             let style = match url {
                 None => gray,
                 Some(url) => {
@@ -233,16 +281,18 @@ pub(crate) fn render(
             policy: policy_rect,
         };
     }
+    let opt_out_label = tl(OPT_OUT_LABEL);
+    let opt_in_label = tl(OPT_IN_LABEL);
     let opt_out_rect = Rect {
         x: area.x + area.width - button_block_width(),
         y: area.y,
-        width: OPT_OUT_LABEL.len() as u16,
+        width: opt_out_label.width() as u16,
         height: 1,
     };
     let opt_in_rect = Rect {
         x: opt_out_rect.x + opt_out_rect.width + 1,
         y: area.y,
-        width: OPT_IN_LABEL.len() as u16,
+        width: opt_in_label.width() as u16,
         height: 1,
     };
     let opt_out_style = if hovered(opt_out_rect) {
@@ -258,14 +308,14 @@ pub(crate) fn render(
     buf.set_stringn(
         opt_out_rect.x,
         opt_out_rect.y,
-        OPT_OUT_LABEL,
+        opt_out_label,
         opt_out_rect.width as usize,
         opt_out_style,
     );
     buf.set_stringn(
         opt_in_rect.x,
         opt_in_rect.y,
-        OPT_IN_LABEL,
+        opt_in_label,
         opt_in_rect.width as usize,
         opt_in_style,
     );

@@ -108,8 +108,20 @@ pub(super) fn set_screen_mode_inner(app: &mut AppView, canonical: &str) {
 /// Mirror the canonical UI language into `app.current_ui` and apply it to the i18n subsystem.
 /// Called by the commit path AND by [`apply_setting_rollback`](super::ui::apply_setting_rollback).
 pub(super) fn set_ui_language_inner(app: &mut AppView, canonical: &str) {
+    let before = xai_grok_i18n::current_locale();
     app.current_ui.ui_language = Some(canonical.to_string());
     xai_grok_i18n::set_locale(xai_grok_i18n::resolve_locale(Some(canonical)));
+    if xai_grok_i18n::current_locale() == before {
+        return;
+    }
+    // Transcript blocks keep the lines they rendered ("Thought for 2s", "Worked for 6s"): word them again,
+    // and measure them again, since another language's text is another width
+    for agent in app.agents.values_mut() {
+        agent.scrollback.invalidate_heights();
+        for child in agent.subagent_views.values_mut() {
+            child.scrollback.invalidate_heights();
+        }
+    }
 }
 
 /// Set the interface language (`auto` | `en` | `zh-Hans` | `ja` | `es` | `fr` | `de`).

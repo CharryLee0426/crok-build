@@ -8,6 +8,7 @@
 
 use agent_client_protocol as acp;
 use serde::Deserialize;
+use xai_grok_i18n::tlm;
 use xai_grok_tools::implementations::grok_build::send_subagent_message::{
     SEND_SUBAGENT_MESSAGE_TOOL_NAME, SendSubagentMessageDisposition, SendSubagentMessageOutput,
 };
@@ -129,7 +130,7 @@ fn presentation(
         },
         None => SentMessagePresentation::Rejected {
             reason: content_text(tool_call).unwrap_or_else(|| {
-                "Message was not accepted or delivery details are unavailable.".to_owned()
+                tlm("Message was not accepted or delivery details are unavailable.").to_owned()
             }),
         },
     }

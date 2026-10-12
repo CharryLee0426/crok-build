@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use xai_grok_feedback::{
     FeedbackDraftStore, FeedbackSource, FeedbackTaxonomy, derive_title, structured_feedback,
 };
+use xai_grok_i18n::{tl, tlf, tlm};
 
 /// Monotonic counter for correlating async rewrite responses with the modal that requested them.
 /// It prevents stale results from populating a different note's review modal when the user closes and re-opens quickly.
@@ -24,7 +25,7 @@ fn next_rewrite_nonce() -> u64 {
 
 /// One copy of the send-time thank-you, shared by the immediate and modal commit paths.
 pub(crate) const FEEDBACK_THANKS_NOTICE: &str =
-    "Thanks for the feedback! The Crok Build team is on it.";
+    tlm("Thanks for the feedback! The Crok Build team is on it.");
 
 /// Minimal mode cannot show a toast, so the notice goes to the transcript instead.
 fn feedback_notice(app: &mut AppView, message: &str) {
@@ -51,7 +52,7 @@ pub(super) fn dispatch_open_feedback_modal(
             && let Some(dashboard) = app.dashboard.as_mut()
         {
             dashboard.dispatch.set_text("");
-            dashboard.set_error_toast(NO_SESSION_NOTICE);
+            dashboard.set_error_toast(tl(NO_SESSION_NOTICE));
         }
         return vec![];
     };
@@ -59,7 +60,7 @@ pub(super) fn dispatch_open_feedback_modal(
         app.voice_recording_target(),
         Some(crate::app::app_view::VoiceTarget::Agent(target)) if target == id
     ) {
-        feedback_notice(app, "Stop voice input before opening the feedback form");
+        feedback_notice(app, tl("Stop voice input before opening the feedback form"));
         return vec![];
     }
     let blocked = {
@@ -75,7 +76,7 @@ pub(super) fn dispatch_open_feedback_modal(
         })
     };
     if let Some(message) = blocked {
-        feedback_notice(app, message);
+        feedback_notice(app, tl(message));
         return vec![];
     }
     let Some(agent) = app.agents.get_mut(&id) else {
@@ -196,16 +197,16 @@ pub(super) fn dispatch_submit_feedback_modal(
     };
     if trace_choice == Some(ModalTraceChoice::SendThisSession) && !has_trace_capacity {
         modal.set_error(
-            "Wait for an earlier feedback trace upload to finish, then try again.".to_string(),
+            tl("Wait for an earlier feedback trace upload to finish, then try again.").to_string(),
         );
         return vec![];
     }
     let Some(session_id) = session_id else {
-        modal.set_error(NO_SESSION_NOTICE.to_string());
+        modal.set_error(tl(NO_SESSION_NOTICE).to_string());
         return vec![];
     };
     if !modal.is_sendable() {
-        modal.set_error(crate::views::feedback_modal::FEEDBACK_EMPTY_SUBMIT_ERROR.to_string());
+        modal.set_error(tl(crate::views::feedback_modal::FEEDBACK_EMPTY_SUBMIT_ERROR).to_string());
         return vec![];
     }
     let text = modal.submitted_text().trim().to_string();
@@ -215,7 +216,9 @@ pub(super) fn dispatch_submit_feedback_modal(
         if let Some(notice) = dropped {
             modal.set_error(notice);
         } else {
-            modal.set_error(crate::views::feedback_modal::FEEDBACK_EMPTY_SUBMIT_ERROR.to_string());
+            modal.set_error(
+                tl(crate::views::feedback_modal::FEEDBACK_EMPTY_SUBMIT_ERROR).to_string(),
+            );
         }
         return vec![];
     }
@@ -224,7 +227,8 @@ pub(super) fn dispatch_submit_feedback_modal(
     let draft_id = modal.draft_id().cloned();
     let draft_fields = modal.draft_body();
     if draft_id.is_some() && draft_fields.is_none() {
-        modal.cancel_draft_submit_pending("Choose a type before sending this draft.".to_owned());
+        modal
+            .cancel_draft_submit_pending(tl("Choose a type before sending this draft.").to_owned());
         return vec![];
     }
     // First validated Write submit with an offer available: ask inside the modal instead of sending.
@@ -289,7 +293,7 @@ pub(super) fn dispatch_submit_feedback_modal(
     if draft_id.is_none() {
         agent
             .scrollback
-            .push_block(RenderBlock::system(FEEDBACK_THANKS_NOTICE.to_string()));
+            .push_block(RenderBlock::system(tl(FEEDBACK_THANKS_NOTICE).to_string()));
     }
     let mut effects = vec![feedback_send_effect(
         id,
@@ -411,14 +415,14 @@ pub(crate) fn commit_feedback(
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() && encoded_images.is_empty() {
         agent.scrollback.push_block(RenderBlock::system(
-            "Please provide feedback text.".to_string(),
+            tl("Please provide feedback text.").to_string(),
         ));
         return None;
     }
 
     agent
         .scrollback
-        .push_block(RenderBlock::system(FEEDBACK_THANKS_NOTICE.to_string()));
+        .push_block(RenderBlock::system(tl(FEEDBACK_THANKS_NOTICE).to_string()));
 
     Some(feedback_send_effect(
         id,
@@ -458,13 +462,17 @@ pub(super) fn keep_unsent_feedback_report(agent: &mut AgentView, report: UnsentF
     } = report;
     let attachments = match image_count {
         0 => String::new(),
-        1 => " (its image was dropped)".to_owned(),
-        count => format!(" (its {count} images were dropped)"),
+        1 => format!(" {}", tl("(its image was dropped)")),
+        count => format!(
+            " {}",
+            tlf("(its {count} images were dropped)", &[("count", &count)])
+        ),
     };
     // An image-only report has nothing the store could keep.
     if text.trim().is_empty() {
-        agent.scrollback.push_block(RenderBlock::system(format!(
-            "{failure}. Not sent{attachments}."
+        agent.scrollback.push_block(RenderBlock::system(tlf(
+            "{failure}. Not sent{attachments}.",
+            &[("failure", &failure), ("attachments", &attachments)],
         )));
         return;
     }
@@ -475,15 +483,27 @@ pub(super) fn keep_unsent_feedback_report(agent: &mut AgentView, report: UnsentF
             .map_err(|error| error.to_string())
     });
     let notice = match saved {
-        Some(Ok(_)) => {
-            format!("{failure}. Saved to Drafts{attachments}; open `/feedback` to retry.")
-        }
-        Some(Err(error)) => {
-            format!(
-                "{failure}. Could not save it as a draft ({error}). Not sent{attachments}: {text}"
-            )
-        }
-        None => format!("{failure}. Not sent{attachments}: {text}"),
+        Some(Ok(_)) => tlf(
+            "{failure}. Saved to Drafts{attachments}; open `/feedback` to retry.",
+            &[("failure", &failure), ("attachments", &attachments)],
+        ),
+        Some(Err(error)) => tlf(
+            "{failure}. Could not save it as a draft ({error}). Not sent{attachments}: {text}",
+            &[
+                ("failure", &failure),
+                ("error", &error),
+                ("attachments", &attachments),
+                ("text", &text),
+            ],
+        ),
+        None => tlf(
+            "{failure}. Not sent{attachments}: {text}",
+            &[
+                ("failure", &failure),
+                ("attachments", &attachments),
+                ("text", &text),
+            ],
+        ),
     };
     agent.scrollback.push_block(RenderBlock::system(notice));
 }
@@ -514,7 +534,7 @@ pub(super) fn dispatch_send_feedback(
             UnsentFeedbackReport {
                 text: text.trim(),
                 image_count: images.len(),
-                failure: NO_SESSION_NOTICE,
+                failure: tl(NO_SESSION_NOTICE),
             },
         );
         return vec![];
@@ -633,7 +653,7 @@ fn send_remember_note(app: &mut AppView, text: String, record_in_history: bool) 
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
         agent.scrollback.push_block(RenderBlock::system(
-            "Please provide a memory note.".to_string(),
+            tl("Please provide a memory note.").to_string(),
         ));
         return vec![];
     }
@@ -724,7 +744,7 @@ pub(super) fn dispatch_save_remember_note_from_modal(app: &mut AppView) -> Vec<E
     agent.active_modal = None;
     agent
         .scrollback
-        .push_block(RenderBlock::system("Saving memory note...".to_string()));
+        .push_block(RenderBlock::system(tl("Saving memory note...").to_string()));
 
     vec![Effect::SaveMemoryNote {
         agent_id: id,
@@ -847,11 +867,11 @@ pub(super) fn dispatch_send_btw(
             if minimal {
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(
+                    .push_block(crate::scrollback::block::RenderBlock::system(tl(
                         NO_SESSION_NOTICE,
-                    ));
+                    )));
             } else {
-                agent.show_toast(NO_SESSION_NOTICE);
+                agent.show_toast(tl(NO_SESSION_NOTICE));
             }
             return vec![];
         };
@@ -1038,9 +1058,9 @@ fn images_within_aggregate_cap(
 /// Empty sessions get a clear empty-state message; anything else (model failure, empty summary, etc.) keeps the generic failure toast.
 pub(crate) fn recap_unavailable_toast(has_user_messages: bool) -> &'static str {
     if has_user_messages {
-        "Couldn't generate recap"
+        tl("Couldn't generate recap")
     } else {
-        "No messages yet"
+        tl("No messages yet")
     }
 }
 
@@ -1070,14 +1090,14 @@ pub(super) fn dispatch_send_recap(app: &mut AppView, auto: bool) -> Vec<Effect> 
     // Skip client requests entirely when the feature is off so we never hit `x.ai/recap`
     if !app.session_recap_available {
         if !auto {
-            agent.show_toast("Session recap is not enabled");
+            agent.show_toast(tl("Session recap is not enabled"));
         }
         return vec![];
     }
 
     let Some(session_id) = agent.session.session_id.clone() else {
         if !auto {
-            agent.show_toast(NO_SESSION_NOTICE);
+            agent.show_toast(tl(NO_SESSION_NOTICE));
         }
         return vec![];
     };
@@ -1137,14 +1157,15 @@ pub(super) fn handle_memory_note_saved(
                 agent
                     .scrollback
                     .push_block(crate::scrollback::block::RenderBlock::system(
-                        "Memory note saved".to_string(),
+                        tl("Memory note saved").to_string(),
                     ));
             }
             Err(error) => {
                 agent
                     .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                        "Couldn't save memory note: {error}"
+                    .push_block(crate::scrollback::block::RenderBlock::system(tlf(
+                        "Couldn't save memory note: {error}",
+                        &[("error", &error)],
                     )));
             }
         }

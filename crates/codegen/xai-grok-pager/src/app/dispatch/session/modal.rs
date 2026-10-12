@@ -8,6 +8,7 @@ use crate::app::dispatch::ctx::{SwitchCause, show_welcome, switch_to_agent};
 use crate::app::dispatch::task_result::unregister_session_effect;
 use crate::scrollback::block::RenderBlock;
 use agent_client_protocol as acp;
+use xai_grok_i18n::tl;
 /// Removes the agent and clears `forked_from` pointers to it on surviving agents.
 pub(in crate::app::dispatch) fn remove_agent_and_cleanup(app: &mut AppView, agent_id: AgentId) {
     let identity_rebind = super::super::dashboard::WorkspaceIdentityRebind::capture(app);
@@ -69,7 +70,7 @@ pub(in crate::app::dispatch) fn dispatch_sessions_confirm_close(
         return vec![];
     }
     if app.agents.len() == 1 {
-        app.show_toast("Cannot close the only session -- use /home to exit");
+        app.show_toast(tl("Cannot close the only session -- use /home to exit"));
         return vec![];
     }
     if matches!(app.active_view, ActiveView::Agent(id) if id == closed_id) {
@@ -113,7 +114,7 @@ pub(in crate::app::dispatch) fn dispatch_rename_session(
     let title = xai_grok_shell::session::persistence::sanitize_rename_title(&title).into_owned();
     if title.is_empty() {
         agent.scrollback.push_block(RenderBlock::system(
-            "Couldn't rename session: title must not be blank".to_string(),
+            tl("Couldn't rename session: title must not be blank").to_string(),
         ));
         return vec![];
     }
@@ -143,9 +144,9 @@ pub(in crate::app::dispatch) fn dispatch_reset_session_title(app: &mut AppView) 
     if kind == xai_grok_shell::session::unified_list::SessionKind::Chat {
         agent
             .scrollback
-            .push_block(crate::scrollback::block::RenderBlock::system(
+            .push_block(crate::scrollback::block::RenderBlock::system(tl(
                 "Chat conversations have no auto-title to restore",
-            ));
+            )));
         return vec![];
     }
     let previous_display_name = agent.display_name.clone();

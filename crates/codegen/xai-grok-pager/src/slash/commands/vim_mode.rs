@@ -6,13 +6,14 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::tlm;
 
 pub struct VimModeCommand;
 
 impl SlashCommand for VimModeCommand {
     slash_meta! {
         name: "vim-mode",
-        description: "Toggle vim-style scrollback keybindings (j/k, h/l, g/G, y/Y, …)",
+        description: tlm("Toggle vim-style scrollback keybindings (j/k, h/l, g/G, y/Y, …)"),
         usage: "/vim-mode",
     }
 

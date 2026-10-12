@@ -6,6 +6,7 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::slash::{ModeSupport, Remedy};
+use xai_grok_i18n::tlm;
 
 /// Open the onboarding tutorial.
 pub struct TutorialCommand;
@@ -14,11 +15,11 @@ impl SlashCommand for TutorialCommand {
     slash_meta! {
         name: "tutorial",
         aliases: ["tour", "onboarding"],
-        description: "Quick tips to get the most out of Crok Build",
+        description: tlm("Quick tips to get the most out of Crok Build"),
         usage: "/tutorial",
         // Gated off rather than merely hidden: minimal has no modal host, so the overlay's input intercept would freeze the session invisibly.
         mode_support: ModeSupport::FullscreenOnly(Remedy::SwitchMode {
-            why: "the tutorial overlay needs fullscreen",
+            why: tlm("the tutorial overlay needs fullscreen"),
         }),
     }
 

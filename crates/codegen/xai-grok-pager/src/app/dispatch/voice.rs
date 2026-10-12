@@ -2,10 +2,11 @@
 
 use crate::app::actions::Effect;
 use crate::app::app_view::{ActiveView, AppView, VoiceTarget};
+use xai_grok_i18n::{tl, tlf, tlm};
 
 /// A press while a clip is outstanding has nothing else on screen to explain why it did nothing, or how to get out.
 pub(crate) const TRANSCRIBING_TOAST: &str =
-    "Voice: still transcribing the last recording… (Esc to discard)";
+    tlm("Voice: still transcribing the last recording… (Esc to discard)");
 
 /// Shown a partial: hard-reset, a trailing final would repeat it. Still owes its final (a clip with no partial yet):
 /// release but keep the target so the one final lands as the next draft. Returns the promoted fragment for callers
@@ -73,9 +74,9 @@ fn open_voice_tier_upsell(app: &mut AppView) -> Vec<Effect> {
         }
         ActiveView::AgentDashboard => {
             if let Some(d) = app.dashboard.as_mut() {
-                d.set_error_toast(&format!(
-                    "/voice requires SuperGrok: upgrade at {}",
-                    super::billing::UPSELL_URL_UPGRADE
+                d.set_error_toast(&tlf(
+                    "/voice requires SuperGrok: upgrade at {url}",
+                    &[("url", &super::billing::UPSELL_URL_UPGRADE)],
                 ));
             }
         }
@@ -97,7 +98,7 @@ pub(super) fn dispatch_enable_voice_mode(app: &mut AppView, from_hold: bool) -> 
     }
     // A new press would abort the clip reader and lose the recording; its final (or error) ends the wait
     if app.voice_state.blocks_new_capture() {
-        app.show_toast(TRANSCRIBING_TOAST);
+        app.show_toast(tl(TRANSCRIBING_TOAST));
         return vec![];
     }
     // Tier gate: free / X Basic personal users can't use voice (the server zero-limits these tiers)
@@ -141,7 +142,7 @@ pub(super) fn dispatch_enable_voice_mode(app: &mut AppView, from_hold: bool) -> 
 /// Running `/voice` first is not required.
 pub(super) fn dispatch_voice_toggle(app: &mut AppView) -> Vec<Effect> {
     if app.voice_state.blocks_new_capture() {
-        app.show_toast(TRANSCRIBING_TOAST);
+        app.show_toast(tl(TRANSCRIBING_TOAST));
         return vec![];
     }
     if app.voice_listening() {

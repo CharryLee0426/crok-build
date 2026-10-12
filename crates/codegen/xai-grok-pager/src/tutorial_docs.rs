@@ -4,6 +4,7 @@
 //! Deliberately separate from [`crate::docs`] (the full how-to guides): these pages are bite-size intros that point at the guides for depth.
 
 /// A compile-time tutorial topic. All fields are `&'static str`.
+/// `title` and `blurb` are English, marked for translation; the overlay looks them up where it draws them.
 #[derive(Debug)]
 pub struct TutorialTopic {
     /// Row title in the topic list.
@@ -17,7 +18,7 @@ pub struct TutorialTopic {
 }
 
 macro_rules! topic {
-    ($file:literal, $title:literal, $blurb:literal, $go_deeper:expr) => {
+    ($file:literal, $title:expr, $blurb:expr, $go_deeper:expr) => {
         TutorialTopic {
             title: $title,
             blurb: $blurb,
@@ -32,56 +33,56 @@ macro_rules! topic {
 pub static TUTORIAL_TOPICS: &[TutorialTopic] = &[
     topic!(
         "01-coming-from-another-tool.md",
-        "Coming from Claude, Cursor, or Codex?",
-        "your settings, rules & skills carry over",
+        xai_grok_i18n::tlm("Coming from Claude, Cursor, or Codex?"),
+        xai_grok_i18n::tlm("your settings, rules & skills carry over"),
         Some("Project Rules (AGENTS.md)")
     ),
     topic!(
         "02-first-prompt.md",
-        "Your First Prompt",
-        "send, queue, cancel",
+        xai_grok_i18n::tlm("Your First Prompt"),
+        xai_grok_i18n::tlm("send, queue, cancel"),
         Some("Getting Started")
     ),
     topic!(
         "03-attach-and-paste.md",
-        "Attach Files, Images & Paste",
-        "@files, line ranges, screenshots",
+        xai_grok_i18n::tlm("Attach Files, Images & Paste"),
+        xai_grok_i18n::tlm("@files, line ranges, screenshots"),
         Some("Getting Started")
     ),
     topic!(
         "04-navigation.md",
-        "Finding Your Way Around",
-        "focus, scrollback, panes",
+        xai_grok_i18n::tlm("Finding Your Way Around"),
+        xai_grok_i18n::tlm("focus, scrollback, panes"),
         Some("Keyboard Shortcuts")
     ),
     topic!(
         "05-slash-commands.md",
-        "Slash Commands",
-        "/help  /model  /resume  and Ctrl+P",
+        xai_grok_i18n::tlm("Slash Commands"),
+        xai_grok_i18n::tlm("/help  /model  /resume  and Ctrl+P"),
         Some("Slash Commands")
     ),
     topic!(
         "06-worktrees.md",
-        "Parallel Work: Worktrees",
-        "isolated sessions on one repo",
+        xai_grok_i18n::tlm("Parallel Work: Worktrees"),
+        xai_grok_i18n::tlm("isolated sessions on one repo"),
         Some("Session Management")
     ),
     topic!(
         "07-plan-and-permissions.md",
-        "Plan Mode & Permissions",
-        "review the approach before it acts",
+        xai_grok_i18n::tlm("Plan Mode & Permissions"),
+        xai_grok_i18n::tlm("review the approach before it acts"),
         Some("Plan Mode")
     ),
     topic!(
         "08-make-it-yours.md",
-        "Make It Yours",
-        "just ask: AGENTS.md, memory, themes",
+        xai_grok_i18n::tlm("Make It Yours"),
+        xai_grok_i18n::tlm("just ask: AGENTS.md, memory, themes"),
         Some("Project Rules (AGENTS.md)")
     ),
     topic!(
         "09-where-next.md",
-        "Where to Go Next",
-        "guides, feedback, and good habits",
+        xai_grok_i18n::tlm("Where to Go Next"),
+        xai_grok_i18n::tlm("guides, feedback, and good habits"),
         None
     ),
 ];

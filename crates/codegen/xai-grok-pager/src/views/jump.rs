@@ -12,6 +12,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
+use xai_grok_i18n::tl;
 
 use crate::render::line_utils::truncate_str;
 use crate::scrollback::entry::EntryId;
@@ -117,14 +118,14 @@ pub fn render_jump_overlay(buf: &mut Buffer, area: Rect, state: &JumpState, focu
 
     state
         .list()
-        .render(buf, area, "Jump to which turn?", focused, |i, ctx| {
+        .render(buf, area, tl("Jump to which turn?"), focused, |i, ctx| {
             let Some(entry) = state.entries.get(i) else {
                 return Line::from("");
             };
             let ordinal = format!("{:>ord_width$} ", entry.turn_idx + 1);
             let ord_style = Style::default().fg(theme.gray).bg(ctx.row_bg);
             let preview: String = if entry.preview.is_empty() {
-                "(no preview)".to_string()
+                tl("(no preview)").to_string()
             } else {
                 truncate_str(
                     &entry.preview,

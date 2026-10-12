@@ -12,6 +12,7 @@ use crate::app::actions::Action;
 use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand, slash_meta,
 };
+use xai_grok_i18n::{tl, tlm};
 
 fn first_phase_items(ctx: &AppCtx) -> Vec<ArgItem> {
     let mut items: Vec<ArgItem> = ctx
@@ -34,7 +35,7 @@ fn first_phase_items(ctx: &AppCtx) -> Vec<ArgItem> {
             display: op.to_string(),
             match_text: op.to_string(),
             insert_text,
-            description: description.to_string(),
+            description: tl(description).to_string(),
         }
     }));
     items
@@ -71,7 +72,7 @@ const LAUNCH_FLAG_SPECS: [LaunchFlagSpec; 2] = [
     LaunchFlagSpec {
         flag: LaunchFlag::AgentBudget,
         name: "--agent-budget",
-        description: "Set the cumulative child-agent cap (1–1,024)",
+        description: tlm("Set the cumulative child-agent cap (1–1,024)"),
         value_provider: LaunchValueProvider::Opaque,
     },
     LaunchFlagSpec {
@@ -138,7 +139,7 @@ impl LaunchFlagSpec {
                 display: self.name.to_string(),
                 match_text: format!("{base} {}", self.name),
                 insert_text: format!("{base} {} ", self.name),
-                description: self.description.to_string(),
+                description: tl(self.description).to_string(),
             }],
             LaunchValueProvider::ReasoningEffort => ctx
                 .models
@@ -333,7 +334,7 @@ fn manage_run_items(ctx: &AppCtx, op: &str) -> Vec<ArgItem> {
                 display: run.name.clone(),
                 match_text: insert_text.clone(),
                 insert_text,
-                description: run.status.replace('_', " "),
+                description: crate::views::workflows::status_words(&run.status),
             }
         })
         .collect()
@@ -343,12 +344,12 @@ fn manage_run_items(ctx: &AppCtx, op: &str) -> Vec<ArgItem> {
 const WORKFLOW_OPS: [(&str, &str); 5] = [
     (
         "runs",
-        "Show workflow runs (dashboard; text overview in minimal)",
+        tlm("Show workflow runs (dashboard; text overview in minimal)"),
     ),
-    ("pause", "Pause a running workflow"),
-    ("resume", "Resume a paused workflow"),
-    ("stop", "Stop a workflow run"),
-    ("save", "Save a run's script as a named workflow"),
+    ("pause", tlm("Pause a running workflow")),
+    ("resume", tlm("Resume a paused workflow")),
+    ("stop", tlm("Stop a workflow run")),
+    ("save", tlm("Save a run's script as a named workflow")),
 ];
 
 /// `/workflow runs` toggles the run dashboard outside minimal mode; all other forms forward to the shell.
@@ -358,12 +359,12 @@ impl SlashCommand for WorkflowCommand {
     slash_meta! {
         name: "workflow",
         // Mirrors the shell builtin this command shadows.
-        description: "Launch a saved workflow, list runs, or manage a run (pause, resume, stop, save)",
+        description: tlm("Launch a saved workflow, list runs, or manage a run (pause, resume, stop, save)"),
         usage: "/workflow",
         // Shadows ACP `/workflow` (`has_args: true`); false drops the placeholder and highlighted op rows.
         takes_args: true,
         session_scoped: true,
-        arg_placeholder: "<name> [--agent-budget N] [--effort LEVEL] [args] | runs | pause|resume|stop|save [name]",
+        arg_placeholder: tlm("<name> [--agent-budget N] [--effort LEVEL] [args] | runs | pause|resume|stop|save [name]"),
     }
 
     /// Offered only while the shell advertises workflow support, mirroring the ACP entry this builtin shadows.

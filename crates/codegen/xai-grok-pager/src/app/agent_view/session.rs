@@ -20,6 +20,7 @@ use crate::views::todo_pane::TodoPane;
 use ratatui::layout::Rect;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_telemetry::events::{CancellationCompleted, CancellationScope};
 /// Approve/build after EndTurn is only for backends that implement ExecutePlan.
 /// Default off; `AppView` / `test_agent_view` turn it on for those backends and tests.
@@ -699,7 +700,9 @@ impl AgentView {
             replayed_expiry_notices: Vec::new(),
         });
         self.loading_placeholder_id = Some(self.scrollback.push_block(
-            crate::scrollback::block::RenderBlock::system("Reloading session after reconnect..."),
+            crate::scrollback::block::RenderBlock::system(tl(
+                "Reloading session after reconnect...",
+            )),
         ));
         self.scrollback.begin_batch();
         self.begin_replay_window();
@@ -1136,7 +1139,7 @@ impl AgentView {
             return (!first.is_empty()).then_some(first);
         }
         let n = task_ids.len() - 1;
-        let suffix = format!(" + {n} more");
+        let suffix = format!(" + {}", tlf("{count} more", &[("count", &n)]));
         let budget = MAX_ACTIVITY_SUBJECT_CHARS
             .saturating_sub(suffix.chars().count())
             .max(8);

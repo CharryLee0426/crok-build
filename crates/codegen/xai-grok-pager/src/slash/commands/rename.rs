@@ -4,6 +4,7 @@ use crate::app::actions::Action;
 use crate::slash::command::{
     AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand, slash_meta,
 };
+use xai_grok_i18n::{tl, tlf, tlm};
 use xai_grok_shell::session::persistence::{MAX_TITLE_SCALARS, sanitize_rename_title};
 
 pub struct RenameCommand;
@@ -12,12 +13,12 @@ impl SlashCommand for RenameCommand {
     slash_meta! {
         name: "rename",
         aliases: ["title"],
-        description: "Rename the current session",
+        description: tlm("Rename the current session"),
         usage: "/rename <title> | --auto",
         takes_args: true,
         args_required: true,
         session_scoped: true,
-        arg_placeholder: "<title>",
+        arg_placeholder: tlm("<title>"),
     }
 
     fn suggest_args(&self, ctx: &AppCtx, args_query: &str) -> Option<Vec<ArgItem>> {
@@ -36,13 +37,13 @@ impl SlashCommand for RenameCommand {
             display: title.to_owned(),
             match_text: title.to_owned(),
             insert_text: title.to_owned(),
-            description: "current title".to_string(),
+            description: tl("current title").to_string(),
         }])
     }
 
     fn run(&self, ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session".to_string());
+            return CommandResult::Error(tl("No active session").to_string());
         }
 
         // Strip so `/rename --auto<BEL>` is still the reserved verb, not a literal title
@@ -53,15 +54,16 @@ impl SlashCommand for RenameCommand {
             return CommandResult::Action(Action::ResetSessionTitleToAuto);
         }
         if auto_verb_has_trailing_text(args) || auto_verb_has_trailing_text(&title) {
-            return CommandResult::Error("--auto takes no title".to_string());
+            return CommandResult::Error(tl("--auto takes no title").to_string());
         }
 
         if title.is_empty() {
-            return CommandResult::Error("Usage: /rename <new title> | --auto".to_string());
+            return CommandResult::Error(tl("Usage: /rename <new title> | --auto").to_string());
         }
         if title.chars().count() > MAX_TITLE_SCALARS {
-            return CommandResult::Error(format!(
-                "title too long (max {MAX_TITLE_SCALARS} characters)"
+            return CommandResult::Error(tlf(
+                "title too long (max {max} characters)",
+                &[("max", &MAX_TITLE_SCALARS)],
             ));
         }
 

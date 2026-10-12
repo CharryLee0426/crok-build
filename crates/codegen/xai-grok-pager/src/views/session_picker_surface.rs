@@ -1,5 +1,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlm};
 
 use crate::app::app_view::SessionPickerEntry;
 use crate::theme::Theme;
@@ -17,7 +19,7 @@ pub enum SessionPickerHost {
 }
 
 /// Shared by dashboard picker paint and input so a copy change cannot update only one site.
-pub(crate) const DASHBOARD_PICKER_TITLE: &str = "Open session";
+pub(crate) const DASHBOARD_PICKER_TITLE: &str = tlm("Open session");
 
 /// State for one session-picker incarnation.
 /// Host-agnostic: everything a picker accumulates between open and dismiss, nothing about how a host renders it or maps its keys.
@@ -107,7 +109,10 @@ pub(crate) fn render_session_picker(
     }
 }
 
-const SESSION_SEARCH_LABEL: &str = " search: ";
+/// The prompt before the query, in the interface language: the same catalog entry as the picker's own search bar.
+fn session_search_label() -> &'static str {
+    xai_grok_i18n::tr("picker.search_label", " search: ")
+}
 
 pub(crate) fn render_session_picker_search_bar(
     buf: &mut Buffer,
@@ -115,19 +120,21 @@ pub(crate) fn render_session_picker_search_bar(
     theme: &Theme,
     state: &crate::views::picker::PickerState,
 ) {
+    let search_label = session_search_label();
     crate::views::picker::render_picker_search_bar_with_label(
         buf,
         area.x,
         area.y,
         area.width,
         theme,
-        SESSION_SEARCH_LABEL,
+        search_label,
         state,
         state.search_active,
         true,
         Some(theme.bg_base),
     );
-    let label_w = u16::try_from(SESSION_SEARCH_LABEL.len()).unwrap_or(0);
+    // Columns, not bytes: the prompt is not ASCII in every language
+    let label_w = u16::try_from(search_label.width()).unwrap_or(0);
     if state.search_active {
         let width = label_w.min(area.width);
         if width > 0 {
@@ -171,28 +178,28 @@ fn render_simple_session_picker_modal(
 
     let shortcuts = vec![
         Shortcut {
-            label: "\u{2191}\u{2193} nav",
+            label: tl("↑↓ nav"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "Enter select",
+            label: tl("Enter select"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "/ search",
+            label: tl("/ search"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "Esc close",
+            label: tl("Esc close"),
             clickable: false,
             id: 0,
         },
     ];
     let modal_config = ModalWindowConfig {
-        title,
+        title: tl(title),
         tabs: None,
         shortcuts: &shortcuts,
         sizing: ModalSizing {

@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use crossterm::terminal::SetTitle;
+use xai_grok_i18n::{tl, tlf};
 
 use super::config::{TitleConfig, TitleItem};
 use crate::acp::tracker::TurnActivity;
@@ -136,7 +137,7 @@ fn write_item(
                 write_activity(buf, activity);
             } else if state.is_busy {
                 push_separator(buf, has_parts);
-                buf.push_str("Waiting");
+                buf.push_str(tl("Waiting"));
             } else {
                 return false;
             }
@@ -189,7 +190,8 @@ fn write_item(
                 return false;
             }
             push_separator(buf, has_parts);
-            buf.push_str("\u{26A0} Action Required");
+            buf.push_str("\u{26A0} ");
+            buf.push_str(tl("Action Required"));
         }
     }
     *has_parts = true;
@@ -204,8 +206,8 @@ fn push_separator(buf: &mut String, has_parts: &mut bool) {
 
 fn write_activity(buf: &mut String, activity: &TurnActivity) {
     match activity {
-        TurnActivity::Thinking => buf.push_str("Thinking"),
-        TurnActivity::Responding => buf.push_str("Responding"),
+        TurnActivity::Thinking => buf.push_str(tl("Thinking")),
+        TurnActivity::Responding => buf.push_str(tl("Responding")),
         TurnActivity::ToolRunning { title, description } => {
             if let Some(desc) = description
                 .as_deref()
@@ -214,13 +216,14 @@ fn write_activity(buf: &mut String, activity: &TurnActivity) {
             {
                 buf.push_str(&crate::acp::tracker::format_waiting_for_subject(desc));
             } else if title.is_empty() {
-                buf.push_str("Running tool");
+                buf.push_str(tl("Running tool"));
             } else {
-                buf.push_str("Running: ");
-                write_truncated(buf, title, 30);
+                let mut short = String::new();
+                write_truncated(&mut short, title, 30);
+                buf.push_str(&tlf("Running: {title}", &[("title", &short)]));
             }
         }
-        TurnActivity::AutoCompacting => buf.push_str("Compacting"),
+        TurnActivity::AutoCompacting => buf.push_str(tl("Compacting")),
         TurnActivity::Retrying {
             attempt,
             max_retries,

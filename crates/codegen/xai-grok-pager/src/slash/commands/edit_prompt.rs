@@ -5,20 +5,21 @@
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
+use xai_grok_i18n::{tl, tlm};
 
 pub struct EditPromptCommand;
 
 impl SlashCommand for EditPromptCommand {
     slash_meta! {
         name: "edit-prompt",
-        description: "Open an external editor for an empty prompt; use the command palette to preserve a draft",
+        description: tlm("Open an external editor for an empty prompt; use the command palette to preserve a draft"),
         usage: "/edit-prompt",
         session_scoped: true,
     }
 
     fn run(&self, ctx: &mut CommandExecCtx, _args: &str) -> CommandResult {
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session".to_owned());
+            return CommandResult::Error(tl("No active session").to_owned());
         }
         CommandResult::Action(Action::EditPromptExternal)
     }

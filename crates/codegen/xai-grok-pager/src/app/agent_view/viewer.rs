@@ -15,6 +15,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
+use xai_grok_i18n::tlm;
 use xai_grok_telemetry::events::{BlockViewerOpened, BlockViewerQuoted};
 use xai_grok_telemetry::session_ctx::log_event;
 
@@ -1217,8 +1218,8 @@ impl AgentView {
             return None;
         }
         Some(match entry.display_mode() {
-            DisplayMode::Expanded => "collapse",
-            _ => "expand",
+            DisplayMode::Expanded => tlm("collapse"),
+            _ => tlm("expand"),
         })
     }
 }

@@ -18,6 +18,7 @@ use crate::views::question_view::QUESTION_VIEW_HPAD;
 use crossterm::event::Event;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::time::Instant;
+use xai_grok_i18n::tl;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QuestionSwitch {
     Next,
@@ -1030,7 +1031,9 @@ impl AgentView {
                 Some(crate::views::question_view::LocalQuestionKind::PromptBlocked { .. })
             )
         }) {
-            self.show_toast("Your prompt is blocked — choose Edit, Resend, or Discard");
+            self.show_toast(tl(
+                "Your prompt is blocked — choose Edit, Resend, or Discard",
+            ));
             return InputOutcome::Changed;
         }
         let follows_skip_submit = self.question_view.as_ref().is_some_and(|qv| {
@@ -1153,7 +1156,9 @@ impl AgentView {
                 (true, kind @ LocalQuestionKind::PromptBlocked { .. }) => {
                     qv.local_kind = Some(kind);
                     self.question_view = Some(qv);
-                    self.show_toast("Your prompt is blocked — choose Edit, Resend, or Discard");
+                    self.show_toast(tl(
+                        "Your prompt is blocked — choose Edit, Resend, or Discard",
+                    ));
                     return InputOutcome::Changed;
                 }
                 (true, LocalQuestionKind::DoctorFix { target, .. }) => {

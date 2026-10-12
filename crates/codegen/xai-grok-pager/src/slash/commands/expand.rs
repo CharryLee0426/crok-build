@@ -8,6 +8,7 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use crate::slash::{ModeSupport, Remedy};
+use xai_grok_i18n::{tl, tlm};
 
 /// Re-print the last collapsed/truncated block, fully expanded (minimal mode).
 pub struct ExpandCommand;
@@ -15,17 +16,17 @@ pub struct ExpandCommand;
 impl SlashCommand for ExpandCommand {
     slash_meta! {
         name: "expand",
-        description: "Re-print the last collapsed block, fully expanded (minimal mode)",
+        description: tlm("Re-print the last collapsed block, fully expanded (minimal mode)"),
         usage: "/expand",
         session_scoped: true,
-        mode_support: ModeSupport::MinimalOnly(Remedy::UseInstead(
+        mode_support: ModeSupport::MinimalOnly(Remedy::UseInstead(tlm(
             "press Tab to focus the scrollback, then → on the block",
-        )),
+        ))),
     }
 
     fn run(&self, ctx: &mut CommandExecCtx, _args: &str) -> CommandResult {
         if ctx.session_id.is_none() {
-            return CommandResult::Error("No active session".to_string());
+            return CommandResult::Error(tl("No active session").to_string());
         }
         CommandResult::Action(Action::MinimalExpandLast)
     }

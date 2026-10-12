@@ -16,6 +16,8 @@
 
 use std::borrow::Cow;
 
+use xai_grok_i18n::{tl, tlm};
+
 use crate::actions::{ActionDef, ActionId, ActionRegistry, Category, When};
 use crate::input::key::KeyShortcut;
 use crate::views::picker::{PickerConfig, PickerOutcome, PickerState, handle_picker_input};
@@ -61,13 +63,13 @@ impl ShortcutsHelpEntry {
 
 /// Category display order and labels for the cheatsheet.
 const CATEGORY_ORDER: &[(Category, &str)] = &[
-    (Category::GettingStarted, "Essentials"),
-    (Category::Input, "Input"),
-    (Category::ConversationNav, "Conversation Navigation"),
-    (Category::ConversationAction, "Conversation Actions"),
-    (Category::Panels, "Panels"),
-    (Category::Session, "Session"),
-    (Category::Dashboard, "Dashboard"),
+    (Category::GettingStarted, tlm("Essentials")),
+    (Category::Input, tlm("Input")),
+    (Category::ConversationNav, tlm("Conversation Navigation")),
+    (Category::ConversationAction, tlm("Conversation Actions")),
+    (Category::Panels, tlm("Panels")),
+    (Category::Session, tlm("Session")),
+    (Category::Dashboard, tlm("Dashboard")),
 ];
 
 pub fn default_collapsed() -> std::collections::HashSet<usize> {
@@ -77,53 +79,39 @@ pub fn default_collapsed() -> std::collections::HashSet<usize> {
 // Man-page body for the paste pseudo-row (Enter detail)
 // Keep claims that hold on every host (agent and dashboard); non-image file paths are agent-only
 #[cfg(target_os = "windows")]
-const PASTE_LONG_HELP: &str = "\
-Pastes clipboard images into the prompt as chips, and plain text as typed.\n\
-Prefer Ctrl+V. Use Alt+V as a fallback when Ctrl+V fails (some terminals or \
-configs drop image clipboards; older Windows Terminal versions only pasted \
-text).\n\
-You can also drag an image file from Explorer into the prompt.";
+const PASTE_LONG_HELP: &str = tlm(
+    "Pastes clipboard images into the prompt as chips, and plain text as typed.\nPrefer Ctrl+V. Use Alt+V as a fallback when Ctrl+V fails (some terminals or configs drop image clipboards; older Windows Terminal versions only pasted text).\nYou can also drag an image file from Explorer into the prompt.",
+);
 #[cfg(target_os = "macos")]
-const PASTE_LONG_HELP: &str = "\
-Pastes clipboard images into the prompt as chips, and plain text as typed.\n\
-Use Ctrl+V for screenshots, browser \"Copy Image\", and file-manager image \
-copies (many terminals swallow Cmd+V and never deliver it to the TUI).\n\
-You can also drag an image file into the prompt.";
+const PASTE_LONG_HELP: &str = tlm(
+    "Pastes clipboard images into the prompt as chips, and plain text as typed.\nUse Ctrl+V for screenshots, browser \"Copy Image\", and file-manager image copies (many terminals swallow Cmd+V and never deliver it to the TUI).\nYou can also drag an image file into the prompt.",
+);
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-const PASTE_LONG_HELP: &str = "\
-Pastes clipboard images into the prompt as chips, and plain text as typed.\n\
-Use Ctrl+V for screenshots, browser \"Copy Image\", and file-manager image \
-copies.\n\
-You can also drag an image file into the prompt.";
+const PASTE_LONG_HELP: &str = tlm(
+    "Pastes clipboard images into the prompt as chips, and plain text as typed.\nUse Ctrl+V for screenshots, browser \"Copy Image\", and file-manager image copies.\nYou can also drag an image file into the prompt.",
+);
 
 // Undo/redo are textarea chords, not ActionRegistry entries
 // Super/Cmd also works where the terminal delivers it; list Ctrl only (hosts often swallow Super)
-const UNDO_LONG_HELP: &str = "\
-Undoes the last change in the prompt editor.\n\
-Covers typing, deletes, line/word kills, and clearing a draft.\n\
-Pressed right after a stash or a double-Esc clear, brings the draft back.";
+const UNDO_LONG_HELP: &str = tlm(
+    "Undoes the last change in the prompt editor.\nCovers typing, deletes, line/word kills, and clearing a draft.\nPressed right after a stash or a double-Esc clear, brings the draft back.",
+);
 
-const REDO_LONG_HELP: &str = "\
-Redoes the last undone change in the prompt editor.\n\
-The second chord is the fallback for terminals that cannot send the first one.";
+const REDO_LONG_HELP: &str = tlm(
+    "Redoes the last undone change in the prompt editor.\nThe second chord is the fallback for terminals that cannot send the first one.",
+);
 
 // Prompt history is not an ActionRegistry entry: Up is an inline key handler and /history is a slash command
 // List both here so users can find them
-const HISTORY_LONG_HELP: &str = "\
-Recalls previously sent prompts.\n\
-Press Up on an empty prompt to browse earlier prompts, newest first; each move \
-live-populates the composer so you can edit and resend.\n\
-With prompts queued, Up moves focus into the queue pane on the last row instead.\n\
-Run /history to open a searchable history panel and filter by text.";
+const HISTORY_LONG_HELP: &str = tlm(
+    "Recalls previously sent prompts.\nPress Up on an empty prompt to browse earlier prompts, newest first; each move live-populates the composer so you can edit and resend.\nWith prompts queued, Up moves focus into the queue pane on the last row instead.\nRun /history to open a searchable history panel and filter by text.",
+);
 
 // Scrollback search has no ActionRegistry entry: it's the vim `/` inline handler, or the /find slash command in simple mode
 // List both triggers here
-const SCROLLBACK_SEARCH_LONG_HELP: &str = "\
-Searches the conversation scrollback for text and jumps between matches.\n\
-In the prompt input, run /find to search. In vim mode, you can also press / \
-while the scrollback is focused.\n\
-Type a query, then use n and N (or the arrow keys) to step through matches. \
-Press Enter to jump to a match and Esc to dismiss.";
+const SCROLLBACK_SEARCH_LONG_HELP: &str = tlm(
+    "Searches the conversation scrollback for text and jumps between matches.\nIn the prompt input, run /find to search. In vim mode, you can also press / while the scrollback is focused.\nType a query, then use n and N (or the arrow keys) to step through matches. Press Enter to jump to a match and Esc to dismiss.",
+);
 
 /// Build the entries vector for the modal, grouped by category.
 ///
@@ -249,8 +237,8 @@ pub fn build_entries(
         }
         // Scrollback search (`/`) has no registered ActionDef yet (vim-only, handled inline); list it here for discoverability
         if vim_mode && cat == Category::ConversationNav {
-            let mut item = HintItem::new(crate::key!('/'), "search");
-            item.description = Some("Search scrollback".into());
+            let mut item = HintItem::new(crate::key!('/'), tlm("search"));
+            item.description = Some(tlm("Search scrollback").into());
             let dimmed = !active_contexts.contains(&When::ScrollbackFocused);
             entries.push(ShortcutsHelpEntry::Hint {
                 item,
@@ -262,9 +250,9 @@ pub fn build_entries(
         // Simple mode reaches scrollback search via the `/find` slash command, not a keystroke
         // Use a null key and a custom display so the raw key list stays empty of `/`
         if !vim_mode && cat == Category::ConversationNav {
-            let mut item = HintItem::new(crate::key!(Null), "search");
+            let mut item = HintItem::new(crate::key!(Null), tlm("search"));
             item.custom_display = Some("/find");
-            item.description = Some("Search scrollback".into());
+            item.description = Some(tlm("Search scrollback").into());
             // `/find` is a slash command typed at the prompt (not a scrollback keystroke like the vim `/` above)
             // It is available when the prompt is focused, so dim on `!PromptFocused`, not scrollback
             let dimmed = !active_contexts.contains(&When::PromptFocused);
@@ -291,27 +279,27 @@ pub fn build_entries(
                 });
             };
 
-            let mut paste = HintItem::new(crate::key!('v', CONTROL), "paste");
-            paste.description = Some("Paste images (and text) from the clipboard".into());
+            let mut paste = HintItem::new(crate::key!('v', CONTROL), tlm("paste"));
+            paste.description = Some(tlm("Paste images (and text) from the clipboard").into());
             #[cfg(target_os = "windows")]
             paste.keys.push(crate::key!('v', ALT));
             push_pseudo(&mut entries, paste, Some(PASTE_LONG_HELP));
 
-            let mut undo = HintItem::new(crate::key!('z', CONTROL), "undo");
-            undo.description = Some("Undo the last prompt edit".into());
+            let mut undo = HintItem::new(crate::key!('z', CONTROL), tlm("undo"));
+            undo.description = Some(tlm("Undo the last prompt edit").into());
             push_pseudo(&mut entries, undo, Some(UNDO_LONG_HELP));
 
             // Alt+Z is the fallback on terminals that send Ctrl+Shift+Z as plain Ctrl+Z
-            let mut redo = HintItem::new(crate::key!('z', CONTROL | SHIFT), "redo");
-            redo.description = Some("Redo the last undone prompt edit".into());
+            let mut redo = HintItem::new(crate::key!('z', CONTROL | SHIFT), tlm("redo"));
+            redo.description = Some(tlm("Redo the last undone prompt edit").into());
             redo.keys.push(crate::key!('z', ALT));
             push_pseudo(&mut entries, redo, Some(REDO_LONG_HELP));
 
             // Prompt history (Up / /history)
             // It is not part of the shared paste/undo/redo `dimmed`: that also lights on DashboardFocused
             // Up-history is prompt-only, so give it its own dim scoped to PromptFocused
-            let mut history = HintItem::new(crate::key!(Up), "history");
-            history.description = Some("Prompt history".into());
+            let mut history = HintItem::new(crate::key!(Up), tlm("history"));
+            history.description = Some(tlm("Prompt history").into());
             let history_dimmed = !active_contexts.contains(&When::PromptFocused);
             entries.push(ShortcutsHelpEntry::Hint {
                 item: history,
@@ -413,12 +401,14 @@ pub fn filter_entries(
 fn hint_matches_query(h: &HintItem, long_help: Option<&str>, tokens: &[&str]) -> bool {
     tokens.is_empty() || {
         let haystack = format!(
-            "{} {} {} {} {}",
+            "{} {} {} {} {} {}",
             h.label,
             hint_key_display(h),
             hint_key_pretty(h),
             hint_description(h),
+            // English as written, and as it is shown
             long_help.unwrap_or_default(),
+            xai_grok_i18n::tl(long_help.unwrap_or_default()),
         )
         .to_lowercase();
         tokens.iter().all(|t| haystack.contains(t))
@@ -452,13 +442,32 @@ fn hint_key_pretty(h: &HintItem) -> String {
 }
 
 /// Get the long description for a hint, falling back to the short label.
+/// The entries are kept while the modal is open, so they hold English; this reads them in the interface language.
 pub fn entry_display(entries: &[ShortcutsHelpEntry], idx: usize) -> (String, String) {
     match entries.get(idx) {
-        Some(ShortcutsHelpEntry::Hint { item: h, .. }) => (hint_description(h), hint_key_pretty(h)),
+        Some(ShortcutsHelpEntry::Hint { item: h, .. }) => {
+            (hint_description_shown(h), hint_key_pretty(h))
+        }
         Some(ShortcutsHelpEntry::SectionHeader { label, .. }) => {
-            ((*label).to_string(), String::new())
+            (tl(label).to_string(), String::new())
         }
         None => (String::new(), String::new()),
+    }
+}
+
+/// [`hint_description`] in the interface language, for drawing. Matching keeps the English.
+fn hint_description_shown(h: &HintItem) -> String {
+    match h.description.as_deref() {
+        Some(d) => tl(d).to_string(),
+        None => {
+            // Capitalize the short label as a fallback.
+            let label = tl(h.label.as_ref());
+            let mut chars = label.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+            }
+        }
     }
 }
 
@@ -617,17 +626,17 @@ pub fn modal_footer_detail() -> Vec<crate::views::modal_window::Shortcut<'static
     use crate::views::modal_window::Shortcut;
     vec![
         Shortcut {
-            label: "Esc back",
+            label: tl("Esc back"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "\u{2191}/\u{2193} scroll",
+            label: tl("↑/↓ scroll"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "Ctrl+./X close",
+            label: tl("Ctrl+./X close"),
             clickable: false,
             id: 0,
         },
@@ -654,6 +663,8 @@ pub fn render_detail_body<'a>(
     if area.width == 0 || area.height == 0 {
         return;
     }
+    // The detail payload is kept while the page is open and holds English; read it in the interface language here
+    let (title, body) = (tl(title), tl(body));
     // Borrow from the owned detail payload; no allocation while building the rows
     let mut lines: Vec<Line<'a>> = Vec::new();
     lines.push(Line::from(Span::styled(
@@ -685,7 +696,7 @@ pub fn render_detail_body<'a>(
     if dimmed_note {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "(not active in current context)",
+            tl("(not active in current context)"),
             Style::default().fg(theme.gray_dim),
         )));
     }
@@ -722,7 +733,7 @@ pub fn render_detail(
     };
     let footer = modal_footer_detail();
     let modal_config = mw::ModalWindowConfig {
-        title: "Keyboard Shortcuts",
+        title: tl("Keyboard Shortcuts"),
         tabs: None,
         shortcuts: &footer,
         sizing: modal_sizing(compact),
@@ -1028,41 +1039,41 @@ pub fn modal_footer(filter_active: bool) -> Vec<crate::views::modal_window::Shor
     use crate::views::modal_window::Shortcut;
     let mut shortcuts = vec![
         Shortcut {
-            label: "\u{2191}/\u{2193} nav",
+            label: tl("↑/↓ nav"),
             clickable: false,
             id: 0,
         },
         Shortcut {
             label: if filter_active {
-                "f show all"
+                tl("f show all")
             } else {
-                "f filter"
+                tl("f filter")
             },
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "e/Space/\u{2192} expand",
+            label: tl("e/Space/→ expand"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "\u{2190} collapse",
+            label: tl("← collapse"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "Enter details",
+            label: tl("Enter details"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "/ search",
+            label: tl("/ search"),
             clickable: false,
             id: 0,
         },
         Shortcut {
-            label: "Esc close",
+            label: tl("Esc close"),
             clickable: false,
             id: 0,
         },
@@ -1130,10 +1141,11 @@ impl CheatsheetRows {
                     category_idx,
                 }) => {
                     let is_collapsed = collapsed_sections.contains(category_idx);
+                    let label = tl(label);
                     let display = if is_collapsed {
                         format!("{label} ({entry_count})")
                     } else {
-                        (*label).to_string()
+                        label.to_string()
                     };
                     row_strs.push((display, String::new()));
                     help_text.push(String::new());
@@ -1143,7 +1155,7 @@ impl CheatsheetRows {
                     row_strs.push(entry_display(entries, i));
                     // Collapse newlines to spaces so the collapsible view shows one wrap-flowed block (no hard breaks).
                     let help = hint_inline_help(entry)
-                        .map(|s| s.replace('\n', " "))
+                        .map(|s| tl(s).replace('\n', " "))
                         .unwrap_or_default();
                     help_text.push(help);
                     kinds.push(CheatsheetRowKind::Hint {
@@ -1292,7 +1304,7 @@ pub fn render_modal(
     let non_sel: Vec<bool> = vec![false; picker_entries.len()];
     let footer = modal_footer(filter_active);
     let modal_config = mw::ModalWindowConfig {
-        title: "Keyboard Shortcuts",
+        title: tl("Keyboard Shortcuts"),
         tabs: None,
         shortcuts: &footer,
         sizing: modal_sizing(compact),
@@ -1403,7 +1415,7 @@ pub fn handle_modal_key(
         modal_footer(filter_active)
     };
     let chrome_cfg = mw::ModalWindowConfig {
-        title: "Keyboard Shortcuts",
+        title: tl("Keyboard Shortcuts"),
         tabs: None,
         shortcuts: &footer,
         sizing: modal_sizing(compact),

@@ -23,6 +23,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::StatefulWidgetRef;
+use xai_grok_i18n::{tl, tlf};
 use xai_grok_tools::types::SessionMode;
 use xai_ratatui_textarea::{ElementId, ElementKind, TextArea, TextAreaState, TextElement};
 
@@ -2356,7 +2357,10 @@ impl PromptWidget {
     /// Toast text shown when an image insertion is rejected because the prompt already holds [`Self::IMAGE_CAP`] images.
     #[allow(dead_code)]
     pub(crate) fn cap_reached_toast() -> String {
-        format!("Image limit reached (max {})", Self::IMAGE_CAP)
+        tlf(
+            "Image limit reached (max {max})",
+            &[("max", &Self::IMAGE_CAP)],
+        )
     }
 
     /// Insert a pasted image as an atomic `[Image #N]` chip. Returns `Err` with a user-facing message
@@ -2370,8 +2374,9 @@ impl PromptWidget {
         if let Some((w, h)) = image.preview_dimensions()
             && (w < MIN_SIDE || h < MIN_SIDE)
         {
-            return Err(format!(
-                "Image too small ({w}×{h}). Must be at least {MIN_SIDE}×{MIN_SIDE} pixels."
+            return Err(tlf(
+                "Image too small ({width}×{height}). Must be at least {min}×{min} pixels.",
+                &[("width", &w), ("height", &h), ("min", &MIN_SIDE)],
             ));
         }
 
@@ -2904,13 +2909,13 @@ impl PromptWidget {
         let action = if self.paste_element_at_cursor().is_some() {
             "enter"
         } else {
-            "paste again"
+            tl("paste again")
         };
         Line::from(vec![
             Span::styled(action, chord),
-            Span::styled(" or ", dim),
-            Span::styled("double-click", chord),
-            Span::styled(" to expand", dim),
+            Span::styled(format!(" {} ", tl("or")), dim),
+            Span::styled(tl("double-click"), chord),
+            Span::styled(format!(" {}", tl("to expand")), dim),
         ])
     }
 
@@ -3348,7 +3353,9 @@ impl PromptWidget {
             && (!style.focused || style.placeholder_when_focused)
             && !voice_interim_shown
         {
-            let placeholder = style.placeholder_override.unwrap_or("Build anything");
+            let placeholder = style
+                .placeholder_override
+                .unwrap_or_else(|| tl("Build anything"));
             // `set_string` clips at the buffer edge, not at the textarea, so a placeholder longer than the box would paint over its border.
             let truncated =
                 crate::render::line_utils::truncate_str(placeholder, ta_area.width as usize);
@@ -3606,7 +3613,9 @@ impl PromptWidget {
             if flag.bold {
                 style = style.add_modifier(Modifier::BOLD);
             }
-            left_spans.push(Span::styled(flag.text, style));
+            // Mode and permission flags arrive as their English ids (compared for color by
+            // `mode_flags` and its callers); the language is applied here, where they are drawn.
+            left_spans.push(Span::styled(tl(flag.text), style));
         }
         // Trailing pad mirrors the leading pad above.
         left_spans.push(Span::styled(" ", pad_style));
@@ -3614,7 +3623,7 @@ impl PromptWidget {
         // Build right-side spans: "multiline" indicator.
         let mut right_spans: Vec<Span<'static>> = Vec::new();
         if info.multiline {
-            right_spans.push(Span::styled("multiline", flag_style));
+            right_spans.push(Span::styled(tl("multiline"), flag_style));
         }
 
         if !right_spans.is_empty() {
@@ -3834,11 +3843,11 @@ fn normalize_line_breaks(text: &str) -> String {
 ///
 /// Renders as: `[Pasted: N lines]`
 fn paste_chip_display(line_count: usize) -> Line<'static> {
-    chip_line(format!(
-        "Pasted: {} line{}",
-        line_count,
-        if line_count != 1 { "s" } else { "" }
-    ))
+    chip_line(if line_count == 1 {
+        tlf("Pasted: {count} line", &[("count", &line_count)])
+    } else {
+        tlf("Pasted: {count} lines", &[("count", &line_count)])
+    })
 }
 
 /// Display `Line` for a byte-triggered paste chip, e.g. `[Pasted: 12 KB]` or `[Pasted: 1.0 MB]` (size, not a line count).
@@ -3849,9 +3858,9 @@ fn paste_chip_display_bytes(byte_len: usize) -> Line<'static> {
     } else if byte_len >= 1000 {
         format!("{} KB", byte_len / 1000)
     } else {
-        format!("{byte_len} bytes")
+        tlf("{count} bytes", &[("count", &byte_len)])
     };
-    chip_line(format!("Pasted: {size}"))
+    chip_line(tlf("Pasted: {size}", &[("size", &size)]))
 }
 
 /// Highest `display_number` present in `images`, or `0` when the slice is empty.

@@ -9,6 +9,7 @@ use ratatui::text::{Line, Span};
 use super::EphemeralTip;
 use crate::theme::Theme;
 use crate::views::agent::AUTO_COMPACT_MAX_ROWS;
+use xai_grok_i18n::tl_parts;
 
 /// Ephemeral-tip dedup key for the small-screen `/compact-mode` hint.
 pub(crate) const SMALL_SCREEN_TIP_KEY: &str = "small_screen_tip";
@@ -38,15 +39,17 @@ pub fn small_screen_tip() -> EphemeralTip {
     let command = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);
-    EphemeralTip::new(
-        SMALL_SCREEN_TIP_KEY,
-        Line::from(vec![
-            Span::styled("Tight on space? Try ", dim),
-            Span::styled("/compact-mode", command),
-        ]),
-    )
-    .with_session_seen_cap(SMALL_SCREEN_TIP_SEEN_KEY, SMALL_SCREEN_TIP_SEEN_CAP)
-    .ambient()
+    let (before, after) = tl_parts("Tight on space? Try {command}", "command");
+    let mut spans = vec![
+        Span::styled(before, dim),
+        Span::styled("/compact-mode", command),
+    ];
+    if !after.is_empty() {
+        spans.push(Span::styled(after, dim));
+    }
+    EphemeralTip::new(SMALL_SCREEN_TIP_KEY, Line::from(spans))
+        .with_session_seen_cap(SMALL_SCREEN_TIP_SEEN_KEY, SMALL_SCREEN_TIP_SEEN_CAP)
+        .ambient()
 }
 
 #[cfg(test)]

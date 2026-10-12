@@ -13,6 +13,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
+use xai_grok_i18n::{tl, tlf};
 /// Promo upgrade CTA for the dashboard header, resolved through the shared slot gate by the producer (`app_view`).
 #[derive(Clone, Copy)]
 pub struct HeaderUpgradeCta<'a> {
@@ -62,38 +63,50 @@ pub(super) fn render_header(
     let chip_specs = [
         (
             "awaiting",
+            tlf("{count} awaiting", &[("count", &awaiting)]),
             crate::glyphs::diamond_filled(),
             theme.warning,
             awaiting,
         ),
-        ("working", spinner, theme.accent_running, working),
+        (
+            "working",
+            tlf("{count} working", &[("count", &working)]),
+            spinner,
+            theme.accent_running,
+            working,
+        ),
         (
             "idle",
+            tlf("{count} idle", &[("count", &idle)]),
             crate::glyphs::diamond_hollow(),
             theme.gray_dim,
             idle,
         ),
         (
             "done",
+            tlf("{count} done", &[("count", &done)]),
             crate::glyphs::diamond_filled(),
             theme.accent_success,
             done,
         ),
         (
             "failed",
+            tlf("{count} failed", &[("count", &failed)]),
             crate::glyphs::diamond_filled(),
             theme.accent_error,
             failed,
         ),
     ];
     let mut status = AgentStatusBar::new(theme);
-    for (label, glyph, color, count) in chip_specs.into_iter().filter(|(_, _, _, count)| *count > 0)
+    for (id, text, glyph, color, _) in chip_specs
+        .into_iter()
+        .filter(|(_, _, _, _, count)| *count > 0)
     {
         status.push(
-            label,
+            id,
             Line::from(vec![
                 Span::styled(glyph, bg.fg(color)),
-                Span::styled(format!(" {count} {label}"), bg.fg(theme.gray)),
+                Span::styled(format!(" {text}"), bg.fg(theme.gray)),
             ]),
         );
     }
@@ -134,7 +147,7 @@ pub(super) fn render_header(
     let location_w = location.width() as u16;
     buf.set_line(area.x, area.y, &location, location_w);
     let mut choose_hint = hint_line(
-        Span::styled("Choose", dim),
+        Span::styled(tl("Choose"), dim),
         chord_hint(
             theme,
             registry,
@@ -238,9 +251,9 @@ pub(super) fn render_actions_row(
     };
     let worktree_armed = state.worktree_armed();
     let new_agent_label = if worktree_armed {
-        "+ New Agent in Worktree"
+        tl("+ New Agent in Worktree")
     } else {
-        "+ New Agent"
+        tl("+ New Agent")
     };
     let new_agent_w = (UnicodeWidthStr::width(new_agent_label) as u16).min(area.width);
     let mut right_edge = area.x + area.width;
@@ -263,9 +276,9 @@ pub(super) fn render_actions_row(
             })
         };
     let worktree_label = if worktree_armed {
-        "Disable Worktree"
+        tl("Disable Worktree")
     } else {
-        "Worktree"
+        tl("Worktree")
     };
     let worktree_hint = hint_line(
         Span::styled(
@@ -287,7 +300,7 @@ pub(super) fn render_actions_row(
     if workspace_dashboard_enabled && worktree_rect.is_some() {
         let open_previous = hint_line(
             Span::styled(
-                "Open Previous",
+                tl("Open Previous"),
                 bg.fg(button_fg(
                     state.open_session_button_focused(),
                     state.open_session_button_hit.hovered,

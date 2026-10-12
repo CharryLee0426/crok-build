@@ -1,5 +1,6 @@
 //! Shared reasoning-effort dropdown levels for `/model` and `/effort`.
 
+use xai_grok_i18n::tl;
 use xai_grok_shell::sampling::types::{ReasoningEffort, ReasoningEffortOption};
 
 use crate::slash::command::ArgItem;
@@ -15,13 +16,13 @@ pub(crate) const EFFORT_LEVELS: &[ReasoningEffort] = &[
 
 pub(crate) fn effort_description(level: ReasoningEffort) -> &'static str {
     match level {
-        ReasoningEffort::None => "No reasoning",
-        ReasoningEffort::Minimal => "Minimal reasoning",
-        ReasoningEffort::Low => "Faster, lighter reasoning",
-        ReasoningEffort::Medium => "Balanced reasoning",
-        ReasoningEffort::High => "Heavy reasoning",
-        ReasoningEffort::Xhigh => "Extended reasoning",
-        ReasoningEffort::Max => "Maximum reasoning",
+        ReasoningEffort::None => tl("No reasoning"),
+        ReasoningEffort::Minimal => tl("Minimal reasoning"),
+        ReasoningEffort::Low => tl("Faster, lighter reasoning"),
+        ReasoningEffort::Medium => tl("Balanced reasoning"),
+        ReasoningEffort::High => tl("Heavy reasoning"),
+        ReasoningEffort::Xhigh => tl("Extended reasoning"),
+        ReasoningEffort::Max => tl("Maximum reasoning"),
     }
 }
 
@@ -54,7 +55,11 @@ pub(crate) fn build_effort_arg_items(
         .enumerate()
         .map(|(idx, option)| {
             let active = mark_active && current_effort == Some(option.value);
-            let active_suffix = if active { " (active)" } else { "" };
+            let active_suffix = if active {
+                format!(" {}", tl("(active)"))
+            } else {
+                String::new()
+            };
             let insert_text = insert_text_for(option);
             // Sort-key prefix: 'a' for top row, 'b' for next, etc
             // Only affects matcher tiebreak ordering, never rendered
