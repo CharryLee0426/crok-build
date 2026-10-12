@@ -63,6 +63,24 @@ Some things start the cache over, because they change the conversation the model
 
 `crok usage <session-id>` prints what a session used, turn by turn. In a healthy session `cachedReadTokens` is close to `inputTokens` and `cacheCreationTokens` is small.
 
+### Cache diagnostics
+
+When a request does start the cache over, Crok says why. Every request of a conversation tells Anthropic which response came before it, and Anthropic answers with the first place the two requests differ ([cache diagnostics](https://platform.claude.com/docs/en/build-with-claude/cache-diagnostics)). A request that only added to the one before it gets no answer and nothing is shown. Otherwise a line appears in the conversation, in the terminal and in Crok Desktop:
+
+```text
+Prompt cache: the system prompt changed since the previous request. About 41,850 input tokens after the change were not read from the cache.
+```
+
+It names one of four things: the model, the system prompt, the tool list, or earlier messages. The token figure is Anthropic's estimate of how much of the request came after the change. It is a size, not a billed amount, and what came before the change was still read from the cache. After a model switch, compaction, a rewind or a pruning turn the line is expected. Anywhere else it points at something that changes the prompt between two requests when it should not, such as a tool list that arrives in a different order.
+
+The same finding is logged as `shell.turn.prompt_cache_miss` (`crok logs`). A title refresh and a `/btw` side question replay the conversation to read its cache, so they are compared with it too, and a mismatch there goes to the log only. A subagent's requests are compared within the subagent, also to the log only.
+
+For this, Anthropic keeps hashes and token estimates of each such request for a short time, and none of the prompt text. Only its own endpoint is asked, never another host that speaks the Messages protocol. To turn it off:
+
+```bash
+CROK_ANTHROPIC_CACHE_DIAGNOSTICS=off crok
+```
+
 ### Credit balance and usage
 
 Anthropic has no API that returns your remaining credit. The balance is on the Console's [Billing page](https://platform.claude.com/settings/billing), where you can also turn on auto-reload.

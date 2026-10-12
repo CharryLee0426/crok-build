@@ -333,17 +333,109 @@ fn anthropic_refuses_thinking_binding(status: reqwest::StatusCode, message: &str
             || (message.contains("block_binding") && message.contains("Extra inputs")))
 }
 
-/// Called with every error Anthropic's endpoint answers. Returns whether the beta was just given up,
-/// in which case the same request sent again goes without it.
-pub(crate) fn note_anthropic_error(status: reqwest::StatusCode, message: &str) -> bool {
-    let refused = anthropic_refuses_thinking_binding(status, message);
-    if refused && !ANTHROPIC_THINKING_BINDING_REFUSED.swap(true, Ordering::Relaxed) {
-        tracing::warn!(
-            beta = ANTHROPIC_THINKING_BINDING_BETA,
-            "Anthropic refused the thinking-binding beta; requests go without it from here on"
-        );
+/// Set once Anthropic has refused the `diagnostics` field, for the reason the beta above has its flag:
+/// a refused field fails every request that carries it.
+static ANTHROPIC_CACHE_DIAGNOSTICS_REFUSED: AtomicBool = AtomicBool::new(false);
+
+/// Whether a 400 from Anthropic refuses the request's `diagnostics` object or the id inside it.
+/// The API names the field it refuses by its path, as in `thinking.block_binding: Extra inputs are not permitted`.
+fn anthropic_refuses_cache_diagnostics(status: reqwest::StatusCode, message: &str) -> bool {
+    status == reqwest::StatusCode::BAD_REQUEST
+        && (message.starts_with("diagnostics:")
+            || message.contains(" diagnostics:")
+            || message.contains("diagnostics.previous_message_id"))
+}
+
+/// Called with every error Anthropic's endpoint answers. Returns what to tell the user when the
+/// error made this process give something up, in which case the same request sent again goes without it.
+pub(crate) fn note_anthropic_error(
+    status: reqwest::StatusCode,
+    message: &str,
+) -> Option<&'static str> {
+    if anthropic_refuses_thinking_binding(status, message) {
+        if !ANTHROPIC_THINKING_BINDING_REFUSED.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                beta = ANTHROPIC_THINKING_BINDING_BETA,
+                "Anthropic refused the thinking-binding beta; requests go without it from here on"
+            );
+        }
+        return Some(" Crok has stopped sending that beta; send the message again.");
     }
-    refused
+    if anthropic_refuses_cache_diagnostics(status, message) {
+        if !ANTHROPIC_CACHE_DIAGNOSTICS_REFUSED.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                "Anthropic refused the cache diagnostics field; requests go without it from here on"
+            );
+        }
+        return Some(" Crok has stopped asking for cache diagnostics; send the message again.");
+    }
+    None
+}
+
+/// Names the response before this request, so the API answers with where the two requests first
+/// differ. Called last, on the request as it will be sent.
+pub(crate) fn attach_cache_diagnostics(
+    request: &mut messages::MessagesRequest,
+    options: AnthropicOptions,
+    chain: Option<&xai_grok_sampling_types::CacheChain>,
+) -> bool {
+    let Some(chain) = chain.filter(|_| {
+        options.cache_diagnostics && !ANTHROPIC_CACHE_DIAGNOSTICS_REFUSED.load(Ordering::Relaxed)
+    }) else {
+        return false;
+    };
+    request.diagnostics = Some(messages::DiagnosticsParam {
+        previous_message_id: chain.previous_message_id(),
+    });
+    true
+}
+
+/// Logs what a response's `diagnostics` says and returns the one finding worth showing the user:
+/// a change the API located. `cache_read_input_tokens` is what the same response says it did read,
+/// which stays high when the change came late in the prompt.
+pub(crate) fn note_cache_diagnostics(
+    diagnostics: Option<&messages::CacheDiagnostics>,
+    cache_read_input_tokens: u64,
+) -> Option<xai_grok_sampling_types::PromptCacheMiss> {
+    use messages::CacheMissKind;
+    use xai_grok_sampling_types::{PromptCacheChange, PromptCacheMiss};
+
+    // No object: nothing was asked, there was nothing to compare, or the two requests match.
+    let diagnostics = diagnostics?;
+    let Some(reason) = &diagnostics.cache_miss_reason else {
+        tracing::debug!(
+            "cache diagnostics: the comparison was still running as the response began"
+        );
+        return None;
+    };
+    let changed = match &reason.r#type {
+        CacheMissKind::ModelChanged => PromptCacheChange::Model,
+        CacheMissKind::SystemChanged => PromptCacheChange::System,
+        CacheMissKind::ToolsChanged => PromptCacheChange::Tools,
+        CacheMissKind::MessagesChanged => PromptCacheChange::Messages,
+        // None of these says the request changed: the API had nothing to compare, or did not compare.
+        kind @ (CacheMissKind::PreviousMessageNotFound
+        | CacheMissKind::Unavailable
+        | CacheMissKind::Unknown(_)) => {
+            tracing::info!(
+                kind = kind.wire_str(),
+                cache_read_input_tokens,
+                "cache diagnostics: no comparison with the previous request"
+            );
+            return None;
+        }
+    };
+    let missed_input_tokens = reason.cache_missed_input_tokens.unwrap_or_default();
+    tracing::warn!(
+        kind = reason.r#type.wire_str(),
+        missed_input_tokens,
+        cache_read_input_tokens,
+        "cache diagnostics: this request differs from the previous one, whose prompt cache is read only up to the difference"
+    );
+    Some(PromptCacheMiss {
+        changed,
+        missed_input_tokens,
+    })
 }
 
 /// The least output a call that was meant to force a tool is given. Current models think before they
@@ -1543,6 +1635,37 @@ mod tests {
         assert!(!anthropic_refuses_thinking_binding(
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
             "thinking.block_binding: Extra inputs are not permitted"
+        ));
+    }
+
+    /// Only an error about the `diagnostics` object itself turns it off. A tool or a message that
+    /// happens to use the word is a different error and must leave it on.
+    #[test]
+    fn only_a_refusal_of_the_diagnostics_field_gives_it_up() {
+        let bad_request = reqwest::StatusCode::BAD_REQUEST;
+        for refusal in [
+            "diagnostics: Extra inputs are not permitted",
+            "Invalid request: diagnostics: Extra inputs are not permitted",
+            "diagnostics.previous_message_id: Input should be a valid string",
+        ] {
+            assert!(
+                anthropic_refuses_cache_diagnostics(bad_request, refusal),
+                "{refusal}"
+            );
+        }
+        for other in [
+            "tools.3.custom.name: `run_diagnostics` is not a valid tool name",
+            "messages.5.content.0: text content blocks must be non-empty",
+            "thinking.block_binding: Extra inputs are not permitted",
+        ] {
+            assert!(
+                !anthropic_refuses_cache_diagnostics(bad_request, other),
+                "{other}"
+            );
+        }
+        assert!(!anthropic_refuses_cache_diagnostics(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "diagnostics: Extra inputs are not permitted"
         ));
     }
 }

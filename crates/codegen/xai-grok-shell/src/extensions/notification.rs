@@ -5,6 +5,8 @@ use crate::session::feedback::FeedbackRequest as FeedbackRequestData;
 
 pub use crate::extensions::background_task::{BackgroundTaskRow, BackgroundTaskStatus};
 pub use crate::session::goal_tracker::GoalClassifierVerdict;
+/// The `cache_miss` of [`SessionUpdate::ResponseStarted`].
+pub use xai_grok_sampling_types::{PromptCacheChange, PromptCacheMiss};
 
 /// Retained for wire backwards compatibility; always empty in the simplified goal model (no deliverables).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -1173,6 +1175,11 @@ pub enum SessionUpdate {
         cache_read_input_tokens: u64,
         #[serde(default)]
         cache_creation_input_tokens: u64,
+        /// Set when the provider found where this request differs from the conversation's previous one
+        /// (Anthropic's cache diagnostics): `{"changed": "model" | "system" | "tools" | "messages", "missed_input_tokens": n}`.
+        /// The client words it; `missed_input_tokens` is an estimate of what came after the difference.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_miss: Option<PromptCacheMiss>,
     },
     /// This response's reasoning (thinking) block finished; carries its encrypted signature. Rides the buffered chunk rail so it is ordered right AFTER this response's thought chunks (and before its text).
     /// Headless partial-mode framing consumes it to emit `signature_delta` before the thinking block's `content_block_stop`, in order. Messages backend only.

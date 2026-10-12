@@ -195,6 +195,11 @@ pub fn stream_messages<'a>(
                             "messages API changed the request: earlier conversation differs from what a replayed thinking block was produced with"
                         );
                     }
+                    // Sent only when the request named the response before it: where this request first differs from that one
+                    let cache_miss = crate::provider_compat::note_cache_diagnostics(
+                        message.diagnostics.as_ref(),
+                        u64::from(message.usage.cache_read_input_tokens),
+                    );
                     // Yield the real id, model, and input usage before any content
                     // Partial-mode framing then emits them on the real `message_start` instead of a synthesized placeholder
                     yield SamplingEvent::ResponseStarted {
@@ -208,6 +213,7 @@ pub fn stream_messages<'a>(
                         cache_creation_input_tokens: u64::from(
                             message.usage.cache_creation_input_tokens,
                         ),
+                        cache_miss,
                     };
                 }
 

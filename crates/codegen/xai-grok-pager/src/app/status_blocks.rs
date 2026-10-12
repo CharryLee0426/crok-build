@@ -165,6 +165,42 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
     }
 }
 /// `/usage` body: per-session token and cost totals, covering the ledger's lifetime (since session start, or since the last `/resume`).
+/// One line for a request that could not read all of the previous request's prompt cache: what
+/// changed, and about how much input came after the change. From Anthropic's cache diagnostics.
+pub(crate) fn prompt_cache_miss_text(
+    miss: &xai_grok_shell::extensions::notification::PromptCacheMiss,
+) -> String {
+    use xai_grok_i18n::tr;
+    use xai_grok_shell::extensions::notification::PromptCacheChange;
+    let changed = match miss.changed {
+        PromptCacheChange::Model => tr(
+            "cache.miss.model",
+            "Prompt cache: the model changed since the previous request.",
+        ),
+        PromptCacheChange::System => tr(
+            "cache.miss.system",
+            "Prompt cache: the system prompt changed since the previous request.",
+        ),
+        PromptCacheChange::Tools => tr(
+            "cache.miss.tools",
+            "Prompt cache: the tool list changed since the previous request.",
+        ),
+        PromptCacheChange::Messages => tr(
+            "cache.miss.messages",
+            "Prompt cache: earlier messages changed since the previous request.",
+        ),
+    };
+    if miss.missed_input_tokens == 0 {
+        return changed.to_owned();
+    }
+    tr(
+        "cache.miss.tokens",
+        "{change} About {tokens} input tokens after the change were not read from the cache.",
+    )
+    .replace("{change}", changed)
+    .replace("{tokens}", &group_thousands(miss.missed_input_tokens))
+}
+
 pub(crate) fn session_usage_block_text(
     usage: &xai_grok_shell::extensions::notification::PromptUsage,
 ) -> String {

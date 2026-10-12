@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use xai_grok_sampler::{SamplerConfig, SamplingClient};
 use xai_grok_sampling_types::{
-    AnthropicOptions, ApiBackend, ConversationItem, ConversationRequest, ConversationToolChoice,
-    PromptCacheTtl, ReasoningEffort, ToolSpec,
+    AnthropicOptions, ApiBackend, CacheChain, ConversationItem, ConversationRequest,
+    ConversationToolChoice, PromptCacheTtl, ReasoningEffort, ToolSpec,
 };
 
 type Captured = Arc<Mutex<Vec<(HeaderMap, Value)>>>;
@@ -687,6 +687,7 @@ async fn anthropic_forced_tool_call_is_asked_for_in_words() {
     let client = SamplingClient::new(SamplerConfig {
         anthropic: Some(AnthropicOptions {
             cache_ttl: PromptCacheTtl::FiveMinutes,
+            ..Default::default()
         }),
         ..anthropic_config(&base)
     })
@@ -762,5 +763,141 @@ async fn other_messages_hosts_get_the_plain_request() {
         messages_cache_breakpoints(body),
         ["system.0:5m", "messages.0:5m"]
     );
+    task.abort();
+}
+
+/// A Messages server whose nth request is answered by a response with the nth of `ids`.
+async fn anthropic_server_answering(
+    ids: &[&str],
+) -> (String, Captured, tokio::task::JoinHandle<()>) {
+    let captured: Captured = Arc::new(Mutex::new(Vec::new()));
+    let sink = captured.clone();
+    let ids: Vec<String> = ids.iter().map(|id| (*id).to_owned()).collect();
+    let app = Router::new().route(
+        "/v1/messages",
+        post(move |headers: HeaderMap, body: Bytes| {
+            let mut seen = sink.lock().unwrap();
+            let id = ids.get(seen.len()).cloned().unwrap_or_default();
+            seen.push((headers, serde_json::from_slice(&body).unwrap()));
+            let sse: String = [
+                json!({"type":"message_start","message":{"id":id,"type":"message","role":"assistant","content":[],"model":"claude-opus-5-5","stop_reason":null,
+                    "usage":{"input_tokens":12,"output_tokens":0},
+                    "diagnostics":{"cache_miss_reason":{"type":"system_changed","cache_missed_input_tokens":41850}}}}),
+                json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+                json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}),
+                json!({"type":"content_block_stop","index":0}),
+                json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}),
+                json!({"type":"message_stop"}),
+            ]
+            .iter()
+            .map(|value| format!("data: {value}\n\n"))
+            .collect();
+            async move {
+                axum::response::Response::builder()
+                    .header("content-type", "text/event-stream")
+                    .body(axum::body::Body::from(sse))
+                    .unwrap()
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (base, captured, task)
+}
+
+/// Cache diagnostics: each request of a conversation names the response before it, so the API can
+/// say where the two differ. A side call is compared with the conversation and is not followed.
+#[tokio::test]
+async fn anthropic_requests_name_the_response_before_them() {
+    let (base, captured, task) = anthropic_server_answering(&[
+        "msg_first",
+        "msg_second",
+        "msg_side",
+        "msg_third",
+        "msg_alone",
+    ])
+    .await;
+    let client = SamplingClient::new(anthropic_config(&base)).unwrap();
+    let chain = CacheChain::new();
+    let send = |cache_chain: Option<CacheChain>| {
+        let client = client.clone();
+        async move {
+            client
+                .conversation_collect_with_idle_timeout(
+                    ConversationRequest {
+                        cache_chain,
+                        ..request()
+                    },
+                    Duration::from_secs(2),
+                )
+                .await
+                .unwrap();
+        }
+    };
+    send(Some(chain.clone())).await;
+    send(Some(chain.clone())).await;
+    send(Some(chain.reader())).await;
+    send(Some(chain.clone())).await;
+    // A request that belongs to no conversation asks nothing, and the API then stores nothing for it.
+    send(None).await;
+
+    let requests = captured.lock().unwrap();
+    let asked: Vec<Option<&Value>> = requests
+        .iter()
+        .map(|(_, body)| body.get("diagnostics"))
+        .collect();
+    assert_eq!(
+        asked,
+        [
+            Some(&json!({"previous_message_id": null})),
+            Some(&json!({"previous_message_id": "msg_first"})),
+            Some(&json!({"previous_message_id": "msg_second"})),
+            Some(&json!({"previous_message_id": "msg_second"})),
+            None,
+        ]
+    );
+    assert_eq!(chain.previous_message_id().as_deref(), Some("msg_third"));
+    // The feature needs no beta header any more.
+    let (headers, _) = requests.first().unwrap();
+    assert_eq!(
+        headers.get("anthropic-beta").unwrap(),
+        "thinking-binding-controls-2026-08-01"
+    );
+    task.abort();
+}
+
+/// Only Anthropic's own endpoint takes the object, and only while the option is on. A request that
+/// went without it leaves the conversation where it was: its response is nothing the next could name.
+#[tokio::test]
+async fn cache_diagnostics_stay_off_where_they_are_not_wanted() {
+    let (base, captured, task) = anthropic_server_answering(&["msg_other", "msg_off"]).await;
+    let chain = CacheChain::new();
+    for anthropic in [
+        None,
+        Some(AnthropicOptions {
+            cache_diagnostics: false,
+            ..Default::default()
+        }),
+    ] {
+        SamplingClient::new(SamplerConfig {
+            anthropic,
+            ..anthropic_config(&base)
+        })
+        .unwrap()
+        .conversation_collect_with_idle_timeout(
+            ConversationRequest {
+                cache_chain: Some(chain.clone()),
+                ..request()
+            },
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+    }
+    for (_, body) in captured.lock().unwrap().iter() {
+        assert!(body.get("diagnostics").is_none());
+    }
+    assert_eq!(chain.previous_message_id(), None);
     task.abort();
 }

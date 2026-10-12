@@ -328,6 +328,12 @@ enum L10n {
         "followup_steer": "Steer",
         "followup_queue_detail": "Send it after Crok finishes.",
         "followup_steer_detail": "Add it to the running turn.",
+        // Transcript notices
+        "cache_miss_model": "Prompt cache: the model changed since the previous request.",
+        "cache_miss_system": "Prompt cache: the system prompt changed since the previous request.",
+        "cache_miss_tools": "Prompt cache: the tool list changed since the previous request.",
+        "cache_miss_messages": "Prompt cache: earlier messages changed since the previous request.",
+        "cache_miss_tokens": "{change} About {tokens} input tokens after the change were not read from the cache.",
     ]
 
     // MARK: Chinese Simplified
@@ -469,6 +475,12 @@ enum L10n {
         "followup_steer": "引导",
         "followup_queue_detail": "Crok 完成后再发送。",
         "followup_steer_detail": "加入正在进行的回合。",
+        // Transcript notices
+        "cache_miss_model": "提示缓存：模型与上一次请求相比有变化。",
+        "cache_miss_system": "提示缓存：系统提示词与上一次请求相比有变化。",
+        "cache_miss_tools": "提示缓存：工具列表与上一次请求相比有变化。",
+        "cache_miss_messages": "提示缓存：较早的消息与上一次请求相比有变化。",
+        "cache_miss_tokens": "{change}变化之后约有 {tokens} 个输入 token 未从缓存读取。",
     ]
 
     // MARK: Japanese
@@ -610,6 +622,12 @@ enum L10n {
         "followup_steer": "誘導",
         "followup_queue_detail": "Crokの完了後に送信します。",
         "followup_steer_detail": "実行中のターンに追加します。",
+        // Transcript notices
+        "cache_miss_model": "プロンプトキャッシュ: モデルが前回のリクエストから変更されました。",
+        "cache_miss_system": "プロンプトキャッシュ: システムプロンプトが前回のリクエストから変更されました。",
+        "cache_miss_tools": "プロンプトキャッシュ: ツール一覧が前回のリクエストから変更されました。",
+        "cache_miss_messages": "プロンプトキャッシュ: 以前のメッセージが前回のリクエストから変更されました。",
+        "cache_miss_tokens": "{change}変更箇所より後の約 {tokens} 入力トークンはキャッシュから読み込まれませんでした。",
     ]
 
     // MARK: Spanish
@@ -751,6 +769,12 @@ enum L10n {
         "followup_steer": "Dirigir",
         "followup_queue_detail": "Se envía cuando Crok termine.",
         "followup_steer_detail": "Se añade al turno en curso.",
+        // Transcript notices
+        "cache_miss_model": "Caché de prompts: el modelo cambió desde la solicitud anterior.",
+        "cache_miss_system": "Caché de prompts: el prompt del sistema cambió desde la solicitud anterior.",
+        "cache_miss_tools": "Caché de prompts: la lista de herramientas cambió desde la solicitud anterior.",
+        "cache_miss_messages": "Caché de prompts: los mensajes anteriores cambiaron desde la solicitud anterior.",
+        "cache_miss_tokens": "{change} Unos {tokens} tokens de entrada posteriores al cambio no se leyeron de la caché.",
     ]
 
     // MARK: French
@@ -892,6 +916,12 @@ enum L10n {
         "followup_steer": "Orienter",
         "followup_queue_detail": "Envoyé quand Crok a terminé.",
         "followup_steer_detail": "Ajouté au tour en cours.",
+        // Transcript notices
+        "cache_miss_model": "Cache de prompts : le modèle a changé depuis la requête précédente.",
+        "cache_miss_system": "Cache de prompts : le prompt système a changé depuis la requête précédente.",
+        "cache_miss_tools": "Cache de prompts : la liste des outils a changé depuis la requête précédente.",
+        "cache_miss_messages": "Cache de prompts : des messages antérieurs ont changé depuis la requête précédente.",
+        "cache_miss_tokens": "{change} Environ {tokens} tokens d'entrée situés après le changement n'ont pas été lus depuis le cache.",
     ]
 
     // MARK: German
@@ -1033,5 +1063,11 @@ enum L10n {
         "followup_steer": "Steuern",
         "followup_queue_detail": "Wird gesendet, wenn Crok fertig ist.",
         "followup_steer_detail": "Wird dem laufenden Zug hinzugefügt.",
+        // Transcript notices
+        "cache_miss_model": "Prompt-Cache: Das Modell hat sich seit der vorherigen Anfrage geändert.",
+        "cache_miss_system": "Prompt-Cache: Der System-Prompt hat sich seit der vorherigen Anfrage geändert.",
+        "cache_miss_tools": "Prompt-Cache: Die Tool-Liste hat sich seit der vorherigen Anfrage geändert.",
+        "cache_miss_messages": "Prompt-Cache: Frühere Nachrichten haben sich seit der vorherigen Anfrage geändert.",
+        "cache_miss_tokens": "{change} Etwa {tokens} Eingabe-Tokens nach der Änderung wurden nicht aus dem Cache gelesen.",
     ]
 }

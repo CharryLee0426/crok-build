@@ -660,6 +660,9 @@ pub struct ConversationRequest {
     pub json_schema: Option<serde_json::Value>,
     /// Sticky routing key for prompt-cache reuse; overrides `x_grok_conv_id` for routing.
     pub prompt_cache_key: Option<String>,
+    /// The line of requests this one continues, for an endpoint that can say where it differs from
+    /// the one before. `None` for a request that stands alone (a classifier, a memory pass).
+    pub cache_chain: Option<crate::CacheChain>,
     /// What the sampler does when the response stops with `Length`.
     pub length_policy: LengthPolicy,
 }

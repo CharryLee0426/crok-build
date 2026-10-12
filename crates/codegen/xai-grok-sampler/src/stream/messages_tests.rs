@@ -36,6 +36,7 @@ fn message_start() -> MessageStreamEvent {
                 cache_read_input_tokens: 0,
             },
             input_transformations: Vec::new(),
+            diagnostics: None,
         },
     }
 }
@@ -956,6 +957,7 @@ fn message_start_with_cache(
                 cache_read_input_tokens: cache_read,
             },
             input_transformations: Vec::new(),
+            diagnostics: None,
         },
     }
 }
@@ -1050,4 +1052,74 @@ async fn pure_cache_hit_with_zero_uncached_still_emits_usage() {
     assert_eq!(usage.prompt_tokens, 2500);
     assert_eq!(usage.cached_prompt_tokens, 2500);
     assert_eq!(usage.total_tokens, 2501);
+}
+
+// ── Cache diagnostics: where a request differs from the one before it ───────────
+
+/// The `cache_miss` of the `ResponseStarted` event for a `message_start` carrying `diagnostics`.
+async fn cache_miss_from(
+    diagnostics: serde_json::Value,
+) -> Option<xai_grok_sampling_types::PromptCacheMiss> {
+    let start = serde_json::json!({"type": "message_start", "message": {
+        "id": "msg_diag", "type": "message", "role": "assistant", "content": [],
+        "model": "claude-opus-5-5", "stop_reason": null,
+        "usage": {"input_tokens": 42, "output_tokens": 0, "cache_read_input_tokens": 0,
+                  "cache_creation_input_tokens": 41850},
+        "diagnostics": diagnostics}});
+    let start: MessageStreamEvent = serde_json::from_value(start).expect("message_start parses");
+    let raw = stream::iter(vec![Ok::<_, SamplingError>(start)]).boxed();
+    let events = collect(stream_messages(raw, None, rid(), Duration::from_secs(60))).await;
+    events
+        .iter()
+        .find_map(|event| match event {
+            SamplingEvent::ResponseStarted { cache_miss, .. } => Some(*cache_miss),
+            _ => None,
+        })
+        .expect("a message_start opens the response")
+}
+
+#[tokio::test]
+async fn a_located_change_is_reported_with_the_response() {
+    use serde_json::json;
+    use xai_grok_sampling_types::{PromptCacheChange, PromptCacheMiss};
+    for (kind, changed) in [
+        ("model_changed", PromptCacheChange::Model),
+        ("system_changed", PromptCacheChange::System),
+        ("tools_changed", PromptCacheChange::Tools),
+        ("messages_changed", PromptCacheChange::Messages),
+    ] {
+        let miss = cache_miss_from(json!({"cache_miss_reason":
+            {"type": kind, "cache_missed_input_tokens": 41850}}))
+        .await;
+        assert_eq!(
+            miss,
+            Some(PromptCacheMiss {
+                changed,
+                missed_input_tokens: 41850
+            }),
+            "{kind}"
+        );
+    }
+}
+
+/// None of these says the request changed: the requests match, the comparison had not finished,
+/// the API had nothing to compare with, or it answered in a shape this build does not know.
+#[tokio::test]
+async fn an_answer_that_locates_no_change_reports_nothing() {
+    use serde_json::json;
+    for diagnostics in [
+        json!(null),
+        json!({"cache_miss_reason": null}),
+        json!({"cache_miss_reason": {"type": "previous_message_not_found"}}),
+        json!({"cache_miss_reason": {"type": "unavailable"}}),
+        json!({"cache_miss_reason": {"type": "a_kind_added_later", "cache_missed_input_tokens": 7}}),
+        json!({"cache_miss_reason": "not an object"}),
+        json!(["not", "an", "object"]),
+    ] {
+        assert_eq!(
+            cache_miss_from(diagnostics.clone()).await,
+            None,
+            "{diagnostics}"
+        );
+    }
 }
