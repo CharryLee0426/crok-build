@@ -1,4 +1,5 @@
 import AVFoundation
+import SwiftUI
 import XCTest
 @testable import GrokDesktop
 
@@ -214,6 +215,39 @@ final class ComposerFeatureTests: XCTestCase {
         composer.reloadPreferences()
         XCTAssertEqual(composer.permissionMode, .ask)
         XCTAssertEqual(composer.sessionMeta() as NSDictionary, ["yoloMode": false, "autoMode": false] as NSDictionary)
+    }
+
+    /// The banner over the conversation, as the main window shows it.
+    private struct BannerHarness: View {
+        @EnvironmentObject var store: AppStore
+        var lifetime: Duration
+
+        var body: some View {
+            VStack { if let banner = store.banner { BannerRow(text: banner, lifetime: lifetime) } }.frame(width: 640, height: 60)
+        }
+    }
+
+    func testBannersGoByThemselves() async throws {
+        XCTAssertEqual(BannerRow.lifetime, .seconds(5))
+        let store = makeStore()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 60), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: BannerHarness(lifetime: .seconds(1)).environmentObject(store))
+        defer { window.close() }
+
+        let message = ComposerPermissionMode.alwaysApprove.confirmation(planMode: false)
+        store.banner = message
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(store.banner, message, "it stays for its time")
+        try await eventually { store.banner == nil }
+
+        // The same message again before its time is up gets its whole time again.
+        store.banner = message
+        try await Task.sleep(for: .milliseconds(600))
+        store.banner = message
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(store.banner, message)
+        try await eventually { store.banner == nil }
     }
 
     func testPermissionModeRollsBackWhenConfigCannotBeSaved() async throws {

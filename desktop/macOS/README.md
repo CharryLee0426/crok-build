@@ -278,7 +278,12 @@ quotes and GitHub callouts, tables with column alignment, links, images, and
 footnotes. LaTeX math (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`, and environments such
 as `aligned`, `cases`, and `pmatrix`) is typeset natively with the system's STIX
 Two Math font, and copying typeset math copies its LaTeX. Code blocks are
-syntax-highlighted for over a hundred languages and have a Copy button. Each reply is
+syntax-highlighted for over a hundred languages and have a Copy button. Links are blue,
+in the theme's link colour. A path to an image file in a reply, in code (`` `/tmp/qr/auth.png` ``)
+or in its text, is a link too: rest the pointer on it to see the image in a popover, large
+enough to scan a QR code, and click the path or the image to open the file in Preview. The
+file is read when the pointer rests on it, so the popover shows it as it is now, or says that
+it is gone. Each reply is
 one selectable text, so a selection can run across paragraphs, tables, and code. Thinking
 renders in a scrolling text view that follows the stream, so long reasoning stays
 responsive. While a reply or thinking streams, a last line that so far could only be
@@ -321,7 +326,9 @@ the model picker searches both names and provider IDs. The composer displays the
 model, the thinking level when it is adjustable, the permission mode as its icon
 (hover for its name), and the conversation mode. Changes
 are acknowledged by the harness before sending is re-enabled, and model/thinking
-choices persist across relaunches. Left of the microphone, a ring fills as the
+choices persist across relaunches. What a change or a command reports ("⚠ Always-approve
+ON: all tool actions auto-run", an error) shows in a banner above the conversation for five
+seconds; it stays while the pointer rests on it, and its × closes it sooner. Left of the microphone, a ring fills as the
 task's context window does, turning amber from 75% and red from 95% as the
 terminal's meter does. Hover it for the tokens used and free, or click it for a
 popover with a larger ring divided into the system prompt, messages, and
@@ -570,8 +577,9 @@ screen does. `CROK_DESKTOP_WINDOW_SHOTS=<folder> swift test --filter TranscriptW
 opens the real main window instead, under the desktop where nobody sees it, and
 has the window server picture it: the rows clear of the title bar and the find
 bar, a long task kept at its end as the window and the side panel change, a
-block opening in place while the rows after it slide, and the fade at the top
-of reasoning that streams. The pictures are of the app's own window, so they
+block opening in place while the rows after it slide, the fade at the top
+of reasoning that streams, a reply's links in blue with the image a path names
+previewed under the pointer, and a banner gone five seconds after it came. The pictures are of the app's own window, so they
 need no screen-recording permission. `--filter MotionWindow` pictures the same
 way what should move: a running tool call's spinner (clockwise) and blue sweep,
 the thinking sparkle, and the welcome page's starters, and that a finished call

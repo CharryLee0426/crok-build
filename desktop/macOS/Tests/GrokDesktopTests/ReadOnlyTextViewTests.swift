@@ -121,6 +121,14 @@ final class ReadOnlyTextViewTests: XCTestCase {
         }
     }
 
+    func testLinksAreDrawnInTheLinkColour() throws {
+        let box = TranscriptTextBox(style: .reply(.response), maxHeight: .infinity, width: 400)
+        box.update(text: "See [the docs](https://example.com).")
+        let textView = try XCTUnwrap(box.textView)
+        XCTAssertEqual(textView.linkTextAttributes?[.foregroundColor] as? NSColor, Theme.linkNS)
+        XCTAssertNotEqual(Theme.linkNS, Theme.accentNS)
+    }
+
     func testDiffTextIsColouredByLineKind() throws {
         let diff = "@@ -1,2 +1,2 @@\n-old line\n+new line\n context"
         let host = NSHostingView(rootView: ReadOnlyTextView(text: diff, style: .diff, wrapsLines: false, sizing: .fill).frame(width: 400, height: 200))

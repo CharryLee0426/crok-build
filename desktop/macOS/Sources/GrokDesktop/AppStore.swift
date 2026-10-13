@@ -78,12 +78,16 @@ final class AppStore: ObservableObject {
     @Published var selectedFile: String?
     @Published var diffText = ""
     /// Most failures reach the user here, so each new banner is logged with the task it was shown over.
+    /// It goes by itself after a few seconds (see `BannerRow`).
     @Published var banner: String? {
         didSet {
+            if banner != nil { bannerRevision &+= 1 }
             guard let banner, banner != oldValue else { return }
             DesktopLog.info("ui.banner", session: selectedSessionID, ["text": banner])
         }
     }
+    /// Counts banners shown, so the same message shown again stays its full time again.
+    private(set) var bannerRevision = 0
     @Published var syncing = false
     @Published var loginLog = ""
     @Published var loginRunning = false

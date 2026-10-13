@@ -35,9 +35,11 @@ enum Theme {
     static var ink: Color { palette.ink }
     static var muted: Color { palette.muted }
     static var accentNS: NSColor { palette.accentNS }
+    static var linkNS: NSColor { palette.linkNS }
     static var greenNS: NSColor { palette.greenNS }
     static var redNS: NSColor { palette.redNS }
     static var accent: Color { palette.accent }
+    static var link: Color { palette.link }
     static var green: Color { palette.green }
     static var red: Color { palette.red }
     static var codeBackgroundNS: NSColor { palette.codeBackgroundNS }
@@ -59,78 +61,79 @@ final class ThemePalette {
     /// The default look follows the system's materials; the terminal palettes tint the glass with their own colours.
     let usesSystemMaterials: Bool
     let canvasNS, sidebarNS, surfaceNS, inputNS, hoverNS, lineNS, inkNS, mutedNS: NSColor
-    let accentNS, greenNS, redNS, codeBackgroundNS, inlineCodeNS, tableHeaderNS, tableStripeNS: NSColor
+    let accentNS, linkNS, greenNS, redNS, codeBackgroundNS, inlineCodeNS, tableHeaderNS, tableStripeNS: NSColor
     let sidebarBackgroundNS: NSColor
     let canvas, sidebar, surface, input, hover, line, ink, muted: Color
-    let accent, green, red, codeBackground, inlineCode, tableHeader, tableStripe: Color
+    let accent, link, green, red, codeBackground, inlineCode, tableHeader, tableStripe: Color
     let sidebarBackground: Color
 
     init(theme: GrokTheme, usesSystemMaterials: Bool = false,
          canvas: NSColor, sidebar: NSColor, sidebarBackground: NSColor? = nil, surface: NSColor, input: NSColor, hover: NSColor, line: NSColor, ink: NSColor, muted: NSColor,
-         accent: NSColor, green: NSColor, red: NSColor, codeBackground: NSColor, inlineCode: NSColor, tableHeader: NSColor, tableStripe: NSColor) {
+         accent: NSColor, link: NSColor, green: NSColor, red: NSColor, codeBackground: NSColor, inlineCode: NSColor, tableHeader: NSColor, tableStripe: NSColor) {
         self.theme = theme
         self.usesSystemMaterials = usesSystemMaterials
         canvasNS = canvas; sidebarNS = sidebar; surfaceNS = surface; inputNS = input; hoverNS = hover; lineNS = line; inkNS = ink; mutedNS = muted
-        accentNS = accent; greenNS = green; redNS = red; codeBackgroundNS = codeBackground; inlineCodeNS = inlineCode
+        accentNS = accent; linkNS = link; greenNS = green; redNS = red; codeBackgroundNS = codeBackground; inlineCodeNS = inlineCode
         tableHeaderNS = tableHeader; tableStripeNS = tableStripe
         sidebarBackgroundNS = sidebarBackground ?? sidebar
         self.canvas = Color(nsColor: canvas); self.sidebar = Color(nsColor: sidebar); self.surface = Color(nsColor: surface)
         self.input = Color(nsColor: input); self.hover = Color(nsColor: hover); self.line = Color(nsColor: line)
-        self.ink = Color(nsColor: ink); self.muted = Color(nsColor: muted); self.accent = Color(nsColor: accent)
+        self.ink = Color(nsColor: ink); self.muted = Color(nsColor: muted); self.accent = Color(nsColor: accent); self.link = Color(nsColor: link)
         self.green = Color(nsColor: green); self.red = Color(nsColor: red); self.codeBackground = Color(nsColor: codeBackground)
         self.inlineCode = Color(nsColor: inlineCode); self.tableHeader = Color(nsColor: tableHeader); self.tableStripe = Color(nsColor: tableStripe)
         self.sidebarBackground = Color(nsColor: sidebarBackgroundNS)
     }
 
     /// Terminal palettes are opaque colours from the pager's themes
-    /// (`xai-grok-pager-render/src/theme/*.rs`), in the roles the desktop draws.
+    /// (`xai-grok-pager-render/src/theme/*.rs`), in the roles the desktop draws. `link` is the theme's `link_fg`.
     private convenience init(_ theme: GrokTheme, canvas: UInt32, sidebar: UInt32, surface: UInt32, input: UInt32, hover: UInt32, line: UInt32,
-                             ink: UInt32, muted: UInt32, accent: UInt32, green: UInt32, red: UInt32,
+                             ink: UInt32, muted: UInt32, accent: UInt32, link: UInt32, green: UInt32, red: UInt32,
                              codeBackground: UInt32, inlineCode: UInt32, tableHeader: UInt32, tableStripe: UInt32) {
         self.init(theme: theme, canvas: Theme.rgb(canvas), sidebar: Theme.rgb(sidebar), surface: Theme.rgb(surface), input: Theme.rgb(input),
                   hover: Theme.rgb(hover), line: Theme.rgb(line), ink: Theme.rgb(ink), muted: Theme.rgb(muted), accent: Theme.rgb(accent),
-                  green: Theme.rgb(green), red: Theme.rgb(red), codeBackground: Theme.rgb(codeBackground), inlineCode: Theme.rgb(inlineCode),
-                  tableHeader: Theme.rgb(tableHeader), tableStripe: Theme.rgb(tableStripe))
+                  link: Theme.rgb(link), green: Theme.rgb(green), red: Theme.rgb(red), codeBackground: Theme.rgb(codeBackground),
+                  inlineCode: Theme.rgb(inlineCode), tableHeader: Theme.rgb(tableHeader), tableStripe: Theme.rgb(tableStripe))
     }
 
-    /// The desktop's own look, following the system appearance: glass, with translucent fills.
+    /// The desktop's own look, following the system appearance: glass, with translucent fills. Links
+    /// are the system's link blue, apart from the green accent.
     static let auto = ThemePalette(
         theme: .auto, usesSystemMaterials: true,
         canvas: Theme.adaptiveNS(0xFAFAFC, 0x1C1C1E), sidebar: Theme.tintNS(light: 0.05, dark: 0.07), sidebarBackground: Theme.adaptiveNS(0xF4F4F7, 0x1E1E21),
         surface: Theme.adaptiveNS(0xFFFFFF, 0x2C2C30, alpha: 0.66),
         input: Theme.tintNS(light: 0.04, dark: 0.06), hover: Theme.tintNS(light: 0.065, dark: 0.09), line: .separatorColor,
-        ink: .labelColor, muted: .secondaryLabelColor, accent: Theme.adaptiveNS(0x41634C, 0xA1BFA8), green: Theme.adaptiveNS(0x3B7751, 0x91C5A1),
+        ink: .labelColor, muted: .secondaryLabelColor, accent: Theme.adaptiveNS(0x41634C, 0xA1BFA8), link: .linkColor, green: Theme.adaptiveNS(0x3B7751, 0x91C5A1),
         red: Theme.adaptiveNS(0xB3261E, 0xF2877E), codeBackground: Theme.tintNS(light: 0.045, dark: 0.055), inlineCode: Theme.tintNS(light: 0.065, dark: 0.09),
         tableHeader: Theme.tintNS(light: 0.05, dark: 0.065), tableStripe: Theme.tintNS(light: 0.02, dark: 0.025))
 
     /// Crok Night: neutral grays with TokyoNight accents (groknight.rs).
     static let grokNight = ThemePalette(
         .groknight, canvas: 0x141414, sidebar: 0x111111, surface: 0x242424, input: 0x1C1C1C, hover: 0x2C2C2C, line: 0x323237,
-        ink: 0xE1E1E1, muted: 0x787878, accent: 0xBB9AF7, green: 0x9ECE6A, red: 0xF7768E,
+        ink: 0xE1E1E1, muted: 0x787878, accent: 0xBB9AF7, link: 0x7AA6DA, green: 0x9ECE6A, red: 0xF7768E,
         codeBackground: 0x1C1C1C, inlineCode: 0x242424, tableHeader: 0x242424, tableStripe: 0x1C1C1C)
 
     /// Crok Day: the light counterpart (grokday.rs).
     static let grokDay = ThemePalette(
         .grokday, canvas: 0xEEEEEE, sidebar: 0xE4E4E4, surface: 0xF5F5F5, input: 0xEEEEEE, hover: 0xDEDEDE, line: 0xC8C8CD,
-        ink: 0x262626, muted: 0x626262, accent: 0x7D4BC6, green: 0x378E23, red: 0xCD3048,
+        ink: 0x262626, muted: 0x626262, accent: 0x7D4BC6, link: 0x2F64D2, green: 0x378E23, red: 0xCD3048,
         codeBackground: 0xE4E4E4, inlineCode: 0xDEDEDE, tableHeader: 0xE4E4E4, tableStripe: 0xEAEAEA)
 
     /// Tokyo Night Storm (tokyonight.rs).
     static let tokyoNight = ThemePalette(
         .tokyonight, canvas: 0x24283B, sidebar: 0x1F2335, surface: 0x292E42, input: 0x1F2335, hover: 0x283457, line: 0x3B4261,
-        ink: 0xC0CAF5, muted: 0x737AA2, accent: 0xBB9AF7, green: 0x9ECE6A, red: 0xF7768E,
+        ink: 0xC0CAF5, muted: 0x737AA2, accent: 0xBB9AF7, link: 0x7AA2F7, green: 0x9ECE6A, red: 0xF7768E,
         codeBackground: 0x292E42, inlineCode: 0x292E42, tableHeader: 0x292E42, tableStripe: 0x1F2335)
 
     /// Rosé Pine Moon (rosepine.rs).
     static let rosePineMoon = ThemePalette(
         .rosepineMoon, canvas: 0x232136, sidebar: 0x2A273F, surface: 0x393552, input: 0x232136, hover: 0x44415A, line: 0x44415A,
-        ink: 0xE0DEF4, muted: 0x908CAA, accent: 0xC4A7E7, green: 0x9CCFD8, red: 0xEB6F92,
+        ink: 0xE0DEF4, muted: 0x908CAA, accent: 0xC4A7E7, link: 0x9CCFD8, green: 0x9CCFD8, red: 0xEB6F92,
         codeBackground: 0x2A273F, inlineCode: 0x393552, tableHeader: 0x393552, tableStripe: 0x2A283E)
 
     /// Oscura Midnight: near-black with purple hints (oscura.rs).
     static let oscuraMidnight = ThemePalette(
         .oscuraMidnight, canvas: 0x030304, sidebar: 0x0F1216, surface: 0x0F1216, input: 0x040507, hover: 0x242034, line: 0x343048,
-        ink: 0xE4E4E4, muted: 0x81868F, accent: 0x9B7ECE, green: 0x50B48C, red: 0xDC5A64,
+        ink: 0xE4E4E4, muted: 0x81868F, accent: 0x9B7ECE, link: 0x7DCFDF, green: 0x50B48C, red: 0xDC5A64,
         codeBackground: 0x26292F, inlineCode: 0x26292F, tableHeader: 0x0F1216, tableStripe: 0x12101C)
 
     static func palette(for theme: GrokTheme) -> ThemePalette {

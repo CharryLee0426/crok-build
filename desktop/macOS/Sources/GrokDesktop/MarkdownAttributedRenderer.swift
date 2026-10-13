@@ -502,14 +502,31 @@ struct MarkdownAttributedRenderer {
         func add(_ text: String, _ traits: Traits) {
             output.append(NSAttributedString(string: text, attributes: run(traits)))
         }
+        /// Text outside a link, with each image file path in it made a link to the file.
+        func addProse(_ text: String, _ traits: Traits) {
+            let paths = traits.link == nil ? ImageFileLink.paths(in: text) : []
+            guard !paths.isEmpty else { return add(text, traits) }
+            let string = text as NSString
+            var location = 0
+            for (range, url) in paths {
+                if range.location > location { add(string.substring(with: NSRange(location: location, length: range.location - location)), traits) }
+                var linked = traits; linked.link = url
+                add(string.substring(with: range), linked)
+                location = NSMaxRange(range)
+            }
+            if location < string.length { add(string.substring(from: location), traits) }
+        }
         func visit(_ nodes: [MarkdownInline], _ traits: Traits) {
             for node in nodes {
                 switch node {
-                case .text(let text): add(text, traits)
+                case .text(let text): addProse(text, traits)
                 case .emphasis(let children): var next = traits; next.italic = true; visit(children, next)
                 case .strong(let children): var next = traits; next.bold = true; visit(children, next)
                 case .strikethrough(let children): var next = traits; next.strike = true; visit(children, next)
-                case .code(let code): var next = traits; next.code = true; add(code, next)
+                case .code(let code):
+                    var next = traits; next.code = true
+                    if next.link == nil { next.link = ImageFileLink.url(forPath: code) }
+                    add(code, next)
                 case .math(let latex), .displayMath(let latex):
                     if let attachment = mathAttachment(latex, display: false, size: baseFont.pointSize) {
                         let piece = NSMutableAttributedString(attachment: attachment)
@@ -525,7 +542,7 @@ struct MarkdownAttributedRenderer {
                 case .image(let source, _, let alt):
                     var next = traits; next.link = MarkdownInlineBuilder.url(source)
                     let label = alt.isEmpty ? source : alt
-                    if reply != nil, let photo = symbol("photo", size: baseFont.pointSize * 0.9, color: Theme.accentNS, attributes: run(next)) {
+                    if reply != nil, let photo = symbol("photo", size: baseFont.pointSize * 0.9, color: Theme.linkNS, attributes: run(next)) {
                         output.append(photo)
                         add(" " + label, next)
                     } else {
