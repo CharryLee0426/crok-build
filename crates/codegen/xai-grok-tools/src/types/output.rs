@@ -597,6 +597,8 @@ pub enum ToolOutput {
     SchedulerList(crate::implementations::grok_build::scheduler::list::SchedulerListOutput),
     UpdateGoal(crate::implementations::grok_build::update_goal::UpdateGoalOutput),
     Workflow(crate::implementations::grok_build::workflow::WorkflowToolOutput),
+    Browser(crate::implementations::grok_build::browser_use::BrowserOutput),
+    Computer(crate::implementations::grok_build::computer_use::ComputerOutput),
     /// Dynamic output for runtime-registered tools (MCP, test tools, etc.)
     Dynamic(DynamicOutput),
     /// Generic text output for tools that produce simple formatted text
@@ -648,6 +650,8 @@ impl ToolOutput {
                 TodoWriteOutput::DuplicateId(_) | TodoWriteOutput::InvalidArgument(_),
             ) => true,
             ToolOutput::GrepSearch(g) => g.exit_code > 1,
+            ToolOutput::Browser(b) => b.0.is_error,
+            ToolOutput::Computer(c) => c.0.is_error,
             _ => false,
         }
     }
@@ -738,6 +742,8 @@ impl ToolOutput {
                 }
             }
             ToolOutput::WebFetch(o) => o.to_prompt_format(),
+            ToolOutput::Browser(b) => b.0.text.clone(),
+            ToolOutput::Computer(c) => c.0.text.clone(),
             ToolOutput::MCP(mcp_output) => match &mcp_output.output {
                 MCPOutputDetails::Error(error) => {
                     format!("Failed to call {}: {}", &mcp_output.tool_name, error)

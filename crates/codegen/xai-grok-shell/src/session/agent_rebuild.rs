@@ -116,6 +116,7 @@ pub(crate) struct AgentRebuildSpec {
     pub web_search_domains: Option<xai_grok_sampling_types::WebSearchOptions>,
     pub backend_search: bool,
     pub web_fetch_config: WebFetchConfig,
+    pub device_use: xai_grok_tools::implementations::grok_build::device_use::DeviceUseConfig,
     pub image_gen_config: ImageGenConfig,
     pub video_gen_config: VideoGenConfig,
     pub app_builder_deployer_config: AppBuilderDeployerConfig,
@@ -227,6 +228,7 @@ impl AgentRebuildSpec {
             web_search_domains,
             backend_search,
             web_fetch_config,
+            device_use,
             image_gen_config,
             video_gen_config,
             app_builder_deployer_config,
@@ -321,6 +323,7 @@ impl AgentRebuildSpec {
         .with_video_gen_config(video_gen_config.clone())
         .with_app_builder_deployer_config(app_builder_deployer_config.clone())
         .with_web_fetch_config(web_fetch_config.clone())
+        .with_device_use(device_use.clone())
         .with_write_file_enabled(*write_file_enabled)
         .with_active_agent_messages_enabled(active_agent_messages_enabled)
         .with_fs(fs_backend.clone())
@@ -511,6 +514,7 @@ pub(crate) fn test_rebuild_spec_default() -> Arc<AgentRebuildSpec> {
         web_search_domains: None,
         backend_search: false,
         web_fetch_config: WebFetchConfig::Disabled,
+        device_use: Default::default(),
         image_gen_config: ImageGenConfig::default(),
         video_gen_config: VideoGenConfig::default(),
         app_builder_deployer_config: AppBuilderDeployerConfig::default(),

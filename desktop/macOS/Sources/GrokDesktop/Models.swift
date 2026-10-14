@@ -47,6 +47,8 @@ struct Message: Identifiable, Codable, Sendable {
     var createdAt: Date?
     /// Images, files, and folders sent with a prompt; images a tool returned or a reply carried.
     var attachments: [MessageAttachment]?
+    /// A browser or computer call, which the transcript words in the interface language.
+    var device: DeviceCall?
 }
 
 /// What a sent prompt carried, or an image a tool or reply showed, as the transcript shows it:
@@ -137,6 +139,8 @@ struct Approval: Identifiable {
     var title: String
     var detail: String
     var options: [PermissionOption]
+    /// A browser or computer action, which the card words in the interface language.
+    var device: DeviceCall?
 }
 
 struct PlanEntry: Identifiable {
@@ -372,8 +376,10 @@ enum TranscriptReducer {
             // made streaming, and loading, a task quadratic in its length.
             let searched = kind == "tool_call" ? messages.indices.suffix(Self.newCallLookback) : messages.indices.suffix(from: 0)
             let images = toolImages(contents, rawOutput: update["rawOutput"])
+            let device = DeviceCall(rawInput: update["rawInput"])
             if let index = searched.last(where: { messages[$0].toolID == id }) {
                 if let title = update["title"] as? String { messages[index].text = title }
+                if let device { messages[index].device = device }
                 if let status = update["status"] as? String { messages[index].status = status }
                 if !detail.isEmpty { messages[index].detail = detail }
                 // An update that resends the same images keeps the ones shown, so the row does not redraw.
@@ -384,7 +390,7 @@ enum TranscriptReducer {
                 return index
             }
             messages.append(Message(kind: .tool, text: update["title"] as? String ?? "Tool call", toolID: id,
-                                    status: update["status"] as? String ?? "pending", detail: detail, createdAt: date, attachments: images))
+                                    status: update["status"] as? String ?? "pending", detail: detail, createdAt: date, attachments: images, device: device))
             return messages.count - 1
         default: return nil
         }

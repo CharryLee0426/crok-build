@@ -1339,6 +1339,58 @@ pub fn default_settings() -> Vec<SettingMeta> {
             restart_required: false,
             hidden_in_minimal: false,
         },
+        // SHELL-owned `[features].browser_use` and `[features].computer_use`: the `browser` and `computer` tools.
+        // Agents latch them when built, so a change applies to new sessions.
+        SettingMeta {
+            key: "browser_use",
+            category: SettingCategory::Agent,
+            owner: SettingOwner::Shell,
+            label: "Browser use",
+            description: "Let Crok open web pages and click, type and read in them, in a browser \
+                          window with a profile of its own. Applies to new sessions.",
+            keywords: &[
+                "browser",
+                "chrome",
+                "web",
+                "page",
+                "click",
+                "screenshot",
+                "automation",
+                "tool",
+                "features",
+            ],
+            kind: SettingKind::Bool {
+                default: Feature::BrowserUse.default_enabled(),
+            },
+            restart_required: true,
+            hidden_in_minimal: false,
+        },
+        SettingMeta {
+            key: "computer_use",
+            category: SettingCategory::Agent,
+            owner: SettingOwner::Shell,
+            label: "Computer use",
+            description: "Let Crok see the screen and use the mouse and keyboard (macOS). macOS \
+                          asks for Screen Recording and Accessibility permission. Applies to new \
+                          sessions.",
+            keywords: &[
+                "computer",
+                "desktop",
+                "screen",
+                "mouse",
+                "keyboard",
+                "screenshot",
+                "macos",
+                "automation",
+                "tool",
+                "features",
+            ],
+            kind: SettingKind::Bool {
+                default: Feature::ComputerUse.default_enabled(),
+            },
+            restart_required: true,
+            hidden_in_minimal: false,
+        },
         // SHELL-owned startup-time settings (restart_required: true).
         // The running pager doesn't re-read these mid-session.
         SettingMeta {

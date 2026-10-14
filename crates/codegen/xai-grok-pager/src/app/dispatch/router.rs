@@ -1156,6 +1156,15 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         }
         Action::SetSubagentModelInheritance(v) => set_subagent_model_inheritance(app, v),
         Action::ClearSubagentModelInheritance => clear_subagent_model_inheritance(app),
+        Action::SetDeviceFeature(feature, v) => {
+            super::settings::setters::set_device_feature(app, feature, Some(v))
+        }
+        Action::ToggleDeviceFeature(feature) => {
+            super::settings::setters::toggle_device_feature(app, feature)
+        }
+        Action::ClearDeviceFeature(feature) => {
+            super::settings::setters::set_device_feature(app, feature, None)
+        }
         Action::SetKeepTextSelection(v) => set_keep_text_selection(app, v),
         Action::SetScrollSpeed(v) => set_scroll_speed(app, v),
         Action::SetScrollMode(v) => set_scroll_mode(app, v),

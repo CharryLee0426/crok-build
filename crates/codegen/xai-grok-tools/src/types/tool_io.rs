@@ -95,6 +95,8 @@ pub enum ToolInput {
     SchedulerList(crate::implementations::grok_build::scheduler::list::SchedulerListInput),
     UpdateGoal(UpdateGoalInput),
     Workflow(crate::implementations::grok_build::workflow::WorkflowToolInput),
+    Browser(crate::implementations::grok_build::browser_use::BrowserInput),
+    Computer(crate::implementations::grok_build::computer_use::ComputerInput),
     /// Dynamic input for runtime-registered tools (MCP, etc.)
     Dynamic(serde_json::Value),
 }

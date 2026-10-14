@@ -108,6 +108,7 @@ pub(crate) fn refresh_open_settings_modals(app: &mut AppView) {
     let voice_stt_provider_from_app = app.voice_config.provider.as_str();
     let voice_stt_model_from_app = app.voice_config.model.clone();
     let subagent_model_inheritance_from_app = app.subagent_model_inheritance;
+    let device_features_from_app = app.device_features;
     for agent in app.agents.values_mut() {
         // Walk both `Settings` and `ResetSettingsConfirm`
         // The confirm dialog embeds settings state that must stay fresh through async persist failures
@@ -148,6 +149,7 @@ pub(crate) fn refresh_open_settings_modals(app: &mut AppView) {
                 voice_stt_provider: voice_stt_provider_from_app,
                 voice_stt_model: voice_stt_model_from_app.clone(),
                 subagent_model_inheritance: subagent_model_inheritance_from_app,
+                device_features: device_features_from_app,
             };
             if coding_data_sharing_lock_from_app.is_some()
                 && matches!(
@@ -254,6 +256,7 @@ pub(in crate::app::dispatch) fn dispatch_open_settings(
     let voice_stt_provider_from_app = app.voice_config.provider.as_str();
     let voice_stt_model_from_app = app.voice_config.model.clone();
     let subagent_model_inheritance_from_app = app.subagent_model_inheritance;
+    let device_features_from_app = app.device_features;
     // Theme rows are `hidden_in_minimal`. Snapshot this AppView's mode, not `MINIMAL_MODE_ACTIVE`
     // (other tests flip that process flag in parallel and would drop `theme` from the list).
     // xAI account sign-in is not supported, so provider-credential sessions drop its rows.
@@ -309,6 +312,7 @@ pub(in crate::app::dispatch) fn dispatch_open_settings(
         voice_stt_provider: voice_stt_provider_from_app,
         voice_stt_model: voice_stt_model_from_app.clone(),
         subagent_model_inheritance: subagent_model_inheritance_from_app,
+        device_features: device_features_from_app,
     };
     let mut state = Box::new(SettingsModalState::new_with_row_visibility(
         registry,
@@ -444,7 +448,9 @@ pub(in crate::app::dispatch) fn dispatch_confirm_reset_setting(
             if current_value.as_ref() == Some(&default_value)
                 && !matches!(
                     action,
-                    Action::SetCodingDataSharing { .. } | Action::ClearSubagentModelInheritance
+                    Action::SetCodingDataSharing { .. }
+                        | Action::ClearSubagentModelInheritance
+                        | Action::ClearDeviceFeature(_)
                 )
             {
                 tracing::debug!(
@@ -713,6 +719,7 @@ pub(crate) fn build_pager_snapshot(app: &AppView) -> crate::settings::PagerLocal
         voice_stt_provider: app.voice_config.provider.as_str(),
         voice_stt_model: app.voice_config.model.clone(),
         subagent_model_inheritance: app.subagent_model_inheritance,
+        device_features: app.device_features,
     }
 }
 
@@ -778,6 +785,12 @@ pub(in crate::app::dispatch) fn action_for_reset(
         ("subagent_model_inheritance", SettingValue::Bool(_)) => {
             Some(Action::ClearSubagentModelInheritance)
         }
+        ("browser_use", SettingValue::Bool(_)) => Some(Action::ClearDeviceFeature(
+            xai_grok_shell::agent::config::Feature::BrowserUse,
+        )),
+        ("computer_use", SettingValue::Bool(_)) => Some(Action::ClearDeviceFeature(
+            xai_grok_shell::agent::config::Feature::ComputerUse,
+        )),
         ("keep_text_selection", SettingValue::Enum(s)) => {
             crate::appearance::TextSelection::from_canonical(s).map(Action::SetKeepTextSelection)
         }

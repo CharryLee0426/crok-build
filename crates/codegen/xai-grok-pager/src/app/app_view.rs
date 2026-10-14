@@ -1006,6 +1006,8 @@ pub struct AppView {
     pub ask_user_question_timeout_enabled: Option<bool>,
     /// `[features].subagent_model_inheritance` as the settings modal shows it: the saved user key plus the tiers seeded at startup.
     pub subagent_model_inheritance: crate::settings::FeatureOverrideState,
+    /// `[features].browser_use` and `[features].computer_use`, as `/browser-use`, `/computer-use` and the settings modal see them.
+    pub device_features: crate::settings::DeviceFeatures,
     /// Whether ZDR users are allowed to use the product.
     /// Server-controlled via RemoteSettings (remote settings). Default `false` (blocked) during beta.
     pub zdr_access_enabled: bool,
@@ -1555,6 +1557,7 @@ impl AppView {
             subagent_model_inheritance: crate::settings::FeatureOverrideState::new(
                 xai_grok_shell::agent::config::Feature::SubagentModelInheritance,
             ),
+            device_features: crate::settings::DeviceFeatures::default(),
             zdr_access_enabled: false,
             usage_billing_redirect_url: None,
             access_gate_shown_logged: false,

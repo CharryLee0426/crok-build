@@ -510,6 +510,9 @@ pub fn spawn_permission_manager_with_pin(
         let mut project_instructions: Option<String> = None;
         let mut pin_refusal_logged = false;
         let mut allow_edits_for_session = false;
+        // Tools the user allowed for the rest of this session (browser, computer); never persisted
+        let mut tools_allowed_for_session: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         let prompt_policy = permission_config
             .as_ref()
             .map(|c| c.prompt_policy)
@@ -562,6 +565,7 @@ pub fn spawn_permission_manager_with_pin(
                     state = PermissionState::default();
                     replace_state_on_disk(&cwd, &state, client_id_ref).await;
                     allow_edits_for_session = false;
+                    tools_allowed_for_session.clear();
                     tracing::info!(
                         "Permission state reset to defaults (including session edit allow)"
                     );
@@ -1225,6 +1229,9 @@ pub fn spawn_permission_manager_with_pin(
                                 )
                             }
                         }
+                        AccessKind::Tool(tool) if tools_allowed_for_session.contains(tool) => {
+                            Some((Decision::Allow, reasons::PERSISTED_GRANT))
+                        }
                         AccessKind::AgentMessage { .. } | AccessKind::Tool(_) => None,
                         AccessKind::WebFetch(url) => match url::Url::parse(url) {
                             Ok(parsed_url) => {
@@ -1283,10 +1290,13 @@ pub fn spawn_permission_manager_with_pin(
                                 if *reason == reasons::STATIC_ALLOWLIST
                                     || *reason == reasons::PERSISTED_GRANT
                         );
+                    // The user allowed this tool for the session themselves; the classifier cannot judge its actions
+                    let session_tool_grant = matches!(&access, AccessKind::Tool(tool) if tools_allowed_for_session.contains(tool));
                     if (recovered_classification
                         || (auto_forced_prompt && auto_prompt_blocks_allow(&access)))
                         && matches!(pre_decision, Some((Decision::Allow, _)))
                         && !webfetch_static_fallback
+                        && !session_tool_grant
                     {
                         pre_decision = None;
                     }
@@ -1370,7 +1380,14 @@ pub fn spawn_permission_manager_with_pin(
                         _ = respond_to.closed() => PromptOutcome::Cancelled,
                     };
                     // A subagent message or a plain tool has no grant store: every "always" answer holds for this call only.
+                    // The tools that offer a session grant keep it in memory for the rest of the session.
                     let prompt_outcome = match (&access, prompt_outcome) {
+                        (AccessKind::Tool(tool), PromptOutcome::AllowAlways)
+                            if crate::permission::prompter::session_grant_label(tool).is_some() =>
+                        {
+                            tools_allowed_for_session.insert(tool.clone());
+                            PromptOutcome::AllowAlways
+                        }
                         (AccessKind::AgentMessage { .. } | AccessKind::Tool(_), outcome)
                             if prompt_outcome_allows(&outcome) =>
                         {

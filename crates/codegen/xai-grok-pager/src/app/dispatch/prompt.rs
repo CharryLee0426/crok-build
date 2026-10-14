@@ -737,6 +737,7 @@ pub(super) fn dispatch_send_prompt_submission(
     let voice_stt_provider_from_app = app.voice_config.provider.as_str();
     let voice_stt_model_from_app = app.voice_config.model.clone();
     let subagent_model_inheritance_from_app = app.subagent_model_inheritance;
+    let device_features_from_app = app.device_features;
     let login_method_id_from_app = app.login_method_id.as_ref().map(|id| id.0.to_string());
     let leader_mode = app.leader_mode;
     let screen_mode_is_minimal = app.screen_mode.is_minimal();
@@ -880,6 +881,7 @@ pub(super) fn dispatch_send_prompt_submission(
                     voice_stt_provider: voice_stt_provider_from_app,
                     voice_stt_model: voice_stt_model_from_app.clone(),
                     subagent_model_inheritance: subagent_model_inheritance_from_app,
+                    device_features: device_features_from_app,
                 },
             };
 

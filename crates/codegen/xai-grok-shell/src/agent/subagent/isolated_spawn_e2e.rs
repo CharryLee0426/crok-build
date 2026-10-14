@@ -71,6 +71,7 @@ fn spawn_ctx(parent_cwd: PathBuf) -> SubagentSpawnContext {
         memory_mode: crate::config::MemoryMode::Legacy,
         web_search_sampling_config: None,
         web_fetch_config: Default::default(),
+        device_use: Default::default(),
         image_gen_config: Default::default(),
         video_gen_config: Default::default(),
         app_builder_deployer_config: Default::default(),

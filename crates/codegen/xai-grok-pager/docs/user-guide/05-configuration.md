@@ -103,6 +103,8 @@ two_pass_compaction = true             # prefire two-pass compaction (default: t
 remote_fetch = true                    # allow optional online model-catalog fetches (default: true;
                                        # set false for firewalled/air-gapped deployments; background
                                        # managed-config sync has its own switch: managed_config)
+browser_use = false                    # the browser tool (default: false; see Browser and Computer Use)
+computer_use = false                   # the computer tool, macOS only (default: false)
 
 [session]
 auto_compact_threshold_percent = 85    # auto-compact at this % of context window (default: 85)
@@ -244,7 +246,19 @@ allow_local = false                            # true = allow localhost / 127.0.
 allowed_domains = ["docs.x.ai", "arxiv.org"]
 # ...or block these domains instead (leave allowed_domains unset):
 # excluded_domains = ["reddit.com", "pinterest.com"]
+
+[toolset.browser]                      # the browser tool, on with [features] browser_use
+# executable = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+                                       # default: the first Chromium-based browser found
+headless = false                       # true = no window
+# profile_dir = "/Users/me/crok-browser"   # absolute path (default: $CROK_HOME/browser/profile)
+# allowed_domains = ["example.com"]    # hosts navigate may open, subdomains included (default: any)
+blocked_domains = []                   # hosts navigate refuses, subdomains included
+javascript = true                      # offer javascript_exec (asked about every time)
+file_upload = true                     # offer file_upload, for files inside the working directory
 ```
+
+`[toolset.browser]` is read when a session starts. See [Browser and Computer Use](28-browser-and-computer-use.md) for what the browser and computer tools do and how they ask for permission.
 
 `allow_local` is off by default (SSRF fail-closed). Turn it on (or set `CROK_WEB_FETCH_ALLOW_LOCAL=1`) and `web_fetch` may reach **explicit** loopback hosts only — private, link-local, and cloud-metadata ranges stay blocked. Resolution: TOML > env > default off.
 

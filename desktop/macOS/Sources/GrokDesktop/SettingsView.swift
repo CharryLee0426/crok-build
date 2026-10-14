@@ -22,6 +22,7 @@ struct SettingsView: View {
                     DisplaySettingsSection()
                     BehaviorSettingsSection()
                     BrowserSettingsSection()
+                    DeviceUseSettingsSection()
                     CommandLineSettingsSection()
                     if PerformanceMonitorSettings.isAvailable { DeveloperSettingsSection() }
                 }

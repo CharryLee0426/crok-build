@@ -896,11 +896,14 @@ final class AppStore: ObservableObject {
                 guard let optionID = value["optionId"] as? String else { return nil }
                 return PermissionOption(id: optionID, name: value["name"] as? String ?? optionID, kind: value["kind"] as? String ?? "")
             }
+            let device = DeviceCall(rawInput: tool["rawInput"])
             let detail: String
-            if let input = tool["rawInput"], let data = try? JSONSerialization.data(withJSONObject: input, options: [.prettyPrinted, .fragmentsAllowed, .sortedKeys]) {
+            if let device {
+                detail = device.approvalDetail
+            } else if let input = tool["rawInput"], let data = try? JSONSerialization.data(withJSONObject: input, options: [.prettyPrinted, .fragmentsAllowed, .sortedKeys]) {
                 detail = String(data: data, encoding: .utf8) ?? ""
             } else { detail = "Crok needs your permission to continue." }
-            runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: tool["title"] as? String ?? "Permission required", detail: detail, options: options))
+            runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: tool["title"] as? String ?? "Permission required", detail: detail, options: options, device: device))
         } else if method == "x.ai/folder_trust/request" {
             let kinds = (params["configKinds"] as? [String] ?? []).joined(separator: ", ")
             runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: "Trust project configuration?",

@@ -140,6 +140,10 @@ Both are real toggles for the permission mode: they stay in the menu, and runnin
 
 Running one while the other is active switches modes — for example, `/auto` while always-approve is on switches to Auto-review. `/auto` only appears when the Auto-review permission-mode feature is enabled. You can also change mode with `Shift+Tab` (cycles Normal / Plan / Auto-review (when enabled) / Always-approve), `Ctrl+O`, or `/settings`.
 
+### `/browser-use` and `/computer-use`
+
+Turn the [browser and computer tools](28-browser-and-computer-use.md) on or off: pass `on` or `off`, or nothing to switch. The choice is saved under `[features]` in `config.toml` and read when a session starts, so restart Crok for it to apply (in Crok Desktop, new tasks get it). `/computer-use` works on macOS only. Both switches are also in `/settings`.
+
 ### `/multiline`
 
 Toggle multiline input. When it's on, `Enter` inserts a newline and `Shift+Enter` (or `Alt+Enter`) sends the message. Mid-turn, a bare `Enter` on an empty composer still force-sends the top queued follow-up. Alias: `/ml`. With multiline off, the composer footer shows the newline chord once the draft is non-empty.

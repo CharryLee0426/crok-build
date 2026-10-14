@@ -942,6 +942,14 @@ pub(super) fn action_for_bool(key: SettingKey, new: bool) -> Option<Action> {
             Some(Action::SetAskUserQuestionTimeoutEnabled(new))
         }
         "subagent_model_inheritance" => Some(Action::SetSubagentModelInheritance(new)),
+        "browser_use" => Some(Action::SetDeviceFeature(
+            xai_grok_shell::agent::config::Feature::BrowserUse,
+            new,
+        )),
+        "computer_use" => Some(Action::SetDeviceFeature(
+            xai_grok_shell::agent::config::Feature::ComputerUse,
+            new,
+        )),
         "show_thinking_blocks" => Some(Action::SetShowThinkingBlocks(new)),
         "group_tool_verbs" => Some(Action::SetGroupToolVerbs(new)),
         "collapsed_edit_blocks" => Some(Action::SetCollapsedEditBlocks(new)),

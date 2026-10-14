@@ -179,14 +179,14 @@ enum L10n {
     // MARK: - Translation tables
 
     /// Each language's strings: the tables below, with the ones for Settings and the side panel
-    /// (`L10nPanelTables.swift`) added to them.
+    /// (`L10nPanelTables.swift`) and for browser and computer use (`L10nDeviceTables.swift`) added to them.
     private static let tables: [String: [String: String]] = [
-        "en": english.merging(englishPanels) { own, _ in own },
-        "zh-Hans": chineseSimplified.merging(chineseSimplifiedPanels) { own, _ in own },
-        "ja": japanese.merging(japanesePanels) { own, _ in own },
-        "es": spanish.merging(spanishPanels) { own, _ in own },
-        "fr": french.merging(frenchPanels) { own, _ in own },
-        "de": german.merging(germanPanels) { own, _ in own },
+        "en": english.merging(englishPanels) { own, _ in own }.merging(englishDevice) { own, _ in own },
+        "zh-Hans": chineseSimplified.merging(chineseSimplifiedPanels) { own, _ in own }.merging(chineseSimplifiedDevice) { own, _ in own },
+        "ja": japanese.merging(japanesePanels) { own, _ in own }.merging(japaneseDevice) { own, _ in own },
+        "es": spanish.merging(spanishPanels) { own, _ in own }.merging(spanishDevice) { own, _ in own },
+        "fr": french.merging(frenchPanels) { own, _ in own }.merging(frenchDevice) { own, _ in own },
+        "de": german.merging(germanPanels) { own, _ in own }.merging(germanDevice) { own, _ in own },
     ]
 
     // MARK: English

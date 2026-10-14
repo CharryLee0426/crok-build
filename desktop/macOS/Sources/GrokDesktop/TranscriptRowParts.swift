@@ -74,10 +74,11 @@ enum TranscriptParts {
         return label
     }
 
-    /// A tool call's title: inline Markdown, e.g. ``Read `path` ``, whose code spans show as code.
-    static func toolTitle(_ text: String) -> NSAttributedString {
+    /// A tool call's title: inline Markdown, e.g. ``Read `path` ``, whose code spans show as code;
+    /// plain text when `markdown` is false, as a title quoting typed text or an address is.
+    static func toolTitle(_ text: String, markdown: Bool = true) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: 14)
-        guard text.contains("`") || text.contains("*") else {
+        guard markdown, text.contains("`") || text.contains("*") else {
             return NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: Theme.palette.inkNS])
         }
         let rendered = MarkdownAttributedRenderer(fontSize: 14, color: Theme.palette.inkNS).render([.paragraph(MarkdownParser.parseInlines(text))])

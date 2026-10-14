@@ -183,6 +183,12 @@ pub static USER_GUIDE: &[Doc] = &[
         description: "Depth-1 Grove clone, --full-history, and safe deepen/switch commands",
         content: include_str!("../docs/user-guide/27-grok-clone.md"),
     },
+    Doc {
+        filename: "28-browser-and-computer-use.md",
+        title: "Browser and Computer Use",
+        description: "Let Crok work in web pages and use the mouse and keyboard, with any provider",
+        content: include_str!("../docs/user-guide/28-browser-and-computer-use.md"),
+    },
 ];
 
 /// Non-user-guide reference docs. Bundled via `include_str!` so they are available at runtime without a docs path.

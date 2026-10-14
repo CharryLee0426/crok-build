@@ -384,6 +384,52 @@ impl FeatureOverrideState {
     }
 }
 
+/// The `[features]` rows for the `browser` and `computer` tools.
+#[derive(Debug, Clone, Copy)]
+pub struct DeviceFeatures {
+    pub browser: FeatureOverrideState,
+    pub computer: FeatureOverrideState,
+}
+
+impl Default for DeviceFeatures {
+    fn default() -> Self {
+        Self {
+            browser: FeatureOverrideState::new(Feature::BrowserUse),
+            computer: FeatureOverrideState::new(Feature::ComputerUse),
+        }
+    }
+}
+
+impl DeviceFeatures {
+    pub fn from_layers(
+        layers: Option<&EffectiveConfigLayers>,
+        remote: Option<&RemoteSettings>,
+    ) -> Self {
+        Self {
+            browser: FeatureOverrideState::from_layers(Feature::BrowserUse, layers, remote),
+            computer: FeatureOverrideState::from_layers(Feature::ComputerUse, layers, remote),
+        }
+    }
+
+    pub fn reseed_config_layers(&mut self, layers: &EffectiveConfigLayers) {
+        self.browser.reseed_config_layers(layers);
+        self.computer.reseed_config_layers(layers);
+    }
+
+    /// The row for `feature`, when it is one of these.
+    pub fn get(&self, feature: Feature) -> Option<&FeatureOverrideState> {
+        [&self.browser, &self.computer]
+            .into_iter()
+            .find(|state| state.feature == feature)
+    }
+
+    pub fn get_mut(&mut self, feature: Feature) -> Option<&mut FeatureOverrideState> {
+        [&mut self.browser, &mut self.computer]
+            .into_iter()
+            .find(|state| state.feature == feature)
+    }
+}
+
 /// Why `coding_data_sharing` cannot be changed in the settings modal.
 /// Computed by `AppView::coding_data_sharing_lock`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -459,6 +505,8 @@ pub struct PagerLocalSnapshot {
     pub voice_stt_model: String,
     /// Mirrors `AppView::subagent_model_inheritance` at snapshot time.
     pub subagent_model_inheritance: FeatureOverrideState,
+    /// Mirrors `AppView::device_features` at snapshot time.
+    pub device_features: DeviceFeatures,
 }
 
 impl Default for PagerLocalSnapshot {
@@ -487,6 +535,7 @@ impl Default for PagerLocalSnapshot {
             subagent_model_inheritance: FeatureOverrideState::new(
                 Feature::SubagentModelInheritance,
             ),
+            device_features: DeviceFeatures::default(),
         }
     }
 }
@@ -855,6 +904,12 @@ pub fn current_value_for(
                 .unwrap_or(ask_user_question::DEFAULT_ASK_USER_QUESTION_TIMEOUT_ENABLED),
         )),
         // The value the shell latches at the next start, every tier included; the detail text separates the saved key from it
+        "browser_use" => Some(SettingValue::Bool(
+            pager.device_features.browser.resolve().value,
+        )),
+        "computer_use" => Some(SettingValue::Bool(
+            pager.device_features.computer.resolve().value,
+        )),
         "subagent_model_inheritance" => Some(SettingValue::Bool(
             pager.subagent_model_inheritance.resolve().value,
         )),
@@ -1188,6 +1243,13 @@ mod tests {
                         Feature::SubagentModelInheritance.default_enabled(),
                         "subagent_model_inheritance default drifts from the FEATURES row"
                     );
+                }
+                // browser_use / computer_use: `[features]` rows too, anchored on theirs
+                ("browser_use", SettingKind::Bool { default }) => {
+                    assert_eq!(*default, Feature::BrowserUse.default_enabled());
+                }
+                ("computer_use", SettingKind::Bool { default }) => {
+                    assert_eq!(*default, Feature::ComputerUse.default_enabled());
                 }
                 // ask_user_question timeout: no UiConfig mirror (lives under `[toolset]`); the default is anchored on the resolver-shared const
                 ("toolset.ask_user_question.timeout_enabled", SettingKind::Bool { default }) => {

@@ -254,9 +254,19 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   model/thinking selection have native interfaces. `/changes`, `/terminal`, and
   `/browser` open the side panel's Changes, Terminal, and Browser. Image/video commands appear when their
   tools are advertised.
+- **Browser and computer use:** **Settings › Browser and computer use** (or
+  `/browser-use` and `/computer-use`) lets new tasks drive a Chromium-based
+  browser of Crok's own, separate from the side panel's Browser, and see the
+  screen and use the mouse and keyboard. These work with every provider. The
+  section shows whether macOS has granted Screen Recording and Accessibility,
+  with **Allow…** to ask for them. Each action appears in the conversation as
+  its own row (a globe for the browser, a pointer for the computer) worded in
+  the interface language, and the approval card names the action and offers
+  to allow such actions for the rest of the session. See the
+  **Browser and Computer Use** guide (`/docs Browser and Computer Use`).
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
-records all 73 pager commands, shell built-ins, CLI families, exact ACP
+records all 75 pager commands, shell built-ins, CLI families, exact ACP
 contracts, and what each command does in the desktop app. Commands that open a
 picker or panel in the terminal open a native sheet or window here: usage and
 context, session info, feedback, release notes, guides, the tutorial,

@@ -2371,6 +2371,28 @@ fn tool_call_block_without_images(
         {
             media_gen_block(tc, success)
         }
+        _ if matches!(
+            extract_raw_field(tc, "variant").as_deref(),
+            Some("Browser") | Some("Computer")
+        ) =>
+        {
+            use crate::scrollback::blocks::tool::device_action::DeviceAction;
+            let mut block = match tc.raw_input.as_ref().and_then(DeviceAction::from_raw_input) {
+                Some(device) => OtherToolCallBlock::device(device),
+                None => OtherToolCallBlock::new(tc.title.clone(), String::new()),
+            };
+            let text = content_text(tc);
+            if !success {
+                block.error = Some(if text.is_empty() {
+                    xai_grok_i18n::tlm("Tool call failed").to_owned()
+                } else {
+                    text
+                });
+            } else if !text.is_empty() {
+                block.set_output_text(text);
+            }
+            RenderBlock::ToolCall(ToolCallBlock::Other(block))
+        }
         _ if tc.title.starts_with("Memory search:") => {
             let query = tc
                 .title

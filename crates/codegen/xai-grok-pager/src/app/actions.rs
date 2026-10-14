@@ -474,6 +474,12 @@ pub enum Action {
     /// Delete the saved `[features].subagent_model_inheritance` key so the remote setting or the default applies again.
     /// The reset path uses this instead of writing the compiled default.
     ClearSubagentModelInheritance,
+    /// Save `[features].browser_use` or `[features].computer_use`. SHELL-owned; agents latch it when built, so it applies to new sessions.
+    SetDeviceFeature(xai_grok_shell::agent::config::Feature, bool),
+    /// Turn `[features].browser_use` or `[features].computer_use` to the opposite of what applies now.
+    ToggleDeviceFeature(xai_grok_shell::agent::config::Feature),
+    /// Delete the saved key of a device feature so the default applies again (the settings reset path).
+    ClearDeviceFeature(xai_grok_shell::agent::config::Feature),
     /// SHELL-owned `keep_text_selection` (`flash` | `hold`); cache and persist.
     SetKeepTextSelection(crate::appearance::TextSelection),
     /// Set the mouse-wheel scroll speed multiplier (1-100).
