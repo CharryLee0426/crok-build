@@ -367,6 +367,16 @@ impl ChatStateActor {
             ChatStateCommand::GetSessionUsage { reply } => {
                 let _ = reply.send(self.state.session_usage.clone());
             }
+            ChatStateCommand::GetSessionUsageSinceStart { reply } => {
+                let _ = reply.send(
+                    self.state
+                        .session_usage
+                        .since_start(&self.state.session_usage_baseline),
+                );
+            }
+            ChatStateCommand::SetSessionUsageBaseline { ledger } => {
+                self.state.session_usage_baseline = ledger;
+            }
             ChatStateCommand::GetEstimatedTotalTokens { reply } => {
                 let _ =
                     reply.send(self.state.total_tokens + self.state.estimated_tokens_since_model);

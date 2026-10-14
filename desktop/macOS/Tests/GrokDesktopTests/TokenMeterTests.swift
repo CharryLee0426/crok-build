@@ -176,13 +176,28 @@ final class TokenMeterTests: XCTestCase {
         let firstSaved = SavedTokenUsage(TokenCounts(input: 400, output: 100, cacheRead: 1_400, cacheCreation: 200), tokensPerSecond: 61.5)
         XCTAssertEqual(store.task(id)?.tokenUsage, firstSaved)
 
-        // A new harness process counts its session from zero, so what was counted is carried and its figures add to it.
+        // A new harness process: the figures stay until it reports. Its session total covers the
+        // session since it began, so it replaces them rather than adding to them.
         tokens.harnessDidStart(conversationID: id)
         XCTAssertEqual(tokens.meters[id]?.readout(turnRunning: false)?.outputTokens, 100)
-        _ = store.receiveFeatureNotification("x.ai/session_notification", params: completed(["input_tokens": 10, "output_tokens": 20], rate: 30), id: id)
+        _ = store.receiveFeatureNotification("x.ai/session_notification", params: completed(
+            ["input_tokens": 410, "output_tokens": 120, "cache_read_input_tokens": 1_400, "cache_creation_input_tokens": 200], rate: 30), id: id)
         XCTAssertEqual(tokens.meters[id]?.readout(turnRunning: false),
                        TokenReadout(inputTokens: 2_010, outputTokens: 120, cachedTokens: 1_400, cacheHitRate: 1_400.0 / 2_010.0, rate: .measured(30)))
         XCTAssertEqual(store.task(id)?.tokenUsage, SavedTokenUsage(TokenCounts(input: 410, output: 120, cacheRead: 1_400, cacheCreation: 200), tokensPerSecond: 30))
+    }
+
+    func testSavedFiguresGiveWayToTheHarnessTotal() {
+        var meter = TokenMeter(saved: SavedTokenUsage(TokenCounts(input: 50, output: 500, cacheRead: 950), tokensPerSecond: 40))
+        meter.carryOver()
+        XCTAssertEqual(meter.readout(turnRunning: false)?.outputTokens, 500)
+        // A harness without session totals: its responses add to what was there.
+        var summed = meter
+        summed.completeResponse(usage: TokenCounts(input: 5, output: 10), sessionUsage: nil, tokensPerSecond: nil)
+        XCTAssertEqual(summed.readout(turnRunning: false)?.outputTokens, 510)
+        meter.completeResponse(usage: TokenCounts(input: 5, output: 10), sessionUsage: TokenCounts(input: 55, output: 510, cacheRead: 950), tokensPerSecond: 45)
+        XCTAssertEqual(meter.readout(turnRunning: false),
+                       TokenReadout(inputTokens: 1_005, outputTokens: 510, cachedTokens: 950, cacheHitRate: 950.0 / 1_005.0, rate: .measured(45)))
     }
 
     // MARK: Coming back to a task

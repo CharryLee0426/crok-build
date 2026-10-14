@@ -689,32 +689,14 @@ impl SessionActor {
             },
         }
     }
-    /// The session's average output speed. Its `usage.json` adds up every turn since the session
-    /// began, across resumes; before this process has written a turn there, its own ledger is used.
+    /// The session's average output speed since it began, resumes included.
     async fn session_output_tokens_per_second(&self) -> Option<f64> {
-        use crate::session::usage_file::{SessionUsageFile, UsageLoad};
-        let id = self.session_info.id.0.to_string();
-        let recorded =
-            tokio::task::spawn_blocking(move || match SessionUsageFile::load_for_session(&id) {
-                Ok(UsageLoad::Ready(file)) => Some(file.session),
-                _ => None,
-            })
+        self.chat_state_handle
+            .try_get_session_usage_since_start()
             .await
-            .ok()
-            .flatten();
-        let live = self
-            .chat_state_handle
-            .try_get_session_usage()
-            .await
-            .ok()
-            .map(|ledger| ledger.totals);
-        let recorded_timed = recorded.as_ref().map_or(0, |s| s.decode_output_tokens);
-        let live_timed = live.as_ref().map_or(0, |t| t.decode_output_tokens);
-        if recorded_timed >= live_timed {
-            recorded?.output_tokens_per_second()
-        } else {
-            live?.output_tokens_per_second()
-        }
+            .ok()?
+            .totals
+            .output_tokens_per_second()
     }
     /// Build the `/context` usage rows for the skills listing, the workflow listing, the MCP server listing, and AGENTS.md.
     /// Under templated sessions, the skills row estimates the mid-session envelope.

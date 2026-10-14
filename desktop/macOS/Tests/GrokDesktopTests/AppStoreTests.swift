@@ -447,6 +447,42 @@ time.sleep(20)
         XCTAssertEqual(reopened.state.modelCatalog.map(\.id), ["fixture-build", "fixture-fast"])
     }
 
+    /// The first launch of a build has no saved catalog. The first model list any harness gives
+    /// names the models from then on, in every task, without waiting for the new-task catalog.
+    func testTheFirstModelListAHarnessGivesNamesEveryTasksModel() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("grok-store-names-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let defaultsName = "GrokDesktopNames.\(UUID().uuidString)"
+        defer { UserDefaults.standard.removePersistentDomain(forName: defaultsName) }
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), defaults: UserDefaults(suiteName: defaultsName)!, binaryPath: "/usr/bin/false")
+        defer { store.shutdown() }
+        let project = Project(path: directory.path)
+        let first = Conversation(projectID: project.id, title: "First", sessionID: "s1", modelID: "anthropic/claude-opus-5-5", reasoningID: "max")
+        let second = Conversation(projectID: project.id, title: "Second", sessionID: "s2", modelID: "openrouter/meta/muse-spark-1.3-contributor", reasoningID: "medium")
+        store.state = DesktopState(projects: [project], conversations: [first, second], selectedProjectID: project.id, selectedConversationID: second.id)
+        XCTAssertNil(store.modelOption(store.run.modelID), "nothing has named the model yet")
+
+        // The first task's harness answers `initialize` with the whole catalog.
+        store.applyModels(["currentModelId": "anthropic/claude-haiku-5-5", "availableModels": [
+            ["modelId": "anthropic/claude-opus-5-5", "name": "Claude Opus 5.5"],
+            ["modelId": "openrouter/meta/muse-spark-1.3-contributor", "name": "Meta: Muse Spark 1.3 Contributor",
+             "_meta": ["supportsReasoningEffort": true, "reasoningEfforts": ["low", "medium", "high"]]],
+        ]], id: first.id)
+        XCTAssertEqual(store.run.modelID, "openrouter/meta/muse-spark-1.3-contributor")
+        XCTAssertEqual(store.modelOption(store.run.modelID)?.name, "Meta: Muse Spark 1.3 Contributor")
+        XCTAssertEqual(store.run.reasoningOptions.map(\.id), ["low", "medium", "high"])
+        XCTAssertEqual(store.state.modelCatalog.count, 2)
+
+        // A run whose own list lacks the model still finds its name in a catalog.
+        var partial = RunState()
+        partial.models = [ModelOption(id: "anthropic/claude-opus-5-5", name: "Claude Opus 5.5")]
+        partial.modelID = "openrouter/meta/muse-spark-1.3-contributor"
+        store.runs[second.id] = partial
+        store.loaded.insert(second.id)
+        XCTAssertEqual(store.modelOption(store.run.modelID)?.name, "Meta: Muse Spark 1.3 Contributor")
+        XCTAssertNil(store.modelOption(""))
+    }
+
     func testSavedOptionsFillInWhatTheConnectingHarnessHasNotSaid() {
         let catalog = SessionOptions.models(["availableModels": [
             ["modelId": "wide", "name": "Wide", "_meta": ["supportsReasoningEffort": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "high", "max"]]],

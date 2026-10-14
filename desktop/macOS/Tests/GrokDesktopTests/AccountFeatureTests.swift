@@ -136,7 +136,7 @@ final class AccountFeatureTests: XCTestCase {
         XCTAssertEqual(summary.rows.map(\.value), ["12,345 (1,234 cached)", "678 (90 reasoning)", "13,023", "3 · API time: 5.2s", "$0.1234"])
         XCTAssertEqual(summary.models.map(\.label), ["grok-a", "grok-b"])
         XCTAssertEqual(summary.models.last?.value, "1,000 in / 200 out · not available (not reported for some calls)")
-        XCTAssertTrue(summary.text.hasPrefix("Session usage (since start or last resume):\n  Input tokens: 12,345 (1,234 cached)"))
+        XCTAssertTrue(summary.text.hasPrefix("Session usage (since the session started):\n  Input tokens: 12,345 (1,234 cached)"))
         let single = UsageSessionSummary(["modelCalls": 1, "usageIsIncomplete": true, "modelUsage": ["grok": ["inputTokens": 1]]])
         XCTAssertTrue(single.models.isEmpty, "the per-model list appears only for several models")
         XCTAssertEqual(single.rows.last?.value, "not available (not reported)")

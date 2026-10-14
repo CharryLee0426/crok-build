@@ -113,30 +113,54 @@ impl ModelPrice {
     /// The call's cost in USD. `one_hour_cache` prices cache writes at the one-hour rate, where the
     /// model has one.
     pub fn cost_usd(&self, tokens: &CallTokens, one_hour_cache: bool) -> f64 {
-        let rates = match self.long_context {
-            Some(long) if tokens.prompt() >= long.from => long.rates,
-            _ => self.rates,
-        };
-        let cache_write = if one_hour_cache {
-            rates.cache_write_one_hour.unwrap_or(rates.cache_write)
-        } else {
-            rates.cache_write
-        };
-        (tokens.input as f64 * rates.input
-            + tokens.cache_read as f64 * rates.cache_read
-            + tokens.cache_write as f64 * cache_write
-            + tokens.output as f64 * rates.output)
-            / 1_000_000.0
+        priced(self.rates_for(tokens.prompt()), tokens, one_hour_cache)
     }
 
     /// The call's cost in USD ticks, rounded to the nearest tick.
     pub fn cost_usd_ticks(&self, tokens: &CallTokens, one_hour_cache: bool) -> i64 {
-        let ticks = (self.cost_usd(tokens, one_hour_cache) * USD_TICKS_PER_USD).round();
-        if ticks.is_finite() {
-            ticks.clamp(0.0, i64::MAX as f64) as i64
-        } else {
-            0
+        usd_to_ticks(self.cost_usd(tokens, one_hour_cache))
+    }
+
+    /// Several calls' tokens added together, in USD ticks. Each call's own prompt size is not
+    /// known, so the rates are those of the average prompt.
+    pub fn cost_usd_ticks_over_calls(
+        &self,
+        tokens: &CallTokens,
+        calls: u64,
+        one_hour_cache: bool,
+    ) -> i64 {
+        let rates = self.rates_for(tokens.prompt() / calls.max(1));
+        usd_to_ticks(priced(rates, tokens, one_hour_cache))
+    }
+
+    /// The rates a request whose prompt is `prompt_tokens` long pays.
+    fn rates_for(&self, prompt_tokens: u64) -> Rates {
+        match self.long_context {
+            Some(long) if prompt_tokens >= long.from => long.rates,
+            _ => self.rates,
         }
+    }
+}
+
+fn priced(rates: Rates, tokens: &CallTokens, one_hour_cache: bool) -> f64 {
+    let cache_write = if one_hour_cache {
+        rates.cache_write_one_hour.unwrap_or(rates.cache_write)
+    } else {
+        rates.cache_write
+    };
+    (tokens.input as f64 * rates.input
+        + tokens.cache_read as f64 * rates.cache_read
+        + tokens.cache_write as f64 * cache_write
+        + tokens.output as f64 * rates.output)
+        / 1_000_000.0
+}
+
+fn usd_to_ticks(usd: f64) -> i64 {
+    let ticks = (usd * USD_TICKS_PER_USD).round();
+    if ticks.is_finite() {
+        ticks.clamp(0.0, i64::MAX as f64) as i64
+    } else {
+        0
     }
 }
 
@@ -482,6 +506,27 @@ mod tests {
         assert!((haiku.cost_usd(&long, false) - (0.0500005 + 2.50)).abs() < 1e-9);
         let grok = listed_price(Some(PriceList::Xai), "grok-4.6", weekend()).unwrap();
         assert!((grok.cost_usd(&tokens(0, 200_000, 0, 0), false) - 0.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn calls_added_together_pay_the_rates_of_their_average_prompt() {
+        let haiku = listed_price(None, "claude-haiku-5-5", weekend()).unwrap();
+        // Ten calls, 1.5M prompt tokens: 150K each on average, so all pay the >100K rates.
+        let long = tokens(1_500_000, 0, 0, 0);
+        assert_eq!(
+            haiku.cost_usd_ticks_over_calls(&long, 10, false),
+            7_500_000_000
+        );
+        // Twenty calls of 75K each pay the short rates.
+        assert_eq!(
+            haiku.cost_usd_ticks_over_calls(&long, 20, false),
+            1_500_000_000
+        );
+        // Zero calls counts as one rather than dividing by zero.
+        assert_eq!(
+            haiku.cost_usd_ticks_over_calls(&tokens(1_000, 0, 0, 0), 0, false),
+            1_000_000
+        );
     }
 
     #[test]

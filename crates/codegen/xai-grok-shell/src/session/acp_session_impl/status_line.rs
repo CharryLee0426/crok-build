@@ -139,7 +139,7 @@ impl SessionActor {
 
         let usage = self
             .chat_state_handle
-            .try_get_session_usage()
+            .try_get_session_usage_since_start()
             .await
             .ok()
             .map(|ledger| PromptUsage::from(&ledger));

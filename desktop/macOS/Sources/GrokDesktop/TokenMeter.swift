@@ -148,8 +148,8 @@ struct TokenMeter: Equatable {
     /// A stream has to run this long before its rate is shown; a rate over a few chunks swings wildly.
     static let minimumRateWindow: TimeInterval = 1
 
-    /// What harness processes before the current one counted: the figures the task was opened
-    /// with, and what an earlier connection reported. Each process counts its session from zero.
+    /// What was counted before the current harness process reported: the figures the task was
+    /// opened with, shown until the harness's own session total replaces them.
     private(set) var carried: TokenCounts?
     /// What the current harness process has counted.
     private(set) var session: TokenCounts?
@@ -178,8 +178,7 @@ struct TokenMeter: Equatable {
         totals.map { SavedTokenUsage($0, tokensPerSecond: lastRate, averageTokensPerSecond: lastRate == nil ? averageRate : nil) }
     }
 
-    /// A new harness process starts. Its session counts from zero, so what was counted so far is
-    /// carried, and its figures add to that.
+    /// A new harness process starts. What was counted so far stays on screen until it reports.
     mutating func carryOver() {
         carried = totals
         session = nil
@@ -221,11 +220,13 @@ struct TokenMeter: Equatable {
     /// The turn ended. A response it cut short never completes, so its stream is dropped here.
     mutating func endStream() { live = nil }
 
-    /// One model response finished. `sessionUsage` is the harness's own total; a harness that
-    /// sends none has its per-response `usage` summed instead.
+    /// One model response finished. `sessionUsage` is the harness's own total for the session
+    /// since it began, earlier processes included, so it replaces whatever was carried; a harness
+    /// that sends none has its per-response `usage` summed instead.
     mutating func completeResponse(usage: TokenCounts?, sessionUsage: TokenCounts?, tokensPerSecond: Double?) {
         live = nil
         if let sessionUsage {
+            carried = nil
             session = sessionUsage
         } else if let usage {
             var total = session ?? TokenCounts()
@@ -380,8 +381,7 @@ final class TokenMeterModel: ObservableObject {
         }
     }
 
-    /// A new harness process counts its session from zero: what the task counted so far is
-    /// carried, and the new process's figures add to it.
+    /// A new harness process starts: the task's figures stay until it reports its session total.
     func harnessDidStart(conversationID id: UUID) {
         guard var meter = current[id] ?? savedMeter(id) else { return }
         meter.carryOver()

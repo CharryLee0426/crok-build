@@ -218,6 +218,26 @@ impl UsageLedger {
         self.incomplete = true;
     }
 
+    /// Folds totals recorded elsewhere (an earlier agent process's turns) under `model_id`,
+    /// without counting a main-loop call.
+    pub fn fold(&mut self, model_id: &str, totals: &UsageTotals) {
+        self.fold_entry(model_id, totals);
+    }
+
+    /// This ledger with what `earlier` recorded for the same session in front of it: the
+    /// session's bill since it began, when this ledger only covers the current process.
+    pub fn since_start(&self, earlier: &UsageLedger) -> UsageLedger {
+        let mut merged = earlier.clone();
+        for (model_id, totals) in &self.by_model {
+            merged.fold_entry(model_id, totals);
+        }
+        merged.main_loop_model_calls = merged
+            .main_loop_model_calls
+            .saturating_add(self.main_loop_model_calls);
+        merged.incomplete |= self.incomplete;
+        merged
+    }
+
     fn fold_entry(&mut self, model_id: &str, totals: &UsageTotals) {
         self.totals.fold_totals(totals);
         self.by_model
@@ -240,6 +260,46 @@ mod tests {
             cached_prompt_tokens: 0,
             cache_creation_prompt_tokens: 0,
         }
+    }
+
+    #[test]
+    fn since_start_puts_the_earlier_processes_in_front() {
+        let mut earlier = UsageLedger::default();
+        earlier.fold(
+            "a",
+            &UsageTotals {
+                input_tokens: 1_000,
+                output_tokens: 100,
+                model_calls: 3,
+                cost_usd_ticks: Some(50),
+                cost_estimated_calls: 3,
+                decode_duration_ms: 2_000,
+                decode_output_tokens: 100,
+                ..Default::default()
+            },
+        );
+        assert_eq!(earlier.main_loop_model_calls, 0);
+        let mut live = UsageLedger::default();
+        live.record_main_loop_call_with(
+            "b",
+            &tu(10, 20),
+            &CallMetrics {
+                decode_duration_ms: Some(500),
+                estimated_cost_usd_ticks: Some(7),
+                ..CallMetrics::default()
+            },
+        );
+        let total = live.since_start(&earlier);
+        assert_eq!(total.totals.input_tokens, 1_010);
+        assert_eq!(total.totals.output_tokens, 120);
+        assert_eq!(total.totals.model_calls, 4);
+        assert_eq!(total.totals.cost_usd_ticks, Some(57));
+        assert!(total.totals.cost_is_estimated());
+        assert_eq!(total.totals.output_tokens_per_second(), Some(48.0));
+        assert_eq!(total.by_model.keys().collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(total.main_loop_model_calls, 1);
+        // Nothing earlier: the ledger as it is.
+        assert_eq!(live.since_start(&UsageLedger::default()), live);
     }
 
     #[test]

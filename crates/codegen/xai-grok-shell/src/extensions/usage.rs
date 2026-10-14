@@ -1,8 +1,9 @@
 //! `x.ai/session/usage`: cumulative session token and cost totals as [`PromptUsage`].
 //!
-//! Reads the in-memory [`xai_chat_state::UsageLedger`] (main-loop and folded subagent spend).
+//! Reads the in-memory [`xai_chat_state::UsageLedger`] (main-loop and folded subagent spend) on top
+//! of what earlier agent processes recorded for the session (its `usage.json` when it was loaded),
+//! so a resumed session reports its bill since it began. `numTurns` counts this process only.
 //! Partial costs are scrubbed, since an absent cost does not mean free.
-//! Totals reset when a session is resumed in a new agent process.
 
 use agent_client_protocol as acp;
 use serde::{Deserialize, Serialize};
@@ -47,7 +48,7 @@ async fn handle_session_usage(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtRe
     // Fail closed: a dead chat-state actor is an error, never a zero bill.
     let ledger = handle
         .chat_state_handle
-        .try_get_session_usage()
+        .try_get_session_usage_since_start()
         .await
         .map_err(|()| acp::Error::internal_error().data("failed to read session usage"))?;
 

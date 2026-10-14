@@ -434,7 +434,7 @@ View session usage. Alias: `/cost`.
 /usage
 ```
 
-Inside a session this opens the usage modal with that session's context and token totals.
+Inside a session this opens the usage modal with that session's context and token totals. The totals cover the session since it began: turns from before a `/resume`, or from another client such as Crok Desktop, are included.
 
 Its cost line is what the provider reported when it reports one (xAI, OpenRouter). Every other provider, subscription plans included, is priced at the model's standard pay-as-you-go API price, and the line says `(estimated at standard API prices)`. A model with no known API price leaves the cost `not available`.
 

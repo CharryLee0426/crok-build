@@ -993,6 +993,7 @@ impl SessionActor {
     /// Build the per-response boundary update, projecting the response's usage
     /// into the Messages API `message.usage` shape (uncached `input_tokens`).
     /// Call it after the response's usage is recorded, so the session totals it reads include this response.
+    /// The session totals cover the session since it began, turns of earlier agent processes included.
     pub(super) async fn response_completed_update(
         &self,
         response: &xai_grok_sampling_types::ConversationResponse,
@@ -1000,7 +1001,7 @@ impl SessionActor {
     ) -> XaiSessionUpdate {
         let session_usage = self
             .chat_state_handle
-            .try_get_session_usage()
+            .try_get_session_usage_since_start()
             .await
             .ok()
             .filter(|ledger| ledger.totals.model_calls > 0)

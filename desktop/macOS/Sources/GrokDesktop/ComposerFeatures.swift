@@ -437,7 +437,7 @@ final class ComposerFeatureModel: ObservableObject {
                 }
             }
             let run = store.run
-            let name = run.models.first { $0.id == run.modelID }?.name ?? run.modelID
+            let name = store.modelOption(run.modelID)?.name ?? run.modelID
             let effort = run.reasoningID.isEmpty ? nil : ComposerModelArguments.effortWord(run.reasoningID, options: run.reasoningOptions)
             let description = effort.map { "\(name) (\($0) effort)" } ?? name
             guard run.modelID != before.model || run.reasoningID != before.effort else {

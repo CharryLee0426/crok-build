@@ -639,6 +639,13 @@ pub(crate) async fn spawn_session_actor(
         tokio_util::sync::CancellationToken::new(),
     );
     drop(chat_state_guard);
+    // The ledger counts from zero in this process. What earlier processes recorded for the session
+    // is its baseline, so `/usage` and the token meter cover the session since it began.
+    if let Some(baseline) = crate::session::standard_cost::recorded_session_usage(
+        &crate::session::persistence::session_dir(&session_info),
+    ) {
+        chat_state_handle.set_session_usage_baseline(baseline);
+    }
     async {
         if (!initial_prompt_texts.is_empty()
             || initial_total_tokens > 0

@@ -1254,7 +1254,8 @@ pub enum SessionUpdate {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tokens_per_sec: Option<f64>,
         /// The session's totals once this response is counted, in the same disjoint buckets as `usage`.
-        /// Folded subagent spend is included, so it can exceed the sum of the `usage` a client has seen.
+        /// They cover the session since it began, turns run by earlier agent processes included, and
+        /// folded subagent spend, so they can exceed the sum of the `usage` a client has seen.
         /// Absent when the ledger could not be read, which is not a zero.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_usage: Option<ResponseUsage>,

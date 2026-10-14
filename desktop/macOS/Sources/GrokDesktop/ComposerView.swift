@@ -80,9 +80,10 @@ struct ComposerView: View {
     private var voiceAvailable: Bool { store.harnessMeta.voiceMode && store.project != nil }
     private var draftLineCount: Int { store.draft.reduce(1) { $1 == "\n" ? $0 + 1 : $0 } }
     private var selectedModelName: String {
-        store.run.models.first { $0.id == store.run.modelID }?.name ?? (store.run.modelID.isEmpty ? L10n.t("choose_model", "Choose model") : store.run.modelID)
+        let id = store.run.modelID
+        return store.modelOption(id)?.name ?? (id.isEmpty ? L10n.t("choose_model", "Choose model") : id)
     }
-    private var selectedModelWindow: Int? { store.run.models.first { $0.id == store.run.modelID }?.contextWindow }
+    private var selectedModelWindow: Int? { store.modelOption(store.run.modelID)?.contextWindow }
     private var filteredModels: [ModelOption] {
         store.run.models.filter { modelSearch.isEmpty || $0.name.localizedCaseInsensitiveContains(modelSearch) || $0.id.localizedCaseInsensitiveContains(modelSearch) }
     }

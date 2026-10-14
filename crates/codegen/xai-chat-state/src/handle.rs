@@ -520,6 +520,23 @@ impl ChatStateHandle {
         .ok_or(())
     }
 
+    /// Fail-closed read of the session bill since it began, earlier agent processes included.
+    /// [`Self::try_get_session_usage`] covers only this process, which per-turn deltas need.
+    pub async fn try_get_session_usage_since_start(&self) -> Result<crate::usage::UsageLedger, ()> {
+        self.query("GetSessionUsageSinceStart", |reply| {
+            ChatStateCommand::GetSessionUsageSinceStart { reply }
+        })
+        .await
+        .ok_or(())
+    }
+
+    /// Sets what earlier agent processes recorded for the session. Call once, when it is loaded.
+    pub fn set_session_usage_baseline(&self, ledger: crate::usage::UsageLedger) {
+        let _ = self
+            .cmd_tx
+            .send(ChatStateCommand::SetSessionUsageBaseline { ledger });
+    }
+
     /// `total_tokens` plus bytes/4 estimate of tool results pushed since the
     /// last model response. Used by `check_preflight_overflow`.
     pub async fn get_estimated_total_tokens(&self) -> u64 {

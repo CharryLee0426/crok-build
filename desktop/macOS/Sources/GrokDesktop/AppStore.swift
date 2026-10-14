@@ -1158,10 +1158,27 @@ final class AppStore: ObservableObject {
         save()
     }
 
-    /// Keeps the newest catalog with the saved state, for the next launch.
+    /// Keeps the newest catalog with the saved state, for the next launch. Until the catalog's own
+    /// harness has answered, it also names the models now: a task's harness answers first.
     func rememberModelCatalog(_ models: [ModelOption]) {
-        guard !models.isEmpty, state.modelCatalog != models else { return }
+        guard !models.isEmpty else { return }
+        if catalogRun.models.isEmpty {
+            catalogRun.models = models
+            if catalogRun.modelID.isEmpty { catalogRun.modelID = state.selectedModelID ?? "" }
+            updateCatalogReasoning(preferred: state.selectedReasoningID)
+        }
+        guard state.modelCatalog != models else { return }
         state.modelCatalog = models
+        save()
+    }
+
+    /// A model as the composer names it: from the run on screen, else from any catalog the app
+    /// has, so a model a connecting harness has not listed yet still shows its display name.
+    func modelOption(_ id: String) -> ModelOption? {
+        guard !id.isEmpty else { return nil }
+        return run.models.first { $0.id == id }
+            ?? catalogRun.models.first { $0.id == id }
+            ?? state.modelCatalog.first { $0.id == id }
     }
 
     func applyModels(_ models: [String: Any], id: UUID) {

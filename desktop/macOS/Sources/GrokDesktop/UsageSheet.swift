@@ -160,7 +160,7 @@ struct UsageSessionInfoRow: Identifiable, Equatable {
     var monospaced = false
 }
 
-/// `_x.ai/session/usage`: token and cost totals since the session started or was last resumed.
+/// `_x.ai/session/usage`: token and cost totals since the session started, resumes included.
 struct UsageSessionSummary: Equatable {
     struct Row: Equatable, Identifiable {
         var id: String { label }
@@ -202,7 +202,7 @@ struct UsageSessionSummary: Equatable {
     /// The same block as text, as the terminal prints it.
     var text: String {
         if let emptyMessage { return emptyMessage }
-        var lines = ["Session usage (since start or last resume):"] + rows.map { "  \($0.label): \($0.value)" }
+        var lines = ["Session usage (since the session started):"] + rows.map { "  \($0.label): \($0.value)" }
         if !models.isEmpty { lines.append("  By model:"); lines += models.map { "    \($0.label): \($0.value)" } }
         if incomplete { lines.append("  Note: usage is incomplete and may under-count.") }
         return lines.joined(separator: "\n")
@@ -375,7 +375,7 @@ struct UsageSheet: View {
     private var sessionTotals: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Session usage").font(.system(size: 15, weight: .semibold))
-            Text("Since the session started or was last resumed.").font(.system(size: 12)).foregroundStyle(Theme.muted)
+            Text("Since the session started, resumes included.").font(.system(size: 12)).foregroundStyle(Theme.muted)
             switch account.usage.sessionUsage {
             case .idle, .loading: UsageStatusLine(text: "Loading session usage…", loading: true)
             case .failed(let error): UsageStatusLine(text: "Couldn't load session usage: \(error)", isError: true)

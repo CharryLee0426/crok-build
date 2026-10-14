@@ -215,7 +215,7 @@ pub(crate) fn prompt_cache_miss_text(
     format!("{changed}{}{missed}", xai_grok_i18n::sentence_gap())
 }
 
-/// `/usage` body: per-session token and cost totals, covering the ledger's lifetime (since session start, or since the last `/resume`).
+/// `/usage` body: the session's token and cost totals since it began, turns run by earlier agent processes (before a `/resume`) included.
 pub(crate) fn session_usage_block_text(
     usage: &xai_grok_shell::extensions::notification::PromptUsage,
 ) -> String {
@@ -289,7 +289,7 @@ pub(crate) fn session_usage_block_text(
         ));
     }
     join_header_rows(
-        tl("Session usage (since start or last resume):").to_string(),
+        tl("Session usage (since the session started):").to_string(),
         rows,
     )
 }
