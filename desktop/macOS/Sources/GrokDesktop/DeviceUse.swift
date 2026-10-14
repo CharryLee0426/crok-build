@@ -313,8 +313,9 @@ struct DeviceUseSettingsSection: View {
     @ObservedObject private var model: DeviceUseSettings
 
     /// Tests pass a `model` reading a config file of their own.
-    init(model: DeviceUseSettings = .shared) {
-        _model = ObservedObject(wrappedValue: model)
+    @MainActor
+    init(model: DeviceUseSettings? = nil) {
+        _model = ObservedObject(wrappedValue: model ?? .shared)
     }
 
     var body: some View {
