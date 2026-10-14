@@ -253,3 +253,45 @@ fn covers_detects_same_process_vs_reset_ledger() {
     assert!(!smaller.covers(&bigger));
     assert!(smaller.covers(&UsageSummary::default()));
 }
+
+/// The session's average speed and an estimated cost survive a resume: the file adds up every
+/// process's turns, and a new process's ledger starts from zero.
+#[test]
+fn speed_and_estimated_cost_add_up_across_a_resume() {
+    let timed = |completion: u32, ms: u64, estimate: i64| {
+        let mut ledger = UsageLedger::default();
+        ledger.record_main_loop_call_with(
+            "claude-opus-5-5",
+            &tu(1_000, completion),
+            &xai_chat_state::CallMetrics {
+                api_duration_ms: Some(ms + 400),
+                decode_duration_ms: Some(ms),
+                cost_usd_ticks: None,
+                estimated_cost_usd_ticks: Some(estimate),
+            },
+        );
+        UsageSummary::from_ledger(&ledger)
+    };
+    let mut file = SessionUsageFile::new("sess-1");
+    file.apply_turn(1, "t1", &timed(600, 10_000, 70), None);
+    // A resumed process: its first live ledger counts only its own calls.
+    file.apply_turn(2, "t2", &timed(400, 15_000, 30), None);
+    assert_eq!(file.session.decode_output_tokens, 1_000);
+    assert_eq!(file.session.decode_duration_ms, 25_000);
+    assert_eq!(file.session.api_duration_ms, 25_800);
+    assert_eq!(file.session.output_tokens_per_second(), Some(40.0));
+    assert_eq!(file.session.cost_usd_ticks, Some(100));
+    assert!(file.session.cost_is_estimated);
+
+    let json = serde_json::to_value(&file).unwrap();
+    assert_eq!(json["session"]["decodeDurationMs"], 25_000);
+    assert_eq!(json["session"]["decodeOutputTokens"], 1_000);
+    assert_eq!(json["session"]["costIsEstimated"], true);
+    let back: SessionUsageFile = serde_json::from_value(json).unwrap();
+    assert_eq!(back.session.output_tokens_per_second(), Some(40.0));
+    // A file written before speeds were kept reads as having none.
+    let old: SessionUsageFile =
+        serde_json::from_str(r#"{"session":{"outputTokens":5,"modelCalls":1}}"#).unwrap();
+    assert_eq!(old.session.output_tokens_per_second(), None);
+    assert!(!old.session.cost_is_estimated);
+}

@@ -561,6 +561,22 @@ pub struct Usage {
     /// The REST mapper backfills `0` for unbilled requests; capture sites normalize `0` to "unreported" (see `stream/chat_completions.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_in_usd_ticks: Option<i64>,
+    /// OpenRouter extension: the request's cost in credits, which are US dollars. Sent with every response.
+    /// See https://openrouter.ai/docs/use-cases/usage-accounting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+}
+
+impl Usage {
+    /// The reported cost in USD ticks: xAI's own figure, else OpenRouter's dollars.
+    /// Not yet normalized; capture sites pass it through [`crate::reported_cost_ticks`].
+    pub fn reported_cost_ticks(&self) -> Option<i64> {
+        self.cost_in_usd_ticks.or_else(|| {
+            self.cost
+                .filter(|usd| usd.is_finite() && *usd > 0.0)
+                .map(|usd| (usd * 1e10).round().min(i64::MAX as f64) as i64)
+        })
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

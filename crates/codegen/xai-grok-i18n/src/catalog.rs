@@ -8914,6 +8914,15 @@ static MESSAGES: &[Entry] = &[
         de: "Kein Speicherplatz mehr. Geben Sie Speicherplatz frei und versuchen Sie es erneut.",
     },
     Entry {
+        key: "Output speed",
+        en: "Output speed",
+        zh: "输出速度",
+        ja: "出力速度",
+        es: "Velocidad de salida",
+        fr: "Vitesse de sortie",
+        de: "Ausgabegeschwindigkeit",
+    },
+    Entry {
         key: "Output tokens:",
         en: "Output tokens:",
         zh: "输出 token：",
@@ -26608,6 +26617,15 @@ static MESSAGES: &[Entry] = &[
         de: "{command} akzeptiert keine Argumente.",
     },
     Entry {
+        key: "{cost} (estimated at standard API prices)",
+        en: "{cost} (estimated at standard API prices)",
+        zh: "{cost} (按标准 API 价格估算)",
+        ja: "{cost} (標準 API 価格での見積もり)",
+        es: "{cost} (estimado con precios estándar de la API)",
+        fr: "{cost} (estimé aux tarifs standard de l'API)",
+        de: "{cost} (geschätzt zu Standard-API-Preisen)",
+    },
+    Entry {
         key: "{count} ({cached} cached)",
         en: "{count} ({cached} cached)",
         zh: "{count} (缓存 {cached})",
@@ -27704,6 +27722,15 @@ static MESSAGES: &[Entry] = &[
         es: "{range} de {total}",
         fr: "{range} sur {total}",
         de: "{range} von {total}",
+    },
+    Entry {
+        key: "{rate} tok/s (session average)",
+        en: "{rate} tok/s (session average)",
+        zh: "{rate} tok/s (会话平均)",
+        ja: "{rate} tok/s (セッション平均)",
+        es: "{rate} tok/s (promedio de la sesión)",
+        fr: "{rate} tok/s (moyenne de la session)",
+        de: "{rate} tok/s (Sitzungsdurchschnitt)",
     },
     Entry {
         key: "{server} auth failed: {error}",

@@ -184,15 +184,28 @@ final class AppStore: ObservableObject {
     var run: RunState {
         var catalog = catalogRun
         if commandCatalogProjectID != state.selectedProjectID { catalog.commands = []; catalog.commandsLoaded = false; catalog.availableTools = nil }
-        if let id = state.selectedConversationID {
-            if let existing = runs[id] { return existing }
-            var initial = catalog
-            initial.isConfiguring = false
-            initial.modelID = task(id)?.modelID ?? initial.modelID
-            initial.reasoningID = task(id)?.reasoningID ?? initial.reasoningID
-            return initial
+        guard let id = state.selectedConversationID else { return catalog }
+        if let existing = runs[id], loaded.contains(id) { return existing }
+        var shown = runs[id] ?? catalog
+        if runs[id] == nil { shown.isConfiguring = false }
+        guard let task = task(id) else { return shown }
+        return Self.showingSavedOptions(shown, modelID: task.modelID, reasoningID: task.reasoningID, catalog: catalogRun.models)
+    }
+
+    /// Until a task's harness has loaded its session, the composer shows the model and thinking
+    /// level saved with the task. A harness that is connecting reports its own defaults first and
+    /// restores the task's choices only after `session/load`, so its figures would flicker.
+    nonisolated static func showingSavedOptions(_ run: RunState, modelID: String?, reasoningID: String?, catalog: [ModelOption]) -> RunState {
+        var shown = run
+        if shown.models.isEmpty { shown.models = catalog }
+        guard let modelID, !modelID.isEmpty else { return shown }
+        let model = shown.models.first { $0.id == modelID } ?? catalog.first { $0.id == modelID }
+        if shown.modelID != modelID || shown.reasoningOptions.isEmpty {
+            shown.reasoningOptions = model?.reasoningOptions ?? (shown.modelID == modelID ? shown.reasoningOptions : [])
         }
-        return catalog
+        shown.modelID = modelID
+        shown.reasoningID = reasoningID ?? model?.defaultReasoningID ?? ""
+        return shown
     }
     /// Tasks in a project folder: most recently updated first, or in the order the user dragged them.
     func conversations(inProject id: UUID) -> [Conversation] {
@@ -293,6 +306,12 @@ final class AppStore: ObservableObject {
             }
         }
         self.binaryPath = binaryPath ?? ProcessInfo.processInfo.environment["CROK_DESKTOP_HARNESS"] ?? DesktopPaths.findHarness(in: state.projects.first?.path)
+        if !state.modelCatalog.isEmpty {
+            // The last catalog stands in until a harness answers, so the composer names its model at once.
+            catalogRun.models = state.modelCatalog
+            catalogRun.modelID = state.selectedModelID ?? ""
+            updateCatalogReasoning(preferred: state.selectedReasoningID)
+        }
         if state.projects.contains(where: { $0.id == state.selectedProjectID }) == false { state.selectedProjectID = state.projects.first?.id }
         if let tab = defaults.string(forKey: "sidePanelTab").flatMap(SidePanelTab.init(rawValue:)) { sidePanelTab = tab }
         updateMenuState()
@@ -444,6 +463,7 @@ final class AppStore: ObservableObject {
         }
         state.selectedConversationID = task.id; state.selectedProjectID = task.projectID
         unreadConversationIDs.remove(task.id)
+        features.tokens.restore(conversationID: task.id)
         draft = drafts[draftLocation] ?? ""; save(); Task { await refreshWorkspace() }
     }
 
@@ -494,6 +514,8 @@ final class AppStore: ObservableObject {
 
     func prepareSessionOptions() async {
         guard let project else { return }
+        // At launch the selected task was never chosen in the sidebar, so its figures are restored here.
+        if let id = state.selectedConversationID { features.tokens.restore(conversationID: id) }
         if conversation != nil {
             await loadImportedConversation()
             return
@@ -527,6 +549,7 @@ final class AppStore: ObservableObject {
             guard self.project?.id == project.id else { return }
             catalogProjectID = project.id
             catalogRun.models = SessionOptions.models(models)
+            rememberModelCatalog(catalogRun.models)
             let preferred = state.selectedModelID.flatMap { selected in
                 catalogRun.models.first { $0.id == selected }?.id
             }
@@ -788,6 +811,7 @@ final class AppStore: ObservableObject {
         if receiveFeatureNotification(method, params: params, id: id) { return }
         if method == "x.ai/models/update" {
             runs[id, default: RunState()].models = SessionOptions.models(params)
+            rememberModelCatalog(runs[id]?.models ?? [])
             return
         }
         guard method == "session/update", let update = params["update"] as? [String: Any] else { return }
@@ -1120,6 +1144,13 @@ final class AppStore: ObservableObject {
         guard confirmed == value else { throw DesktopError.message("The runtime did not apply the selected setting. Try another option.") }
     }
 
+    /// Saves the footer's figures with the task, so they are there when it is opened again.
+    func saveTokenUsage(_ usage: SavedTokenUsage, for id: UUID) {
+        guard let index = state.conversations.firstIndex(where: { $0.id == id }), state.conversations[index].tokenUsage != usage else { return }
+        state.conversations[index].tokenUsage = usage
+        save()
+    }
+
     func persistSessionOptions(_ id: UUID) {
         guard let index = state.conversations.firstIndex(where: { $0.id == id }), let run = runs[id] else { return }
         state.conversations[index].modelID = run.modelID.isEmpty ? nil : run.modelID
@@ -1127,8 +1158,15 @@ final class AppStore: ObservableObject {
         save()
     }
 
+    /// Keeps the newest catalog with the saved state, for the next launch.
+    func rememberModelCatalog(_ models: [ModelOption]) {
+        guard !models.isEmpty, state.modelCatalog != models else { return }
+        state.modelCatalog = models
+    }
+
     func applyModels(_ models: [String: Any], id: UUID) {
         runs[id, default: RunState()].models = SessionOptions.models(models)
+        rememberModelCatalog(runs[id]?.models ?? [])
         runs[id]?.modelID = models["currentModelId"] as? String ?? ""
         let selected = runs[id]?.models.first { $0.id == runs[id]?.modelID }
         runs[id]?.reasoningOptions = selected?.reasoningOptions ?? []

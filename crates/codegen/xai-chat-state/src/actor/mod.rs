@@ -199,10 +199,9 @@ impl ChatStateActor {
             ChatStateCommand::RecordModelCallUsage {
                 model_id,
                 usage,
-                api_duration_ms,
-                cost_usd_ticks,
+                metrics,
             } => {
-                self.record_model_call_usage(model_id, &usage, api_duration_ms, cost_usd_ticks);
+                self.record_model_call_usage(model_id, &usage, &metrics);
             }
             ChatStateCommand::RecordSubagentUsage {
                 by_model,

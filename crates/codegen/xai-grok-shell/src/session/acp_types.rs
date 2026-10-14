@@ -534,6 +534,10 @@ pub struct SessionInfoData {
     #[serde(default)]
     pub turn_index: u64,
     pub context: ContextInfo,
+    /// Output tokens per second while generating, averaged over the whole session (resumes included).
+    /// `None` until a response has been timed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens_per_second: Option<f64>,
 }
 
 pub fn model_display_name(

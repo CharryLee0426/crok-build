@@ -21,6 +21,8 @@ struct Conversation: Identifiable, Codable, Sendable {
     var reasoningID: String?
     /// Side questions (`/btw`) asked about this task, with their answers.
     var sideChat: [SideChatMessage]?
+    /// The composer footer's token figures when the task last counted, so a task opened again shows them at once.
+    var tokenUsage: SavedTokenUsage?
 }
 
 extension Conversation {
@@ -80,7 +82,7 @@ struct SideChatMessage: Identifiable, Codable, Sendable, Equatable {
     var createdAt = Date()
 }
 
-struct ModelOption: Identifiable, Equatable {
+struct ModelOption: Identifiable, Equatable, Codable, Sendable {
     var id: String
     var name: String
     var reasoningOptions: [ModelOption] = []
@@ -203,6 +205,9 @@ struct DesktopState: Codable, Sendable {
     var selectedConversationID: UUID?
     var selectedModelID: String?
     var selectedReasoningID: String?
+    /// The newest model catalog a harness gave, so model names and thinking levels show at launch
+    /// before any harness has answered.
+    var modelCatalog: [ModelOption] = []
     var deletedSessionIDs: Set<String> = []
     /// Project folders the user folded in the sidebar. Folders are expanded by default.
     var collapsedProjectIDs: Set<UUID> = []
@@ -216,7 +221,7 @@ struct DesktopState: Codable, Sendable {
 extension DesktopState {
     private enum CodingKeys: String, CodingKey {
         case projects, conversations, selectedProjectID, selectedConversationID
-        case selectedModelID, selectedReasoningID, deletedSessionIDs, collapsedProjectIDs
+        case selectedModelID, selectedReasoningID, modelCatalog, deletedSessionIDs, collapsedProjectIDs
         case taskOrder, pinnedOrder
     }
 
@@ -228,6 +233,7 @@ extension DesktopState {
         selectedConversationID = try values.decodeIfPresent(UUID.self, forKey: .selectedConversationID)
         selectedModelID = try values.decodeIfPresent(String.self, forKey: .selectedModelID)
         selectedReasoningID = try values.decodeIfPresent(String.self, forKey: .selectedReasoningID)
+        modelCatalog = (try? values.decodeIfPresent([ModelOption].self, forKey: .modelCatalog)) ?? []
         deletedSessionIDs = try values.decodeIfPresent(Set<String>.self, forKey: .deletedSessionIDs) ?? []
         collapsedProjectIDs = try values.decodeIfPresent(Set<UUID>.self, forKey: .collapsedProjectIDs) ?? []
         taskOrder = try values.decodeIfPresent([String: [UUID]].self, forKey: .taskOrder) ?? [:]

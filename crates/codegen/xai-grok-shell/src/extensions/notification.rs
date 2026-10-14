@@ -194,6 +194,9 @@ impl PromptUsage {
             cost_usd_ticks: _,  // cost without usage cannot occur
             cost_is_partial: _,
             cost_missing_calls: _,
+            cost_is_estimated: _,
+            decode_duration_ms: _,   // timing, not tokens
+            decode_output_tokens: _, // subset of output_tokens
         } = self.totals;
         model_calls == 0
             && input_tokens == 0
@@ -240,6 +243,29 @@ pub struct PromptUsageModel {
     /// Internal accounting for `cost_is_partial` only; never on the public ACP wire.
     #[serde(default, skip_serializing)]
     pub cost_missing_calls: u64,
+    /// Some or all of the cost was worked out from standard API prices, the provider having reported none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cost_is_estimated: bool,
+    /// Time spent generating output after the first token, over the calls that timed it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub decode_duration_ms: u64,
+    /// The output tokens of those calls: `decode_output_tokens / decode_duration_ms` is the average speed.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub decode_output_tokens: u64,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+impl PromptUsageModel {
+    /// Output tokens per second while generating, over the calls that timed it.
+    pub fn output_tokens_per_second(&self) -> Option<f64> {
+        xai_chat_state::usage::output_tokens_per_second(
+            self.decode_output_tokens,
+            self.decode_duration_ms,
+        )
+    }
 }
 
 /// One model call's token usage: the four Messages API `message.usage` fields plus `reasoning_tokens`.
@@ -305,6 +331,9 @@ impl From<&xai_chat_state::UsageTotals> for PromptUsageModel {
             api_duration_ms,
             cost_usd_ticks,
             cost_missing_calls,
+            cost_estimated_calls: _, // projected as `cost_is_estimated`
+            decode_duration_ms,
+            decode_output_tokens,
         } = *t;
         Self {
             input_tokens,
@@ -318,6 +347,9 @@ impl From<&xai_chat_state::UsageTotals> for PromptUsageModel {
             cost_usd_ticks,
             cost_is_partial: t.cost_is_partial(),
             cost_missing_calls,
+            cost_is_estimated: t.cost_is_estimated(),
+            decode_duration_ms,
+            decode_output_tokens,
         }
     }
 }
@@ -378,6 +410,9 @@ pub(crate) fn project_result_usage(result: &mut serde_json::Value, usage: &Promp
         cost_usd_ticks,
         cost_is_partial,
         cost_missing_calls: _, // internal partiality count; the flag suffices
+        cost_is_estimated,
+        decode_duration_ms: _, // dropped: not part of the frozen headless shape
+        decode_output_tokens: _, // dropped: not part of the frozen headless shape
     } = usage.totals;
     result.insert(
         "usage".into(),
@@ -407,6 +442,10 @@ pub(crate) fn project_result_usage(result: &mut serde_json::Value, usage: &Promp
         );
         // Exact integer ticks beside the float, under the same trust gate: reconciliation sums ticks exactly, which floats cannot guarantee
         result.insert("total_cost_usd_ticks".into(), serde_json::json!(ticks));
+        // Worked out from standard API prices, not billed by the provider.
+        if cost_is_estimated {
+            result.insert("cost_is_estimated".into(), true.into());
+        }
     }
     if !usage.model_usage.is_empty() {
         let mut model_usage = serde_json::Map::new();
@@ -423,6 +462,9 @@ pub(crate) fn project_result_usage(result: &mut serde_json::Value, usage: &Promp
                 cost_usd_ticks,
                 cost_is_partial,
                 cost_missing_calls: _,
+                cost_is_estimated: _,    // stated once, beside the total
+                decode_duration_ms: _,   // dropped: reduced per-model schema
+                decode_output_tokens: _, // dropped: reduced per-model schema
             } = *m;
             let mut entry = serde_json::json!({
                 "inputTokens": uncached_input_tokens(input_tokens, cached_read_tokens)
@@ -2887,6 +2929,54 @@ mod tests {
         assert_eq!(json.get("elapsed_ms"), Some(&serde_json::json!(1234)));
         let parsed: SessionUpdate = serde_json::from_value(json).unwrap();
         assert_eq!(update, parsed);
+    }
+
+    /// A cost worked out from standard API prices is shown, and marked, on every surface.
+    #[test]
+    fn an_estimated_cost_is_marked_on_the_wire_and_in_headless_results() {
+        let mut ledger = xai_chat_state::UsageLedger::default();
+        let usage = xai_grok_sampling_types::TokenUsage {
+            prompt_tokens: 1_000,
+            completion_tokens: 400,
+            total_tokens: 1_400,
+            reasoning_tokens: 0,
+            cached_prompt_tokens: 0,
+            cache_creation_prompt_tokens: 0,
+        };
+        ledger.record_main_loop_call_with(
+            "claude-opus-5-5",
+            &usage,
+            &xai_chat_state::CallMetrics {
+                api_duration_ms: Some(10_500),
+                decode_duration_ms: Some(10_000),
+                cost_usd_ticks: None,
+                estimated_cost_usd_ticks: Some(120_000_000),
+            },
+        );
+        let projected = PromptUsage::project_from_ledger(Some(&ledger), false).unwrap();
+        assert_eq!(projected.totals.cost_usd_ticks, Some(120_000_000));
+        assert!(projected.totals.cost_is_estimated);
+        assert_eq!(projected.totals.output_tokens_per_second(), Some(40.0));
+        let wire = serde_json::to_value(&projected).unwrap();
+        assert_eq!(wire["costIsEstimated"], true);
+        assert_eq!(wire["decodeDurationMs"], 10_000);
+        assert_eq!(wire["decodeOutputTokens"], 400);
+        assert_eq!(
+            wire["modelUsage"]["claude-opus-5-5"]["costIsEstimated"],
+            true
+        );
+
+        let mut result = serde_json::json!({});
+        project_result_usage(&mut result, &projected);
+        assert_eq!(result["total_cost_usd_ticks"], 120_000_000);
+        assert_eq!(result["cost_is_estimated"], true);
+
+        // A reported cost carries no mark.
+        let mut reported = xai_chat_state::UsageLedger::default();
+        reported.record_main_loop_call("grok-4.6", &usage, None, Some(90));
+        let wire = serde_json::to_value(PromptUsage::from(&reported)).unwrap();
+        assert!(wire.get("costIsEstimated").is_none());
+        assert!(wire.get("decodeDurationMs").is_none());
     }
 
     #[test]

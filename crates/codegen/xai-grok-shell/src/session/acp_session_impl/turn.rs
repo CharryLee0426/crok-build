@@ -3322,17 +3322,16 @@ impl SessionActor {
                 completion_tokens.unwrap_or(0),
             );
             let ttft_ms = latency.time_to_first_token_ms;
+            // Generation time: from the first token to the last, the span a speed is measured over.
+            let decode_ms = match ttft_ms {
+                Some(ttft) if model_elapsed_ms > ttft => model_elapsed_ms - ttft,
+                _ => model_elapsed_ms,
+            };
             let tokens_per_sec = match completion_tokens {
-                Some(ct) if ct > 0 => {
-                    let decode_ms = match ttft_ms {
-                        Some(ttft) if model_elapsed_ms > ttft => model_elapsed_ms - ttft,
-                        _ => model_elapsed_ms,
-                    };
-                    (decode_ms > 0).then(|| {
-                        let tps = f64::from(ct) * 1000.0 / decode_ms as f64;
-                        (tps * 10.0).round() / 10.0
-                    })
-                }
+                Some(ct) if ct > 0 => (decode_ms > 0).then(|| {
+                    let tps = f64::from(ct) * 1000.0 / decode_ms as f64;
+                    (tps * 10.0).round() / 10.0
+                }),
                 _ => None,
             };
             xai_grok_telemetry::unified_log::info(
@@ -3393,7 +3392,16 @@ impl SessionActor {
                     },
                 );
             }
-            self.record_response_token_usage(&response, Some(model_duration_ms));
+            let estimated_cost_usd_ticks = self.standard_cost_ticks(&response).await;
+            self.record_response_token_usage_with(
+                &response,
+                xai_chat_state::CallMetrics {
+                    api_duration_ms: Some(model_duration_ms),
+                    decode_duration_ms: Some(decode_ms),
+                    cost_usd_ticks: None,
+                    estimated_cost_usd_ticks,
+                },
+            );
             let response_completed = self
                 .response_completed_update(&response, tokens_per_sec)
                 .await;

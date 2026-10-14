@@ -129,6 +129,8 @@ struct UsageSessionInfo {
     var conversationID: String?
     var turnIndex: UInt64 = 0
     var context = UsageContextSnapshot()
+    /// Output tokens per second while generating, averaged over the whole session.
+    var outputTokensPerSecond: Double?
 
     init(_ value: [String: Any]) {
         sessionID = value["sessionId"] as? String ?? ""
@@ -142,7 +144,12 @@ struct UsageSessionInfo {
         conversationID = AccountJSON.string(value["conversationId"])
         turnIndex = AccountJSON.uint(value["turnIndex"])
         context = UsageContextSnapshot(value["context"] as? [String: Any] ?? [:])
+        outputTokensPerSecond = (value["outputTokensPerSecond"] as? NSNumber)?.doubleValue.nonZeroFinite
     }
+}
+
+private extension Double {
+    var nonZeroFinite: Double? { isFinite && self > 0 ? self : nil }
 }
 
 struct UsageSessionInfoRow: Identifiable, Equatable {
@@ -182,7 +189,7 @@ struct UsageSessionSummary: Equatable {
             Row(label: "Output tokens", value: "\(group(AccountJSON.uint(usage["outputTokens"]))) (\(group(AccountJSON.uint(usage["reasoningTokens"]))) reasoning)"),
             Row(label: "Total tokens", value: group(AccountJSON.uint(usage["totalTokens"]))),
             Row(label: "Model calls", value: "\(group(calls)) · API time: \(UsageFormatting.duration(milliseconds: AccountJSON.uint(usage["apiDurationMs"])))"),
-            Row(label: "Cost", value: UsageFormatting.cost(usage)),
+            Row(label: "Cost", value: UsageFormatting.cost(usage, notesEstimate: true)),
         ]
         if modelUsage.count > 1 {
             models = modelUsage.keys.sorted().map { name in
@@ -249,8 +256,12 @@ enum UsageFormatting {
     }
 
     /// Cost in USD from `costUsdTicks` (10^10 ticks per dollar). An absent cost is unknown, never free.
-    static func cost(_ usage: [String: Any]) -> String {
-        if let ticks = AccountJSON.int(usage["costUsdTicks"]) { return String(format: "$%.4f", Double(ticks) / 10_000_000_000) }
+    /// `notesEstimate` says so when the harness worked it out from standard API prices (`costIsEstimated`).
+    static func cost(_ usage: [String: Any], notesEstimate: Bool = false) -> String {
+        if let ticks = AccountJSON.int(usage["costUsdTicks"]) {
+            let cost = String(format: "$%.4f", Double(ticks) / 10_000_000_000)
+            return notesEstimate && usage["costIsEstimated"] as? Bool == true ? "\(cost) (estimated at standard API prices)" : cost
+        }
         return usage["costIsPartial"] as? Bool == true ? "not available (not reported for some calls)" : "not available (not reported)"
     }
 
@@ -287,6 +298,9 @@ enum UsageFormatting {
         rows.append(.init(label: "Turn", value: String(info.turnIndex)))
         let context = info.context
         rows.append(.init(label: "Context", value: "\(groupThousands(context.used)) / \(groupThousands(context.total)) tokens (\(context.usagePercent)%)"))
+        if let rate = info.outputTokensPerSecond {
+            rows.append(.init(label: "Output speed", value: "\(TokenFormat.rate(rate)) tok/s (session average)"))
+        }
         return rows
     }
 

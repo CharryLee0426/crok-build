@@ -40,26 +40,67 @@ pub struct UsageTotals {
     /// USD ticks (1e10 per USD). Absent when no call reported cost.
     pub cost_usd_ticks: Option<i64>,
     pub cost_missing_calls: u64,
+    /// Calls whose cost was worked out from the model's standard API price, the provider having reported none.
+    pub cost_estimated_calls: u64,
+    /// Time spent generating output after the first token, over the calls that timed it.
+    pub decode_duration_ms: u64,
+    /// The output tokens of those calls, so `decode_output_tokens / decode_duration_ms` is an average speed.
+    pub decode_output_tokens: u64,
+}
+
+/// What one model call cost and how long it took, beside its token counts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CallMetrics {
+    pub api_duration_ms: Option<u64>,
+    /// Time from the first output token to the last.
+    pub decode_duration_ms: Option<u64>,
+    /// What the provider reported, in USD ticks.
+    pub cost_usd_ticks: Option<i64>,
+    /// The call at the model's standard API price, used when the provider reported no cost.
+    pub estimated_cost_usd_ticks: Option<i64>,
 }
 
 impl UsageTotals {
-    fn from_call(
-        usage: &TokenUsage,
-        api_duration_ms: Option<u64>,
-        cost_usd_ticks: Option<i64>,
-    ) -> Self {
-        let cost_usd_ticks = xai_grok_sampling_types::reported_cost_ticks(cost_usd_ticks);
+    fn from_call(usage: &TokenUsage, metrics: &CallMetrics) -> Self {
+        let reported = xai_grok_sampling_types::reported_cost_ticks(metrics.cost_usd_ticks);
+        let estimated = reported
+            .is_none()
+            .then(|| xai_grok_sampling_types::reported_cost_ticks(metrics.estimated_cost_usd_ticks))
+            .flatten();
+        let cost_usd_ticks = reported.or(estimated);
+        let output_tokens = u64::from(usage.completion_tokens);
+        let decode_duration_ms = metrics
+            .decode_duration_ms
+            .filter(|ms| *ms > 0 && output_tokens > 0)
+            .unwrap_or(0);
         Self {
             input_tokens: u64::from(usage.prompt_tokens),
-            output_tokens: u64::from(usage.completion_tokens),
+            output_tokens,
             cached_read_tokens: u64::from(usage.cached_prompt_tokens),
             cache_creation_tokens: u64::from(usage.cache_creation_prompt_tokens),
             reasoning_tokens: u64::from(usage.reasoning_tokens),
             model_calls: 1,
-            api_duration_ms: api_duration_ms.unwrap_or(0),
+            api_duration_ms: metrics.api_duration_ms.unwrap_or(0),
             cost_usd_ticks,
             cost_missing_calls: u64::from(cost_usd_ticks.is_none()),
+            cost_estimated_calls: u64::from(estimated.is_some()),
+            decode_duration_ms,
+            decode_output_tokens: if decode_duration_ms > 0 {
+                output_tokens
+            } else {
+                0
+            },
         }
+    }
+
+    /// Whether any of the cost was worked out from standard API prices rather than reported.
+    pub fn cost_is_estimated(&self) -> bool {
+        self.cost_usd_ticks.is_some() && self.cost_estimated_calls > 0
+    }
+
+    /// Output tokens per second while generating, over the calls that timed it.
+    pub fn output_tokens_per_second(&self) -> Option<f64> {
+        output_tokens_per_second(self.decode_output_tokens, self.decode_duration_ms)
     }
 
     pub fn total_tokens(&self) -> u64 {
@@ -81,6 +122,9 @@ impl UsageTotals {
             api_duration_ms,
             cost_usd_ticks,
             cost_missing_calls,
+            cost_estimated_calls,
+            decode_duration_ms,
+            decode_output_tokens,
         } = other;
         self.input_tokens = self.input_tokens.saturating_add(*input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(*output_tokens);
@@ -92,8 +136,21 @@ impl UsageTotals {
         self.model_calls = self.model_calls.saturating_add(*model_calls);
         self.api_duration_ms = self.api_duration_ms.saturating_add(*api_duration_ms);
         self.cost_missing_calls = self.cost_missing_calls.saturating_add(*cost_missing_calls);
+        self.cost_estimated_calls = self
+            .cost_estimated_calls
+            .saturating_add(*cost_estimated_calls);
         self.cost_usd_ticks = merge_cost_ticks(self.cost_usd_ticks, *cost_usd_ticks);
+        self.decode_duration_ms = self.decode_duration_ms.saturating_add(*decode_duration_ms);
+        self.decode_output_tokens = self
+            .decode_output_tokens
+            .saturating_add(*decode_output_tokens);
     }
+}
+
+/// Tokens per second, rounded to a tenth; `None` until something was timed.
+pub fn output_tokens_per_second(output_tokens: u64, duration_ms: u64) -> Option<f64> {
+    (output_tokens > 0 && duration_ms > 0)
+        .then(|| (output_tokens as f64 * 10_000.0 / duration_ms as f64).round() / 10.0)
 }
 
 fn merge_cost_ticks(a: Option<i64>, b: Option<i64>) -> Option<i64> {
@@ -124,7 +181,25 @@ impl UsageLedger {
         api_duration_ms: Option<u64>,
         cost_usd_ticks: Option<i64>,
     ) {
-        let call = UsageTotals::from_call(usage, api_duration_ms, cost_usd_ticks);
+        self.record_main_loop_call_with(
+            model_id,
+            usage,
+            &CallMetrics {
+                api_duration_ms,
+                cost_usd_ticks,
+                ..CallMetrics::default()
+            },
+        );
+    }
+
+    /// [`Self::record_main_loop_call`] with the call's timing and an estimated cost.
+    pub fn record_main_loop_call_with(
+        &mut self,
+        model_id: &str,
+        usage: &TokenUsage,
+        metrics: &CallMetrics,
+    ) {
+        let call = UsageTotals::from_call(usage, metrics);
         self.main_loop_model_calls = self.main_loop_model_calls.saturating_add(1);
         self.fold_entry(model_id, &call);
     }
@@ -165,6 +240,63 @@ mod tests {
             cached_prompt_tokens: 0,
             cache_creation_prompt_tokens: 0,
         }
+    }
+
+    #[test]
+    fn an_estimated_cost_fills_in_only_where_none_was_reported() {
+        let mut ledger = UsageLedger::default();
+        let estimated = |ticks| CallMetrics {
+            estimated_cost_usd_ticks: Some(ticks),
+            ..CallMetrics::default()
+        };
+        ledger.record_main_loop_call_with("a", &tu(100, 10), &estimated(40));
+        assert_eq!(ledger.totals.cost_usd_ticks, Some(40));
+        assert!(ledger.totals.cost_is_estimated());
+        assert!(!ledger.totals.cost_is_partial());
+        // A reported cost wins over the estimate beside it.
+        ledger.record_main_loop_call_with(
+            "a",
+            &tu(100, 10),
+            &CallMetrics {
+                cost_usd_ticks: Some(70),
+                estimated_cost_usd_ticks: Some(1_000),
+                ..CallMetrics::default()
+            },
+        );
+        assert_eq!(ledger.totals.cost_usd_ticks, Some(110));
+        assert_eq!(ledger.totals.cost_estimated_calls, 1);
+        // A model with no known price leaves the bill partial, as before.
+        ledger.record_main_loop_call_with("b", &tu(5, 1), &CallMetrics::default());
+        assert!(ledger.totals.cost_is_partial());
+        assert_eq!(
+            ledger.by_model.get("a").map(UsageTotals::cost_is_estimated),
+            Some(true)
+        );
+        assert_eq!(
+            ledger.by_model.get("b").map(UsageTotals::cost_is_estimated),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn generation_time_adds_up_to_an_average_speed() {
+        let mut ledger = UsageLedger::default();
+        let timed = |ms| CallMetrics {
+            api_duration_ms: Some(ms + 500),
+            decode_duration_ms: Some(ms),
+            ..CallMetrics::default()
+        };
+        ledger.record_main_loop_call_with("a", &tu(100, 300), &timed(10_000));
+        ledger.record_main_loop_call_with("a", &tu(100, 200), &timed(2_500));
+        // A call with no output or no timing says nothing about speed.
+        ledger.record_main_loop_call_with("a", &tu(100, 0), &timed(4_000));
+        ledger.record_main_loop_call_with("a", &tu(100, 50), &CallMetrics::default());
+        assert_eq!(ledger.totals.decode_output_tokens, 500);
+        assert_eq!(ledger.totals.decode_duration_ms, 12_500);
+        assert_eq!(ledger.totals.output_tokens, 550);
+        assert_eq!(ledger.totals.output_tokens_per_second(), Some(40.0));
+        assert_eq!(UsageTotals::default().output_tokens_per_second(), None);
+        assert_eq!(output_tokens_per_second(1_000, 3_000), Some(333.3));
     }
 
     #[test]

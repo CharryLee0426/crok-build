@@ -37,7 +37,7 @@ Rows for Tool definitions, Skills, and MCP servers are already counted in those 
 
 ### `/session-info`
 
-Show session details — auth method, model, turn count, and context usage. Aliases: `/status`, `/info`. Click a value or drag to select and copy; `c` copies the session ID and `y` copies the whole block.
+Show session details — auth method, model, turn count, context usage, and the session's average output speed. Aliases: `/status`, `/info`. Click a value or drag to select and copy; `c` copies the session ID and `y` copies the whole block.
 
 ### `/fork`
 
@@ -435,6 +435,8 @@ View session usage. Alias: `/cost`.
 ```
 
 Inside a session this opens the usage modal with that session's context and token totals.
+
+Its cost line is what the provider reported when it reports one (xAI, OpenRouter). Every other provider, subscription plans included, is priced at the model's standard pay-as-you-go API price, and the line says `(estimated at standard API prices)`. A model with no known API price leaves the cost `not available`.
 
 The status bar shows the same totals as they change, beside the context meter: `↑1.2M ↓45K │ 83% cached │ 61 tok/s`. `↑` is every prompt token sent this session and `↓` every token generated; `cached` is the share of the prompt served from the provider's cache; `tok/s` is the output speed of the last response. While a response streams, the output count and a speed marked `~` are estimated from the text received, and the provider's figures replace them when the response ends. A narrow terminal drops the speed first, then the cache rate. Minimal mode shows the same figures in the line under the prompt, after the context usage.
 

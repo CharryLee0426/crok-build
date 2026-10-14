@@ -188,6 +188,10 @@ Usage notes:
   **all** cost floats are omitted (`total_cost_usd` and every
   `modelUsage.*.costUSD`) so consumers cannot sum model rows into a fake
   complete bill.
+- A provider that reports no cost (any but xAI and OpenRouter, subscription
+  plans included) is priced at the model's standard API price, and the result
+  then carries `cost_is_estimated: true` beside `total_cost_usd`. A call to a
+  model with no known API price counts as a call without cost.
 - `total_cost_usd_ticks` is the same value in exact integer ticks
   (1 USD = 10^10 ticks) and appears under the same conditions. Use it for
   billing reconciliation: summing per-invocation ticks matches the server's

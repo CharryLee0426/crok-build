@@ -409,6 +409,69 @@ time.sleep(20)
         XCTAssertEqual(reopened.run.reasoningID, "high")
     }
 
+    /// Coming back to a task shows its model and thinking level at once: the catalog is kept with
+    /// the saved state, and the harness's own defaults, which it reports while it connects, do not
+    /// replace the task's choices on screen.
+    func testAReopenedTaskShowsItsModelAndThinkingLevelBeforeItsHarnessAnswers() async throws {
+        let fixture = try Fixture(firstLoad: "time.sleep(0.6)", existingMessages: [Message(kind: .assistant, text: "Saved answer")])
+        defer { fixture.cleanup() }
+        let id = fixture.conversationID
+        let store = fixture.store
+        store.state.conversations[0].modelID = "fixture-fast"
+        store.state.conversations[0].reasoningID = "high"
+        store.rememberModelCatalog(SessionOptions.models(["availableModels": ["fixture-build", "fixture-fast"].map { name in
+            ["modelId": name, "name": name.replacingOccurrences(of: "fixture-", with: "Fixture "),
+             "_meta": ["supportsReasoningEffort": true, "reasoningEffort": "medium", "reasoningEfforts": ["low", "medium", "high"]]]
+        }]))
+        store.flush()
+
+        let reopened = AppStore(stateFile: fixture.directory.appendingPathComponent("state.json"), defaults: fixture.defaults, binaryPath: store.binaryPath)
+        defer { reopened.shutdown() }
+        XCTAssertTrue(fixture.requests.isEmpty)
+        XCTAssertEqual(reopened.run.modelID, "fixture-fast")
+        XCTAssertEqual(reopened.run.models.first { $0.id == reopened.run.modelID }?.name, "Fixture fast")
+        XCTAssertEqual(reopened.run.reasoningID, "high")
+        XCTAssertEqual(reopened.run.reasoningOptions.map(\.id), ["low", "medium", "high"])
+        XCTAssertFalse(reopened.run.isConfiguring)
+
+        let warming = Task { await reopened.prepareSessionOptions() }
+        // The harness has started and named its default model; `session/load` has not returned yet.
+        try await eventually { reopened.runs[id]?.modelID == "fixture-build" }
+        XCTAssertFalse(reopened.loaded.contains(id))
+        XCTAssertEqual(reopened.run.modelID, "fixture-fast")
+        XCTAssertEqual(reopened.run.reasoningID, "high")
+        await warming.value
+        try await eventually { reopened.loaded.contains(id) }
+        XCTAssertEqual(reopened.run.modelID, "fixture-fast")
+        XCTAssertEqual(reopened.run.reasoningID, "high")
+        XCTAssertEqual(reopened.state.modelCatalog.map(\.id), ["fixture-build", "fixture-fast"])
+    }
+
+    func testSavedOptionsFillInWhatTheConnectingHarnessHasNotSaid() {
+        let catalog = SessionOptions.models(["availableModels": [
+            ["modelId": "wide", "name": "Wide", "_meta": ["supportsReasoningEffort": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "high", "max"]]],
+            ["modelId": "plain", "name": "Plain"]
+        ]])
+        var connecting = RunState()
+        connecting.models = catalog
+        connecting.modelID = "plain"
+        let shown = AppStore.showingSavedOptions(connecting, modelID: "wide", reasoningID: "max", catalog: catalog)
+        XCTAssertEqual(shown.modelID, "wide")
+        XCTAssertEqual(shown.reasoningOptions.map(\.id), ["low", "high", "max"])
+        XCTAssertEqual(shown.reasoningID, "max")
+        // A run with no catalog of its own borrows the saved one; a task with no saved level shows the model's default.
+        let fresh = AppStore.showingSavedOptions(RunState(), modelID: "wide", reasoningID: nil, catalog: catalog)
+        XCTAssertEqual(fresh.models.map(\.id), ["wide", "plain"])
+        XCTAssertEqual(fresh.reasoningID, "high")
+        // A task that saved no model leaves the run as it is.
+        XCTAssertEqual(AppStore.showingSavedOptions(connecting, modelID: nil, reasoningID: "max", catalog: catalog).modelID, "plain")
+    }
+
+    func testOldHistoryWithoutAModelCatalogStillDecodes() throws {
+        let state = try JSONDecoder().decode(DesktopState.self, from: Data(#"{"projects":[],"conversations":[],"modelCatalog":"garbage"}"#.utf8))
+        XCTAssertTrue(state.modelCatalog.isEmpty)
+    }
+
     func testConfigurationChangeBlocksOverlappingChoiceAndSend() async throws {
         let fixture = try Fixture(firstLoad: "pass", configDelay: 0.15)
         defer { fixture.cleanup() }

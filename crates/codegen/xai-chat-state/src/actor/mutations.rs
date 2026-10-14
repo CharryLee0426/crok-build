@@ -458,8 +458,7 @@ impl ChatStateActor {
         &mut self,
         model_id: Option<String>,
         usage: &xai_grok_sampling_types::TokenUsage,
-        api_duration_ms: Option<u64>,
-        cost_usd_ticks: Option<i64>,
+        metrics: &crate::usage::CallMetrics,
     ) {
         let model_key = match model_id.as_deref() {
             Some(id) if !id.is_empty() => id,
@@ -469,13 +468,10 @@ impl ChatStateActor {
         self.state
             .prompt_usage
             .get_or_insert_default()
-            .record_main_loop_call(&model_key, usage, api_duration_ms, cost_usd_ticks);
-        self.state.session_usage.record_main_loop_call(
-            &model_key,
-            usage,
-            api_duration_ms,
-            cost_usd_ticks,
-        );
+            .record_main_loop_call_with(&model_key, usage, metrics);
+        self.state
+            .session_usage
+            .record_main_loop_call_with(&model_key, usage, metrics);
     }
 
     pub(super) fn record_subagent_usage(

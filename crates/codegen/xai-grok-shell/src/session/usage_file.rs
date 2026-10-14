@@ -43,8 +43,19 @@ pub struct UsageSummary {
     pub cost_usd_ticks: Option<i64>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cost_is_partial: bool,
+    /// Some of the cost was worked out from standard API prices, the provider having reported none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cost_is_estimated: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub usage_is_incomplete: bool,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub api_duration_ms: u64,
+    /// Time spent generating output after the first token, over the calls that timed it.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub decode_duration_ms: u64,
+    /// The output tokens of those calls, so the session's average speed survives a resume.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub decode_output_tokens: u64,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub turn_count: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,7 +97,11 @@ impl UsageSummary {
             model_calls: totals.model_calls,
             cost_usd_ticks: totals.cost_usd_ticks,
             cost_is_partial: totals.cost_is_partial(),
+            cost_is_estimated: totals.cost_is_estimated(),
             usage_is_incomplete: incomplete,
+            api_duration_ms: totals.api_duration_ms,
+            decode_duration_ms: totals.decode_duration_ms,
+            decode_output_tokens: totals.decode_output_tokens,
             turn_count: 0,
             primary_model_id: None,
             model_usage: IndexMap::new(),
@@ -128,7 +143,15 @@ impl UsageSummary {
             model_calls: self.model_calls.saturating_add(other.model_calls),
             cost_usd_ticks: merge_cost_ticks(self.cost_usd_ticks, other.cost_usd_ticks),
             cost_is_partial: self.cost_is_partial || other.cost_is_partial,
+            cost_is_estimated: self.cost_is_estimated || other.cost_is_estimated,
             usage_is_incomplete: self.usage_is_incomplete || other.usage_is_incomplete,
+            api_duration_ms: self.api_duration_ms.saturating_add(other.api_duration_ms),
+            decode_duration_ms: self
+                .decode_duration_ms
+                .saturating_add(other.decode_duration_ms),
+            decode_output_tokens: self
+                .decode_output_tokens
+                .saturating_add(other.decode_output_tokens),
             turn_count: 0,
             primary_model_id: None,
             model_usage: IndexMap::new(),
@@ -165,7 +188,15 @@ impl UsageSummary {
             model_calls: self.model_calls.saturating_sub(other.model_calls),
             cost_usd_ticks: sub_cost_ticks(self.cost_usd_ticks, other.cost_usd_ticks),
             cost_is_partial: self.cost_is_partial || other.cost_is_partial,
+            cost_is_estimated: self.cost_is_estimated,
             usage_is_incomplete: self.usage_is_incomplete,
+            api_duration_ms: self.api_duration_ms.saturating_sub(other.api_duration_ms),
+            decode_duration_ms: self
+                .decode_duration_ms
+                .saturating_sub(other.decode_duration_ms),
+            decode_output_tokens: self
+                .decode_output_tokens
+                .saturating_sub(other.decode_output_tokens),
             turn_count: 0,
             primary_model_id: None,
             model_usage: IndexMap::new(),
@@ -180,6 +211,15 @@ impl UsageSummary {
             && self.reasoning_tokens == 0
             && self.model_calls == 0
             && self.cost_usd_ticks.is_none()
+            && self.decode_duration_ms == 0
+    }
+
+    /// Output tokens per second while generating, over the calls that timed it.
+    pub fn output_tokens_per_second(&self) -> Option<f64> {
+        xai_chat_state::usage::output_tokens_per_second(
+            self.decode_output_tokens,
+            self.decode_duration_ms,
+        )
     }
 }
 

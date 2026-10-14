@@ -163,11 +163,28 @@ impl ChatStateHandle {
         api_duration_ms: Option<u64>,
         cost_usd_ticks: Option<i64>,
     ) {
+        self.record_model_call(
+            model_id,
+            usage,
+            crate::usage::CallMetrics {
+                api_duration_ms,
+                cost_usd_ticks,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// [`Self::record_model_call_usage`] with the call's timing and an estimated cost.
+    pub fn record_model_call(
+        &self,
+        model_id: Option<String>,
+        usage: TokenUsage,
+        metrics: crate::usage::CallMetrics,
+    ) {
         let _ = self.cmd_tx.send(ChatStateCommand::RecordModelCallUsage {
             model_id,
             usage,
-            api_duration_ms,
-            cost_usd_ticks,
+            metrics,
         });
     }
 

@@ -110,8 +110,7 @@ pub enum ChatStateCommand {
     RecordModelCallUsage {
         model_id: Option<String>,
         usage: TokenUsage,
-        api_duration_ms: Option<u64>,
-        cost_usd_ticks: Option<i64>,
+        metrics: crate::usage::CallMetrics,
     },
 
     /// Subagent usage into session (and prompt when attributable). Replies when applied.

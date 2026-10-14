@@ -146,6 +146,8 @@ final class TokenMeterTests: XCTestCase {
         let project = Project(path: directory.path)
         let task = Conversation(projectID: project.id, title: "Task", sessionID: "session-1")
         store.state = DesktopState(projects: [project], conversations: [task], selectedProjectID: project.id, selectedConversationID: task.id)
+        // Never the real home's session records.
+        store.features.tokens.harnessRecord = { _, _ in nil }
         return (store, task.id)
     }
 
@@ -170,9 +172,92 @@ final class TokenMeterTests: XCTestCase {
         _ = store.receiveFeatureNotification("x.ai/session_notification", params: completed(["output_tokens": 9_999], session: "child"), id: id)
         XCTAssertEqual(tokens.meters[id]?.readout(turnRunning: false)?.outputTokens, 100)
 
-        // A new harness process counts from zero.
+        // The figures are saved with the task.
+        let firstSaved = SavedTokenUsage(TokenCounts(input: 400, output: 100, cacheRead: 1_400, cacheCreation: 200), tokensPerSecond: 61.5)
+        XCTAssertEqual(store.task(id)?.tokenUsage, firstSaved)
+
+        // A new harness process counts its session from zero, so what was counted is carried and its figures add to it.
         tokens.harnessDidStart(conversationID: id)
-        XCTAssertNil(tokens.meters[id])
+        XCTAssertEqual(tokens.meters[id]?.readout(turnRunning: false)?.outputTokens, 100)
+        _ = store.receiveFeatureNotification("x.ai/session_notification", params: completed(["input_tokens": 10, "output_tokens": 20], rate: 30), id: id)
+        XCTAssertEqual(tokens.meters[id]?.readout(turnRunning: false),
+                       TokenReadout(inputTokens: 2_010, outputTokens: 120, cachedTokens: 1_400, cacheHitRate: 1_400.0 / 2_010.0, rate: .measured(30)))
+        XCTAssertEqual(store.task(id)?.tokenUsage, SavedTokenUsage(TokenCounts(input: 410, output: 120, cacheRead: 1_400, cacheCreation: 200), tokensPerSecond: 30))
+    }
+
+    // MARK: Coming back to a task
+
+    func testATaskOpenedAgainShowsItsSavedFiguresAtOnce() {
+        let (store, id) = makeStore()
+        defer { store.shutdown() }
+        let tokens = store.features.tokens
+        store.state.conversations[0].tokenUsage = SavedTokenUsage(TokenCounts(input: 400, output: 100, cacheRead: 1_400, cacheCreation: 200), tokensPerSecond: 61.5)
+        tokens.restore(conversationID: id)
+        let saved = TokenReadout(inputTokens: 2_000, outputTokens: 100, cachedTokens: 1_400, cacheHitRate: 0.7, rate: .measured(61.5))
+        XCTAssertEqual(tokens.meters[id]?.readout(turnRunning: false), saved)
+        // What this app counted since stands; opening the task again does not reset it.
+        store.state.conversations[0].tokenUsage = SavedTokenUsage(TokenCounts(output: 1))
+        tokens.restore(conversationID: id)
+        XCTAssertEqual(tokens.meters[id]?.readout(turnRunning: false), saved)
+    }
+
+    func testTheHarnessRecordStandsInForATaskThatSavedNothing() throws {
+        let (store, id) = makeStore()
+        defer { store.shutdown() }
+        let tokens = store.features.tokens
+        var record: SavedTokenUsage? = SavedTokenUsage(TokenCounts(input: 100, output: 500, cacheRead: 900), averageTokensPerSecond: 50)
+        var asked: [String] = []
+        tokens.harnessRecord = { cwd, session in asked.append("\(cwd)|\(session)"); return record }
+        store.selectConversation(try XCTUnwrap(store.task(id)))
+        XCTAssertEqual(asked, ["\(directory.path)|session-1"])
+        XCTAssertEqual(tokens.meters[id]?.readout(turnRunning: false),
+                       TokenReadout(inputTokens: 1_000, outputTokens: 500, cachedTokens: 900, cacheHitRate: 0.9, rate: .average(50)))
+
+        // A task whose saved figures fall behind the harness's record (the terminal went on with it)
+        // shows the record, with the last speed this app measured.
+        let (other, otherID) = makeStore()
+        defer { other.shutdown() }
+        other.features.tokens.harnessRecord = { _, _ in record }
+        other.state.conversations[0].tokenUsage = SavedTokenUsage(TokenCounts(input: 10, output: 20), tokensPerSecond: 70)
+        other.features.tokens.restore(conversationID: otherID)
+        XCTAssertEqual(other.features.tokens.meters[otherID]?.readout(turnRunning: false)?.outputTokens, 500)
+        XCTAssertEqual(other.features.tokens.meters[otherID]?.readout(turnRunning: false)?.rate, .measured(70))
+
+        // Nothing saved and no record: nothing to show.
+        record = nil
+        let (empty, emptyID) = makeStore()
+        defer { empty.shutdown() }
+        empty.features.tokens.harnessRecord = { _, _ in record }
+        empty.features.tokens.restore(conversationID: emptyID)
+        empty.features.tokens.harnessDidStart(conversationID: emptyID)
+        XCTAssertNil(empty.features.tokens.meters[emptyID])
+    }
+
+    func testTheHarnessUsageFileIsReadFromTheSessionDirectory() throws {
+        let home = directory.appendingPathComponent("home", isDirectory: true)
+        let cwd = "/Users/someone/My Project"
+        let encoded = "%2FUsers%2Fsomeone%2FMy%20Project"
+        let session = home.appendingPathComponent("sessions/\(encoded)/session-9", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        try Data("""
+            {"sessionId": "session-9", "session": {"inputTokens": 20327191, "outputTokens": 485353, "cachedReadTokens": 19157626,
+             "cacheCreationTokens": 1169285, "modelCalls": 134, "decodeDurationMs": 9700000, "decodeOutputTokens": 485000}}
+            """.utf8).write(to: session.appendingPathComponent("usage.json"))
+        let usage = try XCTUnwrap(SavedTokenUsage.harnessRecord(cwd: cwd, sessionID: "session-9", home: home))
+        // `inputTokens` there is the whole prompt; the meter keeps the uncached part apart.
+        XCTAssertEqual(usage.counts, TokenCounts(input: 280, output: 485_353, cacheRead: 19_157_626, cacheCreation: 1_169_285))
+        XCTAssertEqual(usage.averageTokensPerSecond, 50)
+        XCTAssertNil(usage.tokensPerSecond)
+        // A record written before speeds were kept has none; an empty one counts as no record.
+        XCTAssertNil(SavedTokenUsage(harnessUsageFile: Data(#"{"session": {"outputTokens": 5, "modelCalls": 1}}"#.utf8))?.averageTokensPerSecond)
+        XCTAssertNil(SavedTokenUsage(harnessUsageFile: Data(#"{"session": {}}"#.utf8)))
+        XCTAssertNil(SavedTokenUsage.harnessRecord(cwd: cwd, sessionID: "missing", home: home))
+    }
+
+    func testAnAverageSpeedReadsAsAnAverage() {
+        let readout = TokenReadout(inputTokens: 10, outputTokens: 5, cachedTokens: 0, cacheHitRate: nil, rate: .average(48.2))
+        XCTAssertEqual(TokenFormat.rate(.average(48.2)), "48 tok/s")
+        XCTAssertTrue(TokenFormat.help(readout).contains("Speed: 48 tokens per second on average this session"))
     }
 
     // MARK: Cache diagnostics

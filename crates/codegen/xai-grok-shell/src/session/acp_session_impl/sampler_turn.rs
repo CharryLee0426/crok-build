@@ -2291,17 +2291,50 @@ impl SessionActor {
         response: &ConversationResponse,
         api_duration_ms: Option<u64>,
     ) {
+        self.record_response_token_usage_with(
+            response,
+            xai_chat_state::CallMetrics {
+                api_duration_ms,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// What the call would cost at the model's standard API price, for a provider that reported no cost.
+    pub(crate) async fn standard_cost_ticks(&self, response: &ConversationResponse) -> Option<i64> {
+        if response.cost_usd_ticks.is_some() {
+            return None;
+        }
+        let usage = response.usage.as_ref()?;
+        let config = self.chat_state_handle.get_sampling_config().await?;
+        crate::session::standard_cost::standard_cost_ticks(
+            &config,
+            response.assistant().and_then(|a| a.model_id.as_deref()),
+            usage,
+            std::time::SystemTime::now(),
+        )
+    }
+
+    /// [`Self::record_response_token_usage`] with the call's generation time and estimated cost.
+    /// The response's own (reported) cost always wins over `metrics.estimated_cost_usd_ticks`.
+    pub(crate) fn record_response_token_usage_with(
+        &self,
+        response: &ConversationResponse,
+        metrics: xai_chat_state::CallMetrics,
+    ) {
         if let Some(ref u) = response.usage {
             self.tool_context
                 .record_task_model_output(u64::from(u.completion_tokens));
             self.chat_state_handle
                 .record_token_usage(u64::from(u.total_tokens));
             self.chat_state_handle.record_last_turn_usage(u.clone());
-            self.chat_state_handle.record_model_call_usage(
+            self.chat_state_handle.record_model_call(
                 response.assistant().and_then(|a| a.model_id.clone()),
                 u.clone(),
-                api_duration_ms,
-                response.cost_usd_ticks,
+                xai_chat_state::CallMetrics {
+                    cost_usd_ticks: response.cost_usd_ticks,
+                    ..metrics
+                },
             );
             self.signals_handle()
                 .record_token_usage(u.completion_tokens, u.reasoning_tokens);
