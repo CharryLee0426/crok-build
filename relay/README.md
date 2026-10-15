@@ -52,20 +52,29 @@ A Clerk production instance needs your own domain (not `*.vercel.app`).
 
 ## 3. Web app on Vercel
 
-Import the repository on Vercel with **Root Directory** `relay`. `vercel.json` sets the build command to
-`npx convex deploy --cmd 'npm run build'`, which pushes the Convex functions and then builds Next.js with
-`NEXT_PUBLIC_CONVEX_URL` filled in.
+Import the repository on Vercel with **Root Directory** `relay`, or deploy from this folder with the CLI
+(`vercel link`, then `vercel deploy --prod`; `.vercelignore` keeps `.env*`, the device key and local state out of the
+upload). `vercel.json` runs `scripts/vercel-build.sh`:
+
+- with `CONVEX_DEPLOY_KEY` set, it runs `npx convex deploy --cmd 'npm run build'`: the Convex functions go to that
+  deployment and the site is built against it;
+- without one, it only builds the site against `NEXT_PUBLIC_CONVEX_URL` — for a site in front of a **dev**
+  deployment, whose functions you push with `npx convex dev`.
 
 Environment variables on Vercel:
 
 | variable | value |
 |---|---|
-| `CONVEX_DEPLOY_KEY` | Convex dashboard → Settings → Deploy keys → *production* key (Production env only) |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_…` |
+| `CONVEX_DEPLOY_KEY` | Convex dashboard → Settings → Deploy keys → *production* key (Production env only); or leave it out and set `NEXT_PUBLIC_CONVEX_URL` |
+| `NEXT_PUBLIC_CONVEX_URL` | only without a deploy key: the dev deployment, `https://<name>.convex.cloud` |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_…` (`clerk env pull` prints both keys) |
 | `CLERK_SECRET_KEY` | `sk_…` |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | `/sign-in` |
 
-Then set `CROK_WEB_URL` on the Convex production deployment to the site's address.
+Then set `CROK_WEB_URL` on the Convex deployment to the site's address.
+
+With the Clerk CLI: `clerk apps create "Crok Remote"`, `clerk link --app <id>`, enable GitHub with
+`clerk config patch --json '{"connection_oauth_github":{"enabled":true}}'` (Google is on by default), and create the
+`convex` JWT template with `clerk api /jwt_templates -d '{"name":"convex","claims":{"aud":"convex","name":"{{user.full_name}}","email":"{{user.primary_email_address}}","picture":"{{user.image_url}}"}}'`.
 
 Local web development: `npx convex dev` in one terminal, `npm run dev` in another (with the Clerk keys in
 `.env.local`).

@@ -1,0 +1,9 @@
+# The Vercel CLI uploads this folder as it is and does not read .gitignore: keep secrets and local state out.
+.env
+.env.*
+.convex/
+.phone-sim*.json
+.vercel/
+node_modules/
+.next/
+*.tsbuildinfo

@@ -256,6 +256,10 @@ check(logout.event === "signed_out" && logout.unlinked, "logout unlinks", logout
 const devices = await phone.query("devices:list", {});
 check(!devices.some((d) => d.name === "E2E Mac"), "the computer is gone from the phone's devices", devices.map((d) => d.name));
 
+// Leave nothing behind but the test person: drop the session's copy and unlink the phone.
+await phone.mutation("sessions:remove", { sessionDocId });
+await http.mutation("deviceAuth:logout", { refreshToken: phoneTokens.refreshToken });
+
 await phone.close();
 if (failures) console.log(`\nagent stderr tail:\n${agentErr.slice(-1500)}`);
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);

@@ -237,6 +237,10 @@ try {
 }
 check(revokedQuery === "REVOKED", "its current JWT stops working at once", revokedQuery);
 
+// Leave nothing behind but the test person: drop the session's copy and unlink the phone.
+await phone.mutation("sessions:remove", { sessionDocId });
+await http.mutation("deviceAuth:logout", { refreshToken: phoneTokens.refreshToken });
+
 await computer.close();
 await phone.close();
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);

@@ -13,3 +13,5 @@ next-env.d.ts
 # Device JWT signing key (scripts/generate-keys.mjs) and the pretend phone's token (scripts/phone-sim.mjs)
 .env.device-keys
 .phone-sim*.json
+.vercel
+.env*
