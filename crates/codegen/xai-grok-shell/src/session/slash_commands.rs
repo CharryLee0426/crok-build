@@ -520,6 +520,7 @@ pub const PAGER_COMMAND_KEYS: &[&str] = &[
     "release-notes",
     "reload-plugins",
     "remember",
+    "remote",
     "rename",
     "resume",
     "rewind",

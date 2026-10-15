@@ -146,6 +146,9 @@ See ~/.crok/README.md for more information.
     /// Upgrade crok to the latest release of the fork. When this crok comes with Crok Desktop,
     /// the whole app is upgraded and the crok command with it.
     Upgrade(UpgradeArgs),
+    /// Remote control: follow and steer this computer's sessions from your phone or the web.
+    /// Signing in here is separate from model-provider sign-in (`crok login`).
+    Remote(RemoteArgs),
     /// Print version information
     #[command(visible_alias = "v")]
     Version {
@@ -197,6 +200,48 @@ pub struct UpgradeArgs {
     /// Check a release folder's SHA256SUMS.txt and signature with the built-in key, before publishing.
     #[arg(long, hide = true, value_name = "DIR")]
     pub verify_dir: Option<std::path::PathBuf>,
+}
+
+/// Arguments for `crok remote`.
+#[derive(Debug, clap::Args, Clone)]
+pub struct RemoteArgs {
+    #[command(subcommand)]
+    pub command: RemoteCommand,
+}
+
+#[derive(Debug, Subcommand, Clone)]
+pub enum RemoteCommand {
+    /// Link this computer to your remote-control account: shows a code and a QR code, opens the
+    /// sign-in page (GitHub or Google), and waits for you to approve it.
+    Login {
+        /// The relay (Convex deployment URL). Saved as `[remote] url` in ~/.crok/config.toml.
+        #[arg(long, value_name = "URL")]
+        server: Option<String>,
+        /// How this computer is named on your phone (default: the computer's name).
+        #[arg(long)]
+        name: Option<String>,
+        /// Print the link instead of opening a browser.
+        #[arg(long)]
+        no_browser: bool,
+        /// Sign in again even if this computer is already signed in.
+        #[arg(long)]
+        force: bool,
+        /// One JSON object per line on stdout (what Crok Desktop reads).
+        #[arg(long)]
+        json: bool,
+    },
+    /// Unlink this computer: its sessions stop showing on your phone.
+    Logout {
+        /// One JSON object per line on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Whether this computer is signed in, as whom, and to which relay.
+    Status {
+        /// One JSON object on stdout.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Arguments for the `wrap` subcommand: the command to run, then its args.

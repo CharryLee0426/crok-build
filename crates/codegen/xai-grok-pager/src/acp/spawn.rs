@@ -21,6 +21,7 @@ use xai_grok_login::AuthManager;
 use xai_grok_shell::{
     agent::{MvpAgent, activity::SESSION_FLUSH_GRACE, config::Config as AgentConfig},
     config::watcher::{DiscoveryChange, SkillsFileWatcher},
+    remote_control::{HostApp, ObservedAgent, RemoteControl},
     util::grok_home::grok_home,
 };
 
@@ -373,11 +374,27 @@ async fn spawn_agent_thread_direct(
         let mut keepalive: Option<Rc<MvpAgent>> = None;
         let local = tokio::task::LocalSet::new();
         let result = local.block_on(&rt, async {
-            let client_tx = channel.tx.clone();
+            // Remote control sees what the agent sends the view (a tee) and what the view asks of the agent.
+            let remote = RemoteControl::new(HostApp::Tui);
+            let client_tx = match &remote {
+                Some(remote) => {
+                    let (tee_tx, tee_rx) = tokio::sync::mpsc::unbounded_channel();
+                    remote.tee_to(tee_rx, channel.tx.clone());
+                    tee_tx
+                }
+                None => channel.tx.clone(),
+            };
             let agent_rc = spawn_agent(client_tx)?;
             keepalive = Some(agent_rc.clone());
 
-            let gw_rx = AcpGatewayReceiver::new(channel.rx, agent_rc.clone()).with_tracing(true);
+            let (conn, remote_handle) = match remote {
+                Some(remote) => (
+                    remote.observe(agent_rc.clone()),
+                    Some(remote.start(&agent_rc)),
+                ),
+                None => (ObservedAgent::unobserved(agent_rc.clone()), None),
+            };
+            let gw_rx = AcpGatewayReceiver::new(channel.rx, conn).with_tracing(true);
             tokio::task::spawn_local(gw_rx.run());
             let _skills_watcher = AbortOnDropHandle::new(spawn_skills_file_watcher(
                 agent_rc.clone(),
@@ -386,6 +403,9 @@ async fn spawn_agent_thread_direct(
             ));
 
             cancel.cancelled().await;
+            if let Some(remote_handle) = remote_handle {
+                remote_handle.shutdown().await;
+            }
             agent_rc.flush_all_sessions(SESSION_FLUSH_GRACE).await;
             tokio::join!(
                 xai_grok_shell::upload::drain_pending_uploads(UPLOAD_DRAIN_AT_CANCEL),

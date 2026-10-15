@@ -1328,6 +1328,21 @@ impl AgentView {
         ) {
             status.push("context", ctx_line);
         }
+        // Remote control: a filled dot while phones can follow and steer this session, a hollow one while connecting.
+        match crate::remote_cmd::indicator() {
+            crate::remote_cmd::Indicator::Connected => status.push(
+                "remote",
+                Line::from(Span::styled(
+                    format!("● {}", tl("remote")),
+                    Style::default().fg(theme.accent_user).bg(theme.bg_base),
+                )),
+            ),
+            crate::remote_cmd::Indicator::Connecting => status.push(
+                "remote",
+                Line::from(Span::styled(format!("○ {}", tl("remote")), faint)),
+            ),
+            crate::remote_cmd::Indicator::Off => {}
+        }
         let hover_or = |hovered: bool, resting: Style| {
             if hovered {
                 bg.fg(theme.text_primary)

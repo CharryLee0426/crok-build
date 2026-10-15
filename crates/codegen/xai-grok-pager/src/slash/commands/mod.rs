@@ -48,6 +48,7 @@ pub mod queue;
 pub mod recap;
 pub mod release_notes;
 pub mod remember;
+pub mod remote;
 pub mod rename;
 pub mod resume;
 pub mod rewind;
@@ -139,6 +140,7 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(device_use::BrowserUseCommand),
         Arc::new(device_use::ComputerUseCommand),
         Arc::new(device_use::PhoneUseCommand),
+        Arc::new(remote::RemoteCommand),
         Arc::new(toggle_mouse_reporting::ToggleMouseReportingCommand),
         // Screen-mode switchers: visible only in the opposite mode.
         Arc::new(screen_mode_switch::ScreenModeSwitchCommand::minimal()),

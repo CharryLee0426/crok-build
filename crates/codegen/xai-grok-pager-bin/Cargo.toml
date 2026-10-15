@@ -54,6 +54,7 @@ xai-grok-config = { workspace = true }
 xai-grok-sandbox = { path = "../xai-grok-sandbox", default-features = false }
 xai-grok-extra-ca = { workspace = true }
 # `crok upgrade`: the fork's own updater, from its GitHub releases.
+crok-remote = { workspace = true }
 crok-upgrade = { workspace = true }
 xai-grok-i18n = { workspace = true }
 

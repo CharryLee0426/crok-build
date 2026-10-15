@@ -1459,6 +1459,42 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             }
             vec![]
         }
+        TaskResult::RemoteLoginCode {
+            agent_id,
+            request,
+            start,
+            opened,
+        } => {
+            if let Some(agent) = app.agents.get_mut(&agent_id) {
+                push_and_page_flip(
+                    &mut agent.scrollback,
+                    crate::scrollback::block::RenderBlock::system(crate::remote_cmd::code_text(
+                        &start, opened,
+                    )),
+                );
+            }
+            vec![Effect::RemoteLoginWait {
+                agent_id,
+                request,
+                start,
+            }]
+        }
+        TaskResult::RemoteNotice {
+            agent_id,
+            text,
+            toast,
+        } => {
+            if let Some(agent) = app.agents.get_mut(&agent_id) {
+                push_and_page_flip(
+                    &mut agent.scrollback,
+                    crate::scrollback::block::RenderBlock::system(text),
+                );
+                if let Some(toast) = toast {
+                    agent.show_toast(&toast);
+                }
+            }
+            vec![]
+        }
         TaskResult::SessionInfoComplete {
             agent_id,
             session_id,

@@ -3632,6 +3632,15 @@ pub(crate) fn execute(
                     }
                 });
         }
+        Effect::RemoteLogin { agent_id, server } => {
+            tasks.spawn(crate::remote_cmd::login_start(agent_id, server));
+        }
+        Effect::RemoteLoginWait { agent_id, request, start } => {
+            tasks.spawn(crate::remote_cmd::login_wait(agent_id, request, start));
+        }
+        Effect::RemoteLogout { agent_id } => {
+            tasks.spawn(crate::remote_cmd::logout(agent_id));
+        }
         Effect::ShowSessionInfo { agent_id, session_id, show_resolved_model, nonce } => {
             let is_api_key_auth = session_flags.is_api_key_auth;
             let api_key_env_set = xai_grok_shell::agent::auth_method::has_xai_api_key_env();
