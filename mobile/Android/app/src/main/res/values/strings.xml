@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Crok</string>
+
+    <!-- Common -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_done">Done</string>
+    <string name="action_back">Back</string>
+    <string name="action_undo">Undo</string>
+    <string name="copied">Copied</string>
+    <string name="error_generic">Something went wrong: %1$s</string>
+    <string name="error_network">Can’t reach the server. Check your connection and try again.</string>
+
+    <!-- Welcome (signed out) -->
+    <string name="welcome_title">Crok on your phone</string>
+    <string name="welcome_body">Follow the crok sessions running on your computers, read replies as they stream, send a prompt, or stop a turn.</string>
+    <string name="welcome_continue">Continue with GitHub or Google</string>
+    <string name="welcome_note">You sign in on the web. This phone gets its own link to your account, which you can sign out from any other device.</string>
+    <string name="welcome_server">Server</string>
+    <string name="welcome_server_hint" translatable="false">https://your-deployment.convex.cloud</string>
+    <string name="welcome_server_help">The relay your computers use: [remote] url in ~/.crok/config.toml.</string>
+    <string name="welcome_server_show">Use another server</string>
+    <string name="welcome_demo">Try the demo</string>
+    <string name="signin_error_no_server">Enter the server address first.</string>
+    <string name="signin_error_bad_server">That doesn’t look like a server address. It should start with https://.</string>
+    <string name="signin_error_denied">The sign-in was denied.</string>
+    <string name="signin_error_expired">The code expired. Start again to get a new one.</string>
+    <string name="signin_error_revoked">This phone was signed out from another device.</string>
+    <string name="signin_error_not_configured">The server isn’t set up for device sign-in yet.</string>
+    <string name="signin_no_browser">No browser can open the sign-in page. Open %1$s on any device and enter the code.</string>
+
+    <!-- Waiting for approval -->
+    <string name="waiting_title">Waiting for approval</string>
+    <string name="waiting_body">Approve this phone in the browser that opened. Check that the page shows this code:</string>
+    <string name="waiting_body_no_link">Open the Crok web app on any device, choose Link a device, and enter this code:</string>
+    <string name="waiting_device">This phone appears as “%1$s”.</string>
+    <string name="waiting_expires">Expires in %1$s</string>
+    <string name="waiting_offline">Can’t reach the server. Still trying…</string>
+    <string name="waiting_open_again">Open again</string>
+    <string name="waiting_copy_code">Copy code</string>
+
+    <!-- Tabs and connection state -->
+    <string name="tab_sessions">Sessions</string>
+    <string name="tab_settings">Settings</string>
+    <string name="connection_waiting_network">Waiting for network</string>
+    <string name="connection_connecting">Connecting…</string>
+    <string name="connection_updating">Updating…</string>
+
+    <!-- Session list -->
+    <string name="sessions_title">Sessions</string>
+    <string name="filter_all">All</string>
+    <string name="filter_archived">Archived</string>
+    <string name="sessions_search">Search</string>
+    <string name="sessions_search_hint">Search sessions</string>
+    <string name="sessions_working">working</string>
+    <string name="sessions_needs_approval">Needs approval</string>
+    <string name="sessions_you">"You: "</string>
+    <string name="action_pin">Pin</string>
+    <string name="action_unpin">Unpin</string>
+    <string name="action_archive">Archive</string>
+    <string name="action_unarchive">Unarchive</string>
+    <string name="action_stop">Stop</string>
+    <string name="sessions_empty_title">No sessions yet</string>
+    <string name="sessions_empty_body">Run crok remote login on a computer, or sign in under Remote control in Crok Desktop’s Settings. Its sessions appear here.</string>
+    <string name="sessions_link_computer">Link a computer</string>
+    <string name="sessions_archived_empty">Archived sessions appear here.</string>
+    <string name="sessions_no_results">No matching sessions.</string>
+    <string name="sessions_archived_snackbar">Session archived</string>
+    <string name="sessions_action_failed">Couldn’t update the session: %1$s</string>
+    <plurals name="sessions_unread">
+        <item quantity="one">%d unread reply</item>
+        <item quantity="other">%d unread replies</item>
+    </plurals>
+
+    <!-- Session -->
+    <string name="session_status_working">working…</string>
+    <string name="session_status_waiting">waiting for approval on %1$s</string>
+    <string name="session_status_idle">idle · %1$s</string>
+    <string name="session_status_offline">offline · %1$s</string>
+    <string name="session_status_error">error · %1$s</string>
+    <string name="session_info">Session info</string>
+    <string name="plan_bar">Plan %1$d/%2$d</string>
+    <string name="plan_title">Plan</string>
+    <string name="day_today">Today</string>
+    <string name="day_yesterday">Yesterday</string>
+    <string name="message_from">from %1$s</string>
+    <string name="thought_title">Thought</string>
+    <string name="tool_pending">Pending</string>
+    <string name="tool_running">Running</string>
+    <string name="tool_done">Done</string>
+    <string name="tool_failed">Failed</string>
+    <string name="notice_stopped">Stopped</string>
+    <string name="notice_max_tokens">The reply hit the output limit.</string>
+    <string name="notice_refusal">The model declined to continue.</string>
+    <string name="composer_placeholder">Message crok on %1$s…</string>
+    <string name="composer_offline">%1$s is offline. Open crok there to continue this session.</string>
+    <string name="composer_send">Send</string>
+    <string name="composer_stop">Stop</string>
+    <string name="prompt_not_sent">Not sent: %1$s</string>
+    <string name="tick_clock">Sending</string>
+    <string name="tick_sent">Delivered</string>
+    <string name="tick_done">Done</string>
+    <string name="tick_failed">Not sent</string>
+    <string name="transcript_scroll_bottom">Scroll to the newest message</string>
+    <string name="transcript_beginning">Beginning of the session</string>
+    <string name="transcript_empty">No messages yet.</string>
+    <string name="transcript_load_failed">Couldn’t load the transcript: %1$s</string>
+    <string name="session_gone">This session is no longer on the relay.</string>
+    <string name="stop_failed">Couldn’t stop the turn: %1$s</string>
+
+    <!-- Session info -->
+    <string name="info_model">Model</string>
+    <string name="info_effort">Thinking level</string>
+    <string name="info_folder">Folder</string>
+    <string name="info_branch">Git branch</string>
+    <string name="info_computer">Computer</string>
+    <string name="info_app">App</string>
+    <string name="app_tui">Terminal</string>
+    <string name="app_desktop">Crok Desktop</string>
+    <string name="app_cli">Command line</string>
+    <string name="info_started">Started</string>
+    <string name="info_last_activity">Last activity</string>
+    <string name="info_tokens">Tokens</string>
+    <string name="info_tokens_value">%1$s in · %2$s out</string>
+    <string name="info_tokens_cached">%1$s cached</string>
+    <string name="info_tokens_reasoning">%1$s reasoning</string>
+    <string name="info_cost">Cost</string>
+    <string name="info_context">Context</string>
+    <string name="info_context_value">%1$s of %2$s (%3$d%%)</string>
+    <string name="info_session_id">Session ID</string>
+    <string name="info_refreshing">Asking %1$s for fresh numbers…</string>
+    <string name="info_refresh_failed">Couldn’t get fresh numbers: %1$s</string>
+    <string name="info_offline_note">The computer is offline. These are the last numbers the relay saw.</string>
+    <string name="info_remove">Remove from relay</string>
+    <string name="info_remove_title">Remove this session from the relay?</string>
+    <string name="info_remove_body">The session stays on %1$s. Only the relay’s copy is deleted.</string>
+    <string name="action_remove">Remove</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_this_phone">This phone: %1$s</string>
+    <string name="settings_devices">Devices</string>
+    <plurals name="settings_devices_count">
+        <item quantity="one">%d device</item>
+        <item quantity="other">%d devices</item>
+    </plurals>
+    <string name="settings_link_computer">Link a computer</string>
+    <string name="settings_link_computer_detail">Scan the QR code that crok remote login shows</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_server">Server</string>
+    <string name="settings_sign_out">Sign out</string>
+    <string name="sign_out_title">Sign out of Crok?</string>
+    <string name="sign_out_body">This phone stops showing your sessions until you sign in again.</string>
+    <string name="settings_demo_note">Demo mode: nothing here is real.</string>
+
+    <!-- Devices -->
+    <string name="devices_title">Devices</string>
+    <string name="devices_this_device">This device</string>
+    <string name="devices_computers">Computers</string>
+    <string name="devices_phones">Phones</string>
+    <string name="devices_online">online</string>
+    <string name="devices_last_seen">last seen %1$s</string>
+    <plurals name="devices_live_sessions">
+        <item quantity="one">%d live session</item>
+        <item quantity="other">%d live sessions</item>
+    </plurals>
+    <string name="devices_platform">Platform</string>
+    <string name="devices_app">App</string>
+    <string name="devices_linked">Linked</string>
+    <string name="devices_last_active">Last seen</string>
+    <string name="devices_sign_out_device">Sign out this device</string>
+    <string name="devices_sign_out_device_title">Sign out %1$s?</string>
+    <string name="devices_sign_out_device_body">It stops mirroring sessions and taking prompts until it signs in again.</string>
+    <string name="devices_sign_out_others">Sign out all other devices</string>
+    <string name="devices_sign_out_others_title">Sign out all other devices?</string>
+    <string name="devices_sign_out_others_body">Every other computer and phone on this account is signed out.</string>
+    <plurals name="devices_signed_out">
+        <item quantity="one">Signed out %d device</item>
+        <item quantity="other">Signed out %d devices</item>
+    </plurals>
+    <string name="devices_footer">Signing a device out unlinks it from your account. Its sessions stay on that computer.</string>
+    <string name="devices_this_device_note">This is the phone you are using. Signing it out takes you back to the start.</string>
+    <string name="devices_failed">Couldn’t sign the device out: %1$s</string>
+
+    <!-- Relative times -->
+    <string name="ago_just_now">just now</string>
+    <plurals name="ago_minutes">
+        <item quantity="one">%d minute ago</item>
+        <item quantity="other">%d minutes ago</item>
+    </plurals>
+    <plurals name="ago_hours">
+        <item quantity="one">%d hour ago</item>
+        <item quantity="other">%d hours ago</item>
+    </plurals>
+    <string name="ago_yesterday">yesterday at %1$s</string>
+    <plurals name="ago_days">
+        <item quantity="one">%d day ago</item>
+        <item quantity="other">%d days ago</item>
+    </plurals>
+    <string name="ago_on_date">on %1$s</string>
+
+    <!-- Link a computer -->
+    <string name="link_title">Link a computer</string>
+    <string name="link_body">Run crok remote login on the computer, or choose Sign in under Remote control in Crok Desktop’s Settings, then scan the QR code it shows.</string>
+    <string name="link_scan">Scan QR code</string>
+    <string name="link_or_enter">Or enter the code</string>
+    <string name="link_code_hint" translatable="false">XXXX-XXXX</string>
+    <string name="link_continue">Continue</string>
+    <string name="link_checking">Looking up the code…</string>
+    <string name="link_confirm_title">Link this device?</string>
+    <string name="link_confirm_body">Approve only a sign-in you started yourself just now.</string>
+    <string name="link_requested">Requested</string>
+    <string name="link_approve">Approve</string>
+    <string name="link_deny">Deny</string>
+    <string name="link_approved">%1$s is linked. Its sessions appear here in a moment.</string>
+    <string name="link_denied">The sign-in was denied.</string>
+    <string name="link_not_found">That code is not valid. Check it and try again.</string>
+    <string name="link_expired">That code has expired. Start the sign-in again on the computer.</string>
+    <string name="link_used">That code was already used.</string>
+    <string name="link_scanner_unavailable">The code scanner isn’t available on this phone. Enter the code instead.</string>
+    <string name="link_not_crok">That QR code isn’t a crok sign-in code.</string>
+    <string name="link_kind_computer">Computer</string>
+    <string name="link_kind_phone">Phone</string>
+
+    <!-- Accessibility -->
+    <string name="cd_online">Online</string>
+    <string name="cd_pinned">Pinned</string>
+    <string name="cd_expand">Show more</string>
+    <string name="cd_collapse">Show less</string>
+    <string name="cd_clear">Clear</string>
+</resources>
