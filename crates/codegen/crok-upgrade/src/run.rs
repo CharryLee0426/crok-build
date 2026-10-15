@@ -12,8 +12,9 @@ use crate::release::{self, Source};
 use crate::report::Reporter;
 use crate::sshsig::TrustedKeys;
 
-/// How long the staged app waits for Crok Desktop to quit before giving up.
-const QUIT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+/// After Crok Desktop quits, how long another copy opened from the same bundle (from the Dock, a
+/// moment after the quit) may take to quit as well.
+const OTHER_COPIES_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Default)]
 pub struct Options {
@@ -58,25 +59,40 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
     reporter.status("check", msg("upgrade.checking", "Checking for a newer crok release…", &[]));
     let release = release::latest(&source, options.check_only).await?;
     let update_available = release.version > current;
-    let (asset_name, no_asset_reason) = match wanted_asset(&target, &release.version) {
-        Ok(name) => (Some(name), None),
+    let latest_text = release.version.to_string();
+    let (wanted, mut no_asset_reason) = match wanted_asset(&target, &release.version) {
+        Ok(wanted) => (Some(wanted), None),
         Err(error) => (None, Some(format!("{error:#}"))),
     };
+    // The signed manifest is the list of what the release carries. A release without the file
+    // this copy takes (the disk image for the SDK it was built with) is not offered.
+    let manifest = match &wanted {
+        Some(_) if update_available || options.force => {
+            Some(release::fetch_manifest(&source, &release.tag, &keys).await?)
+        }
+        _ => None,
+    };
+    if let (Some(manifest), Some(wanted)) = (&manifest, &wanted)
+        && manifest.find(&wanted.name).is_none()
+    {
+        no_asset_reason = Some(missing_asset(wanted, &latest_text));
+    }
     reporter.event(json!({
         "event": "check",
         "current": current.to_string(),
-        "latest": release.version.to_string(),
+        "latest": latest_text,
         "tag": release.tag,
         "page": release.page_url,
         "notes": release.notes,
         "updateAvailable": update_available,
         "target": target.kind(),
         "targetPath": target.path(),
-        "asset": asset_name,
+        "asset": wanted.as_ref().map(|wanted| &wanted.name),
+        "sdk": wanted.as_ref().and_then(|wanted| wanted.linked_sdk).map(|(major, minor)| format!("{major}.{minor}")),
+        "image": wanted.as_ref().and_then(|wanted| wanted.image).map(assets::DiskImage::sdk),
         "unavailable": no_asset_reason,
     }));
     let current_text = current.to_string();
-    let latest_text = release.version.to_string();
     if update_available {
         reporter.text(msg(
             "upgrade.available",
@@ -84,7 +100,9 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
             &[("latest", &latest_text), ("current", &current_text)],
         ));
         reporter.text(msg("upgrade.notes", "Release notes: {url}", &[("url", &release.page_url)]));
-        if options.check_only {
+        if let Some(reason) = &no_asset_reason {
+            reporter.text(reason);
+        } else if options.check_only {
             reporter.text(msg("upgrade.check_hint", "Run `crok upgrade` to install it.", &[]));
         }
     } else {
@@ -98,9 +116,9 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
         return Ok(());
     }
 
-    let asset_name = match asset_name {
-        Some(name) => name,
-        None => bail!("{}", no_asset_reason.unwrap_or_default()),
+    let (asset_name, manifest) = match (wanted, manifest, no_asset_reason) {
+        (Some(wanted), Some(manifest), None) => (wanted.name, manifest),
+        (_, _, reason) => bail!("{}", reason.unwrap_or_default()),
     };
     assets::check_target(&target)?;
     if let Target::App { bundle } = &target {
@@ -115,7 +133,6 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
         }
     }
 
-    let manifest = release::fetch_manifest(&source, &release.tag, &keys).await?;
     let Some((name, expected_hash)) = manifest.find(&asset_name) else {
         let listed: Vec<&str> = manifest.names().collect();
         bail!(
@@ -161,21 +178,34 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
             let previous = install::bundle_version(bundle).unwrap_or_else(|_| "previous".to_string());
             reporter.event(json!({ "event": "ready", "version": version_text }));
             if let Some(pid) = options.wait_for_pid {
-                reporter.status("waiting", format!("Waiting for Crok Desktop (process {pid}) to quit…"));
-                install::wait_for_exit(pid, QUIT_TIMEOUT).await?;
-            }
-            if !install::running_pids(bundle).is_empty() {
-                bail!("{}", desktop_running());
-            }
-            let old = install::swap_app(&staged, bundle)?;
-            let bundle_name = bundle
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "Crok Desktop.app".to_string());
-            install::discard_old_app(&old, &bundle_name, &previous);
-            if options.relaunch {
-                reporter.status("relaunch", "Opening Crok Desktop…");
-                install::relaunch(bundle)?;
+                // Crok Desktop installs the update whenever it quits, however long that takes;
+                // it cancels with SIGTERM.
+                reporter.status("waiting", msg("upgrade.waiting", "Waiting for Crok Desktop to quit…", &[]));
+                install::wait_for_exit(pid, None).await?;
+                // Nobody reads this output any more. What happens next is written down for the
+                // app's next launch, and the app is opened again even when the swap failed, so
+                // the person is never left without it.
+                let outcome = swap_when_closed(&staged, bundle, &previous).await;
+                install::record_result(&install::InstallResult {
+                    version: version_text.clone(),
+                    previous: previous.clone(),
+                    installed: outcome.is_ok(),
+                    message: outcome.as_ref().err().map(|error| format!("{error:#}")),
+                });
+                if options.relaunch {
+                    reporter.status("relaunch", msg("upgrade.relaunching", "Opening Crok Desktop…", &[]));
+                    let _ = install::relaunch(bundle);
+                }
+                outcome?;
+            } else {
+                if !install::running_pids(bundle).is_empty() {
+                    bail!("{}", desktop_running());
+                }
+                swap_when_closed(&staged, bundle, &previous).await?;
+                if options.relaunch {
+                    reporter.status("relaunch", msg("upgrade.relaunching", "Opening Crok Desktop…", &[]));
+                    install::relaunch(bundle)?;
+                }
             }
             reporter.event(json!({ "event": "installed", "version": version_text, "path": bundle }));
             reporter.text(msg(
@@ -193,20 +223,70 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
     Ok(())
 }
 
-fn wanted_asset(target: &Target, version: &semver::Version) -> Result<String> {
+/// Moves the staged app into place once no copy of the installed one runs any more.
+async fn swap_when_closed(staged: &install::StagedApp, bundle: &Path, previous: &str) -> Result<()> {
+    if !install::wait_for_bundle_to_close(bundle, OTHER_COPIES_TIMEOUT).await {
+        bail!("{}", desktop_running());
+    }
+    let old = install::swap_app(staged, bundle)?;
+    let bundle_name = bundle
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Crok Desktop.app".to_string());
+    install::discard_old_app(&old, &bundle_name, previous);
+    Ok(())
+}
+
+/// The release file this installation takes.
+struct Wanted {
+    name: String,
+    /// For Crok Desktop: the SDK its executable was linked against, and so its disk image.
+    linked_sdk: Option<(u32, u32)>,
+    image: Option<assets::DiskImage>,
+}
+
+fn wanted_asset(target: &Target, version: &semver::Version) -> Result<Wanted> {
     let arch = assets::arch_label();
     match target {
-        Target::App { .. } => {
-            let major = assets::macos_major().context("Crok Desktop upgrades need macOS")?;
-            Ok(assets::app_asset_name(version, arch, major))
+        Target::App { bundle } => {
+            let linked = assets::app_linked_sdk(bundle)?;
+            let image = assets::DiskImage::for_linked_sdk(linked.0);
+            Ok(Wanted {
+                name: assets::app_asset_name(version, arch, image),
+                linked_sdk: Some(linked),
+                image: Some(image),
+            })
         }
-        Target::Binary { .. } => assets::binary_asset_name(version, arch).with_context(|| {
-            format!(
-                "releases carry no crok for {} {}; build it from source",
-                std::env::consts::OS,
-                arch
-            )
-        }),
+        Target::Binary { .. } => {
+            let name = assets::binary_asset_name(version, arch).with_context(|| {
+                format!(
+                    "releases carry no crok for {} {}; build it from source",
+                    std::env::consts::OS,
+                    arch
+                )
+            })?;
+            Ok(Wanted {
+                name,
+                linked_sdk: None,
+                image: None,
+            })
+        }
+    }
+}
+
+/// Why a newer release cannot be installed here: it lacks this copy's file.
+fn missing_asset(wanted: &Wanted, version: &str) -> String {
+    match wanted.image {
+        Some(image) => msg(
+            "upgrade.no_image",
+            "Release {version} has no {asset}. This copy of Crok Desktop was built with the macOS {sdk} SDK and only installs that disk image.",
+            &[("version", version), ("asset", &wanted.name), ("sdk", &image.sdk().to_string())],
+        ),
+        None => msg(
+            "upgrade.no_binary",
+            "Release {version} has no {asset} for this machine.",
+            &[("version", version), ("asset", &wanted.name)],
+        ),
     }
 }
 

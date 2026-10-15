@@ -4,7 +4,7 @@ import XCTest
 /// Check for Updates: the `crok upgrade --json` events and the sheet's phases, with a fake helper.
 @MainActor
 final class SoftwareUpdateTests: XCTestCase {
-    private static let checkLine = ###"{"event":"check","current":"1.4.0","latest":"1.5.0","tag":"desktop-v1.5.0","page":"https://github.com/CharryLee0426/crok-build/releases/tag/desktop-v1.5.0","notes":"## Crok Desktop 1.5.0\n\nCheck for Updates.\n\n<details><summary>简体中文</summary>…</details>","updateAvailable":true,"target":"app","targetPath":"/Applications/Crok Desktop.app","asset":"Crok-Desktop-1.5.0-arm64-macOS26-SDK.dmg","unavailable":null}"###
+    private static let checkLine = ###"{"event":"check","current":"1.4.0","latest":"1.5.0","tag":"desktop-v1.5.0","page":"https://github.com/CharryLee0426/crok-build/releases/tag/desktop-v1.5.0","notes":"## Crok Desktop 1.5.0\n\nCheck for Updates.\n\n<details><summary>简体中文</summary>…</details>","updateAvailable":true,"target":"app","targetPath":"/Applications/Crok Desktop.app","asset":"Crok-Desktop-1.5.0-arm64-macOS26-SDK.dmg","sdk":"26.0","image":26,"unavailable":null}"###
 
     private func helper(executable: String? = "/tmp/crok",
                         run: @escaping @Sendable ([String]) async throws -> SoftwareUpdateHelper.Result = { _ in SoftwareUpdateHelper.Result(status: 0, lines: [], stderr: "") },
@@ -23,6 +23,14 @@ final class SoftwareUpdateTests: XCTestCase {
         XCTAssertEqual(check.asset, "Crok-Desktop-1.5.0-arm64-macOS26-SDK.dmg")
         XCTAssertNil(check.unavailable)
         XCTAssertTrue(check.page.hasSuffix("desktop-v1.5.0"))
+        XCTAssertEqual(check.sdk, "26.0")
+        XCTAssertEqual(check.image, 26)
+        // A helper from before the SDK fields still parses.
+        guard case .check(let older)? = SoftwareUpdateEvent.parse(Self.checkLine.replacingOccurrences(of: #","sdk":"26.0","image":26"#, with: "")) else {
+            return XCTFail("older check event")
+        }
+        XCTAssertNil(older.sdk)
+        XCTAssertNil(older.image)
 
         XCTAssertEqual(SoftwareUpdateEvent.parse(#"{"event":"progress","bytes":1048576,"total":4194304}"#), .progress(bytes: 1_048_576, total: 4_194_304))
         XCTAssertEqual(SoftwareUpdateEvent.parse(#"{"event":"progress","bytes":5,"total":null}"#), .progress(bytes: 5, total: nil))
@@ -129,6 +137,10 @@ final class SoftwareUpdateTests: XCTestCase {
         XCTAssertEqual(quits.calls, [["quit"]])
         // Still running: the quit was cancelled, and the helper keeps waiting for the next quit.
         XCTAssertEqual(model.phase, .waitingToQuit)
+        // The helper always says that it waits right after "ready"; that must not take Quit and
+        // Install away (it left the sheet on a spinner with only Cancel).
+        model.handle(#"{"event":"status","phase":"waiting","message":"Waiting for Crok Desktop to quit…"}"#)
+        XCTAssertEqual(model.phase, .waitingToQuit)
         XCTAssertTrue(stopped.calls.isEmpty)
         model.quitAndInstall()
         XCTAssertEqual(quits.calls.count, 2)
@@ -168,6 +180,115 @@ final class SoftwareUpdateTests: XCTestCase {
         XCTAssertEqual(silent.phase, .failed("Error: hdiutil failed"))
     }
 
+    func testWithTasksRunningTheReadyUpdateAsksBeforeQuitting() async {
+        let model = SoftwareUpdateModel(helper: helper(run: { _ in
+            SoftwareUpdateHelper.Result(status: 0, lines: [Self.checkLine], stderr: "")
+        }, stream: { _, _, _ in {} }), currentVersion: "1.4.0")
+        var running = 2
+        var presented = 0
+        var confirmedWhileQuitting: [Bool] = []
+        model.runningTasks = { running }
+        model.present = { presented += 1 }
+        model.terminate = { confirmedWhileQuitting.append(model.quitConfirmed) }
+        await model.check()
+        model.install()
+        model.handle(#"{"event":"status","phase":"install","message":"Installing…"}"#)
+        model.handle(#"{"event":"ready","version":"1.5.0"}"#)
+        model.handle(#"{"event":"status","phase":"waiting","message":"Waiting for Crok Desktop to quit…"}"#)
+        // Quitting would stop two tasks: no quit yet, the sheet comes up and asks.
+        XCTAssertEqual(model.phase, .waitingToQuit)
+        XCTAssertEqual(presented, 1)
+        XCTAssertTrue(confirmedWhileQuitting.isEmpty)
+
+        // Quit and Install says the tasks stop, so the quit itself does not ask again.
+        running = 1
+        model.quitAndInstall()
+        XCTAssertEqual(confirmedWhileQuitting, [true])
+        // The quit was refused: nothing stays confirmed, and the helper keeps waiting.
+        model.quitDidNotHappen()
+        XCTAssertFalse(model.quitConfirmed)
+        XCTAssertEqual(model.phase, .waitingToQuit)
+    }
+
+    func testQuittingForTheUpdateClosesEverySheetFirst() async {
+        // AppKit refuses to quit while a sheet is attached to a window, and Software Update is one.
+        let store = AppStore()
+        var quits = 0
+        store.terminateApp = { quits += 1 }
+        store.sheet = .softwareUpdate
+        store.showSettings = true
+        store.showCommandPalette = true
+        store.showAdvancedPanel = true
+        store.showRename = true
+        store.quitForUpdate()
+        XCTAssertNil(store.sheet)
+        XCTAssertFalse(store.showSettings)
+        XCTAssertFalse(store.showCommandPalette)
+        XCTAssertFalse(store.showAdvancedPanel)
+        XCTAssertFalse(store.showRename)
+        XCTAssertNil(store.featurePanel)
+        // Then it quits once; a quit that returns (refused) leaves nothing confirmed.
+        for _ in 0..<150 where quits == 0 { try? await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(quits, 1)
+        XCTAssertFalse(store.softwareUpdate.quitConfirmed)
+    }
+
+    func testAHelperThatStopsWhileWaitingIsAFailure() async {
+        var exit: ((Int32, String) -> Void)?
+        let model = SoftwareUpdateModel(helper: helper(run: { _ in
+            SoftwareUpdateHelper.Result(status: 0, lines: [Self.checkLine], stderr: "")
+        }, stream: { _, _, onExit in
+            exit = onExit
+            return {}
+        }), currentVersion: "1.4.0")
+        model.runningTasks = { 1 }
+        model.terminate = {}
+        await model.check()
+        model.install()
+        model.handle(#"{"event":"ready","version":"1.5.0"}"#)
+        XCTAssertEqual(model.phase, .waitingToQuit)
+        exit?(0, "")
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        guard case .failed = model.phase else { return XCTFail("\(model.phase)") }
+        XCTAssertFalse(model.isBusy)
+    }
+
+    func testAnInstallThatFindsNothingNewerEndsUpToDate() async {
+        let model = SoftwareUpdateModel(helper: helper(run: { _ in
+            SoftwareUpdateHelper.Result(status: 0, lines: [Self.checkLine], stderr: "")
+        }, stream: { _, _, _ in {} }), currentVersion: "1.4.0")
+        await model.check()
+        model.install()
+        model.handle(Self.checkLine.replacingOccurrences(of: #""updateAvailable":true"#, with: #""updateAvailable":false"#))
+        XCTAssertEqual(model.phase, .upToDate)
+    }
+
+    func testTheResultOfAnInstallAfterQuittingIsShownOnceAtLaunch() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("update-result-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("last-install.json")
+
+        let model = SoftwareUpdateModel(helper: helper(), currentVersion: "1.5.1")
+        var presented = 0
+        model.present = { presented += 1 }
+        XCTAssertNil(model.reportLastInstall(from: file))
+
+        try #"{"version":"1.5.1","previous":"1.5.0","installed":true,"message":null}"#.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(model.reportLastInstall(from: file), "1.5.1")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertEqual(presented, 0)
+
+        try #"{"version":"1.5.1","previous":"1.5.0","installed":false,"message":"Crok Desktop is running."}"#.write(to: file, atomically: true, encoding: .utf8)
+        let stillOld = SoftwareUpdateModel(helper: helper(), currentVersion: "1.5.0")
+        stillOld.present = { presented += 1 }
+        XCTAssertNil(stillOld.reportLastInstall(from: file))
+        XCTAssertEqual(stillOld.phase, .failed("Crok Desktop is running."))
+        XCTAssertEqual(presented, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertNil(stillOld.reportLastInstall(from: file))
+    }
+
     func testCheckForUpdatesOpensTheSheet() {
         let store = AppStore()
         store.showSettings = true
@@ -184,7 +305,8 @@ final class SoftwareUpdateTests: XCTestCase {
             L10n.setLanguage(language)
             for key in ["check_for_updates", "software_update", "update_checking", "update_up_to_date", "update_available", "update_detail",
                         "install_and_relaunch", "update_downloading", "update_quit_to_install", "update_quit_detail", "quit_and_install",
-                        "release_notes", "check_again", "update_unavailable_dev", "update_failed_title", "last_checked"] {
+                        "release_notes", "check_again", "update_unavailable_dev", "update_failed_title", "last_checked",
+                        "update_quit_running", "update_installed"] {
                 XCTAssertNotEqual(L10n.t(key, "MISSING"), "MISSING", "\(language.rawValue) lacks \(key)")
             }
         }

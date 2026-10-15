@@ -33,11 +33,20 @@ Settings offers to repair the link. The terminal in the side panel runs the app'
 
 **Crok Desktop › Check for Updates…** (also at the bottom of Settings) looks for
 a newer [GitHub release](https://github.com/CharryLee0426/crok-build/releases)
-of this fork. **Install and Relaunch** downloads the disk image for this Mac,
-checks it, quits the app, swaps the new bundle into place and opens it again; if
-a task is running, the usual "Quit while Crok is working?" question appears, and
-the update installs whenever the app quits next. The bundled `crok` is part of the
-bundle, so the `crok` command in Terminal is updated at the same moment.
+of this fork. **Install and Relaunch** downloads the disk image for this copy,
+checks it, quits the app, swaps the new bundle into place and opens it again,
+which then says the new version is installed. The image follows the SDK the
+installed app was built with, whatever macOS it runs on: a copy from the macOS 26
+SDK image only takes the next macOS 26 SDK image, a copy from the macOS 15 SDK
+image only the next macOS 15 SDK one, and a release without that image is not
+offered (the sheet's subtitle names the SDK, and the image to install is shown
+under the release). If tasks are running when the update is ready, the sheet says
+how many stop and offers **Quit and Install**; or keep working, and the update
+installs whenever the app quits next. If the swap fails after the app has quit,
+the old version opens again and Software Update shows why. The bundled `crok` is
+part of the bundle, so the `crok` command in Terminal is updated at the same
+moment; `crok` sessions already open keep running the old version until they are
+restarted.
 
 The same updater is `crok upgrade` in a terminal (`crok upgrade --check` only
 reports). Run from the app's `crok`, it upgrades the app; run from a standalone
@@ -623,7 +632,10 @@ for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable,
 `CROK_DESKTOP_BROWSER` opens the side panel's browser on an address at launch
 (`run-perf.sh <app> <out> browser` streams a long task beside a page that keeps
 changing; with a state file named this way the browser keeps no cookies or site
-data on disk). The normal
+data on disk). `CROK_DESKTOP_UPDATE=install` runs Check for Updates at launch and
+installs what it finds, quit and relaunch included; with `CROK_UPGRADE_REPO_URL`
+pointing at a local server that serves a signed release, it checks the whole update
+without a click. The normal
 packaged app continues to use its embedded runtime and standard local state.
 
 ## App icon

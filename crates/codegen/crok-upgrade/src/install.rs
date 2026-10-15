@@ -76,6 +76,7 @@ pub fn stage_app(dmg: &Path, bundle: &Path, expected_version: &str) -> Result<St
     let parent = bundle
         .parent()
         .with_context(|| format!("{} has no parent folder", bundle.display()))?;
+    sweep_stale_staging(parent);
     let folder = tempfile::Builder::new()
         .prefix(".crok-upgrade-")
         .tempdir_in(parent)
@@ -187,7 +188,7 @@ pub fn is_test_build(bundle: &Path) -> bool {
     plist_value(bundle, "GrokDesktopTestBuild").is_some_and(|value| value == "true")
 }
 
-fn plist_value(bundle: &Path, key: &str) -> Option<String> {
+pub(crate) fn plist_value(bundle: &Path, key: &str) -> Option<String> {
     let output = Command::new("/usr/libexec/PlistBuddy")
         .arg("-c")
         .arg(format!("Print :{key}"))
@@ -217,15 +218,19 @@ pub fn running_pids(bundle: &Path) -> Vec<u32> {
         .collect()
 }
 
-/// Waits until `pid` has exited. A SIGTERM (Crok Desktop cancelling the install) ends the wait
-/// with an error, so the staged copy is dropped and removed on the way out.
-pub async fn wait_for_exit(pid: u32, timeout: Duration) -> Result<()> {
+/// Waits until `pid` has exited, for at most `timeout` when one is given. A SIGTERM (Crok
+/// Desktop cancelling the install) ends the wait with an error, so the staged copy is dropped
+/// and removed on the way out. Once the wait is over, SIGTERM no longer stops this process, so
+/// a swap that has begun is not cut in half.
+pub async fn wait_for_exit(pid: u32, timeout: Option<Duration>) -> Result<()> {
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .context("listening for SIGTERM")?;
     let started = Instant::now();
     while process_exists(pid) {
-        if started.elapsed() > timeout {
+        if let Some(timeout) = timeout
+            && started.elapsed() > timeout
+        {
             bail!("process {pid} is still running after {} seconds", timeout.as_secs());
         }
         #[cfg(unix)]
@@ -237,6 +242,66 @@ pub async fn wait_for_exit(pid: u32, timeout: Duration) -> Result<()> {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     Ok(())
+}
+
+/// Waits until nothing runs from inside `bundle`. False when something still does after `timeout`.
+pub async fn wait_for_bundle_to_close(bundle: &Path, timeout: Duration) -> bool {
+    let started = Instant::now();
+    loop {
+        if running_pids(bundle).is_empty() {
+            return true;
+        }
+        if started.elapsed() > timeout {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// What became of an install that finished after Crok Desktop quit, for its next launch to show.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct InstallResult {
+    pub version: String,
+    pub previous: String,
+    pub installed: bool,
+    pub message: Option<String>,
+}
+
+/// `$CROK_HOME/updates/last-install.json`, which Crok Desktop reads and removes when it opens.
+pub fn result_path() -> PathBuf {
+    xai_dirs::grok_home().join("updates").join("last-install.json")
+}
+
+/// Writes the result where the next launch finds it. Best effort.
+pub fn record_result(result: &InstallResult) {
+    let path = result_path();
+    let Some(dir) = path.parent() else { return };
+    let _ = std::fs::create_dir_all(dir);
+    let Ok(text) = serde_json::to_vec_pretty(result) else { return };
+    if let Ok(mut file) = tempfile::NamedTempFile::new_in(dir) {
+        use std::io::Write;
+        if file.write_all(&text).is_ok() {
+            let _ = file.persist(&path);
+        }
+    }
+}
+
+/// Staging folders an earlier install left beside the app when it was killed outright.
+fn sweep_stale_staging(parent: &Path) {
+    let Ok(entries) = std::fs::read_dir(parent) else { return };
+    let day = Duration::from_secs(24 * 60 * 60);
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let stale = entry.file_name().to_string_lossy().starts_with(".crok-upgrade-")
+            && entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age > day);
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -377,6 +442,47 @@ mod tests {
     #[tokio::test]
     async fn this_process_exists_and_a_dead_pid_does_not() {
         assert!(process_exists(std::process::id()));
-        wait_for_exit(u32::MAX - 7, Duration::from_secs(1)).await.unwrap();
+        wait_for_exit(u32::MAX - 7, Some(Duration::from_secs(1))).await.unwrap();
+        wait_for_exit(u32::MAX - 7, None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_wait_ends_when_the_process_quits() {
+        #[allow(clippy::disallowed_methods)] // a one-second sleep, reaped below
+        let mut child = std::process::Command::new("/bin/sleep").arg("1").spawn().unwrap();
+        let pid = child.id();
+        let reaper = std::thread::spawn(move || child.wait());
+        let started = Instant::now();
+        wait_for_exit(pid, None).await.unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(500));
+        reaper.join().unwrap().unwrap();
+        let error = wait_for_exit(std::process::id(), Some(Duration::from_millis(300)))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("still running"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_bundle_with_nothing_running_from_it_is_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(wait_for_bundle_to_close(&dir.path().join("Crok Desktop.app"), Duration::from_millis(10)).await);
+    }
+
+    #[test]
+    fn old_staging_folders_are_swept_and_fresh_ones_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join(".crok-upgrade-old");
+        let fresh = dir.path().join(".crok-upgrade-fresh");
+        let other = dir.path().join("Crok Desktop.app");
+        for path in [&old, &fresh, &other] {
+            std::fs::create_dir(path).unwrap();
+        }
+        let two_days_ago = std::time::SystemTime::now() - Duration::from_secs(2 * 24 * 60 * 60);
+        std::fs::File::open(&old).unwrap().set_modified(two_days_ago).unwrap();
+        std::fs::File::open(&other).unwrap().set_modified(two_days_ago).unwrap();
+        sweep_stale_staging(dir.path());
+        assert!(!old.exists());
+        assert!(fresh.exists());
+        assert!(other.exists());
     }
 }

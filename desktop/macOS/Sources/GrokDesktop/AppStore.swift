@@ -61,7 +61,16 @@ final class AppStore: ObservableObject {
     @Published var harnessMeta = HarnessMeta()
     lazy var features = DesktopFeatures(store: self)
     /// Check for Updates: the bundled `crok upgrade`, which replaces this app and its crok together.
-    lazy var softwareUpdate = SoftwareUpdateModel()
+    lazy var softwareUpdate: SoftwareUpdateModel = {
+        let model = SoftwareUpdateModel()
+        model.terminate = { [weak self] in self?.quitForUpdate() }
+        model.runningTasks = { [weak self] in self?.runs.values.filter(\.isRunning).count ?? 0 }
+        model.present = { [weak self] in
+            self?.showSettings = false
+            self?.sheet = .softwareUpdate
+        }
+        return model
+    }()
     /// The window the conversation is in, which ⌘W leaves open.
     weak var mainWindow: NSWindow?
     /// The side panel beside the conversation: files, side chat, and terminal.
@@ -1317,6 +1326,50 @@ final class AppStore: ObservableObject {
         showSettings = false
         sheet = .softwareUpdate
         if !softwareUpdate.isBusy { Task { await softwareUpdate.check() } }
+    }
+
+    /// Asks AppKit to quit; returns only when the quit was refused or cancelled. Tests replace it.
+    var terminateApp: @MainActor () -> Void = { NSApp.terminate(nil) }
+
+    /// Quits so `crok upgrade` can swap the bundle. AppKit refuses to quit while a sheet is attached
+    /// to a window ("App termination blocked by modal sheet"), and Software Update is itself a sheet,
+    /// so the sheets close first. Without this the helper waited forever for a quit that never came.
+    func quitForUpdate() {
+        showSettings = false; showCommandPalette = false; featurePanel = nil
+        showAdvancedPanel = false; showRename = false; sheet = nil
+        Task { @MainActor in
+            let windows = { NSApp?.windows ?? [] }
+            for _ in 0..<60 where windows().contains(where: { $0.attachedSheet != nil }) {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            for window in windows() {
+                if let attached = window.attachedSheet { window.endSheet(attached) }
+            }
+            DesktopLog.info("update.quit")
+            terminateApp()
+            // Still here: the quit was refused or cancelled. The helper keeps waiting for the next one.
+            DesktopLog.warn("update.quit_refused")
+            softwareUpdate.quitDidNotHappen()
+        }
+    }
+
+    /// At launch: an update that installed after the last quit says so in a banner; one that
+    /// failed opens Software Update with the reason.
+    func reportLastInstall() {
+        if let version = softwareUpdate.reportLastInstall() {
+            banner = L10n.t("update_installed", "Crok Desktop {version} is installed.").replacingOccurrences(of: "{version}", with: version)
+        }
+    }
+
+    /// `CROK_DESKTOP_UPDATE=install` runs Check for Updates and installs what it finds without a
+    /// click, so a release check can drive the whole update, quit and relaunch included.
+    func installUpdateIfAsked(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        guard environment["CROK_DESKTOP_UPDATE"] == "install", !softwareUpdate.isBusy else { return }
+        checkForUpdates()
+        Task {
+            while softwareUpdate.phase == .checking || softwareUpdate.phase == .idle { try? await Task.sleep(nanoseconds: 100_000_000) }
+            softwareUpdate.install()
+        }
     }
 
     func revealLog() {

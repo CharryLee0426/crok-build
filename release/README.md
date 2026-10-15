@@ -27,11 +27,17 @@ as `release`).
 2. It downloads `SHA256SUMS.txt` and `SHA256SUMS.txt.sig` and verifies the signature against the
    keys in [`crok-release.pub`](crok-release.pub), compiled into the binary. A release that is not
    signed by one of those keys is refused, whatever its page says.
-3. It downloads the one file this machine needs, checks its SHA-256 against the signed manifest,
-   and only then installs it: a tarball's `crok` is renamed over the old binary; a disk image is
-   mounted, its app copied beside the installed bundle, its signature checked with `codesign`, and
-   the bundle swapped in with two renames once Crok Desktop has quit. The old bundle is moved to
-   the Trash under its version when macOS lets the updater reach the Trash, and deleted otherwise.
+3. It downloads the one file this installation needs, checks its SHA-256 against the signed
+   manifest, and only then installs it. For Crok Desktop that is the disk image of the SDK the
+   installed app was linked against (`LC_BUILD_VERSION` of its executable: 26 or later takes the
+   `macOS26-SDK` image, older the `macOS15-SDK` one), not the one for the macOS it runs on; a
+   release without it is reported as not installable here, already by `--check`. A tarball's
+   `crok` is renamed over the old binary; a disk image is mounted, its app copied beside the
+   installed bundle, its signature checked with `codesign`, and the bundle swapped in with two
+   renames once Crok Desktop has quit (the app waits as long as it takes and cancels with
+   SIGTERM). The old bundle is moved to the Trash under its version when macOS lets the updater
+   reach the Trash, and deleted otherwise. What happened after the quit is written to
+   `$CROK_HOME/updates/last-install.json`, which the reopened app reads and removes.
 
 The GitHub API is used only to show release notes, and only when it answers.
 
