@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+.vercel/
+
+# Convex local deployment state and per-developer settings
+.convex/
+.env.local
+.env*.local
+
+# Device JWT signing key (scripts/generate-keys.mjs) and the pretend phone's token (scripts/phone-sim.mjs)
+.env.device-keys
+.phone-sim*.json
