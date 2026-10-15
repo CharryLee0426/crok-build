@@ -46,6 +46,17 @@ final class AppStore: ObservableObject {
     var commandCatalogRefreshedAt: [UUID: Date] = [:]
     @Published var showSearch = false
     @Published var showSettings = false
+    /// The section Settings scrolls to when it opens (`/remote`); it is cleared once shown.
+    @Published var settingsFocus: SettingsFocus?
+    /// Settings › Remote control: this Mac's link to the relay, signing in and out with `crok remote`.
+    lazy var remoteControl = RemoteControlModel(runner: .crok(environment: RemoteControlModel.defaultEnvironment) { [weak self] in self?.binaryPath ?? "" })
+    /// The remote-control bridge's link, as the task harnesses report it (`x.ai/remote/status`): the
+    /// best of them, nil while no task's harness has said.
+    @Published var remoteLink: RemoteBridgeStatus?
+    /// Each connected task's bridge, which `remoteLink` combines.
+    var remoteStatuses: [UUID: RemoteBridgeStatus] = [:]
+    /// Tasks running a prompt that a phone or the web sent, by its prompt id (`remote-…`).
+    var remoteTurns: [UUID: String] = [:]
     @Published var showRename = false
     /// The command sheet on screen, if any.
     @Published var sheet: DesktopSheet?
@@ -161,7 +172,7 @@ final class AppStore: ObservableObject {
     var replaying: Set<UUID> = []
     var operations: [UUID: Task<Void, Never>] = [:]
     var operationIDs: [UUID: UUID] = [:]
-    private var cancellationFallbacks: [UUID: Task<Void, Never>] = [:]
+    var cancellationFallbacks: [UUID: Task<Void, Never>] = [:]
     var cancellationRequested: Set<UUID> = []
     var importBuffers: [UUID: [Message]] = [:]
     /// Tasks connecting in the background behind a transcript that is already on screen.
@@ -543,7 +554,7 @@ final class AppStore: ObservableObject {
             if catalogClient === client { catalogClient = nil; catalogLoadingProjectID = nil; catalogRun.isConfiguring = false }
         }
         do {
-            try client.start(executable: binaryPath, cwd: project.path)
+            try client.start(executable: binaryPath, cwd: project.path, environment: ACPClient.helperEnvironment)
             let initial = try await initialize(client)
             try await authenticate(client, initial: initial)
             let response = try await client.request("_x.ai/models/list", timeout: 60)
@@ -711,6 +722,7 @@ final class AppStore: ObservableObject {
         client.onDisconnect = { [weak self, weak client] _ in
             guard let self, let client, self.clients[id] === client else { return }
             self.loaded.remove(id)
+            self.forgetRemote(id)
             self.runs[id]?.phase = "Disconnected"
             self.runs[id]?.approvals = []; self.runs[id]?.questions = []
         }
@@ -817,6 +829,7 @@ final class AppStore: ObservableObject {
         let method = method.hasPrefix("_") ? String(method.dropFirst()) : method
         let index = state.conversations.firstIndex { $0.id == id }
         if let session = params["sessionId"] as? String, let index, let expected = state.conversations[index].sessionID, session != expected { return }
+        if receiveRemote(method, params: params, id: id) { return }
         if receiveFeatureNotification(method, params: params, id: id) { return }
         if method == "x.ai/models/update" {
             runs[id, default: RunState()].models = SessionOptions.models(params)
@@ -1037,12 +1050,15 @@ final class AppStore: ObservableObject {
         runs[id]?.isRunning = false; runs[id]?.isConfiguring = false
         runs[id]?.approvals = []; runs[id]?.questions = []
         replaying.remove(id); importing.remove(id); warming.remove(id); importBuffers.removeValue(forKey: id); pendingPrompts.removeValue(forKey: id)
+        // A prompt from a phone started while this ran, and its turn goes on.
+        if remoteTurns[id] != nil, clients[id] != nil { runs[id]?.isRunning = true; runs[id]?.phase = "Working" }
         features.composer.operationDidEnd(conversationID: id)
     }
 
     func discardConnection(_ id: UUID) {
         clients.removeValue(forKey: id)?.stop()
         loaded.remove(id)
+        forgetRemote(id)
         runs[id]?.approvals = []; runs[id]?.questions = []
     }
 
@@ -1225,7 +1241,7 @@ final class AppStore: ObservableObject {
                 historyClient = client
                 defer { client.stop(); if historyClient === client { historyClient = nil } }
                 do {
-                    try client.start(executable: binaryPath, cwd: project.path)
+                    try client.start(executable: binaryPath, cwd: project.path, environment: ACPClient.helperEnvironment)
                     let initial = try await initialize(client)
                     try await authenticate(client, initial: initial)
                     var cursor: String?
@@ -1521,6 +1537,7 @@ final class AppStore: ObservableObject {
         historyClient?.stop(); historyClient = nil
         catalogClient?.stop(); catalogClient = nil
         loginProcess?.terminate()
+        remoteControl.shutdown()
         features.terminals.terminateAll()
         features.browser.shutdown()
     }

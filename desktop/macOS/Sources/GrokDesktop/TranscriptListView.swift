@@ -204,7 +204,8 @@ final class TranscriptListView: NSView {
             for index in messages.indices where messages[index].kind == .user || messages[index].kind == .assistant { invalidate(index) }
         }
         if next.language != old.language {
-            for index in messages.indices where messages[index].kind == .tool { invalidate(index) }
+            // Tool calls, and the "from your phone" caption of a prompt sent through remote control.
+            for index in messages.indices where messages[index].kind == .tool || messages[index].remoteFrom != nil { invalidate(index) }
         }
         if next.streamingID != old.streamingID {
             for id in [old.streamingID, next.streamingID] { invalidate(id) }
@@ -333,7 +334,7 @@ final class TranscriptListView: NSView {
     private static func same(_ a: Message, _ b: Message) -> Bool {
         guard a.kind == b.kind, a.status == b.status, a.toolID == b.toolID, a.createdAt == b.createdAt,
               a.text.utf8.count == b.text.utf8.count, (a.detail?.utf8.count ?? -1) == (b.detail?.utf8.count ?? -1),
-              (a.attachments?.count ?? -1) == (b.attachments?.count ?? -1) else { return false }
+              (a.attachments?.count ?? -1) == (b.attachments?.count ?? -1), a.remoteFrom == b.remoteFrom else { return false }
         guard a.text == b.text, a.detail == b.detail else { return false }
         if let left = a.attachments, let right = b.attachments {
             for index in left.indices where left[index].id != right[index].id { return false }

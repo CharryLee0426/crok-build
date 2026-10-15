@@ -51,6 +51,9 @@ struct Message: Identifiable, Codable, Sendable {
     var attachments: [MessageAttachment]?
     /// A browser or computer call, which the transcript words in the interface language.
     var device: DeviceCall?
+    /// A prompt sent from a phone or the web through remote control: who sent it ("Charlie's
+    /// iPhone"), or empty when the relay did not say. Nil for a prompt typed here.
+    var remoteFrom: String?
 }
 
 /// What a sent prompt carried, or an image a tool or reply showed, as the transcript shows it:

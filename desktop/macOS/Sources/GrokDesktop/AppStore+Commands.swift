@@ -118,7 +118,7 @@ extension AppStore {
                 let client = ACPClient()
                 let clientID = UUID(); auxiliaryClients[clientID] = client
                 defer { client.stop(); auxiliaryClients.removeValue(forKey: clientID) }
-                try client.start(executable: binaryPath, cwd: project.path)
+                try client.start(executable: binaryPath, cwd: project.path, environment: ACPClient.helperEnvironment)
                 let initial = try await initialize(client)
                 try await authenticate(client, initial: initial)
                 let response = try ExtensionResponse.unwrap(try await client.request("_x.ai/commands/list", params: ["cwd": project.path]))

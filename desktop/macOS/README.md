@@ -281,6 +281,16 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   **Allow…**, and opens iPhone Mirroring. Each action appears as its own row
   with a phone icon, and the approval card offers to allow phone actions for
   the rest of the session. See the **Phone Use** guide (`/docs Phone Use`).
+- **Remote control:** optional. **Settings › Remote control** (or `/remote`)
+  signs this Mac in to a relay with the bundled `crok remote login`, apart from
+  the model providers under Accounts: it shows a code, opens the sign-in page,
+  and waits for the approval. While signed in, every open task's harness shares
+  it with the Crok app on your phone and the web, which can follow it and send
+  it prompts or stop it; a prompt sent that way shows with a "from …" caption
+  and the task works as if it were typed here. **Share tasks with my phone**
+  (`[remote] enabled`, or `/remote on|off`) pauses sharing without signing
+  out. Helper harnesses (model and command catalogs, history import, panels)
+  run with `CROK_REMOTE_BRIDGE=0`. See `relay/DESIGN.md`.
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
 records all 76 pager commands, shell built-ins, CLI families, exact ACP

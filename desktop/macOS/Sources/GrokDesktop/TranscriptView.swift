@@ -131,7 +131,7 @@ struct MessageView: View, Equatable {
         return lhs.isStreaming == rhs.isStreaming && lhs.timestamp == rhs.timestamp && lhs.highlight == rhs.highlight && lhs.isExpanded == rhs.isExpanded
             && a.id == b.id && a.kind == b.kind && a.status == b.status && a.toolID == b.toolID
             && same(a.text, b.text) && (a.detail == nil) == (b.detail == nil) && same(a.detail ?? "", b.detail ?? "")
-            && a.attachments?.map(\.id) == b.attachments?.map(\.id)
+            && a.attachments?.map(\.id) == b.attachments?.map(\.id) && a.remoteFrom == b.remoteFrom
     }
 
     /// Streamed text only grows, so the length usually settles it without reading the text.
@@ -159,6 +159,12 @@ struct MessageView: View, Equatable {
                                 Text(message.text).font(.system(size: 16)).textSelection(.enabled)
                             }
                         }.padding(.horizontal, 17).padding(.vertical, 13).background(Theme.sidebar).clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                    if let from = message.remoteFrom {
+                        Label(TranscriptUserRow.remoteCaption(from), systemImage: TranscriptUserRow.remoteSymbol(from))
+                            .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            .padding(.top, -3).padding(.trailing, 6)
+                            .help(L10n.t("remote_from_help", "Sent through remote control"))
                     }
                 }
             }

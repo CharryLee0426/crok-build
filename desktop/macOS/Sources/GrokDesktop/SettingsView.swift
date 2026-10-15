@@ -1,6 +1,11 @@
 import SwiftUI
 import AppKit
 
+/// A Settings section a command opens Settings at.
+enum SettingsFocus: Hashable {
+    case remoteControl
+}
+
 struct SettingsView: View {
     @EnvironmentObject var store: AppStore
     @ObservedObject private var language = L10n.state
@@ -15,22 +20,32 @@ struct SettingsView: View {
                 IconButton(icon: "xmark", help: L10n.t("close_settings", "Close settings")) { dismiss() }
             }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    AppearanceSettingsSection().settingsCard()
-                    AccountsSettingsSection()
-                    DisplaySettingsSection()
-                    BehaviorSettingsSection()
-                    BrowserSettingsSection()
-                    DeviceUseSettingsSection()
-                    PhoneUseSettingsSection()
-                    CommandLineSettingsSection()
-                    if PerformanceMonitorSettings.isAvailable { DeveloperSettingsSection() }
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        AppearanceSettingsSection().settingsCard()
+                        AccountsSettingsSection()
+                        RemoteControlSettingsSection().id(SettingsFocus.remoteControl)
+                        DisplaySettingsSection()
+                        BehaviorSettingsSection()
+                        BrowserSettingsSection()
+                        DeviceUseSettingsSection()
+                        PhoneUseSettingsSection()
+                        CommandLineSettingsSection()
+                        if PerformanceMonitorSettings.isAvailable { DeveloperSettingsSection() }
+                    }
+                    .padding(3)
                 }
-                .padding(3)
+                .scrollIndicators(.hidden)
+                .frame(maxHeight: .infinity)
+                // `/remote` opens Settings at its section.
+                .task {
+                    guard let focus = store.settingsFocus else { return }
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    withAnimation(.easeInOut(duration: 0.25)) { reader.scrollTo(focus, anchor: .top) }
+                    store.settingsFocus = nil
+                }
             }
-            .scrollIndicators(.hidden)
-            .frame(maxHeight: .infinity)
 
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: "lock.shield")

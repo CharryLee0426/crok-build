@@ -708,7 +708,7 @@ final class TranscriptToolsModel: ObservableObject {
         let clientID = UUID()
         store.auxiliaryClients[clientID] = client
         defer { client.stop(); store.auxiliaryClients.removeValue(forKey: clientID) }
-        try client.start(executable: store.binaryPath, cwd: cwd)
+        try client.start(executable: store.binaryPath, cwd: cwd, environment: ACPClient.helperEnvironment)
         let initial = try await store.initialize(client)
         try await store.authenticate(client, initial: initial)
         let response = try await client.request("_x.ai/prompt_history", params: params)

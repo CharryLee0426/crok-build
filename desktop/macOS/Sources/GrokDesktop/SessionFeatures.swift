@@ -753,7 +753,7 @@ final class SessionFeatureModel: ObservableObject {
         let client = ACPClient(), key = UUID()
         store.auxiliaryClients[key] = client
         do {
-            try client.start(executable: store.binaryPath, cwd: cwd)
+            try client.start(executable: store.binaryPath, cwd: cwd, environment: ACPClient.helperEnvironment)
             let initial = try await store.initialize(client)
             try await store.authenticate(client, initial: initial)
             return (client, key)

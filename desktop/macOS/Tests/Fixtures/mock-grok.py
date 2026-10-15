@@ -20,7 +20,10 @@ running at once in every round, and replies in every Markdown format (see `marat
 session's updates.jsonl, named by CROK_FIXTURE_REPLAY) at its recorded pace, and with
 CROK_FIXTURE_REPLAY_BY_TURN every prompt plays back its next turn (see `replay_session`).
 The ordinary scenario streams Markdown, a plan, and a simulated tool result, and
-names any image or resource-link attachments it received. Side questions
+names any image or resource-link attachments it received. `fixture:remote` then runs a
+prompt "from a phone" the way the remote-control bridge does (see `remote_turn`),
+CROK_FIXTURE_REMOTE_STATUS reports the bridge's link, and `remote login|logout|status`
+stands in for `crok remote` (see `remote_cli`). Side questions
 (`_x.ai/btw`), the command catalog, MCPs, skills, and goals are also simulated over ACP.
 """
 
@@ -714,10 +717,53 @@ Final paragraph.
             ]})
             self.finish_fixture_subagent(session_id)
             finish("end_turn")
+            if "fixture:remote" in prompt:
+                threading.Thread(target=self.remote_turn, args=(session_id, "fixture:remote-wait" in prompt), daemon=True).start()
         finally:
             with self.state_lock:
                 if self.turns.get(session_id) is stop:
                     self.turns.pop(session_id, None)
+
+    def report_remote_status(self):
+        """`_x.ai/remote/status`, as a signed-in harness's bridge reports its link. CROK_FIXTURE_REMOTE_STATUS
+        names the state (off, connecting, connected); a helper harness (CROK_REMOTE_BRIDGE=0) runs no bridge."""
+        state = os.environ.get("CROK_FIXTURE_REMOTE_STATUS")
+        if not state or os.environ.get("CROK_REMOTE_BRIDGE") == "0":
+            return
+        self.emit({"method": "_x.ai/remote/status", "params": {"state": state, "account": "Fixture Tester (tester@example.com)",
+                                                               "device": "Fixture Mac", "server": "http://127.0.0.1:3210"}})
+
+    def remote_turn(self, session_id, wait):
+        """`fixture:remote`: once the typed turn ends, a phone's prompt runs in the session, as the bridge
+        runs one: `_x.ai/remote/prompt` first (no user-message echo), the streamed reply, then the turn's
+        end on both rails. `fixture:remote-wait` keeps the turn going until Stop."""
+        time.sleep(0.3)
+        with self.state_lock:
+            if session_id in self.turns:
+                return
+            stop = threading.Event()
+            self.turns[session_id] = stop
+            self.sequence += 1
+            prompt_id = "remote-fixture-{}".format(self.sequence)
+        text = "What changed on the fixture? (sent from a phone)"
+        self.emit({"method": "_x.ai/remote/prompt", "params": {"sessionId": session_id, "promptId": prompt_id, "text": text, "from": "Fixture iPhone"}})
+        with self.state_lock:
+            self.history.setdefault(session_id, []).append({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}})
+        answer = "Nothing changed: this reply answers a **remote** prompt in the offline fixture."
+        stopped = False
+        if wait:
+            stopped = stop.wait(30)
+        for offset in range(0, len(answer), 20):
+            if stopped or stop.wait(0.02):
+                stopped = True
+                break
+            self.update(session_id, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": answer[offset:offset + 20]}})
+        reason = "cancelled" if stopped else "end_turn"
+        self.emit({"method": "_x.ai/session/update", "params": {"sessionId": session_id, "update": {"sessionUpdate": "turn_completed", "prompt_id": prompt_id, "stop_reason": reason}}})
+        self.emit({"method": "_x.ai/session/prompt_complete", "params": {"sessionId": session_id, "promptId": prompt_id, "stopReason": reason}})
+        with self.state_lock:
+            if self.turns.get(session_id) is stop:
+                self.turns.pop(session_id, None)
 
     def handle(self, message):
         method = message.get("method")
@@ -899,6 +945,7 @@ Final paragraph.
                         self.update(session_id, update, remember=False)
             self.update(session_id, {"sessionUpdate": "available_commands_update", "availableCommands": self.commands(), "_meta": {"tools": self.advertised_tools}}, remember=False)
             self.result(request_id, {"sessionId": session_id, **self.session_state()})
+            self.report_remote_status()
         elif method in ("session/set_model", "session/set_mode", "session/set_config_option", "session/prompt"):
             session_id = params.get("sessionId")
             if session_id not in self.sessions:
@@ -943,11 +990,62 @@ Final paragraph.
                 self.error(None, -32600, "Invalid fixture request: " + str(error))
 
 
+def remote_cli(args):
+    """`remote login | logout | status --json`, as `crok remote` prints them, against a pretend relay. Sign-in
+    shows a code and waits until `$CROK_HOME/remote/approve` exists (or CROK_FIXTURE_REMOTE_APPROVE_SECONDS
+    pass), then writes `credentials.json`. CROK_FIXTURE_REMOTE_PAGE=0 leaves out the sign-in page."""
+    home = os.environ.get("CROK_HOME") or os.path.expanduser("~/.crok")
+    folder = os.path.join(home, "remote")
+    credentials = os.path.join(folder, "credentials.json")
+
+    def event(value):
+        print(json.dumps(value), flush=True)
+
+    action = args[0] if args else ""
+    if action == "login":
+        if os.path.exists(credentials):
+            event({"event": "error", "message": "Already signed in. Run `crok remote logout` first, or pass --force."})
+            sys.exit(1)
+        server = args[args.index("--server") + 1] if "--server" in args else os.environ.get("CROK_REMOTE_URL", "http://127.0.0.1:3210")
+        code = "BCDF-GHJK"
+        page = os.environ.get("CROK_FIXTURE_REMOTE_PAGE", "1") != "0"
+        event({"event": "code", "userCode": code, "verificationUrl": "http://127.0.0.1:9/link" if page else None,
+               "verificationUrlComplete": "http://127.0.0.1:9/link?code=" + code if page else None,
+               "expiresAt": int(time.time() * 1000) + 600000, "server": server, "deviceName": "Fixture Mac"})
+        approve = os.path.join(folder, "approve")
+        delay = float(os.environ.get("CROK_FIXTURE_REMOTE_APPROVE_SECONDS", "600"))
+        deadline = time.time() + delay
+        while not os.path.exists(approve) and time.time() < deadline:
+            time.sleep(0.05)
+        if not os.path.exists(approve) and delay >= 600:
+            event({"event": "error", "message": "The code expired. Run `crok remote login` again."})
+            sys.exit(1)
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        account = {"name": "Fixture Tester", "email": "tester@example.com", "imageUrl": None}
+        with open(credentials, "w") as handle:
+            json.dump({"server": server, "deviceId": "fixture-device", "refreshToken": "crr_fixture_secret_token", "deviceName": "Fixture Mac",
+                       "account": account, "linkedAt": int(time.time() * 1000)}, handle)
+        os.chmod(credentials, 0o600)
+        event({"event": "signed_in", "account": account, "deviceName": "Fixture Mac", "deviceId": "fixture-device", "server": server})
+    elif action == "logout":
+        was = os.path.exists(credentials)
+        if was:
+            os.remove(credentials)
+        event({"event": "signed_out", "wasSignedIn": was, "unlinked": was and os.environ.get("CROK_FIXTURE_REMOTE_OFFLINE") != "1"})
+    elif action == "status":
+        event({"event": "status", "signedIn": os.path.exists(credentials), "revoked": False, "reachable": True, "enabled": True})
+    else:
+        event({"event": "error", "message": "Unknown remote command."})
+        sys.exit(2)
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["agent", "stdio"]:
         MockHarness().run()
     elif sys.argv[1:] and sys.argv[1] == "login":
         print("Offline fixture: authentication is simulated. No credentials were used.")
+    elif sys.argv[1:] and sys.argv[1] == "remote":
+        remote_cli(sys.argv[2:])
     else:
         print(__doc__, file=sys.stderr)
         sys.exit(2)
