@@ -1,0 +1,5 @@
+// Release builds ship without a relay URL: the welcome screen then asks for the server.
+// Set it to your deployment (https://<name>.convex.cloud, written as https:/$()/<name>.convex.cloud) to build an app
+// that knows it.
+#include "Shared.xcconfig"
+CROK_RELAY_URL =

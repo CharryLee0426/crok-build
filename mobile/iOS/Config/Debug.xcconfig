@@ -1,0 +1,4 @@
+// Debug builds talk to a local Convex backend (`npx convex dev` in relay/) by default.
+// `//` starts a comment in xcconfig files, hence the `$()` between the slashes.
+#include "Shared.xcconfig"
+CROK_RELAY_URL = http:/$()/127.0.0.1:3210
