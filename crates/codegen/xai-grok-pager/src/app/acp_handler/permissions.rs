@@ -342,7 +342,7 @@ fn qualify_permission_title_for_local_workspace(
     tlf("{title} (on your machine)", &[("title", &title)])
 }
 
-/// A `browser` or `computer` call the prompt asks about.
+/// A `browser`, `computer` or `phone` call the prompt asks about.
 fn device_action(
     req: &acp::RequestPermissionRequest,
 ) -> Option<crate::scrollback::blocks::tool::device_action::DeviceAction> {

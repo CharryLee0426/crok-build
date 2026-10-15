@@ -52,6 +52,12 @@ no official release: build it from this checkout.
   browser and computer toolsets and are off until turned on with `/browser-use`
   and `/computer-use`, in Settings, or under `[features]`. See the
   [browser and computer use guide](crates/codegen/xai-grok-pager/docs/user-guide/28-browser-and-computer-use.md).
+- **Phone use** with any provider, on by default: the `phone` tool sees and uses
+  an iPhone through the Mac's iPhone Mirroring, or an Android phone over USB or
+  Wi‑Fi debugging (Crok downloads Google's adb itself when it is missing), after
+  [phone-harness](https://github.com/ShawnPana/phone-harness). `/phone-use`, Settings,
+  or `[features] phone_use` turns it off. See the
+  [phone use guide](crates/codegen/xai-grok-pager/docs/user-guide/29-phone-use.md).
 - **Crok Desktop**, a SwiftUI app for macOS 14+ (see below).
 
 Model ids, theme ids, the Rust crate names (`xai-grok-*`), and config file names

@@ -105,6 +105,8 @@ remote_fetch = true                    # allow optional online model-catalog fet
                                        # managed-config sync has its own switch: managed_config)
 browser_use = false                    # the browser tool (default: false; see Browser and Computer Use)
 computer_use = false                   # the computer tool, macOS only (default: false)
+phone_use = true                       # the phone tool: iPhone via iPhone Mirroring, Android via adb
+                                       # (default: true; see Phone Use)
 
 [session]
 auto_compact_threshold_percent = 85    # auto-compact at this % of context window (default: 85)

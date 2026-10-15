@@ -144,6 +144,10 @@ Running one while the other is active switches modes — for example, `/auto` wh
 
 Turn the [browser and computer tools](28-browser-and-computer-use.md) on or off: pass `on` or `off`, or nothing to switch. The choice is saved under `[features]` in `config.toml` and read when a session starts, so restart Crok for it to apply (in Crok Desktop, new tasks get it). `/computer-use` works on macOS only. Both switches are also in `/settings`.
 
+### `/phone-use`
+
+Turn the [phone tool](29-phone-use.md) on or off: pass `on` or `off`, or nothing to switch. Phone use is on by default; the choice is saved as `phone_use` under `[features]` in `config.toml` and read when a session starts, so restart Crok for it to apply (in Crok Desktop, new tasks get it). The switch is also in `/settings`.
+
 ### `/multiline`
 
 Toggle multiline input. When it's on, `Enter` inserts a newline and `Shift+Enter` (or `Alt+Enter`) sends the message. Mid-turn, a bare `Enter` on an empty composer still force-sends the top queued follow-up. Alias: `/ml`. With multiline off, the composer footer shows the newline chord once the draft is non-empty.

@@ -49,12 +49,13 @@ impl OtherToolCallBlock {
         }
     }
 
-    /// A `browser` or `computer` call.
+    /// A `browser`, `computer` or `phone` call.
     pub fn device(action: super::device_action::DeviceAction) -> Self {
-        let name = if action.computer {
-            "Computer"
-        } else {
-            "Browser"
+        use super::device_action::DeviceFamily;
+        let name = match action.family {
+            DeviceFamily::Computer => "Computer",
+            DeviceFamily::Browser => "Browser",
+            DeviceFamily::Phone => "Phone",
         };
         Self {
             device: Some(action),

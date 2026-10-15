@@ -69,6 +69,7 @@ impl From<&crate::types::ToolInput> for AccessKind {
             ToolInput::WebFetch(wf) => AccessKind::WebFetch(wf.url.clone()),
             ToolInput::Browser(b) => b.access_kind(),
             ToolInput::Computer(c) => c.access_kind(),
+            ToolInput::Phone(p) => p.access_kind(),
             ToolInput::Dynamic(value) => access_kind_from_dynamic(value),
             #[allow(unreachable_patterns)]
             _ => AccessKind::Tool("unclassified_tool".to_owned()),

@@ -688,6 +688,7 @@ pub fn consumed_completion_ids(output: &ToolOutput) -> Vec<&str> {
         | ToolOutput::ImageEdit(_)
         | ToolOutput::Browser(_)
         | ToolOutput::Computer(_)
+        | ToolOutput::Phone(_)
         | ToolOutput::Dynamic(_) => {}
     }
     ids

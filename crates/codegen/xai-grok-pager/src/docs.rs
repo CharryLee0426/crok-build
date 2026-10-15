@@ -189,6 +189,12 @@ pub static USER_GUIDE: &[Doc] = &[
         description: "Let Crok work in web pages and use the mouse and keyboard, with any provider",
         content: include_str!("../docs/user-guide/28-browser-and-computer-use.md"),
     },
+    Doc {
+        filename: "29-phone-use.md",
+        title: "Phone Use",
+        description: "Let Crok use your iPhone or Android phone, with any provider",
+        content: include_str!("../docs/user-guide/29-phone-use.md"),
+    },
 ];
 
 /// Non-user-guide reference docs. Bundled via `include_str!` so they are available at runtime without a docs path.

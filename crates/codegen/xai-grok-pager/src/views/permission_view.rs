@@ -1554,6 +1554,7 @@ const _OFFERED_ANSWERS: &[&str] = &[
     tlm("Yes, allow all edits during this session"),
     tlm("Yes, allow browser actions for this session"),
     tlm("Yes, allow computer use for this session"),
+    tlm("Yes, allow phone actions for this session"),
     tlm("Yes, and don't ask again for anything (always-approve mode)"),
     tlm("Yes, and don't ask again for bash commands"),
     tlm("No, and tell Crok what to do differently"),

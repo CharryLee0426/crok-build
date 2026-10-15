@@ -89,58 +89,18 @@ fn error_text(error: &str) -> String {
     }
 }
 
-fn claim_path() -> std::path::PathBuf {
-    crate::util::grok_home::grok_home().join("computer-use.lock")
-}
-
 /// Claim the desktop for this process, or say which process holds it.
 fn claim() -> Result<(), String> {
-    let path = claim_path();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let ours = std::process::id();
-    if let Ok(contents) = std::fs::read_to_string(&path) {
-        let mut fields = contents.split_whitespace();
-        let holder = fields.next().and_then(|pid| pid.parse::<u32>().ok());
-        let stamp = fields
-            .next()
-            .and_then(|at| at.parse::<u64>().ok())
-            .unwrap_or(0);
-        if let Some(holder) = holder
-            && holder != ours
-            && process_alive(holder)
-            && now.saturating_sub(stamp) < CLAIM_IDLE.as_secs()
-        {
-            return Err(format!(
+    crate::implementations::grok_build::device_use::claim(
+        "computer-use.lock",
+        CLAIM_IDLE,
+        |holder| {
+            format!(
                 "Computer use is in use by another Crok session (process {holder}). It is free once that session has been idle for {} seconds, or has quit.",
                 CLAIM_IDLE.as_secs()
-            ));
-        }
-    }
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    std::fs::write(&path, format!("{ours} {now}\n"))
-        .map_err(|e| format!("could not claim the desktop: {e}"))
-}
-
-#[cfg(unix)]
-fn process_alive(pid: u32) -> bool {
-    let Ok(pid) = i32::try_from(pid) else {
-        return false;
-    };
-    match nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None) {
-        Ok(()) => true,
-        Err(nix::errno::Errno::EPERM) => true,
-        Err(_) => false,
-    }
-}
-
-#[cfg(not(unix))]
-fn process_alive(_pid: u32) -> bool {
-    true
+            )
+        },
+    )
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -542,11 +502,5 @@ mod tests {
     fn errors_read_as_errors() {
         assert_eq!(error_text("bad input"), "Error: bad input");
         assert!(error_text("macOS has not allowed Crok").starts_with("macOS"));
-    }
-
-    #[test]
-    fn a_dead_process_holds_no_claim() {
-        assert!(process_alive(std::process::id()));
-        assert!(!process_alive(u32::MAX - 7));
     }
 }

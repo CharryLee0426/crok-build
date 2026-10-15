@@ -791,6 +791,9 @@ pub(in crate::app::dispatch) fn action_for_reset(
         ("computer_use", SettingValue::Bool(_)) => Some(Action::ClearDeviceFeature(
             xai_grok_shell::agent::config::Feature::ComputerUse,
         )),
+        ("phone_use", SettingValue::Bool(_)) => Some(Action::ClearDeviceFeature(
+            xai_grok_shell::agent::config::Feature::PhoneUse,
+        )),
         ("keep_text_selection", SettingValue::Enum(s)) => {
             crate::appearance::TextSelection::from_canonical(s).map(Action::SetKeepTextSelection)
         }

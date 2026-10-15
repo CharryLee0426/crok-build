@@ -3,11 +3,15 @@ import ApplicationServices
 import CoreGraphics
 import SwiftUI
 
-/// A `browser` or `computer` tool call as the model made it. The transcript and the approval card
-/// word it from this each time they draw, so it follows the interface language.
+/// A `browser`, `computer` or `phone` tool call as the model made it. The transcript and the
+/// approval card word it from this each time they draw, so it follows the interface language.
 struct DeviceCall: Codable, Sendable, Equatable {
-    /// The `computer` tool; the `browser` tool otherwise.
+    /// The `computer` tool; the `browser` tool otherwise (unless `phone`).
     var computer: Bool
+    /// The `phone` tool. Optional so tasks saved before phone use keep loading.
+    var phone: Bool?
+    /// The phone a `phone` call names: "iphone" or "android".
+    var device: String?
     var action: String
     var ref: String?
     var coordinate: [Double]?
@@ -25,8 +29,10 @@ struct DeviceCall: Codable, Sendable, Equatable {
         switch input["variant"] as? String {
         case "Browser": computer = false
         case "Computer": computer = true
+        case "Phone": computer = false; phone = true
         default: return nil
         }
+        device = input["device"] as? String
         self.action = action
         ref = input["ref"] as? String
         coordinate = (input["coordinate"] as? [Any])?.compactMap { ($0 as? NSNumber)?.doubleValue }
@@ -34,21 +40,34 @@ struct DeviceCall: Codable, Sendable, Equatable {
         text = input["text"] as? String
         query = input["query"] as? String
         tab = input["tab_id"] as? String ?? (input["tab_id"] as? NSNumber)?.stringValue
-        direction = input["scroll_direction"] as? String
+        direction = input["scroll_direction"] as? String ?? input["direction"] as? String
         duration = (input["duration"] as? NSNumber)?.doubleValue
         paths = (input["paths"] as? [Any])?.compactMap { $0 as? String }
     }
 
-    /// The tool's name, as a title starts.
-    var family: String { computer ? L10n.t("device_computer", "Computer") : L10n.t("device_browser", "Browser") }
+    var isPhone: Bool { phone == true }
 
-    var symbol: String { computer ? "cursorarrow.rays" : "globe" }
+    /// The tool's name, as a title starts. A phone call that names its phone says which.
+    var family: String {
+        if isPhone {
+            switch device {
+            case "iphone"?: return "iPhone"
+            case "android"?: return "Android"
+            default: return L10n.t("device_phone", "Phone")
+            }
+        }
+        return computer ? L10n.t("device_computer", "Computer") : L10n.t("device_browser", "Browser")
+    }
+
+    var symbol: String { isPhone ? "iphone" : computer ? "cursorarrow.rays" : "globe" }
 
     /// The tool and the action on one line: "Browser: Click ref_3".
     var title: String { L10n.t("device_title", "{family}: {action}", ["family": family, "action": phrase]) }
 
     /// What would be typed, run, uploaded, or opened, for the approval card to show under its title.
     var approvalDetail: String {
+        // The pairing code is the user's to read out, not a card to keep.
+        if isPhone, action == "pair_android" { return "" }
         switch action {
         case "type", "javascript_exec":
             return (text ?? "").split(separator: "\n", omittingEmptySubsequences: false).prefix(40).joined(separator: "\n")
@@ -59,8 +78,47 @@ struct DeviceCall: Codable, Sendable, Equatable {
         }
     }
 
+    /// What a phone call does: "Tap “Weather”", "Open Settings".
+    private var phonePhrase: String? {
+        switch action {
+        case "status": return L10n.t("device_phone_status", "Check the phone connection")
+        case "connect": return L10n.t("device_phone_connect", "Connect the phone")
+        case "read_screen": return L10n.t("device_phone_read", "Read the screen")
+        case "tap":
+            return target.map { L10n.t("device_phone_tap_target", "Tap {target}", ["target": $0]) } ?? L10n.t("device_phone_tap", "Tap")
+        case "long_press":
+            return target.map { L10n.t("device_phone_long_press_target", "Long-press {target}", ["target": $0]) } ?? L10n.t("device_phone_long_press", "Long-press")
+        case "swipe":
+            switch Self.trimmed(direction) {
+            case "up"?: return L10n.t("device_phone_swipe_up", "Swipe up")
+            case "down"?: return L10n.t("device_phone_swipe_down", "Swipe down")
+            case "left"?: return L10n.t("device_phone_swipe_left", "Swipe left")
+            case "right"?: return L10n.t("device_phone_swipe_right", "Swipe right")
+            default: return L10n.t("device_phone_swipe", "Swipe")
+            }
+        case "scroll":
+            switch Self.trimmed(direction) {
+            case "up"?: return L10n.t("device_scroll_up", "Scroll up")
+            case "down"?: return L10n.t("device_scroll_down", "Scroll down")
+            case "left"?: return L10n.t("device_scroll_left", "Scroll left")
+            case "right"?: return L10n.t("device_scroll_right", "Scroll right")
+            default: return L10n.t("device_phone_scroll", "Scroll the screen")
+            }
+        case "drag":
+            return target.map { L10n.t("device_drag_to", "Drag to {target}", ["target": $0]) } ?? L10n.t("device_drag", "Drag")
+        case "home": return L10n.t("device_phone_home", "Go to the Home Screen")
+        case "back": return L10n.t("device_go_back", "Go back")
+        case "app_switcher": return L10n.t("device_phone_app_switcher", "Open the app switcher")
+        case "open_app": return L10n.t("device_phone_open_app", "Open {app}", ["app": shortText])
+        case "list_apps": return L10n.t("device_phone_list_apps", "List apps")
+        case "pair_android": return L10n.t("device_phone_pair", "Pair an Android phone")
+        default: return nil
+        }
+    }
+
     /// What the call does: "Click ref_3", "Open https://example.com".
     var phrase: String {
+        if isPhone, let phrase = phonePhrase { return phrase }
         switch action {
         case "navigate":
             switch Self.trimmed(url) {
@@ -124,11 +182,15 @@ struct DeviceCall: Codable, Sendable, Equatable {
 
     private static let urlLength = 96
 
-    /// What the call points at: an element reference, or a point in the screenshot.
+    /// What the call points at: an element reference, a point in the screenshot, or (on a phone)
+    /// the visible text it touches.
     private var target: String? {
         if let ref = Self.trimmed(ref) { return ref }
-        guard let point = coordinate, point.count == 2 else { return nil }
-        return "(\(Int(point[0].rounded())), \(Int(point[1].rounded())))"
+        if let point = coordinate, point.count == 2 {
+            return "(\(Int(point[0].rounded())), \(Int(point[1].rounded())))"
+        }
+        guard isPhone, Self.trimmed(text) != nil else { return nil }
+        return "“" + shortText + "”"
     }
 
     /// The text typed or the keys pressed, on one line and cut short.
@@ -181,6 +243,7 @@ extension PermissionOption {
         case "Yes, allow all edits during this session": return L10n.t("permission_edits_session", "Yes, allow all edits during this session")
         case "Yes, allow browser actions for this session": return L10n.t("permission_browser_session", "Yes, allow browser actions for this session")
         case "Yes, allow computer use for this session": return L10n.t("permission_computer_session", "Yes, allow computer use for this session")
+        case "Yes, allow phone actions for this session": return L10n.t("permission_phone_session", "Yes, allow phone actions for this session")
         case "Yes, and don't ask again for anything (always-approve mode)":
             return L10n.t("permission_always_approve", "Yes, and don't ask again for anything (always-approve mode)")
         case "Yes, and don't ask again for bash commands": return L10n.t("permission_always_bash", "Yes, and don't ask again for bash commands")
@@ -207,8 +270,8 @@ extension PermissionOption {
     }
 }
 
-/// Whether new tasks get the `browser` and `computer` tools (`[features]` in config.toml, shared
-/// with the terminal), and the macOS permissions computer use needs.
+/// Whether new tasks get the `browser`, `computer` and `phone` tools (`[features]` in config.toml,
+/// shared with the terminal), and the macOS permissions computer use and the iPhone need.
 @MainActor
 final class DeviceUseSettings: ObservableObject {
     /// Tests that run `/browser-use` or open Settings write a file of their own, never the user's config.toml.
@@ -216,9 +279,17 @@ final class DeviceUseSettings: ObservableObject {
         : FileManager.default.temporaryDirectory.appendingPathComponent("crok-device-use-\(ProcessInfo.processInfo.processIdentifier).toml"))
 
     enum Feature {
-        case browser, computer
+        case browser, computer, phone
         /// The key under `[features]`.
-        var key: String { self == .browser ? "browser_use" : "computer_use" }
+        var key: String {
+            switch self {
+            case .browser: return "browser_use"
+            case .computer: return "computer_use"
+            case .phone: return "phone_use"
+            }
+        }
+        /// What applies when config.toml says nothing: phone use is on until turned off.
+        var defaultOn: Bool { self == .phone }
     }
 
     enum Permission {
@@ -231,6 +302,7 @@ final class DeviceUseSettings: ObservableObject {
 
     @Published private(set) var browserUse = false
     @Published private(set) var computerUse = false
+    @Published private(set) var phoneUse = true
     @Published private(set) var screenRecording = false
     @Published private(set) var accessibility = false
 
@@ -243,7 +315,13 @@ final class DeviceUseSettings: ObservableObject {
         refresh()
     }
 
-    func isOn(_ feature: Feature) -> Bool { feature == .browser ? browserUse : computerUse }
+    func isOn(_ feature: Feature) -> Bool {
+        switch feature {
+        case .browser: return browserUse
+        case .computer: return computerUse
+        case .phone: return phoneUse
+        }
+    }
 
     func isGranted(_ permission: Permission) -> Bool { permission == .screenRecording ? screenRecording : accessibility }
 
@@ -252,6 +330,7 @@ final class DeviceUseSettings: ObservableObject {
         let config = GrokConfig(url: configURL)
         browserUse = config.bool(Feature.browser.key, in: "features") ?? false
         computerUse = config.bool(Feature.computer.key, in: "features") ?? false
+        phoneUse = config.bool(Feature.phone.key, in: "features") ?? Feature.phone.defaultOn
         screenRecording = CGPreflightScreenCaptureAccess()
         accessibility = AXIsProcessTrusted()
     }
@@ -269,17 +348,20 @@ final class DeviceUseSettings: ObservableObject {
         switch feature {
         case .browser: browserUse = on
         case .computer: computerUse = on
+        case .phone: phoneUse = on
         }
         if feature == .computer, on {
             for permission in [Permission.screenRecording, .accessibility] where !isGranted(permission) && !asked.contains(permission) { prompt(permission) }
             refresh()
         }
-        return feature == .browser
-            ? L10n.t("device_banner_browser", "✓ Browser use: {state} · new tasks get it", ["state": L10n.onOff(on)])
-            : L10n.t("device_banner_computer", "✓ Computer use: {state} · new tasks get it", ["state": L10n.onOff(on)])
+        switch feature {
+        case .browser: return L10n.t("device_banner_browser", "✓ Browser use: {state} · new tasks get it", ["state": L10n.onOff(on)])
+        case .computer: return L10n.t("device_banner_computer", "✓ Computer use: {state} · new tasks get it", ["state": L10n.onOff(on)])
+        case .phone: return L10n.t("device_banner_phone", "✓ Phone use: {state} · new tasks get it", ["state": L10n.onOff(on)])
+        }
     }
 
-    /// `/browser-use` and `/computer-use`: on, off, or nothing to switch it, as in the terminal.
+    /// `/browser-use`, `/computer-use` and `/phone-use`: on, off, or nothing to switch it, as in the terminal.
     func command(_ feature: Feature, arguments: String) -> String {
         refresh()
         switch arguments.trimmingCharacters(in: .whitespaces).lowercased() {
@@ -359,6 +441,96 @@ struct DeviceUseSettingsSection: View {
         let detail = screen
             ? L10n.t("device_screen_recording_detail", "Lets Crok take screenshots to see what is on the screen.")
             : L10n.t("device_accessibility_detail", "Lets Crok move the pointer, click, and type.")
+        return row(title, detail: detail) {
+            if model.isGranted(permission) {
+                Label(L10n.t("device_permission_allowed", "Allowed"), systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.green).fixedSize()
+            } else {
+                Button(L10n.t("device_permission_allow", "Allow…")) { model.request(permission) }
+                    .buttonStyle(.bordered)
+                    .help(L10n.t("device_permission_allow_help", "Ask macOS for {permission}, or open its page in System Settings", ["permission": title]))
+            }
+        }
+    }
+
+    private func row<Control: View>(_ title: String, detail: String, @ViewBuilder control: () -> Control) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.system(size: 14, weight: .medium))
+                Text(detail).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            control()
+        }
+    }
+}
+
+/// Settings › Phone use: the switch, what an iPhone and an Android phone need, and for the iPhone
+/// the macOS permissions it asks for.
+struct PhoneUseSettingsSection: View {
+    @ObservedObject private var language = L10n.state
+    @EnvironmentObject var store: AppStore
+    @ObservedObject private var model: DeviceUseSettings
+
+    /// iPhone Mirroring, which comes with macOS 15 and later.
+    static let mirroringApp = URL(fileURLWithPath: "/System/Applications/iPhone Mirroring.app")
+
+    /// Tests pass a `model` reading a config file of their own.
+    @MainActor
+    init(model: DeviceUseSettings? = nil) {
+        _model = ObservedObject(wrappedValue: model ?? .shared)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(L10n.t("phone_settings_title", "Phone use"), systemImage: "iphone").font(.system(size: 15, weight: .semibold))
+            row(L10n.t("device_phone_use", "Phone use"),
+                detail: L10n.t("phone_use_detail", "Crok sees and uses your iPhone through iPhone Mirroring, or your Android phone over USB or Wi‑Fi debugging, with any provider. New tasks get it.")) {
+                Toggle(L10n.t("device_phone_use", "Phone use"), isOn: binding).labelsHidden().toggleStyle(.switch)
+            }
+            if model.phoneUse {
+                Divider()
+                row(L10n.t("phone_iphone", "iPhone"),
+                    detail: L10n.t("phone_iphone_detail", "Set up iPhone Mirroring once with your iPhone nearby; Crok then opens it and connects by itself. Lock the iPhone when the window says it is in use.")) {
+                    if FileManager.default.fileExists(atPath: Self.mirroringApp.path) {
+                        Button(L10n.t("phone_open_mirroring", "Open iPhone Mirroring")) { NSWorkspace.shared.open(Self.mirroringApp) }
+                            .buttonStyle(.bordered)
+                    } else {
+                        Text(L10n.t("phone_mirroring_missing", "Needs macOS 15 or later"))
+                            .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize()
+                    }
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    permissionRow(.screenRecording)
+                    permissionRow(.accessibility)
+                }
+                .padding(.leading, 16)
+                Divider()
+                row(L10n.t("phone_android", "Android"),
+                    detail: L10n.t("phone_android_detail", "Turn on Developer options › USB debugging, plug the phone in and tap Allow; or use Wireless debugging and tell Crok the pairing code. Crok downloads Google's adb by itself if this Mac has none.")) {
+                    EmptyView()
+                }
+            }
+            Divider()
+            Text(L10n.t("phone_approvals_note", "Looking at the phone never asks. Crok asks before each action on it; from that prompt you can allow them for the rest of the session. It never types a passcode."))
+                .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        }
+        .settingsCard()
+        .onAppear { model.refresh() }
+        // Back from System Settings with a permission granted.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refresh() }
+    }
+
+    private var binding: Binding<Bool> {
+        Binding(get: { model.isOn(.phone) }, set: { store.banner = model.set(.phone, $0) })
+    }
+
+    private func permissionRow(_ permission: DeviceUseSettings.Permission) -> some View {
+        let screen = permission == .screenRecording
+        let title = screen ? L10n.t("device_screen_recording", "Screen Recording") : L10n.t("device_accessibility", "Accessibility")
+        let detail = screen
+            ? L10n.t("phone_screen_recording_detail", "Lets Crok see the iPhone in the iPhone Mirroring window.")
+            : L10n.t("phone_accessibility_detail", "Lets Crok connect iPhone Mirroring, and tap and type in it.")
         return row(title, detail: detail) {
             if model.isGranted(permission) {
                 Label(L10n.t("device_permission_allowed", "Allowed"), systemImage: "checkmark.circle.fill")

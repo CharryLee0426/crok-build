@@ -72,6 +72,7 @@ impl ToolKind {
             ToolKind::Feedback => "Feedback",
             ToolKind::Browser => "Browser",
             ToolKind::Computer => "Computer",
+            ToolKind::Phone => "Phone",
             ToolKind::Other => "Tool",
         }
     }
@@ -118,6 +119,7 @@ impl ToolKind {
             | ToolKind::Feedback
             | ToolKind::Browser
             | ToolKind::Computer
+            | ToolKind::Phone
             | ToolKind::Other => false,
         }
     }

@@ -301,13 +301,16 @@ pub(crate) fn acp_tool_update(
                     .raw_output(raw_output_json(output, rewriter)),
             ))
         }
-        // A browser or computer action: what the model read, the screenshot under it, and the raw output without the image bytes
+        // A browser, computer or phone action: what the model read, the screenshot under it, and the raw output without the image bytes
         ToolOutput::Browser(
             xai_grok_tools::implementations::grok_build::browser_use::BrowserOutput(result),
         )
         | ToolOutput::Computer(
             xai_grok_tools::implementations::grok_build::computer_use::ComputerOutput(result),
-        ) => {
+        )
+        | ToolOutput::Phone(xai_grok_tools::implementations::grok_build::phone_use::PhoneOutput(
+            result,
+        )) => {
             let mut content = vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
                 acp::TextContent::new(maybe_rewrite(rewriter, result.text.clone())),
             ))];
@@ -320,6 +323,11 @@ pub(crate) fn acp_tool_update(
             let lean = match output {
                 ToolOutput::Browser(_) => ToolOutput::Browser(
                     xai_grok_tools::implementations::grok_build::browser_use::BrowserOutput(
+                        result.without_image_data(),
+                    ),
+                ),
+                ToolOutput::Phone(_) => ToolOutput::Phone(
+                    xai_grok_tools::implementations::grok_build::phone_use::PhoneOutput(
                         result.without_image_data(),
                     ),
                 ),

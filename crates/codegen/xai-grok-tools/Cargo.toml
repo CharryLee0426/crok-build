@@ -106,6 +106,12 @@ nix = { workspace = true, features = ["signal", "process", "fs"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { workspace = true }
 
+# Phone use on macOS: Vision text recognition through the Objective-C runtime (the framework is
+# dlopen'd at the first read, so nothing extra is linked), and dlopen itself.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+libc = { workspace = true }
+
 # windows: util::spawn uses Win32 Job Objects (CreateJobObjectW,
 # AssignProcessToJobObject, TerminateJobObject) and process creation flags
 # (CREATE_NO_WINDOW, DETACHED_PROCESS, CREATE_NEW_PROCESS_GROUP).

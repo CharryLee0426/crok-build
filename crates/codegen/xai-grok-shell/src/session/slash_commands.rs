@@ -506,6 +506,7 @@ pub const PAGER_COMMAND_KEYS: &[&str] = &[
     "new",
     "onboarding",
     "personas",
+    "phone-use",
     "plan",
     "plan-view",
     "plugin",

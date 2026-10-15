@@ -24,12 +24,13 @@ pub const ALLOW_EDITS_SESSION_OPTION_ID: &str = "allow-edits-session";
 pub const ALLOW_TOOL_SESSION_OPTION_ID: &str = "allow-tool-session";
 
 /// The option a session grant reads as, for the tools whose approval may cover the rest of the
-/// session: driving the browser or the desktop is many small actions, each asked about otherwise.
+/// session: driving the browser, the desktop or a phone is many small actions, each asked about otherwise.
 pub fn session_grant_label(tool: &str) -> Option<&'static str> {
-    use xai_grok_tools::implementations::grok_build::{browser_use, computer_use};
+    use xai_grok_tools::implementations::grok_build::{browser_use, computer_use, phone_use};
     match tool {
         browser_use::BROWSER_ACCESS => Some("Yes, allow browser actions for this session"),
         computer_use::COMPUTER_ACCESS => Some("Yes, allow computer use for this session"),
+        phone_use::PHONE_ACCESS => Some("Yes, allow phone actions for this session"),
         _ => None,
     }
 }

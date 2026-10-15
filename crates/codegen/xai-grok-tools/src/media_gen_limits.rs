@@ -67,6 +67,7 @@ pub fn max_calls_per_batch(kind: ToolKind, limits: &MediaGenBatchLimits) -> Opti
         | ToolKind::Feedback
         | ToolKind::Browser
         | ToolKind::Computer
+        | ToolKind::Phone
         | ToolKind::Other => None,
     }
 }
@@ -488,7 +489,7 @@ mod tests {
         );
         assert_eq!(
             ToolKind::VARIANT_COUNT,
-            media_kinds.len() + 33,
+            media_kinds.len() + 36,
             "ToolKind grew/shrank; update max_calls_per_batch arms and this count"
         );
     }

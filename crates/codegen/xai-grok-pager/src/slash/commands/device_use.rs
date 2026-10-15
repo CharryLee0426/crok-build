@@ -1,6 +1,6 @@
-//! `/browser-use` and `/computer-use`: turn the `browser` and `computer` tools on or off.
+//! `/browser-use`, `/computer-use` and `/phone-use`: turn the `browser`, `computer` and `phone` tools on or off.
 //!
-//! Each saves its `[features]` key (`browser_use`, `computer_use`) through `Action::SetDeviceFeature`; with no argument
+//! Each saves its `[features]` key (`browser_use`, `computer_use`, `phone_use`) through `Action::SetDeviceFeature`; with no argument
 //! the command turns the feature to the opposite of what applies now. Agents latch the key when built, so the change
 //! applies to new sessions, as the toast says.
 
@@ -67,6 +67,21 @@ impl SlashCommand for ComputerUseCommand {
     }
 }
 
+pub struct PhoneUseCommand;
+
+impl SlashCommand for PhoneUseCommand {
+    slash_meta! {
+        name: "phone-use",
+        description: tlm("Turn phone use on or off: Crok uses your iPhone (through iPhone Mirroring) or Android phone (over adb)"),
+        usage: "/phone-use [on|off]",
+        arg_placeholder: tlm("on/off"),
+    }
+
+    fn run(&self, ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
+        run(Feature::PhoneUse, ctx, args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +116,11 @@ mod tests {
         assert!(matches!(
             BrowserUseCommand.run(&mut ctx, "maybe"),
             CommandResult::Error(_)
+        ));
+        // Phone use is on by default, so a bare command turns it off
+        assert!(matches!(
+            PhoneUseCommand.run(&mut ctx, ""),
+            CommandResult::Action(Action::SetDeviceFeature(Feature::PhoneUse, false))
         ));
     }
 }

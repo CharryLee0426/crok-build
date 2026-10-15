@@ -29,6 +29,7 @@ pub mod list_dir;
 pub mod lsp;
 pub mod media_bearer;
 pub mod monitor;
+pub mod phone_use;
 pub mod read_file;
 pub mod scheduler;
 pub mod search_replace;
@@ -62,6 +63,7 @@ pub use kill_task::{KillTaskTool, KillTerminalCommandTool};
 pub use list_dir::ListDirTool;
 pub use lsp::LspTool;
 pub use monitor::tool::MonitorTool;
+pub use phone_use::{PHONE_TOOL_NAME, PhoneTool};
 pub use read_file::ReadFileTool;
 pub use scheduler::create::{
     SCHEDULER_CREATE_TOOL_NAME, SchedulerCreateTool, loop_schedule_instruction, loop_usage_message,

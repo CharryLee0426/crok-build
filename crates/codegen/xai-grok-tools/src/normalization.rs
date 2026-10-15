@@ -122,6 +122,7 @@ pub fn canonical_input(input: &ToolInput) -> Option<serde_json::Value> {
         | ToolInput::Workflow(_)
         | ToolInput::Browser(_)
         | ToolInput::Computer(_)
+        | ToolInput::Phone(_)
         | ToolInput::Dynamic(_) => return None,
     })
 }

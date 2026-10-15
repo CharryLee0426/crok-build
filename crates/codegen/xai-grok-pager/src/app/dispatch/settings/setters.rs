@@ -709,11 +709,14 @@ fn device_feature_label(feature: xai_grok_shell::agent::config::Feature) -> &'st
         xai_grok_shell::agent::config::Feature::ComputerUse => {
             tr("setting.computer_use.label", "Computer use")
         }
+        xai_grok_shell::agent::config::Feature::PhoneUse => {
+            tr("setting.phone_use.label", "Phone use")
+        }
         _ => tr("setting.browser_use.label", "Browser use"),
     }
 }
 
-/// SHELL-owned setter for `[features].browser_use` / `[features].computer_use`: `Some` saves the key, `None` deletes it.
+/// SHELL-owned setter for `[features].browser_use` / `computer_use` / `phone_use`: `Some` saves the key, `None` deletes it.
 /// One write is on disk at a time, as for `subagent_model_inheritance`; agents latch the key when built.
 pub(in crate::app::dispatch) fn set_device_feature(
     app: &mut AppView,
@@ -787,7 +790,7 @@ pub(in crate::app::dispatch) fn set_device_feature(
     effects
 }
 
-/// `/browser-use` and `/computer-use` with no argument: the opposite of what applies now.
+/// `/browser-use`, `/computer-use` and `/phone-use` with no argument: the opposite of what applies now.
 pub(in crate::app::dispatch) fn toggle_device_feature(
     app: &mut AppView,
     feature: xai_grok_shell::agent::config::Feature,

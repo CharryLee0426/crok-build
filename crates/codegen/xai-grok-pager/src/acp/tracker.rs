@@ -2373,7 +2373,7 @@ fn tool_call_block_without_images(
         }
         _ if matches!(
             extract_raw_field(tc, "variant").as_deref(),
-            Some("Browser") | Some("Computer")
+            Some("Browser") | Some("Computer") | Some("Phone")
         ) =>
         {
             use crate::scrollback::blocks::tool::device_action::DeviceAction;

@@ -222,6 +222,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `features.mcp_push_server_status` | `boolean` | `yes` | `user` | Pager subscribes to MCP server_status push. Process env CROK_MCP_PUSH_SERVER_STATUS wins at launch. |
 | `features.mcp_recursive_config_watch` | `boolean` | `yes` | `user` | Watch `<cwd>/` and `<cwd>/.grok/` for project MCP config edits. Name is a misnomer; watches are non-recursive. |
 | `features.non_git_warning` | `boolean` | `yes` | `user` | Show a blocking warning when Crok starts outside a Git repository. |
+| `features.phone_use` | `boolean` | `pin` | `user` | The `phone` tool: see and use the user's iPhone (through the Mac's iPhone Mirroring) or Android phone (over adb, downloaded once when missing). Default true. Also `CROK_PHONE_USE`. Read when a session starts. See [Phone Use](29-phone-use.md). |
 | `features.remember_mode` | `boolean` | `—` | `—` | Remember the last permission mode across sessions. Read from user `config.toml` only. |
 | `features.remote_fetch` | `boolean` | `pin` | `fleet` | Pin remote model-catalog and asset fetch. Managed wins over the user file when both set. |
 | `features.session_recap` | `boolean` | `pin` | `user` | Enable or disable `session_recap`. Default true. Also `CROK_SESSION_RECAP`. |

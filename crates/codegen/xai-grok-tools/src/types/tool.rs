@@ -98,6 +98,7 @@ pub enum ToolKind {
     Feedback,
     Browser,
     Computer,
+    Phone,
     #[serde(other)]
     Other,
 }

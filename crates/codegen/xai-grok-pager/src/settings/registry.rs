@@ -384,11 +384,12 @@ impl FeatureOverrideState {
     }
 }
 
-/// The `[features]` rows for the `browser` and `computer` tools.
+/// The `[features]` rows for the `browser`, `computer` and `phone` tools.
 #[derive(Debug, Clone, Copy)]
 pub struct DeviceFeatures {
     pub browser: FeatureOverrideState,
     pub computer: FeatureOverrideState,
+    pub phone: FeatureOverrideState,
 }
 
 impl Default for DeviceFeatures {
@@ -396,6 +397,7 @@ impl Default for DeviceFeatures {
         Self {
             browser: FeatureOverrideState::new(Feature::BrowserUse),
             computer: FeatureOverrideState::new(Feature::ComputerUse),
+            phone: FeatureOverrideState::new(Feature::PhoneUse),
         }
     }
 }
@@ -408,23 +410,25 @@ impl DeviceFeatures {
         Self {
             browser: FeatureOverrideState::from_layers(Feature::BrowserUse, layers, remote),
             computer: FeatureOverrideState::from_layers(Feature::ComputerUse, layers, remote),
+            phone: FeatureOverrideState::from_layers(Feature::PhoneUse, layers, remote),
         }
     }
 
     pub fn reseed_config_layers(&mut self, layers: &EffectiveConfigLayers) {
         self.browser.reseed_config_layers(layers);
         self.computer.reseed_config_layers(layers);
+        self.phone.reseed_config_layers(layers);
     }
 
     /// The row for `feature`, when it is one of these.
     pub fn get(&self, feature: Feature) -> Option<&FeatureOverrideState> {
-        [&self.browser, &self.computer]
+        [&self.browser, &self.computer, &self.phone]
             .into_iter()
             .find(|state| state.feature == feature)
     }
 
     pub fn get_mut(&mut self, feature: Feature) -> Option<&mut FeatureOverrideState> {
-        [&mut self.browser, &mut self.computer]
+        [&mut self.browser, &mut self.computer, &mut self.phone]
             .into_iter()
             .find(|state| state.feature == feature)
     }
@@ -910,6 +914,9 @@ pub fn current_value_for(
         "computer_use" => Some(SettingValue::Bool(
             pager.device_features.computer.resolve().value,
         )),
+        "phone_use" => Some(SettingValue::Bool(
+            pager.device_features.phone.resolve().value,
+        )),
         "subagent_model_inheritance" => Some(SettingValue::Bool(
             pager.subagent_model_inheritance.resolve().value,
         )),
@@ -1250,6 +1257,9 @@ mod tests {
                 }
                 ("computer_use", SettingKind::Bool { default }) => {
                     assert_eq!(*default, Feature::ComputerUse.default_enabled());
+                }
+                ("phone_use", SettingKind::Bool { default }) => {
+                    assert_eq!(*default, Feature::PhoneUse.default_enabled());
                 }
                 // ask_user_question timeout: no UiConfig mirror (lives under `[toolset]`); the default is anchored on the resolver-shared const
                 ("toolset.ask_user_question.timeout_enabled", SettingKind::Bool { default }) => {

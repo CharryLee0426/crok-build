@@ -73,6 +73,7 @@ enum GuideLibrary {
         Entry(fileName: "26-config-reference.md", title: "Configuration Reference", summary: "Field list for config.toml, managed_config.toml, and requirements.toml"),
         Entry(fileName: "27-grok-clone.md", title: "crok clone", summary: "Depth-1 Grove clone, --full-history, and safe deepen/switch commands"),
         Entry(fileName: "28-browser-and-computer-use.md", title: "Browser and Computer Use", summary: "Let Crok work in web pages and use the mouse and keyboard, with any provider"),
+        Entry(fileName: "29-phone-use.md", title: "Phone Use", summary: "Let Crok use your iPhone or Android phone, with any provider"),
     ]
 
     static func directory(home: URL = GrokPaths.home) -> URL {

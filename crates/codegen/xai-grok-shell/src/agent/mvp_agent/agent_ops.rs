@@ -2354,7 +2354,8 @@ impl MvpAgent {
         }
         WebFetchConfig::Enabled { params }
     }
-    /// The `browser` and `computer` tools, each off unless `[features] browser_use` / `computer_use` turns it on.
+    /// The `browser` and `computer` tools, each off unless `[features] browser_use` / `computer_use` turns it on,
+    /// and the `phone` tool, on unless `[features] phone_use` turns it off.
     /// The browser follows `[toolset.browser]`; computer use exists only where it is supported (macOS).
     pub(super) fn prepare_device_use_config(
         &self,
@@ -2373,6 +2374,7 @@ impl MvpAgent {
             browser,
             computer: computer_use::is_supported()
                 && cfg.is_feature_enabled(crate::agent::config::Feature::ComputerUse),
+            phone: cfg.is_feature_enabled(crate::agent::config::Feature::PhoneUse),
         }
     }
     /// Construct from pre-built components.

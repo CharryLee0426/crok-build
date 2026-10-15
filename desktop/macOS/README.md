@@ -264,9 +264,17 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   the interface language, and the approval card names the action and offers
   to allow such actions for the rest of the session. See the
   **Browser and Computer Use** guide (`/docs Browser and Computer Use`).
+- **Phone use:** on by default. New tasks can see and use your iPhone through
+  the Mac's iPhone Mirroring, or an Android phone over USB or Wi‑Fi debugging,
+  with every provider; Crok downloads Google's adb by itself when the Mac has
+  none. **Settings › Phone use** (or `/phone-use`) turns it off, shows whether
+  macOS has granted the iPhone's Screen Recording and Accessibility with
+  **Allow…**, and opens iPhone Mirroring. Each action appears as its own row
+  with a phone icon, and the approval card offers to allow phone actions for
+  the rest of the session. See the **Phone Use** guide (`/docs Phone Use`).
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
-records all 75 pager commands, shell built-ins, CLI families, exact ACP
+records all 76 pager commands, shell built-ins, CLI families, exact ACP
 contracts, and what each command does in the desktop app. Commands that open a
 picker or panel in the terminal open a native sheet or window here: usage and
 context, session info, feedback, release notes, guides, the tutorial,

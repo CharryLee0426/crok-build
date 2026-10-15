@@ -98,6 +98,7 @@ pub(crate) const ALL_TOOL_KINDS: &[ToolKind] = &[
     ToolKind::Feedback,
     ToolKind::Browser,
     ToolKind::Computer,
+    ToolKind::Phone,
     ToolKind::Other,
 ];
 
@@ -137,8 +138,8 @@ pub(crate) fn kind_allowed(mode: CapabilityMode, kind: ToolKind) -> bool {
         Edit | Write | Delete | Move | Feedback | ImageGen | VideoGen | ImageToVideo
         | ReferenceToVideo | DeployApp | InitOrUpdateApp => matches!(mode, M::ReadWrite),
 
-        // Bash / shell, and driving a browser or the desktop: both act outside the workspace.
-        Execute | Browser | Computer => matches!(mode, M::Execute),
+        // Bash / shell, and driving a browser, the desktop or a phone: all act outside the workspace.
+        Execute | Browser | Computer | Phone => matches!(mode, M::Execute),
 
         BackgroundTaskAction | WaitTasksAction | KillTaskAction | Task | ActiveAgentMessage
         | Monitor | Workflow => matches!(mode, M::Execute),

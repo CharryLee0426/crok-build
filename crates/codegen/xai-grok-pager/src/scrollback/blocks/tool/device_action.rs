@@ -1,35 +1,47 @@
-//! A `browser` or `computer` tool call, worded in the interface language each time it is drawn.
+//! A `browser`, `computer` or `phone` tool call, worded in the interface language each time it is drawn.
 
 use xai_grok_i18n::{tl, tlf, tlm};
+
+/// Which tool made a call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceFamily {
+    Browser,
+    Computer,
+    Phone,
+}
 
 /// The call as the model made it (its `raw_input`), so its line follows the interface language.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeviceAction {
-    /// The `computer` tool; the `browser` tool otherwise.
-    pub computer: bool,
+    pub family: DeviceFamily,
     pub input: serde_json::Value,
 }
 
 impl DeviceAction {
-    /// The action of a `browser` or `computer` call, read from its `raw_input`.
+    /// The action of a `browser`, `computer` or `phone` call, read from its `raw_input`.
     pub fn from_raw_input(raw: &serde_json::Value) -> Option<Self> {
-        let computer = match raw.get("variant")?.as_str()? {
-            "Browser" => false,
-            "Computer" => true,
+        let family = match raw.get("variant")?.as_str()? {
+            "Browser" => DeviceFamily::Browser,
+            "Computer" => DeviceFamily::Computer,
+            "Phone" => DeviceFamily::Phone,
             _ => return None,
         };
         Some(Self {
-            computer,
+            family,
             input: raw.clone(),
         })
     }
 
-    /// The tool's name, as the line starts.
+    /// The tool's name, as the line starts. A phone call that names its phone says which.
     pub fn label(&self) -> &'static str {
-        if self.computer {
-            tl("Computer")
-        } else {
-            tl("Browser")
+        match self.family {
+            DeviceFamily::Computer => tl("Computer"),
+            DeviceFamily::Browser => tl("Browser"),
+            DeviceFamily::Phone => match self.str("device") {
+                Some("iphone") => "iPhone",
+                Some("android") => "Android",
+                _ => tl("Phone"),
+            },
         }
     }
 
@@ -52,11 +64,18 @@ impl DeviceAction {
         Some(format!("({x}, {y})"))
     }
 
-    /// What the call points at: an element reference, or a point in the screenshot.
+    /// What the call points at: an element reference, a point in the screenshot, or (on a phone)
+    /// the visible text it touches.
     fn target(&self) -> Option<String> {
         self.str("ref")
             .map(str::to_owned)
             .or_else(|| self.point("coordinate"))
+            .or_else(|| {
+                (self.family == DeviceFamily::Phone)
+                    .then(|| self.str("text"))
+                    .flatten()
+                    .map(|text| format!("“{}”", short(&text.replace('\n', " "), 48)))
+            })
     }
 
     /// `with` naming the target when there is one; `without` otherwise.
@@ -67,12 +86,48 @@ impl DeviceAction {
         }
     }
 
+    /// What a phone call does: `Tap “Weather”`, `Open Settings`.
+    fn phone_phrase(&self) -> Option<String> {
+        let text = || short(&self.str("text").unwrap_or("").replace('\n', " "), 48);
+        Some(match self.action() {
+            "status" => tl("Check the phone connection").to_owned(),
+            "connect" => tl("Connect the phone").to_owned(),
+            "read_screen" => tl("Read the screen").to_owned(),
+            "tap" => self.targeted(tlm("Tap {target}"), tlm("Tap")),
+            "long_press" => self.targeted(tlm("Long-press {target}"), tlm("Long-press")),
+            "swipe" => match self.str("direction") {
+                Some("up") => tl("Swipe up").to_owned(),
+                Some("down") => tl("Swipe down").to_owned(),
+                Some("left") => tl("Swipe left").to_owned(),
+                Some("right") => tl("Swipe right").to_owned(),
+                _ => tl("Swipe").to_owned(),
+            },
+            "scroll" => match self.str("direction") {
+                Some("up") => tl("Scroll up").to_owned(),
+                Some("down") => tl("Scroll down").to_owned(),
+                Some("left") => tl("Scroll left").to_owned(),
+                Some("right") => tl("Scroll right").to_owned(),
+                _ => tl("Scroll the screen").to_owned(),
+            },
+            "drag" => self.targeted(tlm("Drag to {target}"), tlm("Drag")),
+            "home" => tl("Go to the Home Screen").to_owned(),
+            "back" => tl("Go back").to_owned(),
+            "app_switcher" => tl("Open the app switcher").to_owned(),
+            "open_app" => tlf("Open {app}", &[("app", &text())]),
+            "list_apps" => tl("List apps").to_owned(),
+            // The pairing code is the user's to read out, not a line to keep
+            "pair_android" => tl("Pair an Android phone").to_owned(),
+            _ => return None,
+        })
+    }
+
     /// What the call does: `Click ref_3`, `Open https://example.com`.
     pub fn phrase(&self) -> String {
-        let short = |text: &str, max: usize| match text.char_indices().nth(max) {
-            Some((at, _)) => format!("{}…", &text[..at]),
-            None => text.to_owned(),
-        };
+        if self.family == DeviceFamily::Phone
+            && let Some(phrase) = self.phone_phrase()
+        {
+            return phrase;
+        }
         let text = || short(&self.str("text").unwrap_or("").replace('\n', " "), 48);
         match self.action() {
             "navigate" => match self.str("url") {
@@ -155,6 +210,9 @@ impl DeviceAction {
 
     /// Lines a permission prompt shows under its title: what would be typed, run or uploaded.
     pub fn detail_lines(&self) -> Vec<String> {
+        if self.family == DeviceFamily::Phone && self.action() == "pair_android" {
+            return Vec::new();
+        }
         match self.action() {
             "type" | "javascript_exec" => self
                 .input
@@ -178,6 +236,14 @@ impl DeviceAction {
     }
 }
 
+/// At most `max` characters of `text`, with `…` when it was cut.
+fn short(text: &str, max: usize) -> String {
+    match text.char_indices().nth(max) {
+        Some((at, _)) => format!("{}…", &text[..at]),
+        None => text.to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,12 +257,12 @@ mod tests {
         let click = action(
             serde_json::json!({"variant": "Browser", "action": "left_click", "ref": "ref_3"}),
         );
-        assert!(!click.computer);
+        assert_eq!(click.family, DeviceFamily::Browser);
         assert_eq!(click.phrase(), "Click ref_3");
         let at = action(
             serde_json::json!({"variant": "Computer", "action": "double_click", "coordinate": [640.4, 359.6]}),
         );
-        assert!(at.computer);
+        assert_eq!(at.family, DeviceFamily::Computer);
         assert_eq!(at.phrase(), "Double-click (640, 360)");
         let pointer = action(serde_json::json!({"variant": "Computer", "action": "left_click"}));
         assert_eq!(pointer.phrase(), "Click");
@@ -209,6 +275,40 @@ mod tests {
         assert_eq!(typed.phrase(), "Type “hello world”");
         assert_eq!(typed.detail_lines(), vec!["hello", "world"]);
         assert_eq!(click.title(), "Browser: Click ref_3");
+    }
+
+    #[test]
+    fn phone_calls_name_their_phone_and_target() {
+        let tap =
+            action(serde_json::json!({"variant": "Phone", "action": "tap", "text": "Weather"}));
+        assert_eq!(tap.family, DeviceFamily::Phone);
+        assert_eq!(tap.title(), "Phone: Tap “Weather”");
+        let at = action(
+            serde_json::json!({"variant": "Phone", "device": "iphone", "action": "tap", "coordinate": [120.2, 399.7]}),
+        );
+        assert_eq!(at.title(), "iPhone: Tap (120, 400)");
+        let scroll = action(
+            serde_json::json!({"variant": "Phone", "device": "android", "action": "scroll", "direction": "down"}),
+        );
+        assert_eq!(scroll.title(), "Android: Scroll down");
+        let open = action(
+            serde_json::json!({"variant": "Phone", "action": "open_app", "text": "Settings"}),
+        );
+        assert_eq!(open.phrase(), "Open Settings");
+        let pair = action(
+            serde_json::json!({"variant": "Phone", "action": "pair_android", "text": "123456"}),
+        );
+        assert_eq!(pair.phrase(), "Pair an Android phone");
+        assert!(
+            pair.detail_lines().is_empty(),
+            "the pairing code is not shown"
+        );
+        let typed =
+            action(serde_json::json!({"variant": "Phone", "action": "type", "text": "hi\nthere"}));
+        assert_eq!(typed.phrase(), "Type “hi there”");
+        assert_eq!(typed.detail_lines(), vec!["hi", "there"]);
+        let shot = action(serde_json::json!({"variant": "Phone", "action": "screenshot"}));
+        assert_eq!(shot.phrase(), "Take a screenshot");
     }
 
     #[test]

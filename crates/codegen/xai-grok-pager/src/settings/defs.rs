@@ -1391,6 +1391,34 @@ pub fn default_settings() -> Vec<SettingMeta> {
             restart_required: true,
             hidden_in_minimal: false,
         },
+        // SHELL-owned `[features].phone_use`: the `phone` tool, on by default.
+        SettingMeta {
+            key: "phone_use",
+            category: SettingCategory::Agent,
+            owner: SettingOwner::Shell,
+            label: "Phone use",
+            description: "Let Crok see and use your iPhone (through the Mac's iPhone Mirroring) or \
+                          Android phone (over USB or Wi-Fi debugging). It asks before acting on \
+                          the phone. Applies to new sessions.",
+            keywords: &[
+                "phone",
+                "iphone",
+                "android",
+                "mobile",
+                "mirroring",
+                "adb",
+                "tap",
+                "app",
+                "automation",
+                "tool",
+                "features",
+            ],
+            kind: SettingKind::Bool {
+                default: Feature::PhoneUse.default_enabled(),
+            },
+            restart_required: true,
+            hidden_in_minimal: false,
+        },
         // SHELL-owned startup-time settings (restart_required: true).
         // The running pager doesn't re-read these mid-session.
         SettingMeta {

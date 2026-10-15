@@ -98,7 +98,7 @@ few commands that need an idle task (`/plan`, `/imagine`, `/imagine-video`,
 `/flush`, `/dream`, `/rewind`, `/fork`, `/delete`, and `/model` or `/effort`
 with an argument) keep your draft and ask you to wait or stop the turn.
 
-The registry contains 75 pager commands. `/login` and `/browser` are desktop-only:
+The registry contains 76 pager commands. `/login` and `/browser` are desktop-only:
 the terminal signs in with `crok login <provider>` instead, and has no browser. xAI accounts are not supported, so
 there is no `/logout` or `/privacy`, and `/usage` has no billing.
 
@@ -119,6 +119,7 @@ there is no `/logout` or `/privacy`, and `/usage` has no billing.
 | [`/delete`](../../crates/codegen/xai-grok-pager/src/slash/commands/delete.rs) | — | `/delete` | Native: confirmation, then `session/cancel`, `_x.ai/task/kill`, `_x.ai/session/delete`; the local task is removed after the harness succeeds (sidebar Delete uses the same path) |
 | [`/browser-use`](../../crates/codegen/xai-grok-pager/src/slash/commands/device_use.rs) | — | `/browser-use [on\|off]` | Native: saves `[features].browser_use` (bare switches it) with a banner; new tasks get the `browser` tool. Also Settings → Browser and computer use |
 | [`/computer-use`](../../crates/codegen/xai-grok-pager/src/slash/commands/device_use.rs) | — | `/computer-use [on\|off]` | Native: saves `[features].computer_use` (bare switches it); turning it on asks macOS for Screen Recording and Accessibility, which Settings → Browser and computer use shows with an Allow button |
+| [`/phone-use`](../../crates/codegen/xai-grok-pager/src/slash/commands/device_use.rs) | — | `/phone-use [on\|off]` | Native: saves `[features].phone_use` (on by default; bare switches it) with a banner; new tasks get the `phone` tool. Also Settings → Phone use, which shows the iPhone's Screen Recording and Accessibility with an Allow button and opens iPhone Mirroring |
 | [`/docs`](../../crates/codegen/xai-grok-pager/src/slash/commands/docs.rs) | `/howto`, `/guides` | `/docs [web\|title]` | Native Guides window over `$CROK_HOME/docs/user-guide` with search and in-guide links; `web` opens the online docs; a title opens that guide |
 | [`/doctor`](../../crates/codegen/xai-grok-pager/src/slash/commands/doctor.rs) | `/terminal-setup`, `/terminal-check`, `/terminal-info` | `/doctor [fix [FIX]]` | Native Diagnostics sheet from `crok doctor --json` plus desktop checks (runtime, sign-in, microphone, notifications); fixes run in Terminal |
 | [`/edit-prompt`](../../crates/codegen/xai-grok-pager/src/slash/commands/edit_prompt.rs) | — | `/edit-prompt` | Native large editor sheet; "Open in External Editor…" uses `$VISUAL`/`$EDITOR` with the pager's read-back rules |

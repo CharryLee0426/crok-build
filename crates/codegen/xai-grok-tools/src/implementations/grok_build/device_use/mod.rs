@@ -1,4 +1,4 @@
-//! What the `browser` and `computer` tools share.
+//! What the `browser`, `computer` and `phone` tools share.
 //!
 //! Both follow the contract of Anthropic's client toolsets (`browser_toolset_20260801` and
 //! `computer_toolset_20260801`, driven by `anthropic.tools.browser` and `anthropic.tools.computer`
@@ -18,7 +18,12 @@ pub struct DeviceUseConfig {
     pub browser: crate::implementations::grok_build::browser_use::BrowserUseConfig,
     /// Offer the `computer` tool to the primary agent; only where it is supported (macOS).
     pub computer: bool,
+    /// Offer the `phone` tool to the primary agent.
+    pub phone: bool,
 }
+
+/// What a phone call reads after an earlier phone call in the same response failed.
+pub const PHONE_HALT_TEXT: &str = "Not executed: an earlier phone action in this turn failed.";
 
 /// What a browser call reads after an earlier call in the same response failed.
 pub const BROWSER_HALT_TEXT: &str = "Not executed: an earlier action in this turn failed.";
@@ -255,6 +260,61 @@ pub fn format_seconds(value: f64) -> String {
     }
 }
 
+/// Claim a device for this process through `$CROK_HOME/<lock_file>`, or say which process holds it.
+///
+/// A process keeps its claim while it acts; another Crok process (another task in Crok Desktop,
+/// another terminal) is refused, with `refusal(holder)`, until the claim has been idle for `idle`
+/// or its holder has quit, so two agents never take turns driving one pointer or one phone.
+pub fn claim(
+    lock_file: &str,
+    idle: std::time::Duration,
+    refusal: impl FnOnce(u32) -> String,
+) -> Result<(), String> {
+    let path = crate::util::grok_home::grok_home().join(lock_file);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let ours = std::process::id();
+    if let Ok(contents) = std::fs::read_to_string(&path) {
+        let mut fields = contents.split_whitespace();
+        let holder = fields.next().and_then(|pid| pid.parse::<u32>().ok());
+        let stamp = fields
+            .next()
+            .and_then(|at| at.parse::<u64>().ok())
+            .unwrap_or(0);
+        if let Some(holder) = holder
+            && holder != ours
+            && process_alive(holder)
+            && now.saturating_sub(stamp) < idle.as_secs()
+        {
+            return Err(refusal(holder));
+        }
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&path, format!("{ours} {now}\n"))
+        .map_err(|e| format!("could not claim the device: {e}"))
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    match nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None) {
+        Ok(()) => true,
+        Err(nix::errno::Errno::EPERM) => true,
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn process_alive(_pid: u32) -> bool {
+    true
+}
+
 /// Seconds for `wait` and `hold_key`, refused outside `0..=max` rather than moved into range.
 pub fn checked_duration(action: &str, duration: Option<f64>, max: f64) -> Result<f64, String> {
     let Some(duration) = duration else {
@@ -343,6 +403,12 @@ mod tests {
             "Set the value of ref_4."
         );
         assert_eq!(format_seconds(1.5), "1.5");
+    }
+
+    #[test]
+    fn a_dead_process_holds_no_claim() {
+        assert!(process_alive(std::process::id()));
+        assert!(!process_alive(u32::MAX - 7));
     }
 
     #[test]

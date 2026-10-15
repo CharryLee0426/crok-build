@@ -634,7 +634,7 @@ impl SessionActor {
             tracing::warn!(%error, "file-lock path resolution failed");
             vec![None; approved.len()]
         });
-        // One response's browser or desktop actions run in the order the model wrote them, one at a time
+        // One response's browser, desktop or phone actions run in the order the model wrote them, one at a time
         for (path, prepared) in lock_paths.iter_mut().zip(&approved) {
             let kind = self
                 .agent
@@ -642,7 +642,7 @@ impl SessionActor {
                 .tool_bridge()
                 .tool_kind(&prepared.tool_name);
             use xai_grok_tools::types::tool::ToolKind;
-            if let Some(kind @ (ToolKind::Browser | ToolKind::Computer)) = kind {
+            if let Some(kind @ (ToolKind::Browser | ToolKind::Computer | ToolKind::Phone)) = kind {
                 *path = Some(format!("\0{}", kind.as_key()));
             }
         }
@@ -2607,6 +2607,7 @@ impl SessionActor {
             ToolInput::Computer(ref computer) => {
                 (computer.title(), acp::ToolKind::Other, vec![], vec![])
             }
+            ToolInput::Phone(ref phone) => (phone.title(), acp::ToolKind::Other, vec![], vec![]),
             ToolInput::SearchTool(st) => (
                 format!("Search tools: \"{}\"", st.query),
                 acp::ToolKind::Other,
@@ -3250,6 +3251,9 @@ impl SessionActor {
                 xai_grok_tools::implementations::grok_build::computer_use::ComputerOutput(
                     ref result,
                 ),
+            )
+            | ToolsToolOutput::Phone(
+                xai_grok_tools::implementations::grok_build::phone_use::PhoneOutput(ref result),
             ) = *output
             && let Some(ref image) = result.image
         {

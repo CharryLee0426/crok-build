@@ -166,10 +166,101 @@ final class DeviceUseTests: XCTestCase {
 
     func testTheCommandsAreOffered() {
         let names = Set(DesktopCommands.catalog.map(\.name))
-        XCTAssertTrue(names.isSuperset(of: ["browser-use", "computer-use"]))
+        XCTAssertTrue(names.isSuperset(of: ["browser-use", "computer-use", "phone-use"]))
+        XCTAssertEqual(DesktopCommands.catalog.first { $0.name == "phone-use" }?.symbol, "iphone")
+        XCTAssertEqual(DesktopCommands.turnPolicy("phone-use", arguments: "off"), .runNow)
         XCTAssertEqual(DesktopCommands.turnPolicy("browser-use", arguments: "on"), .runNow, "switching does not wait for the turn")
         XCTAssertEqual(DesktopCommands.catalog.first { $0.name == "computer-use" }?.symbol, "cursorarrow.rays")
         XCTAssertEqual(DesktopCommands.catalog.first { $0.name == "browser-use" }?.argumentHint, "[on|off]")
+    }
+}
+
+// MARK: - Phone use
+
+/// Phone use in Crok Desktop: how a `phone` call is worded, what its approval card shows, and its
+/// switch, which is on until turned off.
+@MainActor
+final class PhoneUseTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("crok-phone-use-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        L10n.setLanguage(.en)
+    }
+
+    override func tearDownWithError() throws {
+        L10n.setLanguage(.auto)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testPhoneCallsAreWordedFromTheirInput() throws {
+        let tap = try XCTUnwrap(DeviceCall(rawInput: ["variant": "Phone", "action": "tap", "text": "Weather"]))
+        XCTAssertTrue(tap.isPhone)
+        XCTAssertFalse(tap.computer)
+        XCTAssertEqual(tap.title, "Phone: Tap “Weather”")
+        XCTAssertEqual(tap.symbol, "iphone")
+        let at = try XCTUnwrap(DeviceCall(rawInput: ["variant": "Phone", "device": "iphone", "action": "tap", "coordinate": [120.2, 399.7]]))
+        XCTAssertEqual(at.title, "iPhone: Tap (120, 400)")
+        XCTAssertEqual(DeviceCall(rawInput: ["variant": "Phone", "device": "android", "action": "scroll", "direction": "down"])?.title, "Android: Scroll down")
+        XCTAssertEqual(DeviceCall(rawInput: ["variant": "Phone", "action": "swipe", "direction": "left"])?.phrase, "Swipe left")
+        XCTAssertEqual(DeviceCall(rawInput: ["variant": "Phone", "action": "open_app", "text": "Settings"])?.phrase, "Open Settings")
+        XCTAssertEqual(DeviceCall(rawInput: ["variant": "Phone", "action": "screenshot"])?.phrase, "Take a screenshot")
+        XCTAssertEqual(DeviceCall(rawInput: ["variant": "Phone", "action": "read_screen"])?.phrase, "Read the screen")
+        XCTAssertEqual(DeviceCall(rawInput: ["variant": "Phone", "action": "home"])?.phrase, "Go to the Home Screen")
+        let pair = try XCTUnwrap(DeviceCall(rawInput: ["variant": "Phone", "action": "pair_android", "text": "123456"]))
+        XCTAssertEqual(pair.phrase, "Pair an Android phone")
+        XCTAssertEqual(pair.approvalDetail, "", "the pairing code is not shown")
+        let typed = try XCTUnwrap(DeviceCall(rawInput: ["variant": "Phone", "action": "type", "text": "hi\nthere"]))
+        XCTAssertEqual(typed.phrase, "Type “hi there”")
+        XCTAssertEqual(typed.approvalDetail, "hi\nthere", "the card shows what would be typed")
+        XCTAssertEqual(DeviceCall(rawInput: ["variant": "Computer", "action": "left_click", "text": "shift"])?.phrase, "Click",
+                       "only a phone call touches text")
+
+        L10n.setLanguage(.zhHans)
+        XCTAssertEqual(tap.title, "手机：轻点 “Weather”")
+        L10n.setLanguage(.ja)
+        XCTAssertEqual(at.title, "iPhone：(120, 400) をタップ")
+    }
+
+    func testTasksSavedBeforePhoneUseKeepLoading() throws {
+        let old = #"{"computer":true,"action":"screenshot"}"#
+        let call = try JSONDecoder().decode(DeviceCall.self, from: Data(old.utf8))
+        XCTAssertFalse(call.isPhone)
+        XCTAssertEqual(call.title, "Computer: Take a screenshot")
+        let phone = try XCTUnwrap(DeviceCall(rawInput: ["variant": "Phone", "device": "android", "action": "home"]))
+        XCTAssertEqual(try JSONDecoder().decode(DeviceCall.self, from: JSONEncoder().encode(phone)), phone)
+    }
+
+    func testTheApprovalCardWordsAPhoneAction() throws {
+        let call = try XCTUnwrap(DeviceCall(rawInput: ["variant": "Phone", "device": "iphone", "action": "tap", "text": "Send"]))
+        let approval = Approval(requestID: 1, title: "iPhone: tap \"Send\"", detail: call.approvalDetail,
+                                options: [PermissionOption(id: "allow-tool-session", name: "Yes, allow phone actions for this session", kind: "allow_always"),
+                                          PermissionOption(id: "allow-once", name: "Yes, allow once", kind: "allow_once")],
+                                device: call)
+        XCTAssertEqual(approval.shownTitle, "Allow iPhone: Tap “Send”?")
+        XCTAssertEqual(approval.options.map(\.shownName), approval.options.map(\.name))
+        L10n.setLanguage(.de)
+        XCTAssertEqual(approval.options.first?.shownName, "Ja, Telefonaktionen in dieser Sitzung erlauben")
+    }
+
+    func testPhoneUseIsOnUntilTurnedOff() throws {
+        let url = directory.appendingPathComponent("config.toml")
+        try "[ui]\ntheme = \"dark\"\n".write(to: url, atomically: true, encoding: .utf8)
+        let settings = DeviceUseSettings(configURL: url)
+        XCTAssertTrue(settings.phoneUse, "on when config.toml says nothing")
+        XCTAssertTrue(settings.isOn(.phone))
+        XCTAssertEqual(settings.command(.phone, arguments: ""), "✓ Phone use: off · new tasks get it")
+        XCTAssertEqual(GrokConfig(url: url).bool("phone_use", in: "features"), false)
+        XCTAssertEqual(GrokConfig(url: url).string("theme", in: "ui"), "dark", "the rest of the file is kept")
+        XCTAssertEqual(settings.command(.phone, arguments: "on"), "✓ Phone use: on · new tasks get it")
+        XCTAssertTrue(settings.phoneUse)
+        L10n.setLanguage(.es)
+        XCTAssertEqual(settings.set(.phone, false), "✓ Uso del teléfono: desactivado · se aplica a las tareas nuevas")
+    }
+
+    func testTheGuideIsListed() {
+        XCTAssertTrue(GuideLibrary.catalog.contains { $0.fileName == "29-phone-use.md" })
     }
 }
 
@@ -208,6 +299,10 @@ final class DeviceUseSnapshotTests: XCTestCase {
                     device: call(["variant": "Browser", "action": "left_click", "ref": "ref_7"])),
             Message(kind: .tool, text: "Computer: Take a screenshot", toolID: "4", status: "in_progress", detail: "",
                     device: call(["variant": "Computer", "action": "screenshot"])),
+            Message(kind: .tool, text: "iPhone: tap \"Weather\"", toolID: "5", status: "completed", detail: "Tapped \"Weather\" at (240, 820).",
+                    device: call(["variant": "Phone", "device": "iphone", "action": "tap", "text": "Weather"])),
+            Message(kind: .tool, text: "Android: scroll down", toolID: "6", status: "pending", detail: "",
+                    device: call(["variant": "Phone", "device": "android", "action": "scroll", "direction": "down"])),
         ]
     }
 
@@ -226,11 +321,12 @@ final class DeviceUseSnapshotTests: XCTestCase {
                                     device: typed)
             let view = VStack(alignment: .leading, spacing: 16) {
                 DeviceUseSettingsSection(model: DeviceUseSettings(configURL: config))
+                PhoneUseSettingsSection(model: DeviceUseSettings(configURL: config))
                 ApprovalCard(approval: approval)
             }
             .padding(24).frame(width: 660).foregroundStyle(Theme.ink).desktopEnvironment(store)
             for (suffix, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                try SnapshotRenderer.write(view, size: CGSize(width: 660, height: 720), appearance: appearance,
+                try SnapshotRenderer.write(view, size: CGSize(width: 660, height: 1240), appearance: appearance,
                                            to: output.appendingPathComponent("device-use-settings-\(name)-\(suffix).png"))
                 try renderConversation(appearance: appearance, to: output.appendingPathComponent("device-use-transcript-\(name)-\(suffix).png"))
             }

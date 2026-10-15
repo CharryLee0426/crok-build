@@ -536,7 +536,8 @@ impl AgentBuilder {
         self.web_fetch_config = config;
         self
     }
-    /// The `browser` and `computer` tools; both off by default (`[features] browser_use` / `computer_use`).
+    /// The `browser`, `computer` and `phone` tools: the first two off by default (`[features] browser_use` /
+    /// `computer_use`), the phone on (`[features] phone_use`).
     pub fn with_device_use(
         mut self,
         config: xai_grok_tools::implementations::grok_build::device_use::DeviceUseConfig,
@@ -819,6 +820,11 @@ impl AgentBuilder {
             {
                 use xai_grok_tools::implementations::grok_build;
                 tool_config.tools.push((&grok_build::ComputerTool).into());
+            }
+            // One phone at a time, driven by the primary agent only, like the desktop
+            if self.device_use.phone && self.prompt_audience == PromptAudience::Primary {
+                use xai_grok_tools::implementations::grok_build;
+                tool_config.tools.push((&grok_build::PhoneTool).into());
             }
             if self.lsp.is_some() {
                 tool_config
@@ -1209,7 +1215,9 @@ impl AgentBuilder {
             tool_bridge.update_resource(access).await;
         }
         {
-            use xai_grok_tools::implementations::grok_build::{browser_use, computer_use};
+            use xai_grok_tools::implementations::grok_build::{
+                browser_use, computer_use, phone_use,
+            };
             if let browser_use::BrowserUseConfig::Enabled { params } = &self.device_use.browser {
                 let key = self.owner_session_id.as_deref().unwrap_or("default");
                 tool_bridge
@@ -1223,6 +1231,11 @@ impl AgentBuilder {
             if self.device_use.computer {
                 tool_bridge
                     .update_resource(computer_use::ComputerSessionHandle::shared())
+                    .await;
+            }
+            if self.device_use.phone {
+                tool_bridge
+                    .update_resource(phone_use::PhoneSessionHandle::shared())
                     .await;
             }
         }
