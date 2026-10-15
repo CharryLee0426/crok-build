@@ -658,7 +658,9 @@ impl SessionActor {
         let api_backend = config.as_ref().map(|c| format!("{:?}", c.api_backend));
         let agent_name = self.agent.borrow().definition().name.clone();
         let conversation_id = None;
+        let output_tokens_per_second = self.session_output_tokens_per_second().await;
         SessionInfoData {
+            output_tokens_per_second,
             model,
             model_display_name: None,
             resolved_model_id,
@@ -686,6 +688,15 @@ impl SessionActor {
                 usage_categories,
             },
         }
+    }
+    /// The session's average output speed since it began, resumes included.
+    async fn session_output_tokens_per_second(&self) -> Option<f64> {
+        self.chat_state_handle
+            .try_get_session_usage_since_start()
+            .await
+            .ok()?
+            .totals
+            .output_tokens_per_second()
     }
     /// Build the `/context` usage rows for the skills listing, the workflow listing, the MCP server listing, and AGENTS.md.
     /// Under templated sessions, the skills row estimates the mid-session envelope.

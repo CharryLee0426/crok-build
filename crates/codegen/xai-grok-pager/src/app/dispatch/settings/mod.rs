@@ -49,6 +49,8 @@ pub(in crate::app::dispatch) fn handle_feature_override_persisted(
     };
     let effects = if feature == app.subagent_model_inheritance.feature {
         setters::settle_subagent_model_inheritance_write(app, persisted)
+    } else if app.device_features.get(feature).is_some() {
+        setters::settle_device_feature_write(app, feature, persisted)
     } else {
         vec![]
     };

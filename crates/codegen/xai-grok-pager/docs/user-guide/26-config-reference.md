@@ -199,6 +199,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `features.ask_user_question` | `boolean` | `pin` | `user` | Enable or disable `ask_user_question`. Default true. Also `CROK_ASK_USER_QUESTION`. |
 | `features.auto_wake` | `boolean` | `pin` | `user` | Enable or disable `auto_wake`. Default true. Also `CROK_AUTO_WAKE`. |
 | `features.backend_tools` | `boolean` | `pin` | `user` | Enable or disable `backend_tools`. Default true. Also `CROK_BACKEND_SEARCH`. |
+| `features.browser_use` | `boolean` | `pin` | `user` | The `browser` tool: open web pages in a browser of Crok's own and click, type, and read in them. Default false. Also `CROK_BROWSER_USE`. Read when a session starts. See [Browser and Computer Use](28-browser-and-computer-use.md). |
 | `features.campaigns` | `boolean` | `yes` | `user` | Enable remote campaign patches. `CROK_CAMPAIGNS=0` still disables even when requirements set this true. |
 | `features.cancel_rewind` | `boolean` | `pin` | `user` | Enable or disable `cancel_rewind`. Default true. Also `CROK_CANCEL_REWIND`. |
 | `features.codebase_indexing` | `boolean / string[]` | `pin` | `user` | Codebase graph indexing; true indexes git repos, or pass include/exclude globs. |
@@ -206,6 +207,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `features.compaction_mode` | `summary / transcript / segments` | `yes` | `user` | Compaction strategy. Also CROK_COMPACTION_MODE. |
 | `features.compaction_tool_choice` | `string` | `yes` | `user` | Tool-choice hint used during compaction. |
 | `features.compaction_verbatim_input` | `boolean` | `pin` | `user` | Enable or disable `compaction_verbatim_input`. Default true. Also `CROK_COMPACTION_VERBATIM_INPUT`. |
+| `features.computer_use` | `boolean` | `pin` | `user` | The `computer` tool: see the screen and use the mouse and keyboard (macOS only). Default false. Also `CROK_COMPUTER_USE`. Read when a session starts. See [Browser and Computer Use](28-browser-and-computer-use.md). |
 | `features.dock` | `boolean` | `pin` | `user` | Enable or disable `dock`. Default false. Also `CROK_DOCK`. |
 | `features.feedback` | `boolean` | `pin` | `user` | Enable or disable `feedback`. Default true. Also `CROK_FEEDBACK_ENABLED`. |
 | `features.feedback_trace_card` | `boolean` | `pin` | `user` | Show a trace-upload consent question after `/feedback`. Default false. Also `CROK_FEEDBACK_TRACE_CARD`. |
@@ -220,6 +222,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `features.mcp_push_server_status` | `boolean` | `yes` | `user` | Pager subscribes to MCP server_status push. Process env CROK_MCP_PUSH_SERVER_STATUS wins at launch. |
 | `features.mcp_recursive_config_watch` | `boolean` | `yes` | `user` | Watch `<cwd>/` and `<cwd>/.grok/` for project MCP config edits. Name is a misnomer; watches are non-recursive. |
 | `features.non_git_warning` | `boolean` | `yes` | `user` | Show a blocking warning when Crok starts outside a Git repository. |
+| `features.phone_use` | `boolean` | `pin` | `user` | The `phone` tool: see and use the user's iPhone (through the Mac's iPhone Mirroring) or Android phone (over adb, downloaded once when missing). Default true. Also `CROK_PHONE_USE`. Read when a session starts. See [Phone Use](29-phone-use.md). |
 | `features.remember_mode` | `boolean` | `—` | `—` | Remember the last permission mode across sessions. Read from user `config.toml` only. |
 | `features.remote_fetch` | `boolean` | `pin` | `fleet` | Pin remote model-catalog and asset fetch. Managed wins over the user file when both set. |
 | `features.session_recap` | `boolean` | `pin` | `user` | Enable or disable `session_recap`. Default true. Also `CROK_SESSION_RECAP`. |
@@ -597,6 +600,13 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `toolset.bash.max_timeout_secs` | `number` | `yes` | `user` | Cap on model-requested foreground timeouts. |
 | `toolset.bash.output_byte_limit` | `number` | `yes` | `user` | Max captured bash output in bytes. |
 | `toolset.bash.timeout_secs` | `number` | `yes` | `user` | Foreground bash command timeout in seconds. |
+| `toolset.browser.allowed_domains` | `string[]` | `yes` | `user` | Hosts the browser tool's `navigate` may open, subdomains included. Unset allows every host. |
+| `toolset.browser.blocked_domains` | `string[]` | `yes` | `user` | Hosts `navigate` refuses, subdomains included. |
+| `toolset.browser.executable` | `string` | `yes` | `user` | The Chromium-based browser to run. Default: the first of Chrome, Chromium, Edge, or Brave found. |
+| `toolset.browser.file_upload` | `boolean` | `yes` | `user` | Offer `file_upload`, for files inside the session's working directory. Default true. |
+| `toolset.browser.headless` | `boolean` | `yes` | `user` | Run the browser without a window. Default false. |
+| `toolset.browser.javascript` | `boolean` | `yes` | `user` | Offer `javascript_exec`; each script is approved on its own. Default true. |
+| `toolset.browser.profile_dir` | `string` | `yes` | `user` | Absolute path of the browser's profile. Default `$CROK_HOME/browser/profile`. |
 | `toolset.file_toolset` | `standard / hashline` | `yes` | `user` | File edit tool scheme. |
 | `toolset.web_fetch.allowed_domains` | `string[]` | `yes` | `user` | Domain allowlist override for web_fetch. |
 | `toolset.web_fetch.proxy_endpoint` | `string` | `yes` | `user` | Egress proxy URL for web_fetch. Also CROK_WEB_FETCH_PROXY. |

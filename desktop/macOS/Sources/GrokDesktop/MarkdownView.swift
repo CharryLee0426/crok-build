@@ -31,7 +31,7 @@ struct MarkdownContent: View {
     var body: some View {
         MarkdownBlocksView(blocks: cache.blocks(for: text), style: style)
             .textSelection(.enabled)
-            .tint(Theme.accent)
+            .tint(Theme.link)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -240,7 +240,7 @@ struct MarkdownInlineBuilder {
                 case .strikethrough(let children): var next = traits; next.strike = true; visit(children, next)
                 case .code(let code):
                     var piece = Self.codeRun(code, fontSize: fontSize)
-                    if let link = traits.link { piece.link = link; piece.foregroundColor = Theme.accent }
+                    if let link = traits.link { piece.link = link; piece.foregroundColor = Theme.link }
                     run.append(piece)
                 case .math(let latex), .displayMath(let latex):
                     flushRun(); result.append(.math(latex))
@@ -278,7 +278,7 @@ struct MarkdownInlineBuilder {
         if traits.strike { piece.strikethroughStyle = .single }
         if let link = traits.link {
             piece.link = link
-            piece.foregroundColor = Theme.accent
+            piece.foregroundColor = Theme.link
         }
         return piece
     }

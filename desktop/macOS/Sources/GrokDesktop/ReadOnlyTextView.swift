@@ -76,7 +76,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
         textView.allowsUndo = false
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 0, height: 2)
-        textView.linkTextAttributes = [.foregroundColor: Theme.accentNS, .cursor: NSCursor.pointingHand]
+        textView.linkTextAttributes = [.foregroundColor: Theme.linkNS, .cursor: NSCursor.pointingHand]
         textView.minSize = .zero
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -176,6 +176,7 @@ struct ReadOnlyTextView: NSViewRepresentable {
             // visible region laid out, however long it is.
             let contiguous = followsTail || style.isReply
             if layoutManager.allowsNonContiguousLayout == contiguous { layoutManager.allowsNonContiguousLayout = !contiguous }
+            (textView as? MarkdownSourceTextView)?.previewsImageLinks = style.isMarkdown
             self.followsTail = followsTail
             measuredLimit = measuresAll ? Int.max : Self.measuredPrefix
             // The end of a stream shows a last line that was waiting, with no new text to prompt it.
@@ -428,14 +429,87 @@ private extension ReadOnlyTextView.Style {
 }
 
 /// Copies typeset math as its LaTeX source and drawn symbols as text, places the Copy buttons
-/// of code cards, and reports appearance changes so math redraws.
+/// of code cards, reports appearance changes so math redraws, and previews linked image files.
 final class MarkdownSourceTextView: NSTextView {
     var onAppearanceChange: (() -> Void)?
     private(set) var copyButtons: [CodeCopyButton] = []
+    /// Markdown links image files (see `ImageFileLink`); the pointer resting on one previews the image.
+    var previewsImageLinks = false {
+        didSet { if previewsImageLinks != oldValue { updateTrackingAreas() } }
+    }
+    private var previewTracking: NSTrackingArea?
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         onAppearanceChange?()
+    }
+
+    // MARK: Image links
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let previewTracking { removeTrackingArea(previewTracking) }
+        previewTracking = nil
+        guard previewsImageLinks else { return }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        previewTracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        // NSTextView hands moves on to its superview; the ones the preview's tracking area brings stop here.
+        guard previewsImageLinks else { return super.mouseMoved(with: event) }
+        ImageLinkPreview.shared.pointerMoved(onto: imageLink(at: convert(event.locationInWindow, from: nil)), in: self)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        if previewTracking != nil, event.trackingArea === previewTracking { ImageLinkPreview.shared.pointerLeft(self) }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        ImageLinkPreview.shared.hide(anchoredTo: self)
+        super.mouseDown(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        ImageLinkPreview.shared.hide(anchoredTo: self)
+        super.scrollWheel(with: event)
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { ImageLinkPreview.shared.hide(anchoredTo: self) }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    /// A link to an image file opens in Preview; other links open as they always have.
+    override func clicked(onLink link: Any, at charIndex: Int) {
+        guard let url = link as? URL, ImageFileLink.isImage(url) else { return super.clicked(onLink: link, at: charIndex) }
+        ImageLinkPreview.shared.hide(anchoredTo: self)
+        if FileManager.default.fileExists(atPath: url.path) { ImageFileLink.open(url) } else { NSSound.beep() }
+    }
+
+    /// The link to an image file under `point`, and the rect of its piece on the line there.
+    func imageLink(at point: NSPoint) -> (url: URL, rect: NSRect)? {
+        guard let layoutManager, let container = textContainer, let storage = textStorage, storage.length > 0 else { return nil }
+        let origin = textContainerOrigin
+        let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        let glyph = layoutManager.glyphIndex(for: local, in: container)
+        // The nearest glyph is found even past the end of a line, so the point must be on it.
+        guard glyph < layoutManager.numberOfGlyphs,
+              layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).contains(local) else { return nil }
+        let index = layoutManager.characterIndexForGlyph(at: glyph)
+        var range = NSRange()
+        guard index < storage.length,
+              let url = storage.attribute(.link, at: index, longestEffectiveRange: &range, in: NSRange(location: 0, length: storage.length)) as? URL,
+              ImageFileLink.isImage(url) else { return nil }
+        var piece = NSRect.null
+        layoutManager.enumerateEnclosingRects(forGlyphRange: layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil),
+                                              withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: container) { rect, stop in
+            if rect.minY <= local.y, local.y <= rect.maxY { piece = rect; stop.pointee = true }
+        }
+        if piece.isNull { piece = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container) }
+        return (url, piece.offsetBy(dx: origin.x, dy: origin.y))
     }
 
     /// Code cards move when the text or its width changes; their buttons follow on the next layout.

@@ -265,6 +265,8 @@ pub(super) fn build_permission_display(
         } else {
             permission_title(tlm("Allow Edit?"), &[], local)
         }
+    } else if let Some(device) = device_action(req) {
+        permission_title(tlm("Allow {tool}?"), &[("tool", &device.title())], local)
     } else if let Some(t) = acp_title {
         permission_title(
             tlm("Allow {tool}?"),
@@ -340,11 +342,25 @@ fn qualify_permission_title_for_local_workspace(
     tlf("{title} (on your machine)", &[("title", &title)])
 }
 
+/// A `browser`, `computer` or `phone` call the prompt asks about.
+fn device_action(
+    req: &acp::RequestPermissionRequest,
+) -> Option<crate::scrollback::blocks::tool::device_action::DeviceAction> {
+    req.tool_call
+        .fields
+        .raw_input
+        .as_ref()
+        .and_then(crate::scrollback::blocks::tool::device_action::DeviceAction::from_raw_input)
+}
+
 fn permission_description_lines(
     req: &acp::RequestPermissionRequest,
     hook_ask: Option<&xai_grok_workspace::permission::HookAsk>,
 ) -> Vec<String> {
     let mut lines = mcp_args_lines(req);
+    if let Some(device) = device_action(req) {
+        lines.extend(device.detail_lines());
+    }
     if is_edit_permission(req)
         && let Some(desc) = protected_edit_description(req)
     {

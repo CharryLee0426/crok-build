@@ -63,6 +63,7 @@ pub struct AgentBuilder {
     /// When true, web search and X search go to the agentic sampler as native server-side tools instead of registering as local Function tools.
     backend_search: bool,
     web_fetch_config: xai_grok_tools::implementations::grok_build::web_fetch::WebFetchConfig,
+    device_use: xai_grok_tools::implementations::grok_build::device_use::DeviceUseConfig,
     lsp: Option<std::sync::Arc<dyn xai_grok_tools::implementations::lsp::LspBackend>>,
     image_gen_config: xai_grok_tools::implementations::grok_build::image_gen::ImageGenConfig,
     video_gen_config: xai_grok_tools::implementations::grok_build::video_gen::VideoGenConfig,
@@ -320,6 +321,7 @@ impl AgentBuilder {
             web_search_config: Default::default(),
             backend_search: false,
             web_fetch_config: Default::default(),
+            device_use: Default::default(),
             lsp: None,
             image_gen_config: Default::default(),
             video_gen_config: Default::default(),
@@ -532,6 +534,15 @@ impl AgentBuilder {
         config: xai_grok_tools::implementations::grok_build::web_fetch::WebFetchConfig,
     ) -> Self {
         self.web_fetch_config = config;
+        self
+    }
+    /// The `browser`, `computer` and `phone` tools: the first two off by default (`[features] browser_use` /
+    /// `computer_use`), the phone on (`[features] phone_use`).
+    pub fn with_device_use(
+        mut self,
+        config: xai_grok_tools::implementations::grok_build::device_use::DeviceUseConfig,
+    ) -> Self {
+        self.device_use = config;
         self
     }
     pub fn with_lsp(
@@ -797,6 +808,23 @@ impl AgentBuilder {
             if self.web_fetch_config.is_enabled() {
                 use xai_grok_tools::implementations::grok_build;
                 tool_config.tools.push((&grok_build::WebFetchTool).into());
+            }
+            if self.device_use.browser.is_enabled() {
+                use xai_grok_tools::implementations::grok_build;
+                tool_config.tools.push((&grok_build::BrowserTool).into());
+            }
+            // One desktop: only the primary agent may drive it
+            if self.device_use.computer
+                && xai_grok_tools::implementations::grok_build::computer_use::is_supported()
+                && self.prompt_audience == PromptAudience::Primary
+            {
+                use xai_grok_tools::implementations::grok_build;
+                tool_config.tools.push((&grok_build::ComputerTool).into());
+            }
+            // One phone at a time, driven by the primary agent only, like the desktop
+            if self.device_use.phone && self.prompt_audience == PromptAudience::Primary {
+                use xai_grok_tools::implementations::grok_build;
+                tool_config.tools.push((&grok_build::PhoneTool).into());
             }
             if self.lsp.is_some() {
                 tool_config
@@ -1185,6 +1213,31 @@ impl AgentBuilder {
         drop(tool_registry_timer);
         if let Some(access) = self.memory_v2_access.clone() {
             tool_bridge.update_resource(access).await;
+        }
+        {
+            use xai_grok_tools::implementations::grok_build::{
+                browser_use, computer_use, phone_use,
+            };
+            if let browser_use::BrowserUseConfig::Enabled { params } = &self.device_use.browser {
+                let key = self.owner_session_id.as_deref().unwrap_or("default");
+                tool_bridge
+                    .update_resource(browser_use::BrowserSessionHandle::for_session(
+                        key,
+                        params.clone(),
+                        self.working_directory.clone(),
+                    ))
+                    .await;
+            }
+            if self.device_use.computer {
+                tool_bridge
+                    .update_resource(computer_use::ComputerSessionHandle::shared())
+                    .await;
+            }
+            if self.device_use.phone {
+                tool_bridge
+                    .update_resource(phone_use::PhoneSessionHandle::shared())
+                    .await;
+            }
         }
         if let Some(bytes) = self.mcp_max_output_bytes {
             tool_bridge.toolset().resources.lock().await.insert(

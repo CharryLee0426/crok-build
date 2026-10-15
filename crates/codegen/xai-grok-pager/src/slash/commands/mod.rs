@@ -13,6 +13,7 @@ pub mod copy;
 pub mod dashboard;
 pub mod debug;
 pub mod delete;
+pub mod device_use;
 pub mod docs;
 pub mod doctor;
 pub mod edit_prompt;
@@ -135,6 +136,9 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(multiline::MultilineCommand),
         Arc::new(compact_mode::CompactModeCommand),
         Arc::new(timestamps::TimestampsCommand),
+        Arc::new(device_use::BrowserUseCommand),
+        Arc::new(device_use::ComputerUseCommand),
+        Arc::new(device_use::PhoneUseCommand),
         Arc::new(toggle_mouse_reporting::ToggleMouseReportingCommand),
         // Screen-mode switchers: visible only in the opposite mode.
         Arc::new(screen_mode_switch::ScreenModeSwitchCommand::minimal()),

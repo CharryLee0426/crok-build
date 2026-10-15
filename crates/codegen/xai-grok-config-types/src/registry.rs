@@ -53,6 +53,12 @@ pub enum Feature {
     TerminalTheme,
     /// Hand local sessions' file systems to an installed file accelerator.
     FileAcceleration,
+    /// The `browser` tool: drive a browser with a profile of its own.
+    BrowserUse,
+    /// The `computer` tool: see the screen and use the mouse and keyboard (macOS).
+    ComputerUse,
+    /// The `phone` tool: use the user's iPhone (through iPhone Mirroring) or Android phone (over adb).
+    PhoneUse,
 }
 
 /// How one feature is written on each surface it can be set from.
@@ -333,6 +339,34 @@ pub const FEATURES: &[FeatureSpec] = &[
         env: "GROK_FILE_ACCELERATION",
         default_enabled: false,
         remote: Some(|settings| settings.file_acceleration_enabled),
+        capability: None,
+    },
+    FeatureSpec {
+        id: Feature::BrowserUse,
+        key: "browser_use",
+        path: "features.browser_use",
+        env: "GROK_BROWSER_USE",
+        default_enabled: false,
+        remote: None,
+        capability: None,
+    },
+    FeatureSpec {
+        id: Feature::ComputerUse,
+        key: "computer_use",
+        path: "features.computer_use",
+        env: "GROK_COMPUTER_USE",
+        default_enabled: false,
+        remote: None,
+        capability: None,
+    },
+    // On by default: nothing is reached until a phone is connected, and acting asks first
+    FeatureSpec {
+        id: Feature::PhoneUse,
+        key: "phone_use",
+        path: "features.phone_use",
+        env: "GROK_PHONE_USE",
+        default_enabled: true,
+        remote: None,
         capability: None,
     },
 ];

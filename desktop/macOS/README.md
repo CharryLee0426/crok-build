@@ -254,9 +254,27 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   model/thinking selection have native interfaces. `/changes`, `/terminal`, and
   `/browser` open the side panel's Changes, Terminal, and Browser. Image/video commands appear when their
   tools are advertised.
+- **Browser and computer use:** **Settings › Browser and computer use** (or
+  `/browser-use` and `/computer-use`) lets new tasks drive a Chromium-based
+  browser of Crok's own, separate from the side panel's Browser, and see the
+  screen and use the mouse and keyboard. These work with every provider. The
+  section shows whether macOS has granted Screen Recording and Accessibility,
+  with **Allow…** to ask for them. Each action appears in the conversation as
+  its own row (a globe for the browser, a pointer for the computer) worded in
+  the interface language, and the approval card names the action and offers
+  to allow such actions for the rest of the session. See the
+  **Browser and Computer Use** guide (`/docs Browser and Computer Use`).
+- **Phone use:** on by default. New tasks can see and use your iPhone through
+  the Mac's iPhone Mirroring, or an Android phone over USB or Wi‑Fi debugging,
+  with every provider; Crok downloads Google's adb by itself when the Mac has
+  none. **Settings › Phone use** (or `/phone-use`) turns it off, shows whether
+  macOS has granted the iPhone's Screen Recording and Accessibility with
+  **Allow…**, and opens iPhone Mirroring. Each action appears as its own row
+  with a phone icon, and the approval card offers to allow phone actions for
+  the rest of the session. See the **Phone Use** guide (`/docs Phone Use`).
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
-records all 73 pager commands, shell built-ins, CLI families, exact ACP
+records all 76 pager commands, shell built-ins, CLI families, exact ACP
 contracts, and what each command does in the desktop app. Commands that open a
 picker or panel in the terminal open a native sheet or window here: usage and
 context, session info, feedback, release notes, guides, the tutorial,
@@ -278,7 +296,12 @@ quotes and GitHub callouts, tables with column alignment, links, images, and
 footnotes. LaTeX math (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`, and environments such
 as `aligned`, `cases`, and `pmatrix`) is typeset natively with the system's STIX
 Two Math font, and copying typeset math copies its LaTeX. Code blocks are
-syntax-highlighted for over a hundred languages and have a Copy button. Each reply is
+syntax-highlighted for over a hundred languages and have a Copy button. Links are blue,
+in the theme's link colour. A path to an image file in a reply, in code (`` `/tmp/qr/auth.png` ``)
+or in its text, is a link too: rest the pointer on it to see the image in a popover, large
+enough to scan a QR code, and click the path or the image to open the file in Preview. The
+file is read when the pointer rests on it, so the popover shows it as it is now, or says that
+it is gone. Each reply is
 one selectable text, so a selection can run across paragraphs, tables, and code. Thinking
 renders in a scrolling text view that follows the stream, so long reasoning stays
 responsive. While a reply or thinking streams, a last line that so far could only be
@@ -321,7 +344,9 @@ the model picker searches both names and provider IDs. The composer displays the
 model, the thinking level when it is adjustable, the permission mode as its icon
 (hover for its name), and the conversation mode. Changes
 are acknowledged by the harness before sending is re-enabled, and model/thinking
-choices persist across relaunches. Left of the microphone, a ring fills as the
+choices persist across relaunches. What a change or a command reports ("⚠ Always-approve
+ON: all tool actions auto-run", an error) shows in a banner above the conversation for five
+seconds; it stays while the pointer rests on it, and its × closes it sooner. Left of the microphone, a ring fills as the
 task's context window does, turning amber from 75% and red from 95% as the
 terminal's meter does. Hover it for the tokens used and free, or click it for a
 popover with a larger ring divided into the system prompt, messages, and
@@ -570,8 +595,9 @@ screen does. `CROK_DESKTOP_WINDOW_SHOTS=<folder> swift test --filter TranscriptW
 opens the real main window instead, under the desktop where nobody sees it, and
 has the window server picture it: the rows clear of the title bar and the find
 bar, a long task kept at its end as the window and the side panel change, a
-block opening in place while the rows after it slide, and the fade at the top
-of reasoning that streams. The pictures are of the app's own window, so they
+block opening in place while the rows after it slide, the fade at the top
+of reasoning that streams, a reply's links in blue with the image a path names
+previewed under the pointer, and a banner gone five seconds after it came. The pictures are of the app's own window, so they
 need no screen-recording permission. `--filter MotionWindow` pictures the same
 way what should move: a running tool call's spinner (clockwise) and blue sweep,
 the thinking sparkle, and the welcome page's starters, and that a finished call

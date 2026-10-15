@@ -476,6 +476,8 @@ final class TranscriptToolRow: TranscriptRowView {
     private var shownImages: [UUID] = []
     private var shownTitle = ""
     private var shownStatus: String?
+    /// The icon while the call is not finished: a globe for the browser, a pointer for the computer, a terminal for any other tool.
+    private var waitingSymbol = "terminal"
     private(set) var tone: Tone?
 
     override func build() {
@@ -493,15 +495,22 @@ final class TranscriptToolRow: TranscriptRowView {
 
     override func show(_ model: TranscriptRowModel) {
         let message = model.message
-        if shownStatus != message.status || self.tone == nil {
-            shownStatus = message.status
-            status.text = (message.status ?? "pending").replacingOccurrences(of: "_", with: " ")
+        // Worded each time, so a change of interface language reaches rows already drawn.
+        let statusText = message.statusLabel
+        if shownStatus != statusText || self.tone == nil {
+            shownStatus = statusText
+            status.text = statusText
         }
         let tone = Tone(model)
-        if tone != self.tone { showTone(tone) }
-        if shownTitle != message.text || title.attributedText == nil {
-            shownTitle = message.text
-            let text = TranscriptParts.toolTitle(message.text)
+        let symbol = message.device?.symbol ?? "terminal"
+        if tone != self.tone || symbol != waitingSymbol {
+            waitingSymbol = symbol
+            showTone(tone)
+        }
+        let titleText = message.toolTitle
+        if shownTitle != titleText || title.attributedText == nil {
+            shownTitle = titleText
+            let text = TranscriptParts.toolTitle(titleText, markdown: message.device == nil)
             title.attributedText = text
             header.setAccessibilityLabel(text.string)
         }
@@ -520,8 +529,11 @@ final class TranscriptToolRow: TranscriptRowView {
         } else {
             output?.removeFromSuperview(); output = nil
             if model.isExpanded, message.attachments?.isEmpty != false {
-                if noOutput == nil {
-                    let label = TranscriptParts.label("No additional output.", size: 13, color: Theme.palette.mutedNS)
+                let text = L10n.t("tool_no_output", "No additional output.")
+                if let noOutput {
+                    noOutput.text = text
+                } else {
+                    let label = TranscriptParts.label(text, size: 13, color: Theme.palette.mutedNS)
                     addSubview(label)
                     noOutput = label
                 }
@@ -565,7 +577,7 @@ final class TranscriptToolRow: TranscriptRowView {
         let palette = Theme.palette
         switch tone {
         case .idle, .running:
-            icon.image = TranscriptParts.symbol("terminal", size: 14)
+            icon.image = TranscriptParts.symbol(waitingSymbol, size: 14)
             icon.contentTintColor = palette.mutedNS
             card.color = palette.sidebarNS.fading(0.65)
             card.stroke = nil

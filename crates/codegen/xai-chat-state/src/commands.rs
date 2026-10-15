@@ -110,8 +110,7 @@ pub enum ChatStateCommand {
     RecordModelCallUsage {
         model_id: Option<String>,
         usage: TokenUsage,
-        api_duration_ms: Option<u64>,
-        cost_usd_ticks: Option<i64>,
+        metrics: crate::usage::CallMetrics,
     },
 
     /// Subagent usage into session (and prompt when attributable). Replies when applied.
@@ -258,6 +257,14 @@ pub enum ChatStateCommand {
     GetSessionUsage {
         reply: oneshot::Sender<crate::usage::UsageLedger>,
     },
+
+    /// The session bill since it began: the baseline set at load plus this process's ledger.
+    GetSessionUsageSinceStart {
+        reply: oneshot::Sender<crate::usage::UsageLedger>,
+    },
+
+    /// What earlier agent processes recorded for the session, read when it is loaded.
+    SetSessionUsageBaseline { ledger: crate::usage::UsageLedger },
 
     /// `total_tokens` + bytes/4 delta from tool results since last model response.
     GetEstimatedTotalTokens { reply: oneshot::Sender<u64> },

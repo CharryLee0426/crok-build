@@ -114,6 +114,7 @@ async fn handle_session_info(
                 crate::util::config::DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
             ..ContextInfo::default()
         },
+        output_tokens_per_second: None,
     });
 
     data.model_display_name = agent

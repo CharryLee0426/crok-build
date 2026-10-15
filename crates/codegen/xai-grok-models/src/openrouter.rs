@@ -152,6 +152,29 @@ pub fn read_cached_models(cache_path: &Path) -> Result<Vec<OpenRouterModel>> {
     Ok(cache.models)
 }
 
+/// One model's prices from the last valid catalog, without a network request or a copy of the
+/// whole catalog. `id` is the routing slug, without the `openrouter/` picker prefix.
+pub fn cached_pricing(cache_path: &Path, id: &str) -> Option<OpenRouterPricing> {
+    let find = |cache: &CachedCatalog| {
+        cache
+            .models
+            .iter()
+            .find(|model| model.id == id)
+            .map(|model| model.pricing.clone())
+    };
+    {
+        let memory = MEMORY_CACHE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(cache) = memory.get(cache_path) {
+            return find(cache);
+        }
+    }
+    let cache = read_cache(cache_path).ok()?;
+    remember_cache(cache_path, &cache);
+    find(&cache)
+}
+
 /// Refresh an absent/stale catalog, or force a refresh regardless of age.
 ///
 /// Call at startup and periodically (e.g. every [`CACHE_TTL`]) so newly published

@@ -301,6 +301,54 @@ pub(crate) fn acp_tool_update(
                     .raw_output(raw_output_json(output, rewriter)),
             ))
         }
+        // A browser, computer or phone action: what the model read, the screenshot under it, and the raw output without the image bytes
+        ToolOutput::Browser(
+            xai_grok_tools::implementations::grok_build::browser_use::BrowserOutput(result),
+        )
+        | ToolOutput::Computer(
+            xai_grok_tools::implementations::grok_build::computer_use::ComputerOutput(result),
+        )
+        | ToolOutput::Phone(xai_grok_tools::implementations::grok_build::phone_use::PhoneOutput(
+            result,
+        )) => {
+            let mut content = vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
+                acp::TextContent::new(maybe_rewrite(rewriter, result.text.clone())),
+            ))];
+            if let Some(image) = &result.image {
+                content.push(acp::ToolCallContent::from(acp::ContentBlock::Image(
+                    acp::ImageContent::new(image.data.clone(), image.mime_type.clone())
+                        .meta(image.meta.clone().and_then(|v| v.as_object().cloned())),
+                )));
+            }
+            let lean = match output {
+                ToolOutput::Browser(_) => ToolOutput::Browser(
+                    xai_grok_tools::implementations::grok_build::browser_use::BrowserOutput(
+                        result.without_image_data(),
+                    ),
+                ),
+                ToolOutput::Phone(_) => ToolOutput::Phone(
+                    xai_grok_tools::implementations::grok_build::phone_use::PhoneOutput(
+                        result.without_image_data(),
+                    ),
+                ),
+                _ => ToolOutput::Computer(
+                    xai_grok_tools::implementations::grok_build::computer_use::ComputerOutput(
+                        result.without_image_data(),
+                    ),
+                ),
+            };
+            Some(acp::ToolCallUpdate::new(
+                acp::ToolCallId::new(Arc::from(tool_call_id)),
+                acp::ToolCallUpdateFields::new()
+                    .status(Some(if result.is_error {
+                        acp::ToolCallStatus::Failed
+                    } else {
+                        acp::ToolCallStatus::Completed
+                    }))
+                    .content(Some(content))
+                    .raw_output(raw_output_json(&lean, rewriter)),
+            ))
+        }
         // Todo also sends a Plan notification, but we still need to complete the tool call so the TUI flushes pending agent messages and avoids concatenating text across tool-call boundaries.
         // Error variants get `Failed` status so the Python side can distinguish tool-logic errors from infra errors via raw_output.
         ToolOutput::Todo(todo_output) => {

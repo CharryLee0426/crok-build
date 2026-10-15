@@ -163,11 +163,28 @@ impl ChatStateHandle {
         api_duration_ms: Option<u64>,
         cost_usd_ticks: Option<i64>,
     ) {
+        self.record_model_call(
+            model_id,
+            usage,
+            crate::usage::CallMetrics {
+                api_duration_ms,
+                cost_usd_ticks,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// [`Self::record_model_call_usage`] with the call's timing and an estimated cost.
+    pub fn record_model_call(
+        &self,
+        model_id: Option<String>,
+        usage: TokenUsage,
+        metrics: crate::usage::CallMetrics,
+    ) {
         let _ = self.cmd_tx.send(ChatStateCommand::RecordModelCallUsage {
             model_id,
             usage,
-            api_duration_ms,
-            cost_usd_ticks,
+            metrics,
         });
     }
 
@@ -501,6 +518,23 @@ impl ChatStateHandle {
         })
         .await
         .ok_or(())
+    }
+
+    /// Fail-closed read of the session bill since it began, earlier agent processes included.
+    /// [`Self::try_get_session_usage`] covers only this process, which per-turn deltas need.
+    pub async fn try_get_session_usage_since_start(&self) -> Result<crate::usage::UsageLedger, ()> {
+        self.query("GetSessionUsageSinceStart", |reply| {
+            ChatStateCommand::GetSessionUsageSinceStart { reply }
+        })
+        .await
+        .ok_or(())
+    }
+
+    /// Sets what earlier agent processes recorded for the session. Call once, when it is loaded.
+    pub fn set_session_usage_baseline(&self, ledger: crate::usage::UsageLedger) {
+        let _ = self
+            .cmd_tx
+            .send(ChatStateCommand::SetSessionUsageBaseline { ledger });
     }
 
     /// `total_tokens` plus bytes/4 estimate of tool results pushed since the

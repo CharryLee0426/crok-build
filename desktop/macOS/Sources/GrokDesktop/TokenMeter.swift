@@ -30,6 +30,50 @@ struct TokenCounts: Equatable {
     }
 }
 
+/// A task's footer figures, saved with the task so it shows them at once when opened again,
+/// after a restart too.
+struct SavedTokenUsage: Codable, Equatable, Sendable {
+    var input = 0
+    var output = 0
+    var cacheRead = 0
+    var cacheCreation = 0
+    /// The last response's measured speed.
+    var tokensPerSecond: Double?
+    /// The session's average speed, when only the harness's record was there to read.
+    var averageTokensPerSecond: Double?
+
+    init(_ counts: TokenCounts, tokensPerSecond: Double? = nil, averageTokensPerSecond: Double? = nil) {
+        input = counts.input; output = counts.output; cacheRead = counts.cacheRead; cacheCreation = counts.cacheCreation
+        self.tokensPerSecond = tokensPerSecond
+        self.averageTokensPerSecond = averageTokensPerSecond
+    }
+
+    var counts: TokenCounts { TokenCounts(input: input, output: output, cacheRead: cacheRead, cacheCreation: cacheCreation) }
+
+    /// The harness's own record of a session (`usage.json`), which adds up every turn whichever
+    /// client ran it. Its `inputTokens` is the whole prompt, cached parts included.
+    init?(harnessUsageFile data: Data) {
+        guard let file = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let session = file["session"] as? [String: Any] else { return nil }
+        let number = { (key: String) in max(0, (session[key] as? NSNumber)?.intValue ?? 0) }
+        let prompt = number("inputTokens"), cacheRead = number("cachedReadTokens"), cacheCreation = number("cacheCreationTokens")
+        guard number("modelCalls") > 0 || prompt > 0 || number("outputTokens") > 0 else { return nil }
+        self.init(TokenCounts(input: max(0, prompt - cacheRead - cacheCreation), output: number("outputTokens"),
+                              cacheRead: cacheRead, cacheCreation: cacheCreation))
+        let decodeMilliseconds = number("decodeDurationMs"), decodedTokens = number("decodeOutputTokens")
+        if decodeMilliseconds > 0, decodedTokens > 0 {
+            averageTokensPerSecond = Double(decodedTokens) * 1000 / Double(decodeMilliseconds)
+        }
+    }
+
+    /// Reads a session's `usage.json`; nil when the harness has not written one.
+    static func harnessRecord(cwd: String, sessionID: String, home: URL = GrokPaths.home) -> SavedTokenUsage? {
+        guard let directory = GrokPaths.sessionDirectory(cwd: cwd, sessionID: sessionID, home: home),
+              let data = try? Data(contentsOf: directory.appendingPathComponent("usage.json")) else { return nil }
+        return SavedTokenUsage(harnessUsageFile: data)
+    }
+}
+
 /// A request that could not read all of what the request before it left in the provider's prompt
 /// cache: the `cache_miss` of a `response_started` update, from Anthropic's cache diagnostics.
 struct PromptCacheMiss: Equatable {
@@ -65,10 +109,12 @@ enum TokenRate: Equatable {
     case measured(Double)
     /// From the text streamed so far.
     case estimated(Double)
+    /// The session's average, from the harness's record, for a task with no response measured here.
+    case average(Double)
 
     var tokensPerSecond: Double {
         switch self {
-        case .measured(let rate), .estimated(let rate): return rate
+        case .measured(let rate), .estimated(let rate), .average(let rate): return rate
         }
     }
 }
@@ -102,9 +148,42 @@ struct TokenMeter: Equatable {
     /// A stream has to run this long before its rate is shown; a rate over a few chunks swings wildly.
     static let minimumRateWindow: TimeInterval = 1
 
+    /// What was counted before the current harness process reported: the figures the task was
+    /// opened with, shown until the harness's own session total replaces them.
+    private(set) var carried: TokenCounts?
+    /// What the current harness process has counted.
     private(set) var session: TokenCounts?
     private(set) var lastRate: Double?
+    private(set) var averageRate: Double?
     private var live: LiveResponse?
+
+    init() {}
+
+    init(saved: SavedTokenUsage) {
+        carried = saved.counts
+        lastRate = saved.tokensPerSecond.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        averageRate = saved.averageTokensPerSecond.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+    }
+
+    /// Everything counted for the task, across harness processes.
+    var totals: TokenCounts? {
+        guard carried != nil || session != nil else { return nil }
+        var total = carried ?? TokenCounts()
+        if let session { total += session }
+        return total
+    }
+
+    /// What is saved with the task.
+    var saved: SavedTokenUsage? {
+        totals.map { SavedTokenUsage($0, tokensPerSecond: lastRate, averageTokensPerSecond: lastRate == nil ? averageRate : nil) }
+    }
+
+    /// A new harness process starts. What was counted so far stays on screen until it reports.
+    mutating func carryOver() {
+        carried = totals
+        session = nil
+        live = nil
+    }
 
     /// One response's stream, from its first chunk.
     private struct LiveResponse: Equatable {
@@ -141,11 +220,13 @@ struct TokenMeter: Equatable {
     /// The turn ended. A response it cut short never completes, so its stream is dropped here.
     mutating func endStream() { live = nil }
 
-    /// One model response finished. `sessionUsage` is the harness's own total; a harness that
-    /// sends none has its per-response `usage` summed instead.
+    /// One model response finished. `sessionUsage` is the harness's own total for the session
+    /// since it began, earlier processes included, so it replaces whatever was carried; a harness
+    /// that sends none has its per-response `usage` summed instead.
     mutating func completeResponse(usage: TokenCounts?, sessionUsage: TokenCounts?, tokensPerSecond: Double?) {
         live = nil
         if let sessionUsage {
+            carried = nil
             session = sessionUsage
         } else if let usage {
             var total = session ?? TokenCounts()
@@ -159,14 +240,15 @@ struct TokenMeter: Equatable {
     /// once a turn ends; a stream it left open no longer counts.
     func readout(turnRunning: Bool) -> TokenReadout? {
         let live = turnRunning ? live : nil
-        guard session != nil || live != nil else { return nil }
-        let session = session ?? TokenCounts()
+        let totals = totals
+        guard totals != nil || live != nil else { return nil }
+        let counted = totals ?? TokenCounts()
         return TokenReadout(
-            inputTokens: session.promptTokens,
-            outputTokens: session.output + (live?.estimatedTokens ?? 0),
-            cachedTokens: session.cacheRead,
-            cacheHitRate: session.cacheHitRate,
-            rate: live?.rate.map(TokenRate.estimated) ?? lastRate.map(TokenRate.measured))
+            inputTokens: counted.promptTokens,
+            outputTokens: counted.output + (live?.estimatedTokens ?? 0),
+            cachedTokens: counted.cacheRead,
+            cacheHitRate: counted.cacheHitRate,
+            rate: live?.rate.map(TokenRate.estimated) ?? lastRate.map(TokenRate.measured) ?? averageRate.map(TokenRate.average))
     }
 }
 
@@ -192,7 +274,7 @@ enum TokenFormat {
 
     static func rate(_ rate: TokenRate) -> String {
         switch rate {
-        case .measured(let value): return "\(Self.rate(value)) tok/s"
+        case .measured(let value), .average(let value): return "\(Self.rate(value)) tok/s"
         case .estimated(let value): return "~\(Self.rate(value)) tok/s"
         }
     }
@@ -207,6 +289,7 @@ enum TokenFormat {
         switch readout.rate {
         case .measured(let rate)?: lines.append("Speed: \(Self.rate(rate)) tokens per second in the last response")
         case .estimated(let rate)?: lines.append("Speed: about \(Self.rate(rate)) tokens per second, estimated while the reply streams")
+        case .average(let rate)?: lines.append("Speed: \(Self.rate(rate)) tokens per second on average this session")
         case nil: break
         }
         lines.append("Click for session usage · /usage")
@@ -278,11 +361,13 @@ final class TokenMeterModel: ObservableObject {
             noteStream(bytes: delta.utf8.count, promptID: meta?["promptId"] as? String, id: id)
         case "response_completed":
             guard !replayed else { return }
+            if current[id] == nil, let meter = savedMeter(id) { current[id] = meter }
             current[id, default: TokenMeter()].completeResponse(
                 usage: (update["usage"] as? [String: Any]).map(TokenCounts.init),
                 sessionUsage: (update["session_usage"] as? [String: Any]).map(TokenCounts.init),
                 tokensPerSecond: update["tokens_per_sec"] as? Double)
             publishNow()
+            if let saved = current[id]?.saved { store?.saveTokenUsage(saved, for: id) }
         case "turn_completed":
             guard current[id] != nil else { return }
             current[id]?.endStream()
@@ -296,10 +381,41 @@ final class TokenMeterModel: ObservableObject {
         }
     }
 
-    /// A new harness process counts from zero, so the figures of the one before it no longer hold.
+    /// A new harness process starts: the task's figures stay until it reports its session total.
     func harnessDidStart(conversationID id: UUID) {
-        guard current.removeValue(forKey: id) != nil else { return }
+        guard var meter = current[id] ?? savedMeter(id) else { return }
+        meter.carryOver()
+        current[id] = meter
         publishNow()
+    }
+
+    /// Shows a task's figures when nothing has been counted for it since the app opened.
+    func restore(conversationID id: UUID) {
+        guard current[id] == nil, let meter = savedMeter(id) else { return }
+        current[id] = meter
+        publishNow()
+    }
+
+    /// Where a task's own record is: the session's `usage.json`. Tests point it elsewhere.
+    var harnessRecord: (_ cwd: String, _ sessionID: String) -> SavedTokenUsage? = { cwd, sessionID in
+        SavedTokenUsage.harnessRecord(cwd: cwd, sessionID: sessionID)
+    }
+
+    /// The figures saved with the task, or the harness's record of its session when that counted
+    /// more: the terminal may have gone on with it, and older tasks saved none.
+    private func savedMeter(_ id: UUID) -> TokenMeter? {
+        guard let store, let task = store.task(id) else { return nil }
+        let saved = task.tokenUsage
+        let recorded = task.sessionID.flatMap { session in
+            store.state.projects.first { $0.id == task.projectID }.flatMap { harnessRecord($0.path, session) }
+        }
+        guard var chosen = saved ?? recorded else { return nil }
+        if let recorded, recorded.output > chosen.output {
+            chosen = recorded
+            chosen.tokensPerSecond = saved?.tokensPerSecond
+        }
+        if chosen.tokensPerSecond == nil, chosen.averageTokensPerSecond == nil { chosen.averageTokensPerSecond = recorded?.averageTokensPerSecond }
+        return TokenMeter(saved: chosen)
     }
 
     /// What Context (`_x.ai/session/info`) measured. It also sizes the window for a model the

@@ -14,6 +14,8 @@ struct TranscriptDisplay: Equatable {
     var compact = false
     /// The line under the rows while a turn runs ("Working…"); nil when none does.
     var status: String?
+    /// The interface language, which tool calls' titles and statuses are worded in.
+    var language = ""
 
     var isTurnRunning: Bool { status != nil }
 }
@@ -200,6 +202,9 @@ final class TranscriptListView: NSView {
 
         if next.showTimestamps != old.showTimestamps {
             for index in messages.indices where messages[index].kind == .user || messages[index].kind == .assistant { invalidate(index) }
+        }
+        if next.language != old.language {
+            for index in messages.indices where messages[index].kind == .tool { invalidate(index) }
         }
         if next.streamingID != old.streamingID {
             for id in [old.streamingID, next.streamingID] { invalidate(id) }

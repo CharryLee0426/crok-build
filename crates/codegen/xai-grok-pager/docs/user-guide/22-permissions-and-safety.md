@@ -371,6 +371,7 @@ The `mcp__` rule spelling used in `.claude/settings.json` files is also accepted
 
 - `WebFetch(domain:example.com)` matches that host and every subdomain (`api.example.com`), case-insensitively, ignoring a leading `www.`. Wildcards are not supported inside `domain:` patterns.
 - A pattern without the `domain:` prefix globs against the entire URL: `WebFetch(https://api.example.com/*)`.
+- The browser tool's `navigate` is authorized as a web fetch of the address it opens, so the same rules and remembered domains apply to it.
 
 ### Tool Names
 
@@ -392,6 +393,8 @@ When a tool call requires approval, the permission prompt offers these choices:
 - **Reject once**: reject it, optionally with a message back to the model.
 - **Enable always-approve mode**: approves all future tool calls, not just the one being prompted.
 - **Allow all edits this session**: shown for file edits. This grant is held in memory only and does not survive a restart.
+- **Allow browser actions / computer use for this session**: shown for the [browser and computer tools](28-browser-and-computer-use.md). It covers clicking, typing, and the other actions that change a page or the screen; scripts (`javascript_exec`) and file uploads are still asked about one at a time. Held in memory only, like the edits grant.
+- **Allow phone actions for this session**: shown for the [phone tool](29-phone-use.md). It covers tapping, typing, swiping, and the other actions that change something on the phone; looking at the screen is never asked about. Held in memory only, like the edits grant.
 
 ### Per-Command "Always Allow"
 
@@ -569,4 +572,6 @@ Recommended combination for untrusted code:
 - [Agent mode](15-agent-mode.md) — ACP, stdio, and agent servers
 - [Sandbox](18-sandbox.md) — OS-level isolation profiles
 - [Configuration](05-configuration.md) — Native `config.toml` structure
+- [Browser and computer use](28-browser-and-computer-use.md) — What the browser and computer tools ask before they act
+- [Phone use](29-phone-use.md) — What the phone tool asks before it acts
 

@@ -1839,6 +1839,7 @@ fn context_info_response() -> xai_grok_shell::session::SessionInfoResponse {
             turns: 0,
             turn_index: 0,
             context: ContextInfo::default(),
+            output_tokens_per_second: None,
         },
     }
 }

@@ -1343,6 +1343,10 @@ pub(crate) async fn run(
         config_layers.as_ref(),
         remote_settings.as_ref(),
     );
+    app.device_features = crate::settings::DeviceFeatures::from_layers(
+        config_layers.as_ref(),
+        remote_settings.as_ref(),
+    );
     app.subscription_watch_interval_secs = remote_settings
         .as_ref()
         .and_then(|rs| rs.subscription_watch_interval_secs);

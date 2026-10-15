@@ -1,5 +1,7 @@
 import AppKit
+import CoreImage
 import SwiftUI
+import UniformTypeIdentifiers
 import XCTest
 @testable import GrokDesktop
 
@@ -59,10 +61,19 @@ final class TranscriptWindowTests: XCTestCase {
         while Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
     }
 
-    /// The window as the window server draws it, without its shadow.
+    /// The window as the window server draws it, without its shadow. With `over`, a window above it
+    /// (a popover), the two together, in the bounds of both.
     @discardableResult
-    private func picture(_ name: String) throws -> NSBitmapImageRep {
-        let image = try XCTUnwrap(capture(.null, 1 << 3, UInt32(window.windowNumber), 1)?.takeRetainedValue(), "the window server pictured the window")
+    private func picture(_ name: String, over top: NSWindow? = nil) throws -> NSBitmapImageRep {
+        var bounds = CGRect.null
+        if let top {
+            let screen = NSScreen.screens.first?.frame.height ?? 0
+            let frame = window.frame.union(top.frame)
+            bounds = CGRect(x: frame.minX, y: screen - frame.maxY, width: frame.width, height: frame.height)
+        }
+        // The window alone, or the popover and the windows under it.
+        let options: UInt32 = top == nil ? 1 << 3 : 1 << 2 | 1 << 3
+        let image = try XCTUnwrap(capture(bounds, options, UInt32((top ?? window).windowNumber), 1)?.takeRetainedValue(), "the window server pictured the window")
         let bitmap = NSBitmapImageRep(cgImage: image)
         try bitmap.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent(name + ".png"))
         return bitmap
@@ -242,5 +253,127 @@ final class TranscriptWindowTests: XCTestCase {
         let top = darkest(from: 0, to: 8), middle = darkest(from: 40, to: 70), bottom = darkest(from: frame.height - 22, to: frame.height - 2)
         XCTAssertGreaterThan(top, middle + 0.15, "the lines fade as they leave by the top: \(top) against \(middle)")
         XCTAssertEqual(bottom, middle, accuracy: 0.08, "and the newest line is as dark as the rest")
+    }
+
+    // MARK: Links, image previews, and the banner
+
+    /// The sign-in link of a recorded session, whose reply then named the QR code's file.
+    private static let signInURL = "https://accounts.feishu.cn/oauth/v1/device/verify?flow_id=OIAIUWFQ8HdKOOOOOOOOOOOgz-ON0F6OYTuQDph1zS-B&user_code=MT5Q-PKHK"
+
+    /// A QR code for `text`, standing in for the one the session wrote and later deleted.
+    private func writeQRCode(_ text: String, to file: URL) throws {
+        let filter = try XCTUnwrap(CIFilter(name: "CIQRCodeGenerator", parameters: ["inputMessage": Data(text.utf8), "inputCorrectionLevel": "M"]))
+        let code = try XCTUnwrap(filter.outputImage).transformed(by: CGAffineTransform(scaleX: 6, y: 6))
+        let image = try XCTUnwrap(CIContext().createCGImage(code, from: code.extent))
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try XCTUnwrap(PromptAttachmentsModel.encode(image, as: .png)).write(to: file)
+    }
+
+    /// How far blue rises above red and green at most, in a rect of `view` in a picture of the window.
+    private func blueness(of rect: NSRect, in view: NSView, picture bitmap: NSBitmapImageRep) -> CGFloat {
+        let frame = view.convert(rect, to: nil)
+        let scale = CGFloat(bitmap.pixelsHigh) / window.frame.height
+        var most: CGFloat = -1
+        for y in Int((window.frame.height - frame.maxY) * scale)..<Int((window.frame.height - frame.minY) * scale) {
+            for x in Int(frame.minX * scale)..<Int(frame.maxX * scale) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                most = max(most, color.blueComponent - max(color.redComponent, color.greenComponent))
+            }
+        }
+        return most
+    }
+
+    func testRepliesShowLinksInBlueAndPreviewAnImagePathUnderThePointer() throws {
+        let code = directory.appendingPathComponent("qr/auth.png")
+        try writeQRCode(Self.signInURL, to: code)
+        let messages = [
+            Message(kind: .user, text: "ok, leave me a lark todo: sync with RD about the aige 5.6 regression bugs, due 10am"),
+            Message(kind: .assistant, text: """
+            I haven't created the todo yet because the Lark user login has expired. Please authorize the `task` scopes with this link. It expires in about 10 minutes:
+
+            \(Self.signInURL)
+
+            QR code: `\(code.path)`
+
+            Tell me when you've authorized.
+            """),
+            Message(kind: .user, text: "authed."),
+            Message(kind: .assistant, text: """
+            I created the Lark todo and assigned it to you.
+
+            | # | Task | Due (PT) |
+            |---|---|---|
+            | 1 | [Sync with RD on AIGE 5.6 regression bug resolution progress](https://applink.larkoffice.com/client/todo/detail?guid=a261f5ab-6cf4-4806-b275-66cc2c67ab89) | 10:00 AM |
+            """),
+        ]
+        _ = open([messages])
+        let list = try list
+        func reply(_ id: UUID) throws -> MarkdownSourceTextView {
+            func find(_ view: NSView) -> MarkdownSourceTextView? { (view as? MarkdownSourceTextView) ?? view.subviews.lazy.compactMap(find).first }
+            return try XCTUnwrap(list.rowView(for: id).flatMap(find), "the reply is in sight")
+        }
+        func rect(of fragment: String, in textView: NSTextView) throws -> NSRect {
+            let layoutManager = try XCTUnwrap(textView.layoutManager), container = try XCTUnwrap(textView.textContainer)
+            let glyphs = layoutManager.glyphRange(forCharacterRange: (textView.string as NSString).range(of: fragment), actualCharacterRange: nil)
+            return layoutManager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
+        }
+        let signIn = try reply(messages[1].id), done = try reply(messages[3].id)
+        let bitmap = try picture("10-links-in-blue")
+        XCTAssertGreaterThan(blueness(of: try rect(of: "accounts.feishu.cn", in: signIn), in: signIn, picture: bitmap), 0.2, "a bare link is blue")
+        XCTAssertGreaterThan(blueness(of: try rect(of: "Sync with RD", in: done), in: done, picture: bitmap), 0.2, "so is a link in a table")
+        XCTAssertGreaterThan(blueness(of: try rect(of: "auth.png", in: signIn), in: signIn, picture: bitmap), 0.2, "and an image's path")
+        XCTAssertLessThan(blueness(of: try rect(of: "Tell me", in: signIn), in: signIn, picture: bitmap), 0.1, "the rest of the reply is not")
+
+        // The pointer resting on the path shows the image beside it, until the pointer leaves.
+        let path = try rect(of: "auth.png", in: signIn)
+        let hit = try XCTUnwrap(signIn.imageLink(at: NSPoint(x: path.midX, y: path.midY)))
+        XCTAssertEqual(hit.url, code)
+        ImageLinkPreview.shared.pointerMoved(onto: hit, in: signIn)
+        spin(1)
+        XCTAssertTrue(ImageLinkPreview.shared.isShown)
+        let popover = try XCTUnwrap(NSApp.windows.first { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }, "the preview is a popover")
+        let link = window.convertToScreen(signIn.convert(hit.rect, to: nil))
+        XCTAssertTrue(popover.frame.minX <= link.midX && link.midX <= popover.frame.maxX, "over the path")
+        XCTAssertLessThan(min(abs(popover.frame.minY - link.maxY), abs(link.minY - popover.frame.maxY)), 24, "and next to it")
+        let shot = try picture("11-image-preview", over: popover)
+        // The QR code's black and white modules fill the middle of the popover.
+        let bounds = window.frame.union(popover.frame), scale = CGFloat(shot.pixelsHigh) / bounds.height
+        let middle = popover.frame.insetBy(dx: popover.frame.width / 4, dy: popover.frame.height / 4)
+        var dark = 0, light = 0, seen = 0
+        for y in stride(from: Int((bounds.maxY - middle.maxY) * scale), to: Int((bounds.maxY - middle.minY) * scale), by: 2) {
+            for x in stride(from: Int((middle.minX - bounds.minX) * scale), to: Int((middle.maxX - bounds.minX) * scale), by: 2) {
+                guard let color = shot.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let luminance = (color.redComponent + color.greenComponent + color.blueComponent) / 3
+                seen += 1
+                if luminance < 0.1 { dark += 1 } else if luminance > 0.9 { light += 1 }
+            }
+        }
+        XCTAssertGreaterThan(dark, seen / 10, "the code's black modules are drawn")
+        XCTAssertGreaterThan(light, seen / 10, "and its white ones")
+        ImageLinkPreview.shared.pointerLeft(signIn)
+        spin(0.6)
+        XCTAssertFalse(ImageLinkPreview.shared.isShown)
+
+        // The session deleted the code once it had signed in; the popover then says it is gone.
+        try FileManager.default.removeItem(at: code)
+        ImageLinkPreview.shared.pointerMoved(onto: hit, in: signIn)
+        spin(1)
+        XCTAssertTrue(ImageLinkPreview.shared.isShown)
+        let gone = try XCTUnwrap(NSApp.windows.first { $0.isVisible && String(describing: type(of: $0)).contains("Popover") })
+        XCTAssertLessThan(gone.frame.height, 120, "a short note, not an image")
+        try picture("12-image-gone", over: gone)
+        ImageLinkPreview.shared.hide()
+    }
+
+    func testTheBannerGoesFiveSecondsAfterItCame() throws {
+        _ = open([TranscriptListFixtures.showcase()])
+        store.banner = ComposerPermissionMode.alwaysApprove.confirmation(planMode: false)
+        spin(0.5)
+        try picture("13-banner")
+        spin(4)
+        XCTAssertNotNil(store.banner, "still there after four and a half seconds")
+        spin(1)
+        XCTAssertNil(store.banner, "gone after five")
+        try picture("14-banner-gone")
     }
 }

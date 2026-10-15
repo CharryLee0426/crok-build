@@ -5,6 +5,9 @@ use super::*;
 use futures::StreamExt;
 use tracing::Instrument;
 use xai_grok_hooks::result::HookDecision;
+
+/// Numbers each model response's batch of tool calls, so a tool can tell one response from the next.
+static NEXT_TOOL_BATCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 #[path = "wait_interrupt.rs"]
 mod wait_interrupt;
 use wait_interrupt::{
@@ -620,7 +623,7 @@ impl SessionActor {
                 .collect()
         };
         let lock_cwd = dispatch_cwd.clone();
-        let lock_paths = tokio::task::spawn_blocking(move || {
+        let mut lock_paths = tokio::task::spawn_blocking(move || {
             lock_args
                 .iter()
                 .map(|args| lock_path_for_args(args, &lock_cwd))
@@ -631,6 +634,21 @@ impl SessionActor {
             tracing::warn!(%error, "file-lock path resolution failed");
             vec![None; approved.len()]
         });
+        // One response's browser, desktop or phone actions run in the order the model wrote them, one at a time
+        for (path, prepared) in lock_paths.iter_mut().zip(&approved) {
+            let kind = self
+                .agent
+                .borrow()
+                .tool_bridge()
+                .tool_kind(&prepared.tool_name);
+            use xai_grok_tools::types::tool::ToolKind;
+            if let Some(kind @ (ToolKind::Browser | ToolKind::Computer | ToolKind::Phone)) = kind {
+                *path = Some(format!("\0{}", kind.as_key()));
+            }
+        }
+        let batch = xai_grok_tools::types::tool_call_origin::ToolCallBatch(
+            NEXT_TOOL_BATCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        );
         let write_paths: std::collections::HashSet<_> = approved
             .iter()
             .zip(&lock_paths)
@@ -846,6 +864,7 @@ impl SessionActor {
                                     &session_id,
                                     origin,
                                     slot,
+                                    batch,
                                 )
                                 .await
                             };
@@ -2582,6 +2601,13 @@ impl SessionActor {
                 vec![],
                 vec![],
             ),
+            ToolInput::Browser(ref browser) => {
+                (browser.title(), acp::ToolKind::Other, vec![], vec![])
+            }
+            ToolInput::Computer(ref computer) => {
+                (computer.title(), acp::ToolKind::Other, vec![], vec![])
+            }
+            ToolInput::Phone(ref phone) => (phone.title(), acp::ToolKind::Other, vec![], vec![]),
             ToolInput::SearchTool(st) => (
                 format!("Search tools: \"{}\"", st.query),
                 acp::ToolKind::Other,
@@ -3216,6 +3242,25 @@ impl SessionActor {
                     prompt_text = format!("Read image file: {path}");
                 }
             }
+        }
+        if !self.is_cursor_harness()
+            && let ToolsToolOutput::Browser(
+                xai_grok_tools::implementations::grok_build::browser_use::BrowserOutput(ref result),
+            )
+            | ToolsToolOutput::Computer(
+                xai_grok_tools::implementations::grok_build::computer_use::ComputerOutput(
+                    ref result,
+                ),
+            )
+            | ToolsToolOutput::Phone(
+                xai_grok_tools::implementations::grok_build::phone_use::PhoneOutput(ref result),
+            ) = *output
+            && let Some(ref image) = result.image
+        {
+            let url = format!("data:{};base64,{}", image.mime_type, image.data);
+            inline_images.push(ContentPart::Image {
+                url: std::sync::Arc::<str>::from(url),
+            });
         }
         if !self.is_cursor_harness()
             && let ToolsToolOutput::ReadFile(ReadFileOutput::PdfPageImages(ref pdf)) = *output

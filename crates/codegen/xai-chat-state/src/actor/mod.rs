@@ -199,10 +199,9 @@ impl ChatStateActor {
             ChatStateCommand::RecordModelCallUsage {
                 model_id,
                 usage,
-                api_duration_ms,
-                cost_usd_ticks,
+                metrics,
             } => {
-                self.record_model_call_usage(model_id, &usage, api_duration_ms, cost_usd_ticks);
+                self.record_model_call_usage(model_id, &usage, &metrics);
             }
             ChatStateCommand::RecordSubagentUsage {
                 by_model,
@@ -367,6 +366,16 @@ impl ChatStateActor {
             }
             ChatStateCommand::GetSessionUsage { reply } => {
                 let _ = reply.send(self.state.session_usage.clone());
+            }
+            ChatStateCommand::GetSessionUsageSinceStart { reply } => {
+                let _ = reply.send(
+                    self.state
+                        .session_usage
+                        .since_start(&self.state.session_usage_baseline),
+                );
+            }
+            ChatStateCommand::SetSessionUsageBaseline { ledger } => {
+                self.state.session_usage_baseline = ledger;
             }
             ChatStateCommand::GetEstimatedTotalTokens { reply } => {
                 let _ =

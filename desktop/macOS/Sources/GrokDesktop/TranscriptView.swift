@@ -7,6 +7,7 @@ struct TranscriptView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var tools: TranscriptToolsModel
     @StateObject private var follow = TranscriptFollowState()
+    @ObservedObject private var language = L10n.state
     @State private var timeline = TranscriptTimelineMemo()
     @State private var findBarHeight: CGFloat = 62
     @AppStorage("compactConversation") private var compactConversation = false
@@ -55,7 +56,8 @@ struct TranscriptView: View {
             focusID: tools.vimMode ? tools.vimFocusID : nil,
             expanded: tools.expandedMessageIDs,
             compact: compactConversation,
-            status: run.isRunning ? (run.approvals.isEmpty && run.questions.isEmpty ? run.phase + "…" : "Waiting for your response") : nil)
+            status: run.isRunning ? (run.approvals.isEmpty && run.questions.isEmpty ? run.phase + "…" : "Waiting for your response") : nil,
+            language: L10n.resolvedCode)
         // A revision number is cheap to compare; the streaming text itself can be megabytes.
         return ZStack(alignment: .top) {
             // The rows run under the window's title bar and under the find bar, as far as the
@@ -291,6 +293,7 @@ private struct ToolCallView: View {
     var expanded: Bool?
     var onExpand: (@MainActor (UUID, Bool) -> Void)?
     @State private var localExpanded = false
+    @ObservedObject private var language = L10n.state
 
     /// As the AppKit row's finished cards: green when the call completed, red when it failed.
     private var outcome: Color? { message.status == "completed" ? Theme.green : message.status == "failed" ? Theme.red : nil }
@@ -311,18 +314,18 @@ private struct ToolCallView: View {
     private var section: some View {
         FoldableSection(isExpanded: FoldState(id: message.id, expanded: expanded, onExpand: onExpand).binding($localExpanded)) {
             HStack(spacing: 8) {
-                Image(systemName: message.status == "completed" ? "checkmark.circle.fill" : message.status == "failed" ? "xmark.circle.fill" : "terminal")
+                Image(systemName: message.status == "completed" ? "checkmark.circle.fill" : message.status == "failed" ? "xmark.circle.fill" : message.device?.symbol ?? "terminal")
                     .foregroundStyle(outcome ?? Theme.muted)
-                Text(Self.title(message.text)).lineLimit(2)
+                Text(message.device == nil ? Self.title(message.text) : AttributedString(message.toolTitle)).lineLimit(2)
                 Spacer()
-                Text((message.status ?? "pending").replacingOccurrences(of: "_", with: " ")).font(.system(size: 12)).foregroundStyle(outcome ?? Theme.muted)
+                Text(message.statusLabel).font(.system(size: 12)).foregroundStyle(outcome ?? Theme.muted)
             }.font(.system(size: 14))
         } content: {
             Group {
                 if let detail = message.detail, !detail.isEmpty {
                     ReadOnlyTextView(text: detail, style: .monospaced, wrapsLines: false, sizing: .fitContent(maxHeight: 260))
                 } else if message.attachments?.isEmpty != false {
-                    Text("No additional output.").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    Text(L10n.t("tool_no_output", "No additional output.")).font(.system(size: 13)).foregroundStyle(Theme.muted)
                 }
             }.padding(.horizontal, 14).padding(.bottom, message.attachments?.isEmpty == false && message.detail?.isEmpty != false ? 0 : 12)
         }

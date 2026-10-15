@@ -111,11 +111,7 @@ enum ImageViewerActions {
     /// Opens the image in Preview, writing it to a file first when it has none.
     static func openInPreview(_ item: ImageViewerItem, image: NSImage) {
         guard let file = (item.url?.isFileURL == true ? item.url : nil) ?? pngData(image).flatMap({ ImageStore.storeNow($0, mimeType: "image/png") }) else { return }
-        if let preview = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") {
-            NSWorkspace.shared.open([file], withApplicationAt: preview, configuration: NSWorkspace.OpenConfiguration())
-        } else {
-            NSWorkspace.shared.open(file)
-        }
+        ImageFileLink.openInPreview(file)
     }
 
     static func pngData(_ image: NSImage) -> Data? {

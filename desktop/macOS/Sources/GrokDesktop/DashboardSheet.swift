@@ -114,7 +114,7 @@ struct DashboardEntry: Identifiable, Equatable {
 
     /// What the task needs, or the last thing Crok said.
     static func preview(task: Conversation, run: RunState?) -> String {
-        if let approval = run?.approvals.first { return approval.title }
+        if let approval = run?.approvals.first { return approval.shownTitle }
         if let question = run?.questions.first?.questions.first { return question.question }
         if let reply = task.messages.last(where: { $0.kind == .assistant }), let line = lastLine(reply.text) { return line }
         if let prompt = task.messages.last(where: { $0.kind == .user }), let line = lastLine(prompt.text) { return "You: " + line }

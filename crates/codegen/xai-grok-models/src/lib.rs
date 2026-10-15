@@ -11,6 +11,7 @@ pub mod anthropic;
 pub mod deepseek;
 pub mod glm;
 pub mod openrouter;
+pub mod pricing;
 
 /// The raw JSON, embedded at compile time.
 /// It is `pub` because `xai_grok_shell::models` re-exports it and `agent::config` reads it.

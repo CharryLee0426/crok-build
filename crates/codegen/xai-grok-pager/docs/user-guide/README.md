@@ -55,3 +55,5 @@ Automate, script, and integrate Crok Build with other systems.
 | 25 | [Status Line](25-status-line.md) | The bottom status row: built-in segments, command scripts, and the stdin JSON contract |
 | 26 | [Configuration Reference](26-config-reference.md) | Field list for `config.toml`, `managed_config.toml`, and `requirements.toml` |
 | 27 | [Agent Trace Explorer](27-agent-traces.md) | Inspect agent events, tools, usage, and context in the terminal or an offline HTML report |
+| 28 | [Browser and Computer Use](28-browser-and-computer-use.md) | Let Crok work in web pages and use the mouse and keyboard, with any model provider |
+| 29 | [Phone Use](29-phone-use.md) | Let Crok use your iPhone (through iPhone Mirroring) or Android phone (over adb), with any model provider |

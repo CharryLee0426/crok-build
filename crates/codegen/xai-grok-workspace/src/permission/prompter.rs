@@ -19,6 +19,22 @@ const REJECT_ONCE_LABEL: &str = "No, and tell Crok what to do differently";
 /// Session-only and never persisted; exposed so the pager does not record it as a sticky cursor target.
 pub const ALLOW_EDITS_SESSION_OPTION_ID: &str = "allow-edits-session";
 
+/// Stable option id for "allow this tool for the rest of the session" on a tool that offers it
+/// ([`session_grant_label`]). Answered as [`PromptOutcome::AllowAlways`]; the manager keeps it in memory only.
+pub const ALLOW_TOOL_SESSION_OPTION_ID: &str = "allow-tool-session";
+
+/// The option a session grant reads as, for the tools whose approval may cover the rest of the
+/// session: driving the browser, the desktop or a phone is many small actions, each asked about otherwise.
+pub fn session_grant_label(tool: &str) -> Option<&'static str> {
+    use xai_grok_tools::implementations::grok_build::{browser_use, computer_use, phone_use};
+    match tool {
+        browser_use::BROWSER_ACCESS => Some("Yes, allow browser actions for this session"),
+        computer_use::COMPUTER_ACCESS => Some("Yes, allow computer use for this session"),
+        phone_use::PHONE_ACCESS => Some("Yes, allow phone actions for this session"),
+        _ => None,
+    }
+}
+
 /// Stable id for the "enable always-approve mode" option prepended for TUI / Pager / Desktop clients.
 /// Shell maps it to [`PromptOutcome::AllowOnce`] and persists nothing; the pager separately fires `set_yolo_mode(true)`.
 /// Keeps the wire plain ACP. An unrecognized client still gets `AllowOnce`; worst case the current call is granted but the toggle does not flip.
@@ -564,6 +580,35 @@ impl AcpPrompter {
     ) -> IndexMap<acp::PermissionOptionId, acp::PermissionOption> {
         match access {
             AccessKind::Edit(_) => self.edit_options.clone(),
+            AccessKind::Tool(tool) if session_grant_label(tool).is_some() => {
+                let label = session_grant_label(tool).unwrap_or_default();
+                IndexMap::from([
+                    (
+                        acp::PermissionOptionId::new(ALLOW_TOOL_SESSION_OPTION_ID),
+                        acp::PermissionOption::new(
+                            ALLOW_TOOL_SESSION_OPTION_ID,
+                            label.to_owned(),
+                            acp::PermissionOptionKind::AllowAlways,
+                        ),
+                    ),
+                    (
+                        acp::PermissionOptionId::new("allow-once"),
+                        acp::PermissionOption::new(
+                            "allow-once",
+                            "Yes, allow once".to_owned(),
+                            acp::PermissionOptionKind::AllowOnce,
+                        ),
+                    ),
+                    (
+                        acp::PermissionOptionId::new("reject-once"),
+                        acp::PermissionOption::new(
+                            "reject-once",
+                            REJECT_ONCE_LABEL.to_owned(),
+                            acp::PermissionOptionKind::RejectOnce,
+                        ),
+                    ),
+                ])
+            }
             AccessKind::AgentMessage { .. } | AccessKind::Tool(_) => {
                 self.agent_message_options.clone()
             }

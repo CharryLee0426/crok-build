@@ -46,17 +46,7 @@ struct ContentView: View {
         } detail: {
             VStack(spacing: 0) {
                 AnnouncementBanner()
-                if let banner = store.banner {
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "info.circle")
-                        Text(banner).textSelection(.enabled)
-                        Spacer(minLength: 4)
-                        IconButton(icon: "xmark", help: L10n.t("dismiss", "Dismiss")) { store.banner = nil }
-                    }
-                    .font(.system(size: 13))
-                    .padding(.horizontal, 24).padding(.vertical, 10)
-                    .background(Theme.hover.opacity(0.7))
-                }
+                if let banner = store.banner { BannerRow(text: banner) }
                 GeometryReader { geometry in
                     HStack(spacing: 0) {
                         ConversationView().frame(maxWidth: .infinity)
@@ -113,6 +103,40 @@ struct ContentView: View {
                 }.help(store.showInspector ? L10n.t("side_panel_hide", "Hide side panel · ⌘J") : L10n.t("side_panel_show", "Show files, side chat, terminal, and browser · ⌘J"))
             }
         }
+    }
+}
+
+/// The banner over the conversation (`AppStore.banner`). It goes by itself `lifetime` after it was
+/// last shown, and stays while the pointer rests on it, so its text can be read to the end or selected.
+struct BannerRow: View {
+    @EnvironmentObject var store: AppStore
+    let text: String
+    var lifetime: Duration = BannerRow.lifetime
+    static let lifetime: Duration = .seconds(5)
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle")
+            Text(text).textSelection(.enabled)
+            Spacer(minLength: 4)
+            IconButton(icon: "xmark", help: L10n.t("dismiss", "Dismiss")) { store.banner = nil }
+        }
+        .font(.system(size: 13))
+        .padding(.horizontal, 24).padding(.vertical, 10)
+        .background(Theme.hover.opacity(0.7))
+        .onHover { hovered = $0 }
+        .task(id: Showing(revision: store.bannerRevision, hovered: hovered)) {
+            guard !hovered else { return }
+            let revision = store.bannerRevision
+            try? await Task.sleep(for: lifetime)
+            if !Task.isCancelled, store.bannerRevision == revision { store.banner = nil }
+        }
+    }
+
+    private struct Showing: Equatable {
+        var revision: Int
+        var hovered: Bool
     }
 }
 

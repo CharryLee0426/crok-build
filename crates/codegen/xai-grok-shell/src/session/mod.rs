@@ -571,6 +571,7 @@ pub mod result;
 pub mod signals;
 pub(crate) mod slash_authority;
 pub(crate) mod slash_commands;
+pub(crate) mod standard_cost;
 pub mod usage_file;
 pub use slash_commands::{PAGER_COMMAND_KEYS, builtin_command};
 pub(crate) mod repo_status_prefix;

@@ -64,6 +64,7 @@ pub(super) fn handle_settings_update(notif: &acp::ExtNotification, app: &mut App
         match xai_grok_shell::config::load_effective_config_with_layers() {
             Ok(loaded) => {
                 app.subagent_model_inheritance.reseed_config_layers(&loaded);
+                app.device_features.reseed_config_layers(&loaded);
                 crate::app::dispatch::refresh_open_settings_modals(app);
             }
             Err(e) => {

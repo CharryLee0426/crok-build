@@ -2354,6 +2354,29 @@ impl MvpAgent {
         }
         WebFetchConfig::Enabled { params }
     }
+    /// The `browser` and `computer` tools, each off unless `[features] browser_use` / `computer_use` turns it on,
+    /// and the `phone` tool, on unless `[features] phone_use` turns it off.
+    /// The browser follows `[toolset.browser]`; computer use exists only where it is supported (macOS).
+    pub(super) fn prepare_device_use_config(
+        &self,
+    ) -> xai_grok_tools::implementations::grok_build::device_use::DeviceUseConfig {
+        use xai_grok_tools::implementations::grok_build::browser_use::BrowserUseConfig;
+        use xai_grok_tools::implementations::grok_build::computer_use;
+        let cfg = self.cfg.borrow();
+        let browser = if cfg.is_feature_enabled(crate::agent::config::Feature::BrowserUse) {
+            BrowserUseConfig::Enabled {
+                params: cfg.toolset.browser.clone(),
+            }
+        } else {
+            BrowserUseConfig::Disabled
+        };
+        xai_grok_tools::implementations::grok_build::device_use::DeviceUseConfig {
+            browser,
+            computer: computer_use::is_supported()
+                && cfg.is_feature_enabled(crate::agent::config::Feature::ComputerUse),
+            phone: cfg.is_feature_enabled(crate::agent::config::Feature::PhoneUse),
+        }
+    }
     /// Construct from pre-built components.
     /// Use when the caller needs the `ModelsManager` handle externally (e.g. `run_leader` wires it to the config watcher).
     /// Otherwise prefer [`Self::new`].
@@ -4699,6 +4722,7 @@ impl MvpAgent {
         let video_gen_config = self.prepare_video_gen_config();
         let app_builder_deployer_config = self.prepare_app_builder_deployer_config();
         let web_fetch_config = self.prepare_web_fetch_config();
+        let device_use = self.prepare_device_use_config();
         let write_file_enabled = self
             .cfg
             .borrow()
@@ -4965,6 +4989,7 @@ impl MvpAgent {
                     subagent_rate_limit_max_attempts,
                     web_search_sampling_config,
                     web_fetch_config,
+                    device_use,
                     image_gen_config,
                     video_gen_config,
                     app_builder_deployer_config,

@@ -3,6 +3,11 @@
 //! Holds no emitter, session owner, or live span. A direct-user or system call
 //! leaves the model absent unless the caller supplies a model from a known invocation.
 
+/// The model response a tool call came from: every call one response asked for carries the same
+/// value, and no other call does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ToolCallBatch(pub u64);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InvocationSource {
     Model,

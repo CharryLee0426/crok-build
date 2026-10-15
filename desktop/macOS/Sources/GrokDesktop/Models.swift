@@ -21,6 +21,8 @@ struct Conversation: Identifiable, Codable, Sendable {
     var reasoningID: String?
     /// Side questions (`/btw`) asked about this task, with their answers.
     var sideChat: [SideChatMessage]?
+    /// The composer footer's token figures when the task last counted, so a task opened again shows them at once.
+    var tokenUsage: SavedTokenUsage?
 }
 
 extension Conversation {
@@ -47,6 +49,8 @@ struct Message: Identifiable, Codable, Sendable {
     var createdAt: Date?
     /// Images, files, and folders sent with a prompt; images a tool returned or a reply carried.
     var attachments: [MessageAttachment]?
+    /// A browser or computer call, which the transcript words in the interface language.
+    var device: DeviceCall?
 }
 
 /// What a sent prompt carried, or an image a tool or reply showed, as the transcript shows it:
@@ -78,7 +82,7 @@ struct SideChatMessage: Identifiable, Codable, Sendable, Equatable {
     var createdAt = Date()
 }
 
-struct ModelOption: Identifiable, Equatable {
+struct ModelOption: Identifiable, Equatable, Codable, Sendable {
     var id: String
     var name: String
     var reasoningOptions: [ModelOption] = []
@@ -137,6 +141,8 @@ struct Approval: Identifiable {
     var title: String
     var detail: String
     var options: [PermissionOption]
+    /// A browser or computer action, which the card words in the interface language.
+    var device: DeviceCall?
 }
 
 struct PlanEntry: Identifiable {
@@ -199,6 +205,9 @@ struct DesktopState: Codable, Sendable {
     var selectedConversationID: UUID?
     var selectedModelID: String?
     var selectedReasoningID: String?
+    /// The newest model catalog a harness gave, so model names and thinking levels show at launch
+    /// before any harness has answered.
+    var modelCatalog: [ModelOption] = []
     var deletedSessionIDs: Set<String> = []
     /// Project folders the user folded in the sidebar. Folders are expanded by default.
     var collapsedProjectIDs: Set<UUID> = []
@@ -212,7 +221,7 @@ struct DesktopState: Codable, Sendable {
 extension DesktopState {
     private enum CodingKeys: String, CodingKey {
         case projects, conversations, selectedProjectID, selectedConversationID
-        case selectedModelID, selectedReasoningID, deletedSessionIDs, collapsedProjectIDs
+        case selectedModelID, selectedReasoningID, modelCatalog, deletedSessionIDs, collapsedProjectIDs
         case taskOrder, pinnedOrder
     }
 
@@ -224,6 +233,7 @@ extension DesktopState {
         selectedConversationID = try values.decodeIfPresent(UUID.self, forKey: .selectedConversationID)
         selectedModelID = try values.decodeIfPresent(String.self, forKey: .selectedModelID)
         selectedReasoningID = try values.decodeIfPresent(String.self, forKey: .selectedReasoningID)
+        modelCatalog = (try? values.decodeIfPresent([ModelOption].self, forKey: .modelCatalog)) ?? []
         deletedSessionIDs = try values.decodeIfPresent(Set<String>.self, forKey: .deletedSessionIDs) ?? []
         collapsedProjectIDs = try values.decodeIfPresent(Set<UUID>.self, forKey: .collapsedProjectIDs) ?? []
         taskOrder = try values.decodeIfPresent([String: [UUID]].self, forKey: .taskOrder) ?? [:]
@@ -372,8 +382,10 @@ enum TranscriptReducer {
             // made streaming, and loading, a task quadratic in its length.
             let searched = kind == "tool_call" ? messages.indices.suffix(Self.newCallLookback) : messages.indices.suffix(from: 0)
             let images = toolImages(contents, rawOutput: update["rawOutput"])
+            let device = DeviceCall(rawInput: update["rawInput"])
             if let index = searched.last(where: { messages[$0].toolID == id }) {
                 if let title = update["title"] as? String { messages[index].text = title }
+                if let device { messages[index].device = device }
                 if let status = update["status"] as? String { messages[index].status = status }
                 if !detail.isEmpty { messages[index].detail = detail }
                 // An update that resends the same images keeps the ones shown, so the row does not redraw.
@@ -384,7 +396,7 @@ enum TranscriptReducer {
                 return index
             }
             messages.append(Message(kind: .tool, text: update["title"] as? String ?? "Tool call", toolID: id,
-                                    status: update["status"] as? String ?? "pending", detail: detail, createdAt: date, attachments: images))
+                                    status: update["status"] as? String ?? "pending", detail: detail, createdAt: date, attachments: images, device: device))
             return messages.count - 1
         default: return nil
         }

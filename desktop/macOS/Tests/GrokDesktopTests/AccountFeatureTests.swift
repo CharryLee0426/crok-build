@@ -136,7 +136,7 @@ final class AccountFeatureTests: XCTestCase {
         XCTAssertEqual(summary.rows.map(\.value), ["12,345 (1,234 cached)", "678 (90 reasoning)", "13,023", "3 · API time: 5.2s", "$0.1234"])
         XCTAssertEqual(summary.models.map(\.label), ["grok-a", "grok-b"])
         XCTAssertEqual(summary.models.last?.value, "1,000 in / 200 out · not available (not reported for some calls)")
-        XCTAssertTrue(summary.text.hasPrefix("Session usage (since start or last resume):\n  Input tokens: 12,345 (1,234 cached)"))
+        XCTAssertTrue(summary.text.hasPrefix("Session usage (since the session started):\n  Input tokens: 12,345 (1,234 cached)"))
         let single = UsageSessionSummary(["modelCalls": 1, "usageIsIncomplete": true, "modelUsage": ["grok": ["inputTokens": 1]]])
         XCTAssertTrue(single.models.isEmpty, "the per-model list appears only for several models")
         XCTAssertEqual(single.rows.last?.value, "not available (not reported)")
@@ -162,6 +162,29 @@ final class AccountFeatureTests: XCTestCase {
         XCTAssertEqual(other.first { $0.label == "Model Hash" }?.value, "fp_abc")
         XCTAssertEqual(other.first { $0.label == "Conversation ID" }?.value, "conv-9")
         XCTAssertTrue(UsageFormatting.copyText(other).contains("Session ID: sid-2"))
+        XCTAssertNil(other.first { $0.label == "Output speed" })
+    }
+
+    /// The session's average output speed closes Session info, as in the terminal.
+    func testSessionInfoEndsWithTheSessionsAverageSpeed() {
+        let info = UsageSessionInfo(["sessionId": "sid-3", "cwd": "/w", "model": "claude-opus-5-5", "outputTokensPerSecond": 48.2,
+                                     "context": ["used": 1_000, "total": 4_000, "usagePct": 25]])
+        let rows = UsageFormatting.sessionInfoRows(info, title: nil, shellVersion: "1.0.45", auth: .providerCredentials, showResolvedModel: false)
+        XCTAssertEqual(rows.last?.label, "Output speed")
+        XCTAssertEqual(rows.last?.value, "48 tok/s (session average)")
+        XCTAssertNil(UsageSessionInfo(["outputTokensPerSecond": 0]).outputTokensPerSecond)
+    }
+
+    /// A provider that reports no cost (any but xAI and OpenRouter) is priced at the model's
+    /// standard API price, and the total says so.
+    func testAnEstimatedCostSaysSo() {
+        let summary = UsageSessionSummary(["inputTokens": 12_000, "outputTokens": 600, "totalTokens": 12_600, "modelCalls": 2,
+                                           "costUsdTicks": 1_235_000_000, "costIsEstimated": true,
+                                           "modelUsage": ["claude-opus-5-5": ["inputTokens": 11_000, "outputTokens": 500, "costUsdTicks": 1_200_000_000, "costIsEstimated": true],
+                                                          "claude-haiku-5-5": ["inputTokens": 1_000, "outputTokens": 100, "costUsdTicks": 35_000_000, "costIsEstimated": true]]])
+        XCTAssertEqual(summary.rows.last?.value, "$0.1235 (estimated at standard API prices)")
+        XCTAssertEqual(summary.models.first?.value, "1,000 in / 100 out · $0.0035")
+        XCTAssertEqual(UsageFormatting.cost(["costUsdTicks": 1_235_000_000]), "$0.1235")
     }
 
     // MARK: Announcements

@@ -162,7 +162,7 @@ pub fn stream_chat_completions<'a>(
             if let Some(u) = chunk.usage.clone() {
                 // Wire cost is cumulative for the response, so last-write-wins.
                 // Never clobber a known cost with missing/unreported.
-                let chunk_cost = xai_grok_sampling_types::reported_cost_ticks(u.cost_in_usd_ticks);
+                let chunk_cost = xai_grok_sampling_types::reported_cost_ticks(u.reported_cost_ticks());
                 cost_usd_ticks = match (cost_usd_ticks, chunk_cost) {
                     (_, Some(n)) => Some(n),
                     (prev, None) => prev,
@@ -865,6 +865,7 @@ mod tests {
             prompt_tokens_details: None,
             completion_tokens_details: None,
             cost_in_usd_ticks: None,
+            cost: None,
         });
 
         let chunks: Vec<Result<ChatCompletionChunk, SamplingError>> = vec![
@@ -904,6 +905,7 @@ mod tests {
                 prompt_tokens_details: None,
                 completion_tokens_details: None,
                 cost_in_usd_ticks: wire,
+                cost: None,
             });
             let chunks: Vec<Result<ChatCompletionChunk, SamplingError>> = vec![
                 Ok(text_chunk("ok")),
@@ -927,6 +929,47 @@ mod tests {
         }
     }
 
+    /// OpenRouter reports each request's cost in dollars.
+    #[tokio::test]
+    async fn openrouter_dollars_become_ticks() {
+        for (dollars, expected) in [
+            (Some(0.0123), Some(123_000_000)),
+            (Some(0.0), None),
+            (Some(f64::NAN), None),
+            (None, None),
+        ] {
+            let mut chunk_with_usage = make_chunk(vec![ChatChunkDelta::default()]);
+            chunk_with_usage.usage = Some(Usage {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: 15,
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
+                cost_in_usd_ticks: None,
+                cost: dollars,
+            });
+            let chunks: Vec<Result<ChatCompletionChunk, SamplingError>> = vec![
+                Ok(text_chunk("ok")),
+                Ok(chunk_with_usage),
+                Ok(final_chunk(FinishReason::Stop)),
+            ];
+            let raw = stream::iter(chunks).boxed();
+            let events = collect(stream_chat_completions(
+                raw,
+                None,
+                rid(),
+                Duration::from_secs(60),
+            ))
+            .await;
+            match events.last().unwrap() {
+                SamplingEvent::Completed { response, .. } => {
+                    assert_eq!(response.cost_usd_ticks, expected, "wire {dollars:?}");
+                }
+                other => panic!("expected Completed, got {other:?}"),
+            }
+        }
+    }
+
     #[tokio::test]
     async fn later_missing_cost_does_not_clobber_earlier_ticks() {
         let mut first = make_chunk(vec![ChatChunkDelta::default()]);
@@ -937,6 +980,7 @@ mod tests {
             prompt_tokens_details: None,
             completion_tokens_details: None,
             cost_in_usd_ticks: Some(99),
+            cost: None,
         });
         let mut second = make_chunk(vec![ChatChunkDelta::default()]);
         second.usage = Some(Usage {
@@ -946,6 +990,7 @@ mod tests {
             prompt_tokens_details: None,
             completion_tokens_details: None,
             cost_in_usd_ticks: Some(0),
+            cost: None,
         });
         let chunks: Vec<Result<ChatCompletionChunk, SamplingError>> = vec![
             Ok(text_chunk("ok")),

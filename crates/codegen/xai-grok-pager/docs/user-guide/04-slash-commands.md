@@ -37,7 +37,7 @@ Rows for Tool definitions, Skills, and MCP servers are already counted in those 
 
 ### `/session-info`
 
-Show session details — auth method, model, turn count, and context usage. Aliases: `/status`, `/info`. Click a value or drag to select and copy; `c` copies the session ID and `y` copies the whole block.
+Show session details — auth method, model, turn count, context usage, and the session's average output speed. Aliases: `/status`, `/info`. Click a value or drag to select and copy; `c` copies the session ID and `y` copies the whole block.
 
 ### `/fork`
 
@@ -139,6 +139,14 @@ Both are real toggles for the permission mode: they stay in the menu, and runnin
 | `/auto` | Auto-review: a classifier approves safe tools (dangerous ones may still prompt) | Back to ask |
 
 Running one while the other is active switches modes — for example, `/auto` while always-approve is on switches to Auto-review. `/auto` only appears when the Auto-review permission-mode feature is enabled. You can also change mode with `Shift+Tab` (cycles Normal / Plan / Auto-review (when enabled) / Always-approve), `Ctrl+O`, or `/settings`.
+
+### `/browser-use` and `/computer-use`
+
+Turn the [browser and computer tools](28-browser-and-computer-use.md) on or off: pass `on` or `off`, or nothing to switch. The choice is saved under `[features]` in `config.toml` and read when a session starts, so restart Crok for it to apply (in Crok Desktop, new tasks get it). `/computer-use` works on macOS only. Both switches are also in `/settings`.
+
+### `/phone-use`
+
+Turn the [phone tool](29-phone-use.md) on or off: pass `on` or `off`, or nothing to switch. Phone use is on by default; the choice is saved as `phone_use` under `[features]` in `config.toml` and read when a session starts, so restart Crok for it to apply (in Crok Desktop, new tasks get it). The switch is also in `/settings`.
 
 ### `/multiline`
 
@@ -430,7 +438,9 @@ View session usage. Alias: `/cost`.
 /usage
 ```
 
-Inside a session this opens the usage modal with that session's context and token totals.
+Inside a session this opens the usage modal with that session's context and token totals. The totals cover the session since it began: turns from before a `/resume`, or from another client such as Crok Desktop, are included.
+
+Its cost line is what the provider reported when it reports one (xAI, OpenRouter). Every other provider, subscription plans included, is priced at the model's standard pay-as-you-go API price, and the line says `(estimated at standard API prices)`. A model with no known API price leaves the cost `not available`.
 
 The status bar shows the same totals as they change, beside the context meter: `↑1.2M ↓45K │ 83% cached │ 61 tok/s`. `↑` is every prompt token sent this session and `↓` every token generated; `cached` is the share of the prompt served from the provider's cache; `tok/s` is the output speed of the last response. While a response streams, the output count and a speed marked `~` are estimated from the text received, and the provider's figures replace them when the response ends. A narrow terminal drops the speed first, then the cache rate. Minimal mode shows the same figures in the line under the prompt, after the context usage.
 

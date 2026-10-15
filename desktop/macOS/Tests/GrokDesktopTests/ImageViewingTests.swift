@@ -245,6 +245,106 @@ final class ImageViewingTests: XCTestCase {
                        "a small image is not blown up past its Retina size (with a floor)")
         XCTAssertEqual(TranscriptImageLayout.tile(wide, height: 100).width, 220, "tiles clamp extreme aspect ratios")
     }
+
+    // MARK: Image links
+
+    func testImageFilePathsAreFoundInCodeSpansAndProse() {
+        XCTAssertEqual(ImageFileLink.url(forPath: "/tmp/qr/auth.png"), URL(fileURLWithPath: "/tmp/qr/auth.png"))
+        XCTAssertEqual(ImageFileLink.url(forPath: " ~/Desktop/Screenshot 2026-10-13 at 9.17.00 AM.PNG "),
+                       URL(fileURLWithPath: NSHomeDirectory() + "/Desktop/Screenshot 2026-10-13 at 9.17.00 AM.PNG"))
+        XCTAssertEqual(ImageFileLink.url(forPath: "file:///tmp/shot.jpeg"), URL(fileURLWithPath: "/tmp/shot.jpeg"))
+        for other in ["/tmp/notes.md", "src/shot.png", "./shot.png", "shot.png", "/tmp/qr", "https://example.com/a.png", "cp /tmp/a.png /tmp/b"] {
+            XCTAssertNil(ImageFileLink.url(forPath: other), other)
+        }
+
+        func found(_ text: String) -> [String] { ImageFileLink.paths(in: text).map { (text as NSString).substring(with: $0.range) } }
+        XCTAssertEqual(found("QR code: /tmp/qr/auth.png"), ["/tmp/qr/auth.png"])
+        XCTAssertEqual(found("Saved to /tmp/shots/home.png. Then (see ~/Pictures/b.webp), and /x/c.JPG!"),
+                       ["/tmp/shots/home.png", "~/Pictures/b.webp", "/x/c.JPG"])
+        XCTAssertEqual(found("二维码：/tmp/qr/auth.png。"), ["/tmp/qr/auth.png"])
+        XCTAssertEqual(found("a/b.png, ./c.png, /tmp/a.png.bak, /tmp/a.pngx, //example.com/d.png, file:///tmp/e.png, /tmp/notes.md"), [])
+    }
+
+    func testRepliesLinkImageFilePaths() {
+        let markdown = """
+        QR code: `/tmp/qr/auth.png`
+
+        Saved to /tmp/shots/home.png. The code is in `src/main.rs`, notes are in `/tmp/notes.md`, and [the logo](~/logo.jpg).
+        """
+        let text = MarkdownAttributedRenderer.reply(.response, dark: false).render(MarkdownParser.parse(markdown))
+        let string = text.string as NSString
+        func link(_ fragment: String) -> URL? { text.attribute(.link, at: string.range(of: fragment).location, effectiveRange: nil) as? URL }
+        XCTAssertEqual(link("/tmp/qr/auth.png"), URL(fileURLWithPath: "/tmp/qr/auth.png"))
+        XCTAssertEqual(link("/tmp/shots/home.png"), URL(fileURLWithPath: "/tmp/shots/home.png"))
+        XCTAssertNil(text.attribute(.link, at: NSMaxRange(string.range(of: "home.png.")) - 1, effectiveRange: nil), "the full stop is not part of the path")
+        XCTAssertNil(link("src/main.rs"))
+        XCTAssertNil(link("/tmp/notes.md"))
+        XCTAssertEqual(link("the logo"), URL(fileURLWithPath: NSHomeDirectory() + "/logo.jpg"))
+    }
+
+    func testThePointerOnAnImageLinkFindsItsFile() throws {
+        let box = TranscriptTextBox(style: .reply(.response), maxHeight: .infinity, width: 600)
+        box.update(text: "QR code: `/tmp/qr/auth.png`\n\nTell me when you've authorized.")
+        box.setFrameSize(NSSize(width: 600, height: box.height(forWidth: 600)))
+        let textView = try XCTUnwrap(box.textView as? MarkdownSourceTextView)
+        XCTAssertTrue(textView.previewsImageLinks)
+        let layoutManager = try XCTUnwrap(textView.layoutManager), container = try XCTUnwrap(textView.textContainer)
+        func center(_ fragment: String) -> NSPoint {
+            let glyphs = layoutManager.glyphRange(forCharacterRange: (textView.string as NSString).range(of: fragment), actualCharacterRange: nil)
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
+            return NSPoint(x: rect.midX + textView.textContainerOrigin.x, y: rect.midY + textView.textContainerOrigin.y)
+        }
+        let hit = try XCTUnwrap(textView.imageLink(at: center("auth.png")))
+        XCTAssertEqual(hit.url, URL(fileURLWithPath: "/tmp/qr/auth.png"))
+        XCTAssertTrue(hit.rect.contains(center("/tmp/qr")), "the popover points at the whole path")
+        XCTAssertNil(textView.imageLink(at: center("QR code")))
+        XCTAssertNil(textView.imageLink(at: center("authorized")))
+        XCTAssertNil(textView.imageLink(at: NSPoint(x: center("auth.png").x + 300, y: center("auth.png").y)), "past the end of the line")
+
+        let output = TranscriptTextBox(style: .monospaced, maxHeight: 260, width: 600)
+        output.update(text: "/tmp/qr/auth.png")
+        XCTAssertEqual((output.textView as? MarkdownSourceTextView)?.previewsImageLinks, false, "only Markdown has links")
+    }
+
+    func testAClickOnAnImageLinkOpensTheFile() throws {
+        let file = directory.appendingPathComponent("auth.png")
+        try SidePanelAndAttachmentTests.png(width: 64, height: 64).write(to: file)
+        var opened: [URL] = []
+        let open = ImageFileLink.open
+        ImageFileLink.open = { opened.append($0) }
+        defer { ImageFileLink.open = open }
+        let box = TranscriptTextBox(style: .reply(.response), maxHeight: .infinity, width: 600)
+        box.update(text: "QR code: `\(file.path)`")
+        let textView = try XCTUnwrap(box.textView)
+        let storage = try XCTUnwrap(textView.textStorage)
+        let index = (storage.string as NSString).range(of: "auth.png").location
+        textView.clicked(onLink: try XCTUnwrap(storage.attribute(.link, at: index, effectiveRange: nil)), at: index)
+        XCTAssertEqual(opened, [file])
+    }
+
+    func testLinkPreviewReadsTheFileAsItIsNow() throws {
+        let file = directory.appendingPathComponent("auth.png")
+        try SidePanelAndAttachmentTests.png(width: 256, height: 256).write(to: file)
+        let code = try XCTUnwrap(ImageLinkPreview.read(file, maxPixels: ImageLinkPreview.maxPixels))
+        XCTAssertEqual(code.pixelSize, CGSize(width: 256, height: 256))
+        XCTAssertEqual(ImageLinkPreview.displaySize(for: code.pixelSize), CGSize(width: 240, height: 240), "a QR code shows large enough to scan")
+        // A new sign-in writes its code to the same path; the preview shows the new one.
+        try SidePanelAndAttachmentTests.png(width: 300, height: 300).write(to: file)
+        XCTAssertEqual(ImageLinkPreview.read(file, maxPixels: ImageLinkPreview.maxPixels)?.pixelSize, CGSize(width: 300, height: 300))
+
+        let screen = directory.appendingPathComponent("screen.png")
+        try SidePanelAndAttachmentTests.png(width: 2400, height: 1200).write(to: screen)
+        let large = try XCTUnwrap(ImageLinkPreview.read(screen, maxPixels: 640))
+        XCTAssertEqual(large.pixelSize, CGSize(width: 2400, height: 1200), "the caption gives the file's own size")
+        XCTAssertEqual(large.image.size, NSSize(width: 640, height: 320), "only as many pixels as the popover needs are read")
+        XCTAssertEqual(ImageLinkPreview.displaySize(for: large.pixelSize), CGSize(width: 280, height: 140))
+        XCTAssertEqual(ImageLinkPreview.displaySize(for: CGSize(width: 48, height: 48)), CGSize(width: 48, height: 48), "a small image is not blown up")
+
+        XCTAssertNil(ImageLinkPreview.read(directory.appendingPathComponent("gone.png"), maxPixels: 640))
+        let notImage = directory.appendingPathComponent("notes.png")
+        try Data("not an image".utf8).write(to: notImage)
+        XCTAssertNil(ImageLinkPreview.read(notImage, maxPixels: 640))
+    }
 }
 
 /// PNGs of transcript images and the viewer, written when CROK_DESKTOP_SNAPSHOT_DIR is set.

@@ -69,6 +69,13 @@ final class ExtrasFeatureTests: XCTestCase {
         XCTAssertEqual(hex(ThemePalette.grokNight.accentNS), "#BB9AF7")
         XCTAssertEqual(hex(ThemePalette.grokDay.canvasNS), "#EEEEEE")
         XCTAssertEqual(hex(ThemePalette.grokDay.accentNS), "#7D4BC6")
+        // Links take each theme's link_fg; the default look's are the system's link blue, not its green accent.
+        XCTAssertEqual(hex(ThemePalette.grokNight.linkNS), "#7AA6DA")
+        XCTAssertEqual(hex(ThemePalette.grokDay.linkNS), "#2F64D2")
+        XCTAssertEqual(hex(ThemePalette.tokyoNight.linkNS), "#7AA2F7")
+        XCTAssertEqual(hex(ThemePalette.rosePineMoon.linkNS), "#9CCFD8")
+        XCTAssertEqual(hex(ThemePalette.oscuraMidnight.linkNS), "#7DCFDF")
+        XCTAssertEqual(ThemePalette.auto.linkNS, .linkColor)
         for theme in GrokTheme.allCases { XCTAssertEqual(ThemePalette.palette(for: theme).theme, theme) }
         XCTAssertTrue(ThemePalette.auto.usesSystemMaterials)
         XCTAssertFalse(ThemePalette.tokyoNight.usesSystemMaterials)

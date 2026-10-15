@@ -287,6 +287,7 @@ pub(crate) async fn spawn_session_actor(
     subagent_rate_limit_max_attempts: u32,
     web_search_sampling_config: Option<xai_grok_sampler::SamplerConfig>,
     web_fetch_config: xai_grok_tools::implementations::grok_build::web_fetch::WebFetchConfig,
+    device_use: xai_grok_tools::implementations::grok_build::device_use::DeviceUseConfig,
     image_gen_config: xai_grok_tools::implementations::grok_build::image_gen::ImageGenConfig,
     video_gen_config: xai_grok_tools::implementations::grok_build::video_gen::VideoGenConfig,
     app_builder_deployer_config: xai_grok_tools::implementations::grok_build::app_builder::AppBuilderDeployerConfig,
@@ -638,6 +639,13 @@ pub(crate) async fn spawn_session_actor(
         tokio_util::sync::CancellationToken::new(),
     );
     drop(chat_state_guard);
+    // The ledger counts from zero in this process. What earlier processes recorded for the session
+    // is its baseline, so `/usage` and the token meter cover the session since it began.
+    if let Some(baseline) = crate::session::standard_cost::recorded_session_usage(
+        &crate::session::persistence::session_dir(&session_info),
+    ) {
+        chat_state_handle.set_session_usage_baseline(baseline);
+    }
     async {
         if (!initial_prompt_texts.is_empty()
             || initial_total_tokens > 0
@@ -1216,6 +1224,7 @@ pub(crate) async fn spawn_session_actor(
         web_search_domains,
         backend_search: backend_tools_enabled,
         web_fetch_config: web_fetch_config.clone(),
+        device_use: device_use.clone(),
         image_gen_config: image_gen_config.clone(),
         video_gen_config: video_gen_config.clone(),
         app_builder_deployer_config: app_builder_deployer_config.clone(),
@@ -2619,6 +2628,7 @@ pub(crate) async fn spawn_session_on_thread(
     subagent_rate_limit_max_attempts: u32,
     web_search_sampling_config: Option<xai_grok_sampler::SamplerConfig>,
     web_fetch_config: xai_grok_tools::implementations::grok_build::web_fetch::WebFetchConfig,
+    device_use: xai_grok_tools::implementations::grok_build::device_use::DeviceUseConfig,
     image_gen_config: xai_grok_tools::implementations::grok_build::image_gen::ImageGenConfig,
     video_gen_config: xai_grok_tools::implementations::grok_build::video_gen::VideoGenConfig,
     app_builder_deployer_config: xai_grok_tools::implementations::grok_build::app_builder::AppBuilderDeployerConfig,
@@ -2835,6 +2845,7 @@ pub(crate) async fn spawn_session_on_thread(
                     subagent_rate_limit_max_attempts,
                     web_search_sampling_config,
                     web_fetch_config,
+                    device_use,
                     image_gen_config,
                     video_gen_config,
                     app_builder_deployer_config,

@@ -5708,3 +5708,40 @@ async fn prune_retained_clears_in_batches_between_which_history_is_untouched() {
     push_turns(&handle, 1, 5_000).await;
     assert_eq!(cleared(&handle).await, [0, 1, 2, 3, 4, 5]);
 }
+
+#[tokio::test]
+async fn session_usage_since_start_adds_the_baseline_and_per_process_reads_do_not() {
+    use xai_grok_sampling_types::TokenUsage;
+
+    let call = TokenUsage {
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        total_tokens: 12,
+        reasoning_tokens: 0,
+        cached_prompt_tokens: 0,
+        cache_creation_prompt_tokens: 0,
+    };
+    let h = TestHarness::new();
+    let mut earlier = crate::usage::UsageLedger::default();
+    earlier.fold(
+        "m",
+        &crate::usage::UsageTotals {
+            input_tokens: 1_000,
+            output_tokens: 300,
+            model_calls: 5,
+            cost_usd_ticks: Some(900),
+            ..Default::default()
+        },
+    );
+    h.handle.set_session_usage_baseline(earlier);
+    h.handle
+        .record_model_call_usage(Some("m".into()), call, None, Some(100));
+    let since_start = h.handle.try_get_session_usage_since_start().await.unwrap();
+    assert_eq!(since_start.totals.input_tokens, 1_010);
+    assert_eq!(since_start.totals.model_calls, 6);
+    assert_eq!(since_start.totals.cost_usd_ticks, Some(1_000));
+    // The per-process ledger, which per-turn deltas in usage.json are computed from, stays as it was.
+    let live = h.handle.try_get_session_usage().await.unwrap();
+    assert_eq!(live.totals.input_tokens, 10);
+    assert_eq!(live.totals.model_calls, 1);
+}

@@ -703,6 +703,135 @@ pub(in crate::app::dispatch) fn clear_subagent_model_inheritance(app: &mut AppVi
     effects
 }
 
+/// A device feature's own name, as the settings list shows it.
+fn device_feature_label(feature: xai_grok_shell::agent::config::Feature) -> &'static str {
+    match feature {
+        xai_grok_shell::agent::config::Feature::ComputerUse => {
+            tr("setting.computer_use.label", "Computer use")
+        }
+        xai_grok_shell::agent::config::Feature::PhoneUse => {
+            tr("setting.phone_use.label", "Phone use")
+        }
+        _ => tr("setting.browser_use.label", "Browser use"),
+    }
+}
+
+/// SHELL-owned setter for `[features].browser_use` / `computer_use` / `phone_use`: `Some` saves the key, `None` deletes it.
+/// One write is on disk at a time, as for `subagent_model_inheritance`; agents latch the key when built.
+pub(in crate::app::dispatch) fn set_device_feature(
+    app: &mut AppView,
+    feature: xai_grok_shell::agent::config::Feature,
+    saved: Option<bool>,
+) -> Vec<Effect> {
+    let Some(state) = app.device_features.get(feature).copied() else {
+        return vec![];
+    };
+    let label = device_feature_label(feature);
+    if let Some(by) = state.forced_by() {
+        app.show_toast(
+            &tr(
+                "settings.toast.fixed_by",
+                "\u{2717} {label} is fixed by {by}",
+            )
+            .replace("{label}", label)
+            .replace("{by}", &by),
+        );
+        return vec![];
+    }
+    if feature == xai_grok_shell::agent::config::Feature::ComputerUse
+        && saved == Some(true)
+        && !xai_grok_tools::implementations::grok_build::computer_use::is_supported()
+    {
+        app.show_toast(tr(
+            "settings.toast.computer_use_unsupported",
+            "\u{2717} Computer use is available on macOS only",
+        ));
+        return vec![];
+    }
+    if state.config.user == saved {
+        if saved.is_none() {
+            app.show_toast(
+                &tr(
+                    "settings.toast.nothing_to_reset",
+                    "{label}: nothing to reset",
+                )
+                .replace("{label}", label),
+            );
+        }
+        return vec![];
+    }
+    let effects = {
+        let Some(state) = app.device_features.get_mut(feature) else {
+            return vec![];
+        };
+        let effects = match &mut state.writes {
+            Some(write) => {
+                write.queued = Some(saved);
+                vec![]
+            }
+            None => {
+                state.writes = Some(PendingWrite {
+                    persisted: state.config.user,
+                    queued: None,
+                });
+                vec![Effect::PersistFeatureOverride { feature, saved }]
+            }
+        };
+        state.config.user = saved;
+        effects
+    };
+    refresh_open_settings_modals(app);
+    tracing::info!(target: "settings", key = feature.key(), value = ?saved, "setting changed");
+    let toast = match saved {
+        Some(on) => save_success_toast(label, on),
+        None => value_toast(label, tr("settings.toast.value.reset", "reset")),
+    };
+    app.show_toast(&restart_to_apply(&toast));
+    effects
+}
+
+/// `/browser-use`, `/computer-use` and `/phone-use` with no argument: the opposite of what applies now.
+pub(in crate::app::dispatch) fn toggle_device_feature(
+    app: &mut AppView,
+    feature: xai_grok_shell::agent::config::Feature,
+) -> Vec<Effect> {
+    let Some(state) = app.device_features.get(feature) else {
+        return vec![];
+    };
+    let new = !state.resolve().value;
+    set_device_feature(app, feature, Some(new))
+}
+
+/// A device feature's pending write finished; see [`settle_subagent_model_inheritance_write`].
+pub(super) fn settle_device_feature_write(
+    app: &mut AppView,
+    feature: xai_grok_shell::agent::config::Feature,
+    persisted: Option<Option<bool>>,
+) -> Vec<Effect> {
+    let Some(state) = app.device_features.get_mut(feature) else {
+        return vec![];
+    };
+    let Some(write) = &mut state.writes else {
+        return vec![];
+    };
+    if let Some(saved) = persisted {
+        write.persisted = saved;
+    }
+    match write.queued.take() {
+        Some(queued) if queued != write.persisted => {
+            vec![Effect::PersistFeatureOverride {
+                feature,
+                saved: queued,
+            }]
+        }
+        Some(_) | None => {
+            state.config.user = write.persisted;
+            state.writes = None;
+            vec![]
+        }
+    }
+}
+
 pub(super) fn set_show_thinking_blocks_inner(app: &mut AppView, new: bool) {
     crate::appearance::cache::set_show_thinking_blocks(new);
     // Thinking visibility reshapes verb-group runs (shown thoughts claim into folds) AND dense N-more runs (hidden thoughts stop counting toward truncation)

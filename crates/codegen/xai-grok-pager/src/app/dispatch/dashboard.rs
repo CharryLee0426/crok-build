@@ -1159,6 +1159,7 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
     let voice_stt_provider_from_app = app.voice_config.provider.as_str();
     let voice_stt_model_from_app = app.voice_config.model.clone();
     let subagent_model_inheritance_from_app = app.subagent_model_inheritance;
+    let device_features_from_app = app.device_features;
     let result = {
         let Some(invocation) = parse_invocation(trimmed.as_str()) else {
             return vec![];
@@ -1251,6 +1252,7 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
                 voice_stt_provider: voice_stt_provider_from_app,
                 voice_stt_model: voice_stt_model_from_app.clone(),
                 subagent_model_inheritance: subagent_model_inheritance_from_app,
+                device_features: device_features_from_app,
             },
         };
         command.run(&mut ctx, invocation.args)

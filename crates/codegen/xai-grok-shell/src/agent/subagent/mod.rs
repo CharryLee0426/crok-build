@@ -249,6 +249,8 @@ pub(crate) struct SubagentSpawnContext {
     pub memory_mode: crate::config::MemoryMode,
     pub web_search_sampling_config: Option<xai_grok_sampler::SamplerConfig>,
     pub web_fetch_config: xai_grok_tools::implementations::grok_build::web_fetch::WebFetchConfig,
+    /// The browser follows the parent's setting; the computer tool stays with the primary agent.
+    pub device_use: xai_grok_tools::implementations::grok_build::device_use::DeviceUseConfig,
     pub image_gen_config: xai_grok_tools::implementations::grok_build::image_gen::ImageGenConfig,
     pub video_gen_config: xai_grok_tools::implementations::grok_build::video_gen::VideoGenConfig,
     pub app_builder_deployer_config:

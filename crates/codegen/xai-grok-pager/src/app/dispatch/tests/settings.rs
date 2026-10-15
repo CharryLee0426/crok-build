@@ -1757,6 +1757,19 @@ fn move_setting_away_from_default(app: &mut AppView, key: crate::settings::Setti
         "subagent_model_inheritance" => {
             let _ = dispatch(Action::SetSubagentModelInheritance(true), app);
         }
+        "browser_use" => {
+            let feature = xai_grok_shell::agent::config::Feature::BrowserUse;
+            let _ = dispatch(Action::SetDeviceFeature(feature, true), app);
+        }
+        "computer_use" => {
+            let feature = xai_grok_shell::agent::config::Feature::ComputerUse;
+            let _ = dispatch(Action::SetDeviceFeature(feature, true), app);
+        }
+        // On by default, so away from the default is off
+        "phone_use" => {
+            let feature = xai_grok_shell::agent::config::Feature::PhoneUse;
+            let _ = dispatch(Action::SetDeviceFeature(feature, false), app);
+        }
         "keep_text_selection" => {
             let _ = dispatch(
                 Action::SetKeepTextSelection(crate::appearance::TextSelection::Hold),

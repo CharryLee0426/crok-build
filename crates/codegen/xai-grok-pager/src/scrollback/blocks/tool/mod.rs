@@ -1,3 +1,4 @@
+pub mod device_action;
 mod edit;
 mod execute;
 pub mod list_dir;

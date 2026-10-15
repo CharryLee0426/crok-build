@@ -77,6 +77,9 @@ enum DesktopCommands {
         command("git-graph", "Browse the commit graph: branches, merges, and history", aliases: ["graph", "gitgraph"]),
         command("terminal", "Open a terminal in this project"),
         command("browser", "Open the side panel's browser", hint: "[address or search]", aliases: ["web", "browse"]),
+        command("browser-use", "Turn browser use on or off: Crok works in web pages in a browser of its own", hint: "[on|off]"),
+        command("computer-use", "Turn computer use on or off: Crok sees the screen and uses the mouse and keyboard", hint: "[on|off]"),
+        command("phone-use", "Turn phone use on or off: Crok uses your iPhone (through iPhone Mirroring) or Android phone (over adb)", hint: "[on|off]"),
         // Docs, account, and one-off maintenance.
         command("docs", "Read the Crok Build guides", hint: "[web|title]", aliases: ["howto", "guides"]),
         command("release-notes", "Show what's new in this version", aliases: ["changelog"]),
@@ -165,7 +168,9 @@ extension SlashCommand {
         case "usage", "context", "session-info": return "gauge.with.dots.needle.33percent"
         case "trace": return "waveform.path.ecg"
         case "git-graph": return "arrow.triangle.merge"
-        case "browser": return "globe"
+        case "browser", "browser-use": return "globe"
+        case "computer-use": return "cursorarrow.rays"
+        case "phone-use": return "iphone"
         case "doctor": return "stethoscope"
         case "memory", "remember", "flush", "dream": return "brain.head.profile"
         case "queue": return "text.line.first.and.arrowtriangle.forward"
@@ -264,6 +269,9 @@ extension AppStore {
             if project == nil { banner = "Open a project to see its Git history." } else { features.gitGraph.open() }
         case "terminal": openTerminal()
         case "browser": openBrowser(arguments)
+        case "browser-use": banner = DeviceUseSettings.shared.command(.browser, arguments: arguments)
+        case "computer-use": banner = DeviceUseSettings.shared.command(.computer, arguments: arguments)
+        case "phone-use": banner = DeviceUseSettings.shared.command(.phone, arguments: arguments)
         case "docs": features.extras.openDocs(arguments)
         case "release-notes": features.account.openReleaseNotes()
         case "announcements": features.account.announcements(arguments)

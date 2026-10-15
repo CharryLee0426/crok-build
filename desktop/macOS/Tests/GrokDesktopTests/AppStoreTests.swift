@@ -409,6 +409,105 @@ time.sleep(20)
         XCTAssertEqual(reopened.run.reasoningID, "high")
     }
 
+    /// Coming back to a task shows its model and thinking level at once: the catalog is kept with
+    /// the saved state, and the harness's own defaults, which it reports while it connects, do not
+    /// replace the task's choices on screen.
+    func testAReopenedTaskShowsItsModelAndThinkingLevelBeforeItsHarnessAnswers() async throws {
+        let fixture = try Fixture(firstLoad: "time.sleep(0.6)", existingMessages: [Message(kind: .assistant, text: "Saved answer")])
+        defer { fixture.cleanup() }
+        let id = fixture.conversationID
+        let store = fixture.store
+        store.state.conversations[0].modelID = "fixture-fast"
+        store.state.conversations[0].reasoningID = "high"
+        store.rememberModelCatalog(SessionOptions.models(["availableModels": ["fixture-build", "fixture-fast"].map { name in
+            ["modelId": name, "name": name.replacingOccurrences(of: "fixture-", with: "Fixture "),
+             "_meta": ["supportsReasoningEffort": true, "reasoningEffort": "medium", "reasoningEfforts": ["low", "medium", "high"]]]
+        }]))
+        store.flush()
+
+        let reopened = AppStore(stateFile: fixture.directory.appendingPathComponent("state.json"), defaults: fixture.defaults, binaryPath: store.binaryPath)
+        defer { reopened.shutdown() }
+        XCTAssertTrue(fixture.requests.isEmpty)
+        XCTAssertEqual(reopened.run.modelID, "fixture-fast")
+        XCTAssertEqual(reopened.run.models.first { $0.id == reopened.run.modelID }?.name, "Fixture fast")
+        XCTAssertEqual(reopened.run.reasoningID, "high")
+        XCTAssertEqual(reopened.run.reasoningOptions.map(\.id), ["low", "medium", "high"])
+        XCTAssertFalse(reopened.run.isConfiguring)
+
+        let warming = Task { await reopened.prepareSessionOptions() }
+        // The harness has started and named its default model; `session/load` has not returned yet.
+        try await eventually { reopened.runs[id]?.modelID == "fixture-build" }
+        XCTAssertFalse(reopened.loaded.contains(id))
+        XCTAssertEqual(reopened.run.modelID, "fixture-fast")
+        XCTAssertEqual(reopened.run.reasoningID, "high")
+        await warming.value
+        try await eventually { reopened.loaded.contains(id) }
+        XCTAssertEqual(reopened.run.modelID, "fixture-fast")
+        XCTAssertEqual(reopened.run.reasoningID, "high")
+        XCTAssertEqual(reopened.state.modelCatalog.map(\.id), ["fixture-build", "fixture-fast"])
+    }
+
+    /// The first launch of a build has no saved catalog. The first model list any harness gives
+    /// names the models from then on, in every task, without waiting for the new-task catalog.
+    func testTheFirstModelListAHarnessGivesNamesEveryTasksModel() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("grok-store-names-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let defaultsName = "GrokDesktopNames.\(UUID().uuidString)"
+        defer { UserDefaults.standard.removePersistentDomain(forName: defaultsName) }
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), defaults: UserDefaults(suiteName: defaultsName)!, binaryPath: "/usr/bin/false")
+        defer { store.shutdown() }
+        let project = Project(path: directory.path)
+        let first = Conversation(projectID: project.id, title: "First", sessionID: "s1", modelID: "anthropic/claude-opus-5-5", reasoningID: "max")
+        let second = Conversation(projectID: project.id, title: "Second", sessionID: "s2", modelID: "openrouter/meta/muse-spark-1.3-contributor", reasoningID: "medium")
+        store.state = DesktopState(projects: [project], conversations: [first, second], selectedProjectID: project.id, selectedConversationID: second.id)
+        XCTAssertNil(store.modelOption(store.run.modelID), "nothing has named the model yet")
+
+        // The first task's harness answers `initialize` with the whole catalog.
+        store.applyModels(["currentModelId": "anthropic/claude-haiku-5-5", "availableModels": [
+            ["modelId": "anthropic/claude-opus-5-5", "name": "Claude Opus 5.5"],
+            ["modelId": "openrouter/meta/muse-spark-1.3-contributor", "name": "Meta: Muse Spark 1.3 Contributor",
+             "_meta": ["supportsReasoningEffort": true, "reasoningEfforts": ["low", "medium", "high"]]],
+        ]], id: first.id)
+        XCTAssertEqual(store.run.modelID, "openrouter/meta/muse-spark-1.3-contributor")
+        XCTAssertEqual(store.modelOption(store.run.modelID)?.name, "Meta: Muse Spark 1.3 Contributor")
+        XCTAssertEqual(store.run.reasoningOptions.map(\.id), ["low", "medium", "high"])
+        XCTAssertEqual(store.state.modelCatalog.count, 2)
+
+        // A run whose own list lacks the model still finds its name in a catalog.
+        var partial = RunState()
+        partial.models = [ModelOption(id: "anthropic/claude-opus-5-5", name: "Claude Opus 5.5")]
+        partial.modelID = "openrouter/meta/muse-spark-1.3-contributor"
+        store.runs[second.id] = partial
+        store.loaded.insert(second.id)
+        XCTAssertEqual(store.modelOption(store.run.modelID)?.name, "Meta: Muse Spark 1.3 Contributor")
+        XCTAssertNil(store.modelOption(""))
+    }
+
+    func testSavedOptionsFillInWhatTheConnectingHarnessHasNotSaid() {
+        let catalog = SessionOptions.models(["availableModels": [
+            ["modelId": "wide", "name": "Wide", "_meta": ["supportsReasoningEffort": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "high", "max"]]],
+            ["modelId": "plain", "name": "Plain"]
+        ]])
+        var connecting = RunState()
+        connecting.models = catalog
+        connecting.modelID = "plain"
+        let shown = AppStore.showingSavedOptions(connecting, modelID: "wide", reasoningID: "max", catalog: catalog)
+        XCTAssertEqual(shown.modelID, "wide")
+        XCTAssertEqual(shown.reasoningOptions.map(\.id), ["low", "high", "max"])
+        XCTAssertEqual(shown.reasoningID, "max")
+        // A run with no catalog of its own borrows the saved one; a task with no saved level shows the model's default.
+        let fresh = AppStore.showingSavedOptions(RunState(), modelID: "wide", reasoningID: nil, catalog: catalog)
+        XCTAssertEqual(fresh.models.map(\.id), ["wide", "plain"])
+        XCTAssertEqual(fresh.reasoningID, "high")
+        // A task that saved no model leaves the run as it is.
+        XCTAssertEqual(AppStore.showingSavedOptions(connecting, modelID: nil, reasoningID: "max", catalog: catalog).modelID, "plain")
+    }
+
+    func testOldHistoryWithoutAModelCatalogStillDecodes() throws {
+        let state = try JSONDecoder().decode(DesktopState.self, from: Data(#"{"projects":[],"conversations":[],"modelCatalog":"garbage"}"#.utf8))
+        XCTAssertTrue(state.modelCatalog.isEmpty)
+    }
+
     func testConfigurationChangeBlocksOverlappingChoiceAndSend() async throws {
         let fixture = try Fixture(firstLoad: "pass", configDelay: 0.15)
         defer { fixture.cleanup() }

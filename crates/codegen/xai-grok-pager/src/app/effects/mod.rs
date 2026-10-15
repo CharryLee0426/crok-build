@@ -5391,6 +5391,16 @@ fn session_info_fields(
         ),
         true,
     );
+    if let Some(rate) = info.data.output_tokens_per_second {
+        push(
+            tlm("Output speed"),
+            tlf(
+                "{rate} tok/s (session average)",
+                &[("rate", &crate::views::token_meter::fmt_rate(rate))],
+            ),
+            true,
+        );
+    }
     fields
 }
 /// The `/session-info` block as a plain string for minimal-mode scrollback.

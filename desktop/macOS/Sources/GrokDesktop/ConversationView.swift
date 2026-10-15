@@ -79,15 +79,19 @@ struct ConversationView: View {
 
 struct ApprovalCard: View {
     @EnvironmentObject var store: AppStore
+    @ObservedObject private var language = L10n.state
     var approval: Approval
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(approval.title, systemImage: "hand.raised").font(.system(size: 15, weight: .semibold))
-            ReadOnlyTextView(text: approval.detail, style: .monospaced, sizing: .fitContent(maxHeight: 120))
+            Label(approval.shownTitle, systemImage: approval.device?.symbol ?? "hand.raised").font(.system(size: 15, weight: .semibold))
+            // A browser or computer action its title says all of (a click, a screenshot) has no box under it.
+            if !approval.detail.isEmpty {
+                ReadOnlyTextView(text: approval.detail, style: .monospaced, sizing: .fitContent(maxHeight: 120))
+            }
             HStack {
                 Spacer()
                 ForEach(approval.options) { option in
-                    Button(option.name) { store.approve(approval, option: option) }.buttonStyle(SubtleButtonStyle()).font(.system(size: 13, weight: .medium))
+                    Button(option.shownName) { store.approve(approval, option: option) }.buttonStyle(SubtleButtonStyle()).font(.system(size: 13, weight: .medium))
                 }
             }
         }.padding(16).background(Theme.sidebar).clipShape(RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.4)))

@@ -2797,8 +2797,21 @@ fn make_session_info(
                 auto_compact_threshold_percent: 85,
                 ..Default::default()
             },
+            output_tokens_per_second: None,
         },
     }
+}
+#[test]
+fn format_session_info_ends_with_the_sessions_average_speed() {
+    let mut info = make_session_info("claude-opus-5-5", None, 1000, 10000);
+    let text = format_session_info(&info, None, false, true, false);
+    assert!(!text.contains("Output speed"), "{text}");
+    info.data.output_tokens_per_second = Some(48.2);
+    let text = format_session_info(&info, None, false, true, false);
+    assert!(
+        text.ends_with("  Output speed: 48 tok/s (session average)"),
+        "{text}"
+    );
 }
 #[test]
 fn format_session_info_session_auth_ignores_api_key_env() {

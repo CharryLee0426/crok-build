@@ -166,6 +166,9 @@ pub struct ShellToolsetConfig {
     pub web_fetch: WebFetchToolConfig,
     #[serde(default)]
     pub ask_user_question: AskUserQuestionToolConfig,
+    /// `[toolset.browser]`: the browser the `browser` tool drives (on with `[features] browser_use`).
+    #[serde(default)]
+    pub browser: xai_grok_tools::implementations::grok_build::BrowserParams,
     /// Which file-operation toolset to use: `"standard"` (default) or `"hashline"`.
     #[serde(default)]
     pub file_toolset: FileToolset,
@@ -248,6 +251,7 @@ impl ShellToolsetConfig {
             web_search: web_search_sampling_config(default_base),
             web_fetch: WebFetchToolConfig::default(),
             ask_user_question: AskUserQuestionToolConfig::default(),
+            browser: Default::default(),
             file_toolset: FileToolset::default(),
             hashline: HashlineSchemeConfig::default(),
         });

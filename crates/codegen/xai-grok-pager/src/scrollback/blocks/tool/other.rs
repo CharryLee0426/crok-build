@@ -27,6 +27,8 @@ pub struct OtherToolCallBlock {
     video_refs: Vec<crate::prompt_images::ScrollbackVideoRef>,
     /// Images the tool returned (screenshots, MCP image results), shown under the header.
     pub images: Vec<crate::prompt_images::ScrollbackImageRef>,
+    /// A `browser` or `computer` call, whose line is worded from it when drawn.
+    pub device: Option<super::device_action::DeviceAction>,
 }
 
 impl OtherToolCallBlock {
@@ -43,6 +45,21 @@ impl OtherToolCallBlock {
             image_refs: Vec::new(),
             video_refs: Vec::new(),
             images: Vec::new(),
+            device: None,
+        }
+    }
+
+    /// A `browser`, `computer` or `phone` call.
+    pub fn device(action: super::device_action::DeviceAction) -> Self {
+        use super::device_action::DeviceFamily;
+        let name = match action.family {
+            DeviceFamily::Computer => "Computer",
+            DeviceFamily::Browser => "Browser",
+            DeviceFamily::Phone => "Phone",
+        };
+        Self {
+            device: Some(action),
+            ..Self::new(name, String::new())
         }
     }
 
@@ -133,6 +150,17 @@ impl OtherToolCallBlock {
             theme.primary()
         };
         let bold_style = text_style.add_modifier(ratatui::style::Modifier::BOLD);
+
+        if let Some(device) = &self.device {
+            let line = Line::from(vec![
+                Span::styled(format!("{} ", device.label()), bold_style),
+                Span::styled(device.phrase(), text_style),
+            ]);
+            return match width {
+                Some(w) => crate::render::line_utils::truncate_line(line, w),
+                None => line,
+            };
+        }
 
         // The name is stored as English ("Skill", or a title the tracker supplies). A whole title the
         // catalog knows ("Plan: Enter") is shown translated; otherwise the label before the colon is

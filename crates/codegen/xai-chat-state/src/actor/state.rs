@@ -165,6 +165,9 @@ pub(crate) struct ChatState {
     pub prompt_usage: Option<UsageLedger>,
     /// Lifetime session billing (not persisted).
     pub session_usage: UsageLedger,
+    /// What earlier agent processes recorded for this session (its `usage.json` when it was loaded).
+    /// `session_usage` counts from zero in each process; the two together are the bill since the session began.
+    pub session_usage_baseline: UsageLedger,
     /// Offset-based turn capture state. `Some` = capture active, `None` = inactive.
     /// Cleared on `TakeTurnMessages` (consumed), `BeginTurnCapture` (new turn),
     /// and `TruncateToPromptIndex` (rewind abandons the turn).
@@ -233,6 +236,7 @@ impl ChatState {
             last_turn_usage: None,
             prompt_usage: None,
             session_usage: UsageLedger::default(),
+            session_usage_baseline: UsageLedger::default(),
             turn_capture: None,
             harness_trace_buffer: Vec::new(),
             harness_trace_turns: Vec::new(),

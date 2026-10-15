@@ -215,7 +215,7 @@ pub(crate) fn prompt_cache_miss_text(
     format!("{changed}{}{missed}", xai_grok_i18n::sentence_gap())
 }
 
-/// `/usage` body: per-session token and cost totals, covering the ledger's lifetime (since session start, or since the last `/resume`).
+/// `/usage` body: the session's token and cost totals since it began, turns run by earlier agent processes (before a `/resume`) included.
 pub(crate) fn session_usage_block_text(
     usage: &xai_grok_shell::extensions::notification::PromptUsage,
 ) -> String {
@@ -274,7 +274,7 @@ pub(crate) fn session_usage_block_text(
             tlf("API time: {time}", &[("time", &api_time)]),
         ),
     ));
-    rows.push(row(cost, format_cost(t)));
+    rows.push(row(cost, format_total_cost(t)));
     if usage.model_usage.len() > 1 {
         rows.push(String::new());
         rows.push(format!("  {}", tl("By model:")));
@@ -289,7 +289,7 @@ pub(crate) fn session_usage_block_text(
         ));
     }
     join_header_rows(
-        tl("Session usage (since start or last resume):").to_string(),
+        tl("Session usage (since the session started):").to_string(),
         rows,
     )
 }
@@ -306,6 +306,18 @@ fn format_by_model_row(
         format!("    {model}: {tokens} · {}", format_cost(m))
     } else {
         format!("    {model}: {tokens}")
+    }
+}
+/// The session's cost cell, which says when the cost was worked out from standard API prices.
+fn format_total_cost(m: &xai_grok_shell::extensions::notification::PromptUsageModel) -> String {
+    let cost = format_cost(m);
+    if m.cost_is_estimated && m.cost_usd_ticks.is_some() {
+        tlf(
+            "{cost} (estimated at standard API prices)",
+            &[("cost", &cost)],
+        )
+    } else {
+        cost
     }
 }
 /// Formats the cost cell. Ticks are 1e10 per USD; a partial sum is reported as absent.
@@ -362,6 +374,9 @@ mod tests {
             cost_usd_ticks: ticks,
             cost_is_partial: false,
             cost_missing_calls: 0,
+            cost_is_estimated: false,
+            decode_duration_ms: 0,
+            decode_output_tokens: 0,
         }
     }
     #[test]
@@ -433,6 +448,29 @@ mod tests {
             ],
             "{text}"
         );
+    }
+    #[test]
+    fn session_usage_block_says_when_the_cost_is_an_estimate() {
+        let mut totals = model_row(1_000, 100, Some(12_345_000_000));
+        totals.cost_is_estimated = true;
+        let mut usage = PromptUsage {
+            totals,
+            ..Default::default()
+        };
+        usage
+            .model_usage
+            .insert("claude-opus-5-5".into(), usage.totals.clone());
+        usage.model_usage.insert(
+            "claude-haiku-5-5".into(),
+            model_row(10, 1, Some(10_000_000)),
+        );
+        let text = session_usage_block_text(&usage);
+        assert!(
+            text.contains("$1.2345 (estimated at standard API prices)"),
+            "{text}"
+        );
+        // Said once, beside the total.
+        assert_eq!(text.matches("standard API prices").count(), 1, "{text}");
     }
     #[test]
     fn session_usage_block_absent_cost_is_unknown_not_free() {

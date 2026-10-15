@@ -70,6 +70,9 @@ impl ToolKind {
             ToolKind::GoalUpdate => "Update Goal",
             ToolKind::Workflow => "Workflow",
             ToolKind::Feedback => "Feedback",
+            ToolKind::Browser => "Browser",
+            ToolKind::Computer => "Computer",
+            ToolKind::Phone => "Phone",
             ToolKind::Other => "Tool",
         }
     }
@@ -114,6 +117,9 @@ impl ToolKind {
             | ToolKind::GoalUpdate
             | ToolKind::Workflow
             | ToolKind::Feedback
+            | ToolKind::Browser
+            | ToolKind::Computer
+            | ToolKind::Phone
             | ToolKind::Other => false,
         }
     }

@@ -197,11 +197,12 @@ final class SidePanelSnapshotTests: XCTestCase {
             DisplaySettingsSection()
             BehaviorSettingsSection()
             BrowserSettingsSection()
+            DeviceUseSettingsSection()
             CommandLineSettingsSection(command: command)
             DeveloperSettingsSection()
         }
         .padding(24).frame(width: 660).foregroundStyle(Theme.ink).desktopEnvironment(store)
-        try write(settings, "settings-\(name)", size: CGSize(width: 660, height: 2_050))
+        try write(settings, "settings-\(name)", size: CGSize(width: 660, height: 2_400))
 
         let profiles = [ChromeProfile(directory: URL(fileURLWithPath: "/tmp/Chrome/Default"), name: "Work", account: "me@example.com")]
         try write(ImportChromeSheet(model: ChromeImportModel(profiles: profiles, phase: .ready)).desktopEnvironment(store).foregroundStyle(Theme.ink),

@@ -183,6 +183,9 @@ extension L10n {
         "dev_hang_reports": "Hang reports",
         "dev_hang_reports_detail": "When the app stops answering for three seconds, this build saves the window's state and every thread's call stack, even if you then force quit.",
         "show_in_finder": "Show in Finder",
+        // A reply's image link, previewed on hover
+        "open_in_preview": "Open in Preview",
+        "image_preview_missing": "No image at this path",
         // Window toolbar
         "dismiss": "Dismiss",
         "reveal_in_finder": "Reveal in Finder",
@@ -498,6 +501,9 @@ extension L10n {
         "dev_hang_reports": "无响应报告",
         "dev_hang_reports_detail": "应用无响应达三秒时，此版本会保存窗口状态和每个线程的调用栈，即使你随后强制退出也是如此。",
         "show_in_finder": "在访达中显示",
+        // A reply's image link, previewed on hover
+        "open_in_preview": "在“预览”中打开",
+        "image_preview_missing": "此路径下没有图像",
         // Window toolbar
         "dismiss": "关闭",
         "reveal_in_finder": "在访达中显示",
@@ -813,6 +819,9 @@ extension L10n {
         "dev_hang_reports": "ハングレポート",
         "dev_hang_reports_detail": "アプリが3秒間応答しなくなると、このビルドはウインドウの状態とすべてのスレッドのコールスタックを保存します。そのあと強制終了しても保存されます。",
         "show_in_finder": "Finderに表示",
+        // A reply's image link, previewed on hover
+        "open_in_preview": "プレビューで開く",
+        "image_preview_missing": "このパスに画像がありません",
         // Window toolbar
         "dismiss": "閉じる",
         "reveal_in_finder": "Finderに表示",
@@ -1128,6 +1137,9 @@ extension L10n {
         "dev_hang_reports": "Informes de bloqueo",
         "dev_hang_reports_detail": "Cuando la app deja de responder durante tres segundos, esta compilación guarda el estado de la ventana y la pila de llamadas de cada hilo, aunque después fuerces la salida.",
         "show_in_finder": "Mostrar en el Finder",
+        // A reply's image link, previewed on hover
+        "open_in_preview": "Abrir en Vista Previa",
+        "image_preview_missing": "No hay ninguna imagen en esta ruta",
         // Window toolbar
         "dismiss": "Descartar",
         "reveal_in_finder": "Mostrar en el Finder",
@@ -1443,6 +1455,9 @@ extension L10n {
         "dev_hang_reports": "Rapports de blocage",
         "dev_hang_reports_detail": "Lorsque l'app ne répond plus pendant trois secondes, cette version enregistre l'état de la fenêtre et la pile d'appels de chaque thread, même si vous forcez ensuite à quitter.",
         "show_in_finder": "Afficher dans le Finder",
+        // A reply's image link, previewed on hover
+        "open_in_preview": "Ouvrir dans Aperçu",
+        "image_preview_missing": "Aucune image à cet emplacement",
         // Window toolbar
         "dismiss": "Fermer",
         "reveal_in_finder": "Afficher dans le Finder",
@@ -1758,6 +1773,9 @@ extension L10n {
         "dev_hang_reports": "Hängerberichte",
         "dev_hang_reports_detail": "Wenn die App drei Sekunden lang nicht mehr reagiert, sichert dieser Build den Zustand des Fensters und den Aufrufstapel jedes Threads, auch wenn du die App danach sofort beendest.",
         "show_in_finder": "Im Finder zeigen",
+        // A reply's image link, previewed on hover
+        "open_in_preview": "In Vorschau öffnen",
+        "image_preview_missing": "Unter diesem Pfad ist kein Bild",
         // Window toolbar
         "dismiss": "Schließen",
         "reveal_in_finder": "Im Finder zeigen",
