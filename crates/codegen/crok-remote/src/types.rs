@@ -95,6 +95,9 @@ pub struct SessionFields {
     pub created_at: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<f64>,
+    /// The project the session is grouped under: a crok worktree's source workspace, else the git root, else the cwd.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
 }
 
 impl SessionFields {
@@ -123,6 +126,7 @@ impl SessionFields {
             usage: diff(&self.usage, &next.usage),
             created_at: diff(&self.created_at, &next.created_at),
             last_activity_at: diff(&self.last_activity_at, &next.last_activity_at),
+            project_path: diff(&self.project_path, &next.project_path),
         }
     }
 
@@ -143,9 +147,33 @@ impl SessionFields {
             plan,
             usage,
             created_at,
-            last_activity_at
+            last_activity_at,
+            project_path
         );
     }
+}
+
+/// One session found on this computer's disk, for the relay's list of every session (`bridge:catalogBatch`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogEntry {
+    pub session_id: String,
+    pub title: String,
+    pub cwd: String,
+    pub project_path: String,
+    /// Unix milliseconds.
+    pub created_at: f64,
+    /// Unix milliseconds.
+    pub last_activity_at: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    /// What the last turn did, for the list until the transcript is there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
 }
 
 /// One transcript item. The relay updates an existing item with the same `key` in place.
@@ -177,6 +205,8 @@ pub enum CommandType {
     Prompt,
     Cancel,
     Info,
+    /// Read a session no crok runs from disk, for a viewer who opened it.
+    History,
 }
 
 /// A command from a phone or the web, as `bridge:inbox` lists it.
@@ -187,6 +217,9 @@ pub struct InboxCommand {
     pub id: String,
     pub session_doc_id: String,
     pub session_id: String,
+    /// The session's folder (where its transcript is stored).
+    #[serde(default)]
+    pub cwd: Option<String>,
     #[serde(rename = "type")]
     pub kind: CommandType,
     #[serde(default)]

@@ -20,10 +20,13 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::api::{Api, ApiError};
 use crate::credentials::{self, Credentials};
-use crate::types::{CommandOutcome, EventInput, HostApp, Inbox, SessionFields};
+use crate::types::{
+    CatalogEntry, CommandOutcome, EventInput, EventKind, HostApp, Inbox, SessionFields,
+};
 
 const HEARTBEAT: Duration = Duration::from_secs(30);
 const MAX_EVENTS_PER_CALL: usize = 100;
+const MAX_CATALOG_PER_CALL: usize = 100;
 /// Refresh the access token this long before it expires.
 const REFRESH_MARGIN_MS: f64 = 5.0 * 60.0 * 1000.0;
 
@@ -58,6 +61,23 @@ pub enum ToRelay {
         outcome: CommandOutcome,
         result: Option<Value>,
         error: Option<String>,
+    },
+    /// Asks whether this process should list the computer's sessions now; the reply is the upload's id, or `None`
+    /// when another crok here did it lately.
+    BeginCatalog {
+        reply: oneshot::Sender<Option<String>>,
+    },
+    /// Every session on disk, for the upload `BeginCatalog` started.
+    Catalog {
+        sync_id: String,
+        entries: Vec<CatalogEntry>,
+    },
+    /// A transcript read from disk for a session no crok runs, then the `history` command that asked for it completes.
+    PushHistory {
+        session_doc_id: String,
+        command_id: String,
+        events: Vec<EventInput>,
+        preview: Option<(EventKind, String)>,
     },
 }
 
@@ -492,6 +512,52 @@ async fn write_loop(
                     .mutation("bridge:completeCommand", to_args(args))
                     .await
             }
+            ToRelay::BeginCatalog { reply } => {
+                let args = json!({ "hostId": host_id });
+                let result = client.mutation("bridge:beginCatalog", to_args(args)).await;
+                let sync_id = match &result {
+                    Ok(FunctionResult::Value(value)) => value
+                        .clone()
+                        .export()
+                        .get("syncId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    _ => None,
+                };
+                let _ = reply.send(sync_id);
+                result
+            }
+            ToRelay::Catalog { sync_id, entries } => {
+                upload_catalog(&mut client, &host_id, &sync_id, &entries).await
+            }
+            ToRelay::PushHistory {
+                session_doc_id,
+                command_id,
+                events,
+                preview,
+            } => {
+                let pushed =
+                    push_history(&mut client, &host_id, &session_doc_id, &events, preview).await;
+                let (status, error) = match &pushed {
+                    Ok(FunctionResult::Value(_)) => ("done", None),
+                    Ok(other) => ("failed", Some(describe(other))),
+                    Err(error) => ("failed", Some(error.to_string())),
+                };
+                let args = json!({
+                    "hostId": host_id,
+                    "commandId": command_id,
+                    "status": status,
+                    "error": error,
+                });
+                let completed = client
+                    .mutation("bridge:completeCommand", to_args(args))
+                    .await;
+                if matches!(pushed, Ok(FunctionResult::Value(_))) {
+                    completed
+                } else {
+                    pushed
+                }
+            }
         };
         match result {
             Ok(FunctionResult::Value(_)) => {}
@@ -504,6 +570,65 @@ async fn write_loop(
             Err(error) => tracing::debug!(%error, "remote link: write failed"),
         }
     }
+}
+
+/// Uploads the catalog in batches, then ends it with every id listed (the relay drops offline sessions missing from it).
+/// Stops at the first failure: an upload another process took over answers `EXPIRED`.
+async fn upload_catalog(
+    client: &mut ConvexClient,
+    host_id: &str,
+    sync_id: &str,
+    entries: &[CatalogEntry],
+) -> anyhow::Result<FunctionResult> {
+    for chunk in entries.chunks(MAX_CATALOG_PER_CALL) {
+        let args = json!({ "hostId": host_id, "syncId": sync_id, "sessions": chunk });
+        let result = client
+            .mutation("bridge:catalogBatch", to_args(args))
+            .await?;
+        if !matches!(result, FunctionResult::Value(_)) {
+            return Ok(result);
+        }
+    }
+    let ids: Vec<&str> = entries.iter().map(|e| e.session_id.as_str()).collect();
+    let args = json!({ "hostId": host_id, "syncId": sync_id, "sessionIds": ids });
+    client.mutation("bridge:finishCatalog", to_args(args)).await
+}
+
+/// Replaces a session's transcript on the relay; the first call clears the old one even when there is nothing to add,
+/// and the last sets the list's preview.
+async fn push_history(
+    client: &mut ConvexClient,
+    host_id: &str,
+    session_doc_id: &str,
+    events: &[EventInput],
+    preview: Option<(EventKind, String)>,
+) -> anyhow::Result<FunctionResult> {
+    let chunks: Vec<&[EventInput]> = if events.is_empty() {
+        vec![&[]]
+    } else {
+        events.chunks(MAX_EVENTS_PER_CALL).collect()
+    };
+    let last = chunks.len() - 1;
+    let mut result = FunctionResult::Value(convex::Value::Null);
+    for (index, chunk) in chunks.into_iter().enumerate() {
+        let (preview_kind, preview_text) = match (&preview, index == last) {
+            (Some((kind, text)), true) => (Some(*kind), Some(text.clone())),
+            _ => (None, None),
+        };
+        let args = json!({
+            "hostId": host_id,
+            "sessionDocId": session_doc_id,
+            "replace": index == 0,
+            "events": chunk,
+            "preview": preview_text,
+            "previewKind": preview_kind,
+        });
+        result = client.mutation("bridge:pushEvents", to_args(args)).await?;
+        if !matches!(result, FunctionResult::Value(_)) {
+            break;
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

@@ -208,6 +208,143 @@ await computer.mutation("bridge:completeCommand", {
 const info = await phone.query("commands:get", { commandId: infoId });
 check(info?.result?.model === "grok-code" && info?.result?.usage?.inputTokens === 1200, "the phone gets the session info", info?.result);
 
+console.log("Projects, catalog and order");
+// A session that ran here earlier and was closed: not on disk any more, so the catalog drops it.
+const goneId = `0199e2e1-${Date.now().toString(16)}`;
+const { sessionDocId: goneDoc } = await computer.mutation("bridge:upsertSession", {
+  hostId,
+  sessionId: goneId,
+  fields: { title: "Deleted on the computer", cwd: "/Users/e2e/project", status: "idle" },
+});
+await computer.mutation("bridge:closeSession", { hostId, sessionId: goneId });
+const begun = await computer.mutation("bridge:beginCatalog", { hostId });
+check(typeof begun?.syncId === "string", "the computer may list its sessions", begun);
+check((await computer.mutation("bridge:beginCatalog", { hostId })) === null, "a second listing waits for the first");
+const oldTime = Date.now() - 3 * 24 * 3600 * 1000;
+const catOne = `0199e2e2-${Date.now().toString(16)}`;
+const catTwo = `0199e2e3-${Date.now().toString(16)}`;
+await computer.mutation("bridge:catalogBatch", {
+  hostId,
+  syncId: begun.syncId,
+  sessions: [
+    { sessionId, title: "Fix the flaky test", cwd: "/Users/e2e/project", projectPath: "/Users/e2e/project", createdAt: oldTime, lastActivityAt: oldTime },
+    {
+      sessionId: catOne,
+      title: "Old refactor",
+      cwd: "/Users/e2e/project/crates/core",
+      projectPath: "/Users/e2e/project",
+      createdAt: oldTime,
+      lastActivityAt: oldTime + 1000,
+      model: "grok-code",
+      preview: "Split the parser into two modules",
+    },
+    { sessionId: catTwo, title: "Notes", cwd: "/Users/e2e/other", projectPath: "/Users/e2e/other", createdAt: oldTime, lastActivityAt: oldTime },
+  ],
+});
+const finished = await computer.mutation("bridge:finishCatalog", {
+  hostId,
+  syncId: begun.syncId,
+  sessionIds: [sessionId, catOne, catTwo],
+});
+check(finished.removed === 1, "a closed session missing from the computer's disk is dropped", finished);
+check((await computer.mutation("bridge:beginCatalog", { hostId })) === null, "the next listing waits ten minutes");
+let groups = await phone.query("sessions:groups", {});
+const projectGroup = groups.find((g) => g.path === "/Users/e2e/project");
+const otherGroup = groups.find((g) => g.path === "/Users/e2e/other");
+check(
+  projectGroup?.name === "project" && otherGroup?.name === "other" && groups.indexOf(projectGroup) < groups.indexOf(otherGroup),
+  "sessions are grouped by project, the most recently active project first",
+  groups.map((g) => [g.name, g.sessions.length]),
+);
+check(
+  projectGroup?.sessions.map((s) => s.sessionId).join() === [sessionId, catOne].join() &&
+    !projectGroup.sessions.some((s) => s.sessionId === goneId),
+  "a project holds its sessions, newest first",
+  projectGroup?.sessions.map((s) => s.title),
+);
+const catRow = projectGroup?.sessions.find((s) => s.sessionId === catOne);
+check(
+  catRow && !catRow.online && catRow.historyState === "none" && catRow.preview === "Split the parser into two modules",
+  "a session only on disk is listed offline, with its last turn as the preview",
+  catRow,
+);
+check(projectGroup?.sessions[0].online && projectGroup.sessions[0].title === "Fix the flaky test", "the catalog leaves a running session alone");
+await phone.mutation("sessions:reorderProjects", { keys: [otherGroup.key, projectGroup.key] });
+groups = await phone.query("sessions:groups", {});
+check(
+  groups.findIndex((g) => g.key === otherGroup.key) < groups.findIndex((g) => g.key === projectGroup.key) &&
+    groups.every((g) => g.placed),
+  "projects take the order they were put in",
+  groups.map((g) => g.name),
+);
+await phone.mutation("sessions:reorderSessions", { projectKey: projectGroup.key, sessionDocIds: [catRow._id, sessionDocId] });
+groups = await phone.query("sessions:groups", {});
+check(
+  groups.find((g) => g.key === projectGroup.key)?.sessions[0]._id === catRow._id,
+  "sessions take the order they were put in",
+);
+await phone.mutation("sessions:resetOrder", { projectKey: projectGroup.key });
+groups = await phone.query("sessions:groups", {});
+check(groups.find((g) => g.key === projectGroup.key)?.sessions[0]._id === sessionDocId, "sort by recent activity undoes it");
+await phone.mutation("sessions:resetOrder", {});
+
+// Opening a session that only lives on the computer's disk asks the computer for its transcript.
+const historyWait = nextValue(computer, "bridge:inbox", { hostId }, (v) => v.commands.some((c) => c.type === "history"));
+await phone.mutation("sessions:watch", { sessionDocId: catRow._id });
+const historyInbox = await historyWait;
+const historyCommand = historyInbox.commands.find((c) => c.type === "history");
+check(
+  historyCommand?.sessionId === catOne && historyCommand?.cwd === "/Users/e2e/project/crates/core",
+  "the computer is asked for the transcript, with the folder it is stored under",
+  historyCommand,
+);
+check((await phone.query("sessions:get", { sessionDocId: catRow._id })).historyState === "requested", "the session shows it is loading");
+check(await computer.mutation("bridge:claimCommand", { hostId, commandId: historyCommand._id }), "a crok on that computer claims it");
+await computer.mutation("bridge:pushEvents", {
+  hostId,
+  sessionDocId: catRow._id,
+  replace: true,
+  events: [
+    { key: "h-u1", kind: "user", text: "Split the parser", origin: "local", at: oldTime },
+    { key: "h-a1", kind: "assistant", text: "Done: two modules.", at: oldTime + 500 },
+  ],
+  preview: "Done: two modules.",
+  previewKind: "assistant",
+});
+await computer.mutation("bridge:completeCommand", { hostId, commandId: historyCommand._id, status: "done" });
+const loaded = await phone.query("sessions:get", { sessionDocId: catRow._id });
+const history = await phone.query("sessions:events", { sessionDocId: catRow._id, paginationOpts: { numItems: 20, cursor: null } });
+check(
+  loaded.historyState === "ready" && history.page.length === 2 && loaded.lastActivityAt === catRow.lastActivityAt,
+  "the transcript arrives without making the session look new",
+  { state: loaded.historyState, events: history.page.length },
+);
+await phone.mutation("sessions:watch", { sessionDocId: catRow._id });
+const recent = await phone.query("commands:forSession", { sessionDocId: catRow._id });
+check(recent.length === 0, "history requests are not shown as prompts", recent);
+
+// A host that drops off and comes back brings back what it had open, not what it only listed or had closed.
+const { hostId: otherHost } = await computer.mutation("bridge:connect", {
+  instanceId: `e2e-${process.pid}-b`,
+  app: "desktop",
+  appVersion: "crok e2e",
+});
+await computer.mutation("bridge:disconnect", { hostId });
+await computer.mutation("bridge:heartbeat", { hostId });
+const revived = await phone.query("sessions:groups", {});
+const revivedProject = revived.find((g) => g.key === projectGroup.key);
+check(
+  revivedProject?.sessions.find((s) => s._id === sessionDocId)?.online === true &&
+    revivedProject?.sessions.find((s) => s._id === catRow._id)?.online === false,
+  "a returning host revives its open session only",
+  revivedProject?.sessions.map((s) => [s.title, s.online]),
+);
+await computer.mutation("bridge:disconnect", { hostId: otherHost });
+await phone.mutation("sessions:remove", { sessionDocId: catRow._id });
+const otherRow = revived.find((g) => g.key === otherGroup.key)?.sessions[0];
+if (otherRow) await phone.mutation("sessions:remove", { sessionDocId: otherRow._id });
+void goneDoc;
+
 console.log("Offline and sign-out");
 await computer.mutation("bridge:disconnect", { hostId });
 const afterDisconnect = await phone.query("sessions:get", { sessionDocId });

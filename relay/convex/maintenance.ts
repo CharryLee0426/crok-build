@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
-import { markHostOffline } from "./bridge";
+import { markHostOffline, settleHistory } from "./bridge";
 
 /** A host that has not heartbeated (every 30 s) for this long is offline: the process quit, crashed or lost network. */
 const HOST_STALE_MS = 90 * 1000;
@@ -33,6 +33,7 @@ export const sweep = internalMutation({
         error: "The computer did not pick this up. Is crok still running there?",
         updatedAt: now,
       });
+      if (command.type === "history") await settleHistory(ctx, command.sessionDocId, false);
     }
 
     const logins = await ctx.db
@@ -50,24 +51,32 @@ export const sweep = internalMutation({
   },
 });
 
-/** Daily: drop the relay's copies of sessions nobody has touched for 30 days. */
+/**
+ * Daily: drop the transcripts of sessions nobody has touched for 30 days. The sessions stay listed (the computer lists
+ * them anyway); opening one reads its transcript from the computer again.
+ */
 export const pruneOldSessions = internalMutation({
   args: {},
   handler: async (ctx) => {
     const cutoff = Date.now() - SESSION_KEEP_MS;
     const users = await ctx.db.query("users").collect();
     for (const user of users) {
-      const old = await ctx.db
+      let pruned = 0;
+      for await (const session of ctx.db
         .query("sessions")
-        .withIndex("by_user_activity", (q) => q.eq("userId", user._id).lt("lastActivityAt", cutoff))
-        .take(50);
-      for (const session of old) {
-        if (session.online || session.pinned) continue;
-        await ctx.db.delete(session._id);
+        .withIndex("by_user_activity", (q) => q.eq("userId", user._id).lt("lastActivityAt", cutoff))) {
+        if (pruned >= 50) break;
+        if (session.online || session.pinned || session.eventSeq === 0 || session.historyState === "none") continue;
+        await ctx.db.patch(session._id, {
+          historyState: "none",
+          assistantCount: 0,
+          readAssistantCount: 0,
+        });
         await ctx.scheduler.runAfter(0, internal.maintenance.deleteSessionEvents, {
           sessionDocId: session._id,
-          throughSeq: Number.MAX_SAFE_INTEGER,
+          throughSeq: session.eventSeq,
         });
+        pruned += 1;
       }
     }
     return null;

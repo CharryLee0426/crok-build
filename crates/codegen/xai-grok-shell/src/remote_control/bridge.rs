@@ -10,8 +10,8 @@ use agent_client_protocol::{self as acp, Agent as _};
 use crok_remote::credentials::{self, Credentials};
 use crok_remote::link::{FromRelay, Link, LinkConfig, LinkState, ToRelay};
 use crok_remote::types::{
-    CommandOutcome, CommandType, EventInput, EventKind, InboxCommand, SessionFields, SessionStatus,
-    SessionUsage, now_ms,
+    CatalogEntry, CommandOutcome, CommandType, EventInput, EventKind, InboxCommand, SessionFields,
+    SessionStatus, SessionUsage, now_ms,
 };
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
@@ -29,6 +29,10 @@ const UNWATCHED_FLUSH: Duration = Duration::from_secs(30);
 const SETTINGS_CHECK_TICKS: u32 = 20;
 /// How much history a mirror starts with: the last few user turns.
 const BACKFILL_TURNS: usize = 8;
+/// How much of a session no crok runs a viewer gets when opening it.
+const HISTORY_TURNS: usize = 20;
+/// How often a process offers to list this computer's sessions (in ticks: 10 min). The relay lets one per computer.
+const CATALOG_TICKS: u32 = 2_400;
 const TITLE_FALLBACK_MAX: usize = 80;
 
 enum Internal {
@@ -53,6 +57,17 @@ enum Internal {
     },
     /// A command a task finished (session info).
     Complete { command_id: String, result: Value },
+    /// This computer's sessions, listed for the upload the relay granted (`None`: no upload this time).
+    Catalog {
+        upload: Option<(String, Vec<CatalogEntry>)>,
+    },
+    /// A transcript read from disk for a `history` command.
+    History {
+        command_id: String,
+        session_doc_id: String,
+        events: Vec<EventInput>,
+        preview: Option<(EventKind, String)>,
+    },
 }
 
 struct Mirror {
@@ -77,6 +92,8 @@ struct Mirror {
     queue: VecDeque<InboxCommand>,
     boundary: bool,
     last_flush: Instant,
+    /// The newest preview line, published at a boundary or once the turn is over.
+    latest_preview: Option<(EventKind, String)>,
 }
 
 impl Mirror {
@@ -102,6 +119,14 @@ impl Mirror {
             queue: VecDeque::new(),
             boundary: false,
             last_flush: Instant::now(),
+            latest_preview: None,
+        }
+    }
+
+    fn publish_preview(&mut self) {
+        if let Some((kind, text)) = self.latest_preview.take() {
+            self.desired.preview = Some(text);
+            self.desired.preview_kind = Some(kind);
         }
     }
 
@@ -148,6 +173,10 @@ pub(crate) struct Bridge {
     /// Makes this process's transcript keys unique next to earlier runs' (`l3f2a…`).
     generation: String,
     activations: u32,
+    /// Each listed session's project, from the last catalog, for the sessions this process mirrors.
+    project_of: HashMap<String, String>,
+    /// A catalog offer or upload is under way.
+    catalog_busy: bool,
 }
 
 async fn recv_opt<T>(rx: &mut Option<mpsc::UnboundedReceiver<T>>) -> Option<Option<T>> {
@@ -246,6 +275,52 @@ fn status_from_activity(activity: &str) -> Option<SessionStatus> {
     }
 }
 
+/// The last `turns` user turns of a session, read from disk (`updates.jsonl`; the session need not be loaded), as
+/// transcript items and the list's preview. `skip_prompt` leaves out the turn that is running now.
+async fn read_transcript(
+    agent: &MvpAgent,
+    session_id: &str,
+    cwd: &str,
+    turns: usize,
+    skip_prompt: Option<&str>,
+    prefix: String,
+) -> (Vec<EventInput>, Option<(EventKind, String)>) {
+    let response = ext_json(
+        agent,
+        "x.ai/session/updates",
+        json!({ "sessionId": session_id, "cwd": cwd, "turnIndex": turns }),
+    )
+    .await;
+    let mut transcript = Transcript::new(prefix, true);
+    let updates = response
+        .as_ref()
+        .and_then(|r| r.get("updates"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for update in &updates {
+        let method = update.get("method").and_then(Value::as_str).unwrap_or("");
+        let Some(params) = update.get("params") else {
+            continue;
+        };
+        let prompt_id = params
+            .get("_meta")
+            .and_then(|m| m.get("promptId"))
+            .and_then(Value::as_str);
+        if skip_prompt.is_some() && prompt_id == skip_prompt {
+            continue;
+        }
+        let at = update
+            .get("timestamp")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+            * 1000.0;
+        transcript.apply(method, params, at);
+    }
+    transcript.close_text();
+    (transcript.take_dirty(), transcript.preview())
+}
+
 async fn git_branch(cwd: String) -> Option<String> {
     let output = tokio::time::timeout(
         Duration::from_secs(2),
@@ -291,6 +366,8 @@ impl Bridge {
             watched: HashMap::new(),
             generation,
             activations: 0,
+            project_of: HashMap::new(),
+            catalog_busy: false,
         }
     }
 
@@ -328,6 +405,9 @@ impl Bridge {
                     ticks = ticks.wrapping_add(1);
                     if ticks.is_multiple_of(SETTINGS_CHECK_TICKS) {
                         self.check_settings();
+                    }
+                    if ticks.is_multiple_of(CATALOG_TICKS) {
+                        self.offer_catalog();
                     }
                     self.flush();
                 }
@@ -448,6 +528,29 @@ impl Bridge {
             }
         }
         self.fetch_roster();
+        self.catalog_busy = false;
+        self.offer_catalog();
+    }
+
+    /// Offers to list every session on this computer's disk; the relay lets one crok process per computer do it, at
+    /// most every 10 minutes. The listing runs only when granted.
+    fn offer_catalog(&mut self) {
+        if !self.active() || self.catalog_busy {
+            return;
+        }
+        self.catalog_busy = true;
+        let (reply, granted) = oneshot::channel();
+        self.send(ToRelay::BeginCatalog { reply });
+        let tx = self.internal_tx.clone();
+        tokio::task::spawn_local(async move {
+            let upload = match granted.await.ok().flatten() {
+                Some(sync_id) => super::catalog::list()
+                    .await
+                    .map(|entries| (sync_id, entries)),
+                None => None,
+            };
+            let _ = tx.send(Internal::Catalog { upload });
+        });
     }
 
     fn deactivate(&mut self) {
@@ -495,6 +598,10 @@ impl Bridge {
         mirror.backfill_pending = mirror.loaded;
         if mirror.desired.title.is_none() {
             mirror.desired.title = Some(String::new());
+        }
+        // The project the last catalog put it in; a new session's is guessed by the relay until the next catalog.
+        if mirror.desired.project_path.is_none() {
+            mirror.desired.project_path = self.project_of.get(session_id).cloned();
         }
         let mut fields = mirror.desired.clone();
         if fields.title.as_deref() == Some("") {
@@ -821,10 +928,13 @@ impl Bridge {
                     if !self.handled.insert(command.id.clone()) {
                         continue;
                     }
-                    if !self
-                        .mirrors
-                        .get(&command.session_id)
-                        .is_some_and(|m| m.registered)
+                    // A transcript to read from disk needs no mirror here: any crok on this computer can serve it.
+                    let history = command.kind == CommandType::History;
+                    if !history
+                        && !self
+                            .mirrors
+                            .get(&command.session_id)
+                            .is_some_and(|m| m.registered)
                     {
                         self.handled.remove(&command.id);
                         continue;
@@ -900,6 +1010,36 @@ impl Bridge {
             Internal::Complete { command_id, result } => {
                 self.complete(&command_id, CommandOutcome::Done, Some(result), None);
             }
+            Internal::Catalog { upload } => {
+                self.catalog_busy = false;
+                let Some((sync_id, entries)) = upload else {
+                    return;
+                };
+                self.project_of = entries
+                    .iter()
+                    .map(|e| (e.session_id.clone(), e.project_path.clone()))
+                    .collect();
+                // Sessions mirrored here follow the projects the catalog puts them in.
+                for (session_id, mirror) in &mut self.mirrors {
+                    if let Some(project) = self.project_of.get(session_id) {
+                        mirror.desired.project_path = Some(project.clone());
+                    }
+                }
+                self.send(ToRelay::Catalog { sync_id, entries });
+            }
+            Internal::History {
+                command_id,
+                session_doc_id,
+                events,
+                preview,
+            } => {
+                self.send(ToRelay::PushHistory {
+                    session_doc_id,
+                    command_id,
+                    events,
+                    preview,
+                });
+            }
             Internal::PromptReturned {
                 session_id,
                 command_id,
@@ -948,6 +1088,10 @@ impl Bridge {
     }
 
     fn execute(&mut self, command: InboxCommand) {
+        if command.kind == CommandType::History {
+            self.read_history(command);
+            return;
+        }
         let session_id = command.session_id.clone();
         let Some(mirror) = self.mirrors.get_mut(&session_id) else {
             self.complete(
@@ -1011,7 +1155,35 @@ impl Bridge {
                     let _ = tx.send(Internal::Complete { command_id, result });
                 });
             }
+            CommandType::History => {}
         }
+    }
+
+    /// Reads the last turns of a session no crok runs from disk, for a viewer who opened it.
+    fn read_history(&self, command: InboxCommand) {
+        let Some(agent) = self.agent.upgrade() else {
+            return;
+        };
+        let prefix = format!("{}h", self.prefix());
+        let tx = self.internal_tx.clone();
+        tokio::task::spawn_local(async move {
+            let cwd = command.cwd.clone().unwrap_or_default();
+            let (events, preview) = read_transcript(
+                &agent,
+                &command.session_id,
+                &cwd,
+                HISTORY_TURNS,
+                None,
+                prefix,
+            )
+            .await;
+            let _ = tx.send(Internal::History {
+                command_id: command.id,
+                session_doc_id: command.session_doc_id,
+                events,
+                preview,
+            });
+        });
     }
 
     fn start_prompt(&mut self, command: InboxCommand) {
@@ -1131,41 +1303,15 @@ impl Bridge {
         let tx = self.internal_tx.clone();
         let session_id = session_id.to_string();
         tokio::task::spawn_local(async move {
-            let response = ext_json(
+            let (events, preview) = read_transcript(
                 &agent,
-                "x.ai/session/updates",
-                json!({ "sessionId": session_id, "cwd": cwd, "turnIndex": BACKFILL_TURNS }),
+                &session_id,
+                &cwd,
+                BACKFILL_TURNS,
+                skip_prompt.as_deref(),
+                prefix,
             )
             .await;
-            let mut transcript = Transcript::new(prefix, true);
-            let updates = response
-                .as_ref()
-                .and_then(|r| r.get("updates"))
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            for update in &updates {
-                let method = update.get("method").and_then(Value::as_str).unwrap_or("");
-                let Some(params) = update.get("params") else {
-                    continue;
-                };
-                let prompt_id = params
-                    .get("_meta")
-                    .and_then(|m| m.get("promptId"))
-                    .and_then(Value::as_str);
-                if skip_prompt.is_some() && prompt_id == skip_prompt.as_deref() {
-                    continue;
-                }
-                let at = update
-                    .get("timestamp")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(0.0)
-                    * 1000.0;
-                transcript.apply(method, params, at);
-            }
-            transcript.close_text();
-            let events = transcript.take_dirty();
-            let preview = transcript.preview();
             let _ = tx.send(Internal::Backfilled {
                 session_id,
                 events,
@@ -1199,14 +1345,22 @@ impl Bridge {
                     replace: false,
                 });
                 mirror.last_flush = now;
+                let at_boundary = mirror.boundary;
                 mirror.boundary = false;
-                if let Some((kind, text)) = mirror.transcript.preview() {
-                    mirror.desired.preview = Some(text);
-                    mirror.desired.preview_kind = Some(kind);
+                if let Some(preview) = mirror.transcript.preview() {
+                    mirror.latest_preview = Some(preview);
+                }
+                // Lists show "working…" for a running session, and every session write re-sends every viewer's whole
+                // list: the preview goes out at message boundaries and when the turn is over, not with each chunk.
+                if at_boundary {
+                    mirror.publish_preview();
                 }
                 mirror.transcript.compact();
             } else if !mirror.transcript.has_dirty() {
                 mirror.boundary = false;
+            }
+            if !mirror.turn_running {
+                mirror.publish_preview();
             }
             let mut changes = mirror.sent.changes_to(&mirror.desired);
             if changes.title.as_deref() == Some("") {

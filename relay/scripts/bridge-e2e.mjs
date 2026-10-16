@@ -6,9 +6,11 @@
 // Needs: a running deployment (`npx convex dev`, with CLERK_JWT_ISSUER_DOMAIN set to any value), a crok binary, and a
 // model the agent can call (an OpenAI-compatible server; see the config below).
 //
-//   CROK_BIN=…/xai-grok-pager CROK_HOME=/tmp/home E2E_PROJECT=/tmp/project node scripts/bridge-e2e.mjs
+//   CROK_BIN=…/xai-grok-pager CROK_HOME=/tmp/home E2E_PROJECT=~/e2e-project node scripts/bridge-e2e.mjs
 //
-// CROK_HOME/config.toml should point the default model at that server and may set [remote] url.
+// CROK_HOME/config.toml should point the default model at that server. E2E_PROJECT must not be under the system's
+// temp folder (crok leaves sessions there out of the list of every session). It also checks that a session from before
+// the sign-in is listed, grouped with the running one, and that opening it fetches its transcript from disk.
 
 import { execFileSync, spawn } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
@@ -66,7 +68,74 @@ function approve(userCode) {
   });
 }
 
-console.log(`Bridge e2e: ${CROK}\n  relay ${url}\n  home ${HOME}`);
+/** A `crok agent stdio` process (what Crok Desktop runs per task), initialized and signed in to its model. */
+async function startAgent() {
+  const agent = spawn(CROK, ["agent", "stdio"], { cwd: PROJECT, env: { ...env, GROK_CLIENT_VERSION: "e2e" } });
+  let stderr = "";
+  agent.stderr.on("data", (d) => (stderr += d));
+  const exited = new Promise((resolve) => agent.on("exit", resolve));
+  let nextId = 1;
+  const pending = new Map();
+  const notifications = [];
+  const write = (obj) => agent.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...obj })}\n`);
+  const rpc = (method, params, timeoutMs = 120_000) => {
+    const id = nextId++;
+    write({ id, method, params });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${method} timed out`)), timeoutMs);
+      pending.set(id, { resolve, reject, timer });
+    });
+  };
+  createInterface({ input: agent.stdout }).on("line", (line) => {
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (message.id !== undefined && (message.result !== undefined || message.error !== undefined) && !message.method) {
+      const waiter = pending.get(message.id);
+      if (!waiter) return;
+      pending.delete(message.id);
+      clearTimeout(waiter.timer);
+      if (message.error) waiter.reject(new Error(JSON.stringify(message.error)));
+      else waiter.resolve(message.result);
+      return;
+    }
+    if (message.method && message.id !== undefined) {
+      // Requests from the agent: trust the folder, refuse everything else.
+      const method = message.method.replace(/^_/, "");
+      if (method === "x.ai/folder_trust/request") write({ id: message.id, result: { outcome: "trust" } });
+      else if (method === "session/request_permission") write({ id: message.id, result: { outcome: { outcome: "cancelled" } } });
+      else write({ id: message.id, error: { code: -32601, message: `unsupported: ${method}` } });
+      return;
+    }
+    if (message.method) notifications.push({ method: message.method.replace(/^_/, ""), params: message.params });
+  });
+  const init = await rpc("initialize", {
+    protocolVersion: 1,
+    clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+    _meta: { clientType: "grok_desktop", clientIdentifier: "bridge-e2e", clientVersion: "0" },
+  });
+  const methods = (init.authMethods ?? []).map((m) => m.id);
+  if (methods.includes("xai.api_key")) await rpc("authenticate", { methodId: "xai.api_key", _meta: { headless: true } });
+  return { agent, rpc, notifications, exited, stderr: () => stderr };
+}
+
+console.log(`Bridge e2e: ${CROK}\n  relay ${url}\n  home ${HOME}\n  project ${PROJECT}`);
+
+// 0. A session from before this computer was signed in: on disk, run by nobody. The catalog must list it.
+console.log("an older session, signed out");
+const older = await startAgent();
+const { sessionId: olderId } = await older.rpc("session/new", { cwd: PROJECT, mcpServers: [] });
+const olderTurn = await older.rpc("session/prompt", {
+  sessionId: olderId,
+  prompt: [{ type: "text", text: "an older question from yesterday" }],
+  _meta: { promptId: "older-1" },
+});
+check(olderTurn.stopReason === "end_turn", "an older session runs while signed out", olderTurn);
+older.agent.stdin.end();
+await Promise.race([older.exited, sleep(15_000)]);
 
 // 1. `crok remote login` signs this computer in.
 console.log("crok remote login");
@@ -91,58 +160,7 @@ check(status.signedIn && status.reachable && status.deviceName === "E2E Mac", "c
 
 // 2. A task process, driven like Crok Desktop drives it.
 console.log("crok agent stdio");
-const agent = spawn(CROK, ["agent", "stdio"], { cwd: PROJECT, env: { ...env, GROK_CLIENT_VERSION: "e2e" } });
-let agentErr = "";
-agent.stderr.on("data", (d) => (agentErr += d));
-const agentExit = new Promise((resolve) => agent.on("exit", resolve));
-let nextId = 1;
-const pending = new Map();
-const notifications = [];
-function write(obj) {
-  agent.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...obj })}\n`);
-}
-function rpc(method, params, timeoutMs = 120_000) {
-  const id = nextId++;
-  write({ id, method, params });
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${method} timed out`)), timeoutMs);
-    pending.set(id, { resolve, reject, timer });
-  });
-}
-createInterface({ input: agent.stdout }).on("line", (line) => {
-  let message;
-  try {
-    message = JSON.parse(line);
-  } catch {
-    return;
-  }
-  if (message.id !== undefined && (message.result !== undefined || message.error !== undefined) && !message.method) {
-    const waiter = pending.get(message.id);
-    if (!waiter) return;
-    pending.delete(message.id);
-    clearTimeout(waiter.timer);
-    if (message.error) waiter.reject(new Error(JSON.stringify(message.error)));
-    else waiter.resolve(message.result);
-    return;
-  }
-  if (message.method && message.id !== undefined) {
-    // Requests from the agent: trust the folder, refuse everything else.
-    const method = message.method.replace(/^_/, "");
-    if (method === "x.ai/folder_trust/request") write({ id: message.id, result: { outcome: "trust" } });
-    else if (method === "session/request_permission") write({ id: message.id, result: { outcome: { outcome: "cancelled" } } });
-    else write({ id: message.id, error: { code: -32601, message: `unsupported: ${method}` } });
-    return;
-  }
-  if (message.method) notifications.push({ method: message.method.replace(/^_/, ""), params: message.params });
-});
-
-const init = await rpc("initialize", {
-  protocolVersion: 1,
-  clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-  _meta: { clientType: "grok_desktop", clientIdentifier: "bridge-e2e", clientVersion: "0" },
-});
-const methods = (init.authMethods ?? []).map((m) => m.id);
-if (methods.includes("xai.api_key")) await rpc("authenticate", { methodId: "xai.api_key", _meta: { headless: true } });
+const { agent, rpc, notifications, exited: agentExit, stderr: agentStderr } = await startAgent();
 const { sessionId } = await rpc("session/new", { cwd: PROJECT, mcpServers: [] });
 check(typeof sessionId === "string", "session/new", sessionId);
 const firstTurn = await rpc("session/prompt", {
@@ -184,6 +202,39 @@ check(
 );
 await phone.mutation("sessions:watch", { sessionDocId });
 
+// 3b. Every session on disk, grouped by project; an older one's transcript is read from disk when opened.
+console.log("every session, by project");
+const project = await until("the older session is listed", async () => {
+  const groups = await phone.query("sessions:groups", {});
+  return groups.find((g) => g.sessions.some((s) => s.sessionId === olderId));
+});
+const olderRow = project?.sessions.find((s) => s.sessionId === olderId);
+check(
+  project?.sessions.some((s) => s.sessionId === sessionId) && olderRow && !olderRow.online && olderRow.historyState === "none",
+  "the older session sits in the same project as the running one, offline, its transcript not here yet",
+  project && { name: project.name, sessions: project.sessions.map((s) => [s.title, s.online, s.historyState]) },
+);
+check(project?.deviceName === "E2E Mac", "the project is under this computer", project?.deviceName);
+await phone.mutation("sessions:watch", { sessionDocId: olderRow?._id });
+const olderEvents = await until("its transcript arrives", async () => {
+  const page = (await phone.query("sessions:events", { sessionDocId: olderRow._id, paginationOpts: { numItems: 50, cursor: null } })).page;
+  return page.some((e) => e.kind === "assistant" && e.text.includes("Hi from mock")) ? page.reverse() : null;
+}, 30_000);
+check(
+  olderEvents?.[0]?.kind === "user" && olderEvents[0].text === "an older question from yesterday",
+  "the transcript was read from disk by the running crok",
+  olderEvents?.map((e) => [e.kind, e.text.slice(0, 40)]),
+);
+const olderNow = await phone.query("sessions:get", { sessionDocId: olderRow?._id });
+check(olderNow?.historyState === "ready" && !olderNow.online, "it is marked loaded and stays read-only", olderNow?.historyState);
+let readOnly;
+try {
+  await phone.mutation("commands:sendPrompt", { sessionDocId: olderRow._id, text: "hi", clientId: crypto.randomUUID() });
+} catch (error) {
+  readOnly = error.data?.code;
+}
+check(readOnly === "OFFLINE", "a prompt to it is refused as offline", readOnly);
+
 // 4. A prompt from the phone.
 console.log("remote prompt");
 const clientId = crypto.randomUUID();
@@ -204,6 +255,12 @@ const remoteUser = afterRemote?.find((e) => e.commandId === commandId);
 check(remoteUser?.origin === "remote" && remoteUser?.text === "remote hello", "the prompt is in the transcript as remote", remoteUser ?? (await events()).map((e) => [e.seq, e.kind, e.text.slice(0, 40), e.commandId]));
 const shown = notifications.find((n) => n.method === "x.ai/remote/prompt");
 check(shown?.params?.text === "remote hello" && shown?.params?.from === "E2E iPhone", "the front end is told about it", shown?.params);
+const previewRow = await until("the list shows the reply", async () => {
+  const listed = (await phone.query("sessions:list", {})).find((s) => s._id === sessionDocId);
+  // Not the prompt the turn started with: the preview waits for the turn's end, then shows the reply.
+  return listed?.previewKind === "assistant" && listed.preview?.startsWith("Hi from mock") ? listed : null;
+});
+check(Boolean(previewRow), "a finished turn leaves its reply as the list's preview", previewRow?.preview);
 
 // 5. Session info.
 console.log("session info");
@@ -256,11 +313,12 @@ check(logout.event === "signed_out" && logout.unlinked, "logout unlinks", logout
 const devices = await phone.query("devices:list", {});
 check(!devices.some((d) => d.name === "E2E Mac"), "the computer is gone from the phone's devices", devices.map((d) => d.name));
 
-// Leave nothing behind but the test person: drop the session's copy and unlink the phone.
+// Leave nothing behind but the test person: drop the sessions' copies and unlink the phone.
 await phone.mutation("sessions:remove", { sessionDocId });
+if (olderRow) await phone.mutation("sessions:remove", { sessionDocId: olderRow._id });
 await http.mutation("deviceAuth:logout", { refreshToken: phoneTokens.refreshToken });
 
 await phone.close();
-if (failures) console.log(`\nagent stderr tail:\n${agentErr.slice(-1500)}`);
+if (failures) console.log(`\nagent stderr tail:\n${agentStderr().slice(-1500)}`);
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

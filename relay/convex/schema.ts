@@ -24,7 +24,14 @@ export const eventKind = v.union(
   v.literal("error"),
 );
 
-export const commandType = v.union(v.literal("prompt"), v.literal("cancel"), v.literal("info"));
+/** `history`: the relay asks any running crok on the computer to read a session's transcript from disk. */
+export const commandType = v.union(v.literal("prompt"), v.literal("cancel"), v.literal("info"), v.literal("history"));
+
+/**
+ * For a session listed from the computer's disk while no crok runs it: `none` = no transcript on the relay yet,
+ * `requested` = a computer was asked for it, `ready` = it is here. Unset for sessions a running crok mirrors.
+ */
+export const historyState = v.union(v.literal("none"), v.literal("requested"), v.literal("ready"));
 
 /**
  * `pending` → the computer has not picked it up (clock); `delivered` → the computer accepted it (one check);
@@ -125,7 +132,10 @@ export default defineSchema({
     .index("by_device", ["deviceId"])
     .index("by_online_seen", ["online", "lastSeenAt"]),
 
-  /** A crok session mirrored from a computer. `sessionId` is crok's own id (UUIDv7). */
+  /**
+   * A crok session on a computer: mirrored live while a crok process runs it, or listed from the computer's disk (the
+   * catalog) otherwise. `sessionId` is crok's own id (UUIDv7).
+   */
   sessions: defineTable({
     userId: v.id("users"),
     deviceId: v.id("devices"),
@@ -152,11 +162,48 @@ export default defineSchema({
     readAssistantCount: v.number(),
     pinned: v.optional(v.boolean()),
     archived: v.optional(v.boolean()),
+    /**
+     * The project the session is grouped under on its computer: a crok worktree's source workspace, else the git
+     * root, else the cwd. Unset on rows from before projects (they group by `cwd`).
+     */
+    projectPath: v.optional(v.string()),
+    /** Its place in the project, set by reordering (lower first). Unplaced sessions come first, newest first. */
+    position: v.optional(v.number()),
+    historyState: v.optional(historyState),
+    /** Offline only because its host stopped heartbeating: it comes back with the host (a closed one does not). */
+    suspended: v.optional(v.boolean()),
   })
     .index("by_user_activity", ["userId", "lastActivityAt"])
     .index("by_user_session", ["userId", "sessionId"])
     .index("by_host", ["hostId"])
     .index("by_device", ["deviceId"]),
+
+  /**
+   * A project (folder) on a computer, for its place in the list. Sessions point at it by `(deviceId, projectPath)`;
+   * a row exists once a session names the folder or the person reorders.
+   */
+  projects: defineTable({
+    userId: v.id("users"),
+    deviceId: v.id("devices"),
+    path: v.string(),
+    /** Set by reordering (lower first). Unplaced projects come first, most recently active first. */
+    position: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_device_path", ["deviceId", "path"]),
+
+  /**
+   * The last catalog upload per computer: one running crok at a time lists every session on disk, at most every few
+   * minutes, however many crok processes run there.
+   */
+  catalogSyncs: defineTable({
+    deviceId: v.id("devices"),
+    hostId: v.id("hosts"),
+    syncId: v.string(),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  }).index("by_device", ["deviceId"]),
 
   /** One transcript item. Streaming text updates the same row (same `key`). */
   events: defineTable({

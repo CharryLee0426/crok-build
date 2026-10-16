@@ -22,8 +22,8 @@ remote-control account and has nothing to do with model keys. Until you sign in,
 
 | Where | How |
 |---|---|
-| Terminal | `crok remote login --server https://<deployment>.convex.cloud` |
-| TUI | `/remote login https://<deployment>.convex.cloud` |
+| Terminal | `crok remote login` |
+| TUI | `/remote login` |
 | Crok Desktop | **Settings** → **Remote control** → **Sign in…** |
 
 You get a short code (`BCDF-GHJK`), a link and, in the terminal, a QR code. Open the link (Crok opens it for you when it
@@ -32,14 +32,21 @@ to the Crok app can approve it too: **Settings** → **Link a computer**, then s
 
 Only approve a sign-in you just started yourself. The code works for ten minutes.
 
-The relay address is saved as `[remote] url` in `config.toml`, so later sign-ins need no `--server`. The link itself is
-kept in `$CROK_HOME/remote/credentials.json`, readable only by you.
+There is no address to enter: crok comes with its relay built in. The link is kept in
+`$CROK_HOME/remote/credentials.json`, readable only by you.
 
 ## What Is Shared
 
 While this computer is signed in, every running crok process mirrors its sessions to the relay: the TUI, and each task in
 Crok Desktop. A session appears on your phone once it has a prompt (or right away, when you resume one with history), with
 its last few turns.
+
+Your phone and the web also list **every other session on this computer**, grouped by project (the folder, or the git
+repository it is in; a worktree's sessions go with the repository it came from). A running crok sends that list when it
+signs in and every ten minutes, as long as one is running here; it leaves out subagents, one-shot `crok -p` runs and
+sessions under the system's temp folder. Opening such a session on the phone has a running crok here read its last
+turns from disk. Sessions no crok runs are read-only there: resume one here to continue it. Projects and sessions can
+be put in any order on the phone or the web; that order is shared between them (Crok Desktop's sidebar keeps its own).
 
 Phones and the web can then send prompts into it. A prompt from a phone runs here exactly like one you type: the TUI shows
 it with a **Prompt from <phone>** notice, Crok Desktop with a small **from <phone>** caption. If a turn is already running,
@@ -59,10 +66,10 @@ The footer shows **● remote** while the link is up (**○ remote** while it co
 ```toml
 [remote]
 enabled = true                                  # mirror sessions while signed in (default)
-url = "https://<deployment>.convex.cloud"       # the relay
 ```
 
-`CROK_REMOTE_CONTROL=0` turns it off for one run; `CROK_REMOTE_URL` overrides the relay.
+`CROK_REMOTE_CONTROL=0` turns it off for one run. Only to run a relay of your own (`relay/README.md`): `[remote] url` or
+`CROK_REMOTE_URL` replaces the built-in one.
 
 ## Checking
 

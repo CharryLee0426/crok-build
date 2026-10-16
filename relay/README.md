@@ -87,12 +87,13 @@ Google), and the device keeps a refresh token. No token travels in a URL. Approv
 **A computer (optional):**
 
 ```sh
-crok remote login --server https://<deployment>.convex.cloud   # prints a code and a QR code, opens the browser
+crok remote login    # prints a code and a QR code, opens the browser
 crok remote status
 crok remote logout
 ```
 
-`--server` is remembered as `[remote] url` in `~/.crok/config.toml`. In the TUI, `/remote`, `/remote login`,
+The relay's address is built into crok (`CROK_REMOTE_DEFAULT_URL` at build time picks another; for a local relay,
+`CROK_REMOTE_URL=http://127.0.0.1:3210` or `[remote] url` at run time). In the TUI, `/remote`, `/remote login`,
 `/remote logout`, `/remote on|off`; in Crok Desktop, Settings › Remote control. While signed in, every crok process
 (the TUI, each Crok Desktop task) mirrors its sessions; `[remote] enabled = false` stops that without signing out.
 
@@ -107,7 +108,7 @@ CONVEX_AGENT_MODE=anonymous npx convex dev      # local backend at http://127.0.
 npm run keys -- --apply
 npx convex env set CLERK_JWT_ISSUER_DOMAIN https://placeholder.clerk.accounts.dev   # any value for the scripts
 npm run test:e2e                                # the relay alone: sign-in, mirroring, commands, revocation
-CROK_BIN=…/xai-grok-pager CROK_HOME=/tmp/crok-e2e E2E_PROJECT=/tmp/project node scripts/bridge-e2e.mjs
+CROK_BIN=…/xai-grok-pager CROK_HOME=/tmp/crok-e2e E2E_PROJECT=~/crok-e2e-project node scripts/bridge-e2e.mjs   # project outside the temp folder
 ```
 
 For the phone apps against a local relay: the iOS simulator reaches the Mac as `127.0.0.1`, the Android emulator as
@@ -136,13 +137,15 @@ context_window = 128000
 `scripts/tui-e2e.py` does the same for the TUI in a pseudo-terminal (`/remote login`, the footer link, a phone prompt
 shown in the TUI, `/remote`, offline on quit).
 
-`bridge-e2e.mjs` signs a real `crok` in with `crok remote login`, runs a `crok agent stdio` (what Crok Desktop runs per
-task) against a model you point `CROK_HOME/config.toml` at, and plays the phone: reads the transcript, sends a prompt,
-asks for session info, stops a running turn, and checks the session goes offline when the process exits. The scripts
+`bridge-e2e.mjs` runs one session while signed out, signs a real `crok` in with `crok remote login`, runs a
+`crok agent stdio` (what Crok Desktop runs per task) against a model you point `CROK_HOME/config.toml` at, and plays
+the phone: finds the older session listed in the same project (offline), opens it so the running crok reads its
+transcript from disk, reads the live transcript, sends a prompt, asks for session info, stops a running turn, and checks
+the session goes offline when the process exits. The scripts
 stand in for the web approval with `npx convex run --identity`.
 
 ## Costs and limits
 
 Convex's free plan (0.5 GB storage, 1 GB/month bandwidth) is plenty for one person. Transcript items are capped at
-32 000 characters (the computer keeps the full text), and the relay drops a session's copy 30 days after its last
-activity. Streaming is fine-grained only while someone has the session open.
+32 000 characters (the computer keeps the full text), and the relay drops a session's transcript 30 days after its
+last activity (the session stays listed; opening it reads the transcript from the computer again). Streaming is fine-grained only while someone has the session open.

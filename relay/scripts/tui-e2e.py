@@ -28,7 +28,20 @@ ISSUER = subprocess.run(["npx", "convex", "env", "get", "CLERK_JWT_ISSUER_DOMAIN
                         capture_output=True, text=True).stdout.strip()
 PERSON = json.dumps({"subject": f"tui-e2e-{int(time.time())}", "issuer": ISSUER, "name": "TUI Tester",
                      "email": "tui@example.com"})
-env = dict(os.environ, CROK_HOME=HOME, CROK_DISABLE_AUTOUPDATER="1", TERM="xterm-256color", COLUMNS="160", LINES="48")
+def relay_url():
+    """The deployment the other scripts use (relay/.env.local), handed to crok as its relay: the TUI asks for none."""
+    if os.environ.get("CONVEX_URL"):
+        return os.environ["CONVEX_URL"]
+    with open(os.path.join(RELAY_DIR, ".env.local"), encoding="utf8") as f:
+        for line in f:
+            if line.startswith("NEXT_PUBLIC_CONVEX_URL="):
+                return line.split("=", 1)[1].strip()
+    return "http://127.0.0.1:3210"
+
+
+RELAY = relay_url()
+env = dict(os.environ, CROK_HOME=HOME, CROK_DISABLE_AUTOUPDATER="1", TERM="xterm-256color", COLUMNS="160", LINES="48",
+           CROK_REMOTE_URL=RELAY)
 phone_env = dict(os.environ, PHONE_SIM_APPROVE_AS=PERSON, PHONE_SIM_STATE="/tmp/crok-tui-e2e-phone.json")
 
 failures = 0
@@ -98,7 +111,7 @@ if re.search(r"[Tt]rust", screen[-3000:]):
 
 print("/remote login in the TUI")
 mark = len(screen)
-type_text("/remote login http://127.0.0.1:3210")
+type_text("/remote login")
 if wait_for(r"[B-Z]{4}-[B-Z]{4}", 30, "the TUI shows a code"):
     code = re.findall(r"[B-Z]{4}-[B-Z]{4}", screen[mark:])[-1]
     subprocess.run(["npx", "convex", "run", "deviceAuth:approve", json.dumps({"userCode": code}), "--identity", PERSON],

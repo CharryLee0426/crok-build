@@ -17,6 +17,7 @@
 //! or sign-out made elsewhere within a few seconds.
 
 mod bridge;
+mod catalog;
 pub(crate) mod transcript;
 
 use std::cell::Cell;

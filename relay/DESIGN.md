@@ -89,7 +89,9 @@ the same tiny auth surface, and lets the person see and revoke every linked devi
 | `devices` | a linked computer or phone | `deviceAuth`, `devices`, `bridge` | `refreshTokenHash`, coarse `lastSeenAt`, `online`, `revokedAt` |
 | `deviceLogins` | a sign-in in progress | `deviceAuth` | `deviceCodeHash`, `userCode`, `status` pending → approved → consumed |
 | `hosts` | one running crok process | `bridge.connect/heartbeat` | heartbeat every 30 s touches only this row |
-| `sessions` | a mirrored crok session | `bridge.upsertSession` | title, cwd, model, status, `online`, preview, plan, usage, unread counters |
+| `sessions` | a crok session on a computer: mirrored live, or listed from disk | `bridge.upsertSession`, `bridge.catalogBatch` | title, cwd, `projectPath`, model, status, `online`, preview, plan, usage, unread counters, `position`, `historyState` |
+| `projects` | a folder sessions are grouped under, per computer | `bridge`, `sessions.reorderProjects` | `path`, `position` (hand-placed order) |
+| `catalogSyncs` | the last "list every session on disk" per computer | `bridge.beginCatalog/finishCatalog` | one crok process per computer does it, at most every 10 min |
 | `events` | one transcript item | `bridge.pushEvents` | `seq` order, `key` for in-place updates (streaming text, tool status) |
 | `commands` | a prompt / stop / info request | viewers; `bridge.claim/complete` | `pending → delivered → done/failed`, `clientId` for idempotency |
 | `sessionViews` | "someone has this session open" | `sessions.watch` | the bridge streams finely only while one is live |
@@ -105,7 +107,30 @@ Write-amplification rules (Convex re-runs a subscription whenever a document it 
 
 A cron (`crons.ts`, every minute) marks hosts offline after 90 s without a heartbeat (their sessions go offline, the
 device too if no other host is up), fails commands nobody picked up within 5 minutes, and drops expired sign-ins and
-views. Daily, it drops relay copies of sessions idle for 30 days (the sessions stay on the computer).
+views. Daily, it drops the transcripts of sessions idle for 30 days (the sessions stay listed, and on the computer;
+opening one reads the transcript again).
+
+### Projects and order
+
+Every session belongs to a **project** on its computer: a crok worktree's source workspace, else the git root, else
+the cwd (`projectPath`; the computer decides, the relay guesses the deepest known project holding the cwd until it
+does). A project is named by its **key** `<deviceId>:<path>` and shown by its last path component.
+
+Order, for projects in the list and for sessions in a project: items never placed by hand come first, most recently
+active first; hand-placed ones follow by `position`. Pinned sessions lead their project. Reordering writes positions
+for every item of that level (so later newcomers appear on top), and a subset reorder (one computer's projects) keeps
+the others in place. "Sort by recent activity" clears the positions. The order lives on the relay, so the web and every
+phone share it; Crok Desktop's own sidebar order is separate.
+
+### Every session, not only running ones
+
+A running crok (one per computer at a time, at most every 10 minutes) lists every session on disk — not hidden ones
+(subagents), headless runs, unused husks, or sessions under the system's temp folder — and uploads that **catalog**:
+title, cwd, project, times, model, last-turn summary. New ones arrive offline with `historyState: "none"`; sessions
+deleted on the computer are dropped. When a viewer opens one (`sessions:watch`) while the computer is online, the
+relay queues a `history` command; any crok there claims it, reads the transcript from disk (`x.ai/session/updates`,
+last 20 turns) and pushes it (`historyState` → `requested` → `ready`). Sessions not running anywhere are read-only:
+sending a prompt is `OFFLINE`, as before.
 
 ## 3. API (the contract every client codes against)
 
@@ -145,10 +170,20 @@ callback.
 
 | function | args | returns |
 |---|---|---|
-| `sessions:list` (query) | `archived?: boolean` | `[{_id, sessionId, title, cwd, model, status, online, app, deviceId, deviceName, deviceOnline, preview, previewKind, lastActivityAt, pinned, archived, unread, plan: null\|{done,total}}]` pinned first, then newest |
-| `sessions:get` (query) | `sessionDocId` | `{…list fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow}, eventSeq}` |
+| `sessions:groups` (query) | — | `[{key, deviceId, deviceName, deviceOnline, path, name, placed, lastActivityAt, sessions: [row]}]` — the main list: non-archived sessions grouped by project, both levels in list order (above) |
+| `sessions:list` (query) | `archived?: boolean` | `[row]` flat, pinned first, then newest (the Archived tab) |
+| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow}, eventSeq}` |
+| `sessions:reorderProjects` (mutation) | `keys: string[]` | `null` — some project keys in their new order (all, or one computer's) |
+| `sessions:reorderSessions` (mutation) | `projectKey, sessionDocIds: string[]` | `null` — some of the project's sessions in their new order |
+| `sessions:resetOrder` (mutation) | `projectKey?` | `null` — with a key: that project's sessions back to newest first; without: the projects |
+
+A **row** is `{_id, sessionId, title, cwd, model, status, online, app, deviceId, deviceName, deviceOnline, preview,
+previewKind, lastActivityAt, pinned, archived, unread, plan: null|{done,total}, projectKey, projectPath, projectName,
+historyState: null|"none"|"requested"|"ready"}`. `historyState` `none`/`requested` with no events: the transcript is
+still only on the computer — show "Loading from <computer>…" while `deviceOnline`, else "<computer> is offline; this
+session's history shows once crok runs there".
 | `sessions:events` (paginated query) | `sessionDocId, paginationOpts:{numItems, cursor}` | `{page:[event], isDone, continueCursor}` newest first |
-| `sessions:markRead` / `watch` (mutation) | `sessionDocId` | `null` — call `watch` on open and every 60 s |
+| `sessions:markRead` / `watch` (mutation) | `sessionDocId` | `null` — call `watch` on open and every 60 s (it also fetches a listed session's transcript) |
 | `sessions:setPinned` / `setArchived` (mutation) | `sessionDocId, pinned\|archived` | `null` |
 | `sessions:remove` (mutation) | `sessionDocId` | `null` (offline sessions only) |
 
@@ -193,10 +228,13 @@ of sending (keyed by `clientId`) until the transcript holds the user event whose
 | `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?` | `{hostId, deviceId, serverTime}` |
 | `bridge:heartbeat` | `hostId` | `{serverTime}` (every 30 s) |
 | `bridge:disconnect` | `hostId` | `null` |
-| `bridge:upsertSession` | `hostId, sessionId, fields:{title?, cwd?, model?, effort?, gitBranch?, status?, preview?, previewKind?, plan?, usage?, createdAt?, lastActivityAt?}` | `{sessionDocId, eventSeq, created}` |
+| `bridge:upsertSession` | `hostId, sessionId, fields:{title?, cwd?, model?, effort?, gitBranch?, status?, preview?, previewKind?, plan?, usage?, createdAt?, lastActivityAt?, projectPath?}` | `{sessionDocId, eventSeq, created}` |
 | `bridge:closeSession` | `hostId, sessionId` | `null` |
-| `bridge:pushEvents` | `hostId, sessionDocId, replace?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, at}]` (≤100) | `{eventSeq}` |
-| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, type, text, fromLabel, createdAt}], views:[{sessionDocId, sessionId, until}], serverTime}` |
+| `bridge:pushEvents` | `hostId, sessionDocId, replace?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history) |
+| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer |
+| `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another host did it lately, or is doing it) |
+| `bridge:catalogBatch` | `hostId, syncId, sessions:[{sessionId, title, cwd, projectPath, createdAt, lastActivityAt, model?, effort?, gitBranch?, preview?}]` (≤100) | `{added}` |
+| `bridge:finishCatalog` | `hostId, syncId, sessionIds: string[]` (all listed) | `{removed}` — offline sessions of this computer not listed are dropped |
 | `bridge:claimCommand` | `hostId, commandId` | `boolean` |
 | `bridge:completeCommand` | `hostId, commandId, status: done\|failed, result?, error?` | `null` |
 
@@ -229,8 +267,11 @@ Network I/O runs on its own thread with its own Tokio runtime (`crok-remote`: th
 for subscriptions and mutations, reqwest for the token endpoints). The agent side and the network side talk over
 channels, so a slow network never stalls the agent.
 
-Mirrored: sessions that have a prompt or were loaded with history, not subagent children, hidden sessions or Crok
-Desktop's helper processes (`CROK_REMOTE_BRIDGE=0`). One-shot agents (`crok models`, `crok worktree`, headless `-p`)
+Mirrored live: sessions that have a prompt or were loaded with history, not subagent children, hidden sessions or Crok
+Desktop's helper processes (`CROK_REMOTE_BRIDGE=0`). Listed: every session on disk (the catalog, §2), uploaded by one
+bridge per computer on sign-in and every 10 minutes after (`persistence::list_summaries`, cached by file time, so a
+re-list reads only changed summaries); history requests for listed sessions are answered by whichever bridge claims
+them. One-shot agents (`crok models`, `crok worktree`, headless `-p`)
 never start a bridge. On first sight of a session whose relay copy is empty, the bridge backfills the tail of its
 transcript from `updates.jsonl` (`x.ai/session/updates`).
 
@@ -245,14 +286,19 @@ Configuration (`~/.crok/config.toml`):
 ```toml
 [remote]
 enabled = true        # mirror and accept commands while signed in (default true)
-url = "https://<deployment>.convex.cloud"   # or CROK_REMOTE_URL; `crok remote login --server` writes it
+# url = "https://<deployment>.convex.cloud"   # only for a relay of one's own (or CROK_REMOTE_URL)
 ```
+
+Nobody types the relay's address: crok has it built in (`crok_remote::settings::BUILT_IN_URL`, overridable at build
+time with `CROK_REMOTE_DEFAULT_URL`), and so do the phone apps (`CROK_RELAY_URL` in the iOS xcconfigs, `RELAY_URL` in
+the Android build) and the web app (`NEXT_PUBLIC_CONVEX_URL`). `--server` (hidden), `[remote] url` and
+`CROK_REMOTE_URL` remain for development against a local relay.
 
 ## 5. Clients
 
 ### crok (CLI and TUI)
 
-- `crok remote login [--server URL] [--name NAME] [--json]` — device flow; prints the code, the link and a QR code,
+- `crok remote login [--name NAME] [--json]` — device flow against the built-in relay; prints the code, the link and a QR code,
   opens the browser, waits. `--json` prints one JSON object per line for Crok Desktop
   (`{"event":"code",…}`, `{"event":"signed_in",…}`, `{"event":"error",…}`).
 - `crok remote logout`, `crok remote status [--json]`.
@@ -266,6 +312,26 @@ url = "https://<deployment>.convex.cloud"   # or CROK_REMOTE_URL; `crok remote l
   "Sign out".
 - A remote prompt (`_x.ai/remote/prompt`) appears in the transcript with a small "from <phone>" label and the task
   shows as running, the same as a typed prompt.
+
+### The session list (web, iOS, Android alike)
+
+- Tabs as before: **All**, one per computer, **Archived**. All and computer tabs show `sessions:groups` (a computer tab
+  keeps only its projects); Archived stays a flat `sessions:list({archived: true})`.
+- One section per project, in the relay's order. Header: folder icon, project name, on the All tab the computer's name
+  (muted, with its online dot), the session count, and a chevron that collapses it (remembered on the device per
+  project key). A section shows its first 5 sessions, then "Show N more" / "Show less".
+- Rows as before (avatar, title, time, preview or "working…", badges), but the second line shows the session's own
+  folder only when it differs from the project's name (the header names project and computer).
+- Sessions only on the computer's disk (`online: false`) look like other offline rows; opening one shows "Loading from
+  <computer>…" until its history arrives, or "<computer> is offline…" (see `historyState` above). The composer stays
+  blocked as for any offline session.
+- **Reorder projects**: drag a section header (web: pointer drag with a handle; iOS: Edit mode's move handles; Android:
+  drag handle in Reorder mode), or a header menu's **Move up** / **Move down**, then `sessions:reorderProjects` with
+  the keys visible in the current tab in their new order. **Reorder sessions** the same way within a section
+  (`sessions:reorderSessions`); a session cannot leave its project. Both are optimistic.
+- Menus: a section's menu has **Move up**, **Move down**, **Sort by recent activity** (`resetOrder({projectKey})`);
+  the list's menu has **Sort projects by recent activity** (`resetOrder({})`).
+- While searching, sections hold only matching rows (empty ones hide) and reordering is off.
 
 ### Web app (`relay/app`, Vercel)
 

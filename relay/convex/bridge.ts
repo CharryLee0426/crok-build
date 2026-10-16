@@ -4,6 +4,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { fail, requireHost, requireViewer } from "./lib/auth";
+import { ensureProject, inferProjectPath } from "./lib/projects";
 import { eventKind, hostApp, planEntry, sessionStatus, sessionUsage } from "./schema";
 
 /**
@@ -16,6 +17,11 @@ const MAX_EVENT_TEXT = 32_000;
 const MAX_EVENTS_PER_CALL = 100;
 const DEVICE_SEEN_GRANULARITY_MS = 5 * 60 * 1000;
 const INLINE_DELETE_LIMIT = 2_000;
+/** A computer lists its sessions at most this often, whichever of its crok processes does it. */
+const CATALOG_INTERVAL_MS = 10 * 60 * 1000;
+/** A catalog upload that has not finished in this long is abandoned; another process may start one. */
+const CATALOG_STALE_MS = 2 * 60 * 1000;
+const MAX_CATALOG_PER_CALL = 100;
 
 function capText(text: string): string {
   if (text.length <= MAX_EVENT_TEXT) return text;
@@ -75,11 +81,14 @@ async function setHostSessionsOnline(ctx: MutationCtx, hostId: Id<"hosts">, onli
     .withIndex("by_host", (q) => q.eq("hostId", hostId))
     .collect();
   for (const session of sessions) {
-    if (online && session.online) continue;
-    if (!online && !session.online) continue;
     // A session another host took over stays with that host.
     if (session.hostId !== hostId) continue;
-    await ctx.db.patch(session._id, online ? { online: true } : { online: false, status: "idle" });
+    if (online) {
+      // Only what went offline with the host: not sessions closed since, nor ones only listed from disk.
+      if (session.suspended) await ctx.db.patch(session._id, { online: true, suspended: undefined });
+    } else if (session.online) {
+      await ctx.db.patch(session._id, { online: false, status: "idle", suspended: true });
+    }
   }
 }
 
@@ -131,6 +140,7 @@ const sessionFields = {
   usage: v.optional(sessionUsage),
   createdAt: v.optional(v.number()),
   lastActivityAt: v.optional(v.number()),
+  projectPath: v.optional(v.string()),
 };
 
 /**
@@ -154,12 +164,15 @@ export const upsertSession = mutation({
       .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", sessionId))
       .unique();
     if (!existing) {
+      const projectPath = clipped.projectPath || (await inferProjectPath(ctx, viewer.device._id, clipped.cwd ?? ""));
+      await ensureProject(ctx, viewer.user._id, viewer.device._id, projectPath);
       const sessionDocId = await ctx.db.insert("sessions", {
         userId: viewer.user._id,
         deviceId: viewer.device._id,
         hostId,
         sessionId,
         app: host.app,
+        projectPath,
         title: clipped.title || "New session",
         cwd: clipped.cwd ?? "",
         model: clipped.model,
@@ -189,7 +202,16 @@ export const upsertSession = mutation({
       patch.deviceId = viewer.device._id;
       patch.app = host.app;
     }
+    if (patch.projectPath === undefined && !existing.projectPath) {
+      patch.projectPath = await inferProjectPath(ctx, viewer.device._id, clipped.cwd ?? existing.cwd);
+    }
+    if (typeof patch.projectPath === "string") {
+      await ensureProject(ctx, viewer.user._id, viewer.device._id, patch.projectPath);
+    }
     if (!existing.online) patch.online = true;
+    if (existing.suspended) patch.suspended = undefined;
+    // A session only listed from disk is running now: its own mirror owns the transcript from here.
+    if (existing.historyState !== undefined) patch.historyState = undefined;
     if (existing.archived && fields.status === "running") patch.archived = false;
     if (Object.keys(patch).length > 0) await ctx.db.patch(existing._id, patch);
     return { sessionDocId: existing._id, eventSeq: existing.eventSeq, created: false };
@@ -205,8 +227,8 @@ export const closeSession = mutation({
       .query("sessions")
       .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", sessionId))
       .unique();
-    if (session && session.hostId === hostId && session.online) {
-      await ctx.db.patch(session._id, { online: false, status: "idle" });
+    if (session && session.hostId === hostId && (session.online || session.suspended)) {
+      await ctx.db.patch(session._id, { online: false, status: "idle", suspended: undefined });
     }
     return null;
   },
@@ -226,9 +248,19 @@ const eventInput = v.object({
 });
 
 /**
+ * Whether this host may write the session's transcript: it runs the session, or nobody does and it is on the same
+ * computer (a transcript read from disk for a viewer).
+ */
+function writable(session: Doc<"sessions"> | null, host: Doc<"hosts">): session is Doc<"sessions"> {
+  if (!session) return false;
+  return session.hostId === host._id || (session.deviceId === host.deviceId && !session.online);
+}
+
+/**
  * Writes transcript items. An item with a `key` already present is updated in place (streamed text, a tool call's
  * status); a new one gets the next `seq`. `replace` first drops the session's old items (a resync after the session
- * ran while this computer was not mirroring it).
+ * ran while this computer was not mirroring it, or a transcript read from disk). `preview` updates the list's
+ * preview line along with it.
  */
 export const pushEvents = mutation({
   args: {
@@ -236,12 +268,14 @@ export const pushEvents = mutation({
     sessionDocId: v.id("sessions"),
     replace: v.optional(v.boolean()),
     events: v.array(eventInput),
+    preview: v.optional(v.string()),
+    previewKind: v.optional(eventKind),
   },
-  handler: async (ctx, { hostId, sessionDocId, replace, events }) => {
-    await requireHost(ctx, hostId);
+  handler: async (ctx, { hostId, sessionDocId, replace, events, preview, previewKind }) => {
+    const { host } = await requireHost(ctx, hostId);
     if (events.length > MAX_EVENTS_PER_CALL) fail("INVALID", `At most ${MAX_EVENTS_PER_CALL} events per call.`);
     const session = await ctx.db.get(sessionDocId);
-    if (!session || session.hostId !== hostId) fail("NOT_FOUND", "This host does not run that session.");
+    if (!writable(session, host)) fail("NOT_FOUND", "This host does not run that session.");
     let seq = session.eventSeq;
     let assistantCount = session.assistantCount;
     let readAssistantCount = session.readAssistantCount;
@@ -292,30 +326,45 @@ export const pushEvents = mutation({
       }
     }
     if (replace) readAssistantCount = assistantCount;
+    const patch: Partial<Doc<"sessions">> = {};
     if (
       seq !== session.eventSeq ||
       assistantCount !== session.assistantCount ||
       readAssistantCount !== session.readAssistantCount
     ) {
-      await ctx.db.patch(sessionDocId, {
-        eventSeq: seq,
-        assistantCount,
-        readAssistantCount,
-        ...(inserted > 0 ? { lastActivityAt: Date.now() } : {}),
-      });
+      patch.eventSeq = seq;
+      patch.assistantCount = assistantCount;
+      patch.readAssistantCount = readAssistantCount;
+      // History replayed from disk is not new activity: the session keeps its place in the list.
+      if (inserted > 0 && !replace) patch.lastActivityAt = Date.now();
     }
+    if (replace && session.historyState !== undefined && session.historyState !== "ready") patch.historyState = "ready";
+    if (preview !== undefined && preview.slice(0, 280) !== session.preview) patch.preview = preview.slice(0, 280);
+    if (previewKind !== undefined && previewKind !== session.previewKind) patch.previewKind = previewKind;
+    if (Object.keys(patch).length > 0) await ctx.db.patch(sessionDocId, patch);
     return { eventSeq: seq };
   },
 });
 
 /**
- * What this host has to act on: commands for the sessions it runs, and which of them someone is looking at right now
- * (`until` is in server time; `serverTime` lets the host correct for its own clock).
+ * Whether this host should act on the command: one for a session it runs, or a `history` request for a session of this
+ * computer nobody runs (any of its crok processes can read the transcript from disk; the first to claim it does).
+ */
+function forHost(command: Doc<"commands">, session: Doc<"sessions"> | null, host: Doc<"hosts">): boolean {
+  if (!session) return false;
+  if (command.type === "history") return session.deviceId === host.deviceId && !session.online;
+  return session.hostId === host._id;
+}
+
+/**
+ * What this host has to act on: commands for the sessions it runs (and transcripts to read for sessions nobody runs),
+ * and which sessions someone is looking at right now (`until` is in server time; `serverTime` lets the host correct
+ * for its own clock).
  */
 export const inbox = query({
   args: { hostId: v.id("hosts") },
   handler: async (ctx, { hostId }) => {
-    const { viewer } = await requireHost(ctx, hostId);
+    const { viewer, host } = await requireHost(ctx, hostId);
     const now = Date.now();
     const pending = await ctx.db
       .query("commands")
@@ -329,12 +378,13 @@ export const inbox = query({
     const commands = [];
     for (const command of pending) {
       const session = await sessionOf(command.sessionDocId);
-      if (!session || session.hostId !== hostId) continue;
+      if (!session || !forHost(command, session, host)) continue;
       const sender = command.fromDeviceId ? await ctx.db.get(command.fromDeviceId) : null;
       commands.push({
         _id: command._id,
         sessionDocId: command.sessionDocId,
         sessionId: session.sessionId,
+        cwd: session.cwd,
         type: command.type,
         text: command.text ?? null,
         fromLabel: command.fromLabel,
@@ -363,11 +413,11 @@ export const inbox = query({
 export const claimCommand = mutation({
   args: { hostId: v.id("hosts"), commandId: v.id("commands") },
   handler: async (ctx, { hostId, commandId }) => {
-    const { viewer } = await requireHost(ctx, hostId);
+    const { viewer, host } = await requireHost(ctx, hostId);
     const command = await ctx.db.get(commandId);
     if (!command || command.deviceId !== viewer.device._id || command.status !== "pending") return false;
     const session = await ctx.db.get(command.sessionDocId);
-    if (!session || session.hostId !== hostId) return false;
+    if (!forHost(command, session, host)) return false;
     await ctx.db.patch(commandId, { status: "delivered", updatedAt: Date.now() });
     return true;
   },
@@ -392,6 +442,188 @@ export const completeCommand = mutation({
       error: error?.slice(0, 2000),
       updatedAt: Date.now(),
     });
+    if (command.type === "history") await settleHistory(ctx, command.sessionDocId, status === "done");
     return null;
+  },
+});
+
+/**
+ * A history request ended. Done without any write (an empty transcript on disk) still counts as here; a failure lets
+ * the next open ask again.
+ */
+export async function settleHistory(ctx: MutationCtx, sessionDocId: Id<"sessions">, done: boolean) {
+  const session = await ctx.db.get(sessionDocId);
+  if (!session || session.historyState !== "requested") return;
+  await ctx.db.patch(sessionDocId, { historyState: done ? "ready" : "none" });
+}
+
+// MARK: Catalog: every session on the computer's disk, not only the running ones.
+
+/**
+ * Starts listing this computer's sessions, unless another of its crok processes did within the last few minutes or
+ * is doing it now. Returns the upload's id, or null when there is nothing to do.
+ */
+export const beginCatalog = mutation({
+  args: { hostId: v.id("hosts") },
+  handler: async (ctx, { hostId }) => {
+    const { viewer } = await requireHost(ctx, hostId);
+    const now = Date.now();
+    const last = await ctx.db
+      .query("catalogSyncs")
+      .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))
+      .unique();
+    if (last) {
+      if (last.finishedAt !== undefined && now - last.finishedAt < CATALOG_INTERVAL_MS) return null;
+      if (last.finishedAt === undefined && now - last.startedAt < CATALOG_STALE_MS) return null;
+    }
+    const syncId = `${hostId}-${now}`;
+    if (last) {
+      await ctx.db.patch(last._id, { hostId, syncId, startedAt: now, finishedAt: undefined });
+    } else {
+      await ctx.db.insert("catalogSyncs", { deviceId: viewer.device._id, hostId, syncId, startedAt: now });
+    }
+    return { syncId };
+  },
+});
+
+const catalogEntry = v.object({
+  sessionId: v.string(),
+  title: v.string(),
+  cwd: v.string(),
+  projectPath: v.string(),
+  createdAt: v.number(),
+  lastActivityAt: v.number(),
+  model: v.optional(v.string()),
+  effort: v.optional(v.string()),
+  gitBranch: v.optional(v.string()),
+  /** What the last turn did, for the list's preview line until the transcript is here. */
+  preview: v.optional(v.string()),
+});
+
+async function requireCatalog(ctx: MutationCtx, deviceId: Id<"devices">, hostId: Id<"hosts">, syncId: string) {
+  const sync = await ctx.db
+    .query("catalogSyncs")
+    .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+    .unique();
+  if (!sync || sync.syncId !== syncId || sync.hostId !== hostId || sync.finishedAt !== undefined) {
+    fail("EXPIRED", "This catalog upload was replaced by another.");
+  }
+  return sync;
+}
+
+/**
+ * Up to 100 sessions from the computer's disk. New ones are added (offline, transcript not here yet); known ones are
+ * updated only where something changed, and not at all while a running crok mirrors them (it knows better).
+ */
+export const catalogBatch = mutation({
+  args: { hostId: v.id("hosts"), syncId: v.string(), sessions: v.array(catalogEntry) },
+  handler: async (ctx, { hostId, syncId, sessions }) => {
+    const { viewer, host } = await requireHost(ctx, hostId);
+    if (sessions.length > MAX_CATALOG_PER_CALL) fail("INVALID", `At most ${MAX_CATALOG_PER_CALL} sessions per call.`);
+    await requireCatalog(ctx, viewer.device._id, hostId, syncId);
+    const projects = new Set<string>();
+    let added = 0;
+    for (const entry of sessions) {
+      const title = entry.title.trim().slice(0, 200);
+      const preview = entry.preview?.replace(/\s+/g, " ").trim().slice(0, 280) || undefined;
+      if (!projects.has(entry.projectPath)) {
+        await ensureProject(ctx, viewer.user._id, viewer.device._id, entry.projectPath);
+        projects.add(entry.projectPath);
+      }
+      const existing = await ctx.db
+        .query("sessions")
+        .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", entry.sessionId))
+        .unique();
+      if (!existing) {
+        await ctx.db.insert("sessions", {
+          userId: viewer.user._id,
+          deviceId: viewer.device._id,
+          hostId,
+          sessionId: entry.sessionId,
+          app: host.app,
+          projectPath: entry.projectPath,
+          title: title || "New session",
+          cwd: entry.cwd,
+          model: entry.model,
+          effort: entry.effort,
+          gitBranch: entry.gitBranch,
+          status: "idle",
+          online: false,
+          preview,
+          previewKind: preview ? "assistant" : undefined,
+          createdAt: entry.createdAt,
+          lastActivityAt: entry.lastActivityAt,
+          eventSeq: 0,
+          assistantCount: 0,
+          readAssistantCount: 0,
+          historyState: "none",
+        });
+        added += 1;
+        continue;
+      }
+      if (existing.deviceId !== viewer.device._id) continue;
+      const patch: Partial<Doc<"sessions">> = {};
+      if (existing.projectPath !== entry.projectPath) patch.projectPath = entry.projectPath;
+      if (!existing.online) {
+        if (title && title !== existing.title) patch.title = title;
+        if (entry.cwd && entry.cwd !== existing.cwd) patch.cwd = entry.cwd;
+        if (entry.model && entry.model !== existing.model) patch.model = entry.model;
+        if (entry.gitBranch && entry.gitBranch !== existing.gitBranch) patch.gitBranch = entry.gitBranch;
+        // A minute of slack: the computer's clock and the relay's differ, and summaries are written after the last event.
+        if (entry.lastActivityAt > existing.lastActivityAt + 60_000) patch.lastActivityAt = entry.lastActivityAt;
+        // The transcript's own preview wins once it is here.
+        if (preview && existing.eventSeq === 0 && preview !== existing.preview) {
+          patch.preview = preview;
+          patch.previewKind = "assistant";
+        }
+        // It ran somewhere the relay did not see since: read it again when opened.
+        if (patch.lastActivityAt !== undefined && existing.historyState === "ready") patch.historyState = "none";
+        if (patch.lastActivityAt !== undefined && existing.historyState === undefined && existing.eventSeq > 0) {
+          patch.historyState = "none";
+        }
+      }
+      if (Object.keys(patch).length > 0) await ctx.db.patch(existing._id, patch);
+    }
+    return { added };
+  },
+});
+
+/**
+ * Ends a catalog upload. `sessionIds` is every session the computer listed: offline copies of this computer's sessions
+ * missing from it were deleted there, so the relay drops them too, with projects left empty.
+ */
+export const finishCatalog = mutation({
+  args: { hostId: v.id("hosts"), syncId: v.string(), sessionIds: v.array(v.string()) },
+  handler: async (ctx, { hostId, syncId, sessionIds }) => {
+    const { viewer } = await requireHost(ctx, hostId);
+    const sync = await requireCatalog(ctx, viewer.device._id, hostId, syncId);
+    const listed = new Set(sessionIds);
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))
+      .collect();
+    const used = new Set<string>();
+    let removed = 0;
+    for (const session of sessions) {
+      if (session.online || listed.has(session.sessionId)) {
+        used.add(session.projectPath || session.cwd);
+        continue;
+      }
+      await ctx.db.delete(session._id);
+      await ctx.scheduler.runAfter(0, internal.maintenance.deleteSessionEvents, {
+        sessionDocId: session._id,
+        throughSeq: Number.MAX_SAFE_INTEGER,
+      });
+      removed += 1;
+    }
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_device_path", (q) => q.eq("deviceId", viewer.device._id))
+      .collect();
+    for (const project of projects) {
+      if (!used.has(project.path)) await ctx.db.delete(project._id);
+    }
+    await ctx.db.patch(sync._id, { finishedAt: Date.now() });
+    return { removed };
   },
 });
