@@ -662,8 +662,56 @@ fn handle_ext_notification(notif: &acp::ExtNotification, app: &mut AppView) -> b
         }
         "x.ai/mcp/elicit_complete" => handle_mcp_elicit_complete(notif, app),
         "x.ai/mcp/servers_updated" => handle_mcp_servers_updated(notif, app),
+        xai_grok_shell::remote_control::REMOTE_STATUS_METHOD => handle_remote_status(notif),
+        xai_grok_shell::remote_control::REMOTE_PROMPT_METHOD => handle_remote_prompt(notif, app),
+        xai_grok_shell::remote_control::PERMISSION_RESOLVED_METHOD => {
+            permissions::handle_permission_resolved(notif, app)
+        }
         _ => false,
     }
+}
+/// Remote control's link state, for the footer indicator.
+fn handle_remote_status(notif: &acp::ExtNotification) -> bool {
+    let Ok(params) = serde_json::from_str::<serde_json::Value>(notif.params.get()) else {
+        return false;
+    };
+    let state = params
+        .get("state")
+        .and_then(|s| s.as_str())
+        .unwrap_or("off");
+    let before = crate::remote_cmd::indicator();
+    crate::remote_cmd::set_indicator_from(state);
+    before != crate::remote_cmd::indicator()
+}
+/// A prompt from a phone or the web is about to run in one of this TUI's sessions; the echo shows the prompt itself.
+fn handle_remote_prompt(notif: &acp::ExtNotification, app: &mut AppView) -> bool {
+    let Ok(params) = serde_json::from_str::<serde_json::Value>(notif.params.get()) else {
+        return false;
+    };
+    let session_id = params
+        .get("sessionId")
+        .and_then(|s| s.as_str())
+        .unwrap_or("");
+    let from = params.get("from").and_then(|s| s.as_str()).unwrap_or("");
+    let Some(agent) = app.agents.values_mut().find(|agent| {
+        agent
+            .session
+            .session_id
+            .as_ref()
+            .is_some_and(|id| id.0.as_ref() == session_id)
+    }) else {
+        return false;
+    };
+    let web = params.get("fromKind").and_then(|k| k.as_str()) == Some("web");
+    if web {
+        agent.show_toast(xai_grok_i18n::tl("Prompt from the web"));
+    } else {
+        agent.show_toast(&xai_grok_i18n::tlf(
+            "Prompt from {device}",
+            &[("device", &from)],
+        ));
+    }
+    true
 }
 /// Record the shell's latest `session/new` setup step so a create timeout can name where it stalled.
 fn handle_session_setup_phase(notif: &acp::ExtNotification, app: &mut AppView) -> bool {

@@ -753,7 +753,7 @@ final class SessionFeatureModel: ObservableObject {
         let client = ACPClient(), key = UUID()
         store.auxiliaryClients[key] = client
         do {
-            try client.start(executable: store.binaryPath, cwd: cwd)
+            try client.start(executable: store.binaryPath, cwd: cwd, environment: ACPClient.helperEnvironment)
             let initial = try await store.initialize(client)
             try await store.authenticate(client, initial: initial)
             return (client, key)
@@ -770,7 +770,7 @@ final class SessionFeatureModel: ObservableObject {
 
     // MARK: - Helpers
 
-    func project(of task: Conversation) -> Project? { store?.state.projects.first { $0.id == task.projectID } }
+    func project(of task: Conversation) -> Project? { store?.projectRecord(task.projectID) }
 
     /// The desktop project for a folder, added to the sidebar when it is new (for example a fork's worktree).
     func project(forPath path: String) -> Project {

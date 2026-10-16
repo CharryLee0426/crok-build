@@ -29,7 +29,7 @@ struct TranscriptRowModel {
         let images: CGFloat = message.attachments?.isEmpty == false ? 132 : 0
         switch message.kind {
         case .user:
-            return min(lines(message.text, characterWidth: 8.5, in: column - 92) * 20 + 26, 446) + images
+            return min(lines(message.text, characterWidth: 8.5, in: column - 92) * 20 + 26, 446) + images + (message.remoteFrom == nil ? 0 : 19)
         case .assistant:
             return 30 + lines(message.text, characterWidth: 8, in: column) * 26 + (images > 0 ? images + 12 : 0)
         case .thought:
@@ -160,13 +160,49 @@ final class TranscriptUserRow: TranscriptRowView {
     private var timestamp: TranscriptTextLabel?
     private var attachments: TranscriptHostedView?
     private var shownAttachments: [UUID] = []
+    /// "from Charlie's iPhone" under a prompt that a phone or the web sent.
+    private var remoteIcon: NSImageView?
+    private var remoteCaption: TranscriptTextLabel?
 
     override func build() {
         addSubview(bubble)
     }
 
+    /// The caption under a prompt sent through remote control, worded in the interface language.
+    /// The relay names a phone by its device name and a browser "Web".
+    static func remoteCaption(_ from: String) -> String {
+        if from.isEmpty { return L10n.t("remote_from_unnamed", "from your phone or the web") }
+        if isWeb(from) { return L10n.t("remote_from_web", "from the web") }
+        return L10n.t("remote_from", "from {name}", ["name": from])
+    }
+
+    /// The glyph beside that caption: a globe for the web, a phone otherwise.
+    static func remoteSymbol(_ from: String) -> String { isWeb(from) ? "globe" : "iphone" }
+
+    private static func isWeb(_ from: String) -> Bool { from.caseInsensitiveCompare("Web") == .orderedSame }
+
     override func show(_ model: TranscriptRowModel) {
         let message = model.message
+        if let from = message.remoteFrom {
+            let caption = remoteCaption ?? {
+                let label = TranscriptParts.label(size: 11, color: Theme.palette.mutedNS)
+                addSubview(label)
+                remoteCaption = label
+                return label
+            }()
+            caption.text = Self.remoteCaption(from)
+            caption.toolTip = L10n.t("remote_from_help", "Sent through remote control")
+            if let remoteIcon {
+                remoteIcon.image = TranscriptParts.symbol(Self.remoteSymbol(from), size: 10)
+            } else {
+                let icon = TranscriptParts.symbolView(Self.remoteSymbol(from), size: 10, color: Theme.palette.mutedNS)
+                addSubview(icon)
+                remoteIcon = icon
+            }
+        } else {
+            remoteCaption?.removeFromSuperview(); remoteCaption = nil
+            remoteIcon?.removeFromSuperview(); remoteIcon = nil
+        }
         bubble.isHidden = message.text.isEmpty
         if message.text.isEmpty {
             text?.removeFromSuperview(); text = nil
@@ -233,8 +269,20 @@ final class TranscriptUserRow: TranscriptRowView {
             y += textSize.height + 26
             stackWidth = max(stackWidth, textSize.width + 34)
         }
+        var captionSize = NSSize.zero, captionY: CGFloat = 0
+        if let remoteCaption {
+            captionSize = remoteCaption.size(fitting: max(20, available - 20))
+            y += 5
+            captionY = y
+            y += captionSize.height
+        }
         let height = max(y, timestamp == nil ? 0 : 16 + stamp.height)
         guard place else { return height }
+        if let remoteCaption {
+            let captionFrame = NSRect(x: width - 6 - captionSize.width, y: captionY, width: captionSize.width, height: captionSize.height)
+            remoteCaption.frame = captionFrame
+            remoteIcon?.frame = NSRect(x: captionFrame.minX - 15, y: captionY, width: 12, height: captionSize.height)
+        }
         attachments?.frame = NSRect(x: width - sentSize.width, y: 0, width: sentSize.width, height: sentSize.height)
         let bubbleFrame = NSRect(x: width - textSize.width - 34, y: bubbleY, width: textSize.width + 34, height: textSize.height + 26)
         bubble.frame = bubbleFrame

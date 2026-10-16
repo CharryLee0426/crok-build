@@ -88,7 +88,13 @@ final class ACPClient {
 
     deinit { connection?.terminate() }
 
-    func start(executable: String, cwd: String, arguments: [String] = ["agent", "stdio"]) throws {
+    /// The variables a helper harness (one that runs no task of its own: the model and command
+    /// catalogs, history import, panels) starts with. It must not run a remote-control bridge, or
+    /// phones would see it as one more copy of Crok on this Mac.
+    static let helperEnvironment = ["CROK_REMOTE_BRIDGE": "0"]
+
+    /// `environment` is added to what the app itself was started with.
+    func start(executable: String, cwd: String, arguments: [String] = ["agent", "stdio"], environment extra: [String: String] = [:]) throws {
         stop()
         let newConnection = Connection()
         let process = newConnection.process
@@ -103,6 +109,7 @@ final class ACPClient {
             .joined(separator: ":")
         // The harness ships with the app. A leader it starts must not replace itself with another release.
         environment["CROK_DISABLE_AUTOUPDATER"] = "1"
+        environment.merge(extra) { $1 }
         process.environment = environment
         process.standardInput = newConnection.input
         process.standardOutput = newConnection.output

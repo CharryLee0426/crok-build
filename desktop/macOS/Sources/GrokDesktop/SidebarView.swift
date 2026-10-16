@@ -10,6 +10,8 @@ struct SidebarView: View {
     @ObservedObject private var language = L10n.state
     /// Folders and Recents show a few tasks until the reader asks for the rest.
     @State private var expandedLists: Set<String> = []
+    /// Other computers folded in the sidebar (they start open).
+    @State private var collapsedComputers: Set<String> = []
     private static let folderLimit = 5
     private static let recentsLimit = 10
 
@@ -112,6 +114,7 @@ struct SidebarView: View {
                 }
             }
         }
+        if !store.remoteComputers.isEmpty { otherComputers(now: now) }
         let recents = store.recentConversations.map(\.listing)
         Fold(isExpanded: $store.recentsExpanded, spacing: 1) { toggle, isOpen in
             SidebarSectionHeader(title: L10n.t("recents", "Recents"), count: recents.count, isExpanded: isOpen, onToggle: toggle)
@@ -120,6 +123,47 @@ struct SidebarView: View {
             VStack(alignment: .leading, spacing: 1) {
                 limited(recents, key: "recents", limit: Self.recentsLimit, indent: 8) { taskRow($0, now: now, showsProject: true, indent: 8) }
                 if recents.isEmpty { emptyNote(L10n.t("tasks_appear_here", "Your tasks will appear here.")) }
+            }
+        }
+    }
+
+    /// The person's other computers, each with its sessions (remote control). Opening one makes a task here that
+    /// the other computer runs.
+    @ViewBuilder
+    private func otherComputers(now: Date) -> some View {
+        SidebarSectionHeader(title: L10n.t("remote_other_computers", "Other computers"))
+        ForEach(store.remoteComputers) { computer in
+            let key = "computer:\(computer.deviceID)"
+            let expanded = Binding(get: { !collapsedComputers.contains(key) },
+                                   set: { open in if open { collapsedComputers.remove(key) } else { collapsedComputers.insert(key) } })
+            let sessions = computer.projects.flatMap { project in project.sessions.map { (project, $0) } }
+            Fold(isExpanded: expanded, spacing: 1) { toggle, isOpen in
+                RemoteComputerRow(computer: computer, isExpanded: isOpen,
+                                  runningCount: computer.sessions.filter(\.isWorking).count, onToggle: toggle)
+            } content: {
+                VStack(alignment: .leading, spacing: 1) {
+                    let showsAll = expandedLists.contains(key)
+                    ForEach(showsAll ? sessions : Array(sessions.prefix(Self.folderLimit)), id: \.1.id) { project, entry in
+                        RemoteSessionRow(entry: entry, projectName: project.name, computer: computer.name, now: now,
+                                         isSelected: store.conversation?.sessionID == entry.sessionID) {
+                            store.openRemoteSession(entry, on: computer)
+                        }
+                    }
+                    if sessions.count > Self.folderLimit {
+                        Button {
+                            FoldMotion.toggle { if showsAll { expandedLists.remove(key) } else { expandedLists.insert(key) } }
+                        } label: {
+                            Text(showsAll ? L10n.t("show_less", "Show less") : L10n.t("show_n_more", "Show %d more", count: sessions.count - Self.folderLimit))
+                                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                                .padding(.leading, 30).padding(.vertical, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                    if sessions.isEmpty {
+                        Text(L10n.t("remote_no_sessions", "No sessions")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                            .padding(.leading, 30).padding(.vertical, 5)
+                    }
+                }
             }
         }
     }
@@ -168,8 +212,11 @@ struct SidebarView: View {
 
     private func taskRow(_ task: Conversation, now: Date, showsProject: Bool, indent: CGFloat) -> some View {
         let run = store.runs[task.id]
+        // A task from another computer is named by that computer where lists name a task's folder.
+        let projectName = task.remote.map(\.computer) ?? store.state.projects.first { $0.id == task.projectID }?.name
         return TaskSidebarRow(store: store, task: task,
-                              projectName: showsProject ? store.state.projects.first { $0.id == task.projectID }?.name : nil,
+                              projectName: showsProject ? projectName : nil,
+                              isRemote: task.remote != nil,
                               indent: indent, now: now,
                               isRunning: run?.isRunning == true, isConfiguring: run?.isConfiguring == true,
                               isSelected: task.id == store.state.selectedConversationID,
@@ -366,6 +413,8 @@ private struct TaskSidebarRow: View, Equatable {
     let store: AppStore
     let task: Conversation
     let projectName: String?
+    /// A session of another computer: `projectName` is that computer's name.
+    var isRemote = false
     let indent: CGFloat
     let now: Date
     let isRunning: Bool
@@ -400,7 +449,7 @@ private struct TaskSidebarRow: View, Equatable {
                     }
                     // Lists that mix projects name the task's folder underneath its title.
                     if let projectName {
-                        Label(projectName, systemImage: "folder").labelStyle(SidebarCaptionLabelStyle())
+                        Label(projectName, systemImage: isRemote ? "desktopcomputer" : "folder").labelStyle(SidebarCaptionLabelStyle())
                     }
                 }
                 .padding(.leading, indent).padding(.trailing, isHovered ? 2 : 8).padding(.vertical, projectName == nil ? 0 : 5)
@@ -461,6 +510,83 @@ private struct TaskSidebarRow: View, Equatable {
         Divider()
         Button("Delete Task…", systemImage: "trash", role: .destructive) { store.features.sessions.requestDelete(task.id) }
             .disabled(isBusy)
+    }
+}
+
+/// Another computer's fold header: its name, whether it is online, and how many of its sessions are working.
+private struct RemoteComputerRow: View {
+    let computer: RemoteComputer
+    let isExpanded: Bool
+    let runningCount: Int
+    let onToggle: () -> Void
+    @State private var hovered = false
+    @ObservedObject private var language = L10n.state
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 8) {
+                Group {
+                    if hovered {
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    } else {
+                        Image(systemName: "desktopcomputer").font(.system(size: 12))
+                    }
+                }
+                .foregroundStyle(Theme.muted).frame(width: 18)
+                Text(computer.name).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                Circle().fill(computer.online ? Theme.accent : Theme.muted.opacity(0.5)).frame(width: 6, height: 6)
+                    .help(computer.online ? L10n.t("remote_computer_online", "online") : L10n.t("remote_computer_offline", "offline"))
+                Spacer(minLength: 4)
+                if !hovered && !isExpanded && runningCount > 0 { ProgressView().controlSize(.mini) }
+            }
+            .padding(.leading, 8).frame(maxWidth: .infinity, minHeight: 30, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(hovered ? Theme.hover.opacity(0.5) : .clear, in: RoundedRectangle(cornerRadius: 7))
+        .onHover { hovered = $0 }
+        .accessibilityLabel(computer.name)
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+    }
+}
+
+/// A session of another computer in the sidebar, before or after it was opened here.
+private struct RemoteSessionRow: View {
+    let entry: RemoteSessionEntry
+    let projectName: String
+    let computer: String
+    let now: Date
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var hovered = false
+    @ObservedObject private var language = L10n.state
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 7) {
+                    Text(entry.title).font(.system(size: 13)).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 6)
+                    if entry.needsInput {
+                        Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(.orange)
+                    } else if entry.isWorking {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Text(RelativeTime.short(entry.lastActivityAt, now: now)).font(.system(size: 11)).monospacedDigit().foregroundStyle(Theme.muted)
+                    }
+                }
+                if !projectName.isEmpty {
+                    Label(projectName, systemImage: "folder").labelStyle(SidebarCaptionLabelStyle())
+                }
+            }
+            .padding(.leading, 30).padding(.trailing, 8).padding(.vertical, 5)
+            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isSelected ? Theme.hover : hovered ? Theme.hover.opacity(0.5) : .clear, in: RoundedRectangle(cornerRadius: 7))
+        .onHover { hovered = $0 }
+        .help(L10n.t("remote_open_session_help", "Open this session of {computer}", ["computer": computer]))
+        .accessibilityLabel("\(entry.title), \(projectName), \(computer)")
     }
 }
 

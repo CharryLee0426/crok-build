@@ -1,0 +1,323 @@
+@import "tailwindcss";
+
+/*
+ * Crok palette as semantic tokens. Light is Crok Day, dark is Crok Night; the sage accent is the desktop app's.
+ * Components only use these tokens (bg-canvas, text-muted, border-line, bg-accent, …), never raw colours, so one
+ * switch below flips the whole app. `data-theme` on <html> forces a scheme (used by the dev preview).
+ */
+:root {
+  color-scheme: light;
+  --canvas: #eeeeee;
+  --surface: #ffffff;
+  --surface-2: #f5f5f5;
+  --hover: rgb(0 0 0 / 0.045);
+  --fg: #161616;
+  --muted: #5f5f5f;
+  --faint: #8c8c8c;
+  --line: #dcdcdc;
+  --line-strong: #c4c4c4;
+  --accent: #41634c;
+  --accent-hover: #36533f;
+  --accent-fg: #ffffff;
+  --accent-soft: #dce7df;
+  --accent-text: #3a5a44;
+  --bubble-user: #dbe7de;
+  --danger: #b3261e;
+  --danger-soft: #f6e0de;
+  --warning: #8a5a00;
+  --warning-soft: #f5e9cf;
+  --code: #f1f1f1;
+  --avatar-l: 40%;
+  --avatar-s: 20%;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 6px 24px rgb(0 0 0 / 0.07);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --canvas: #141414;
+    --surface: #1c1c1c;
+    --surface-2: #242424;
+    --hover: rgb(255 255 255 / 0.05);
+    --fg: #ececec;
+    --muted: #a3a3a3;
+    --faint: #737373;
+    --line: #2d2d2d;
+    --line-strong: #3d3d3d;
+    --accent: #a1bfa8;
+    --accent-hover: #b5cfbb;
+    --accent-fg: #132018;
+    --accent-soft: #253229;
+    --accent-text: #a1bfa8;
+    --bubble-user: #26342a;
+    --danger: #f2a39b;
+    --danger-soft: #3b2321;
+    --warning: #e3bd6f;
+    --warning-soft: #382e1c;
+    --code: #202020;
+    --avatar-l: 34%;
+    --avatar-s: 16%;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.45);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #141414;
+  --surface: #1c1c1c;
+  --surface-2: #242424;
+  --hover: rgb(255 255 255 / 0.05);
+  --fg: #ececec;
+  --muted: #a3a3a3;
+  --faint: #737373;
+  --line: #2d2d2d;
+  --line-strong: #3d3d3d;
+  --accent: #a1bfa8;
+  --accent-hover: #b5cfbb;
+  --accent-fg: #132018;
+  --accent-soft: #253229;
+  --accent-text: #a1bfa8;
+  --bubble-user: #26342a;
+  --danger: #f2a39b;
+  --danger-soft: #3b2321;
+  --warning: #e3bd6f;
+  --warning-soft: #382e1c;
+  --code: #202020;
+  --avatar-l: 34%;
+  --avatar-s: 16%;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.45);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-hover: var(--hover);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-bubble-user: var(--bubble-user);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-code: var(--code);
+  --shadow-card: var(--shadow);
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "PingFang SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+/* In the base layer so utilities (focus:outline-none, …) can override them; unlayered CSS would beat every utility. */
+@layer base {
+  html,
+  body {
+    background: var(--canvas);
+    color: var(--fg);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* The Crok mark, coloured by the current accent (the icon file is only the shape). */
+.crok-mark {
+  display: inline-block;
+  background-color: var(--accent);
+  -webkit-mask: url("/icon.svg") center / contain no-repeat;
+  mask: url("/icon.svg") center / contain no-repeat;
+}
+
+/* Project avatars: a muted hue per folder that sits well on both canvases. */
+.avatar {
+  background-color: hsl(var(--hue, 140) var(--avatar-s) var(--avatar-l));
+  color: #fff;
+}
+
+/* "working…" — three dots that breathe, like Telegram's typing indicator. */
+.typing-dots {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+.typing-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: typing 1.2s infinite ease-in-out;
+}
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots i,
+  .spin {
+    animation: none;
+  }
+}
+
+/* Assistant Markdown (lib/markdown.tsx renders plain React elements; these give them typography). */
+.md {
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.md > * + * {
+  margin-top: 0.7em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  font-weight: 650;
+  line-height: 1.3;
+  margin-top: 1.1em;
+}
+.md h1 {
+  font-size: 1.3em;
+}
+.md h2 {
+  font-size: 1.18em;
+}
+.md h3 {
+  font-size: 1.06em;
+}
+.md h4,
+.md h5,
+.md h6 {
+  font-size: 1em;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md ul,
+.md ol {
+  padding-left: 1.4em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li + li {
+  margin-top: 0.2em;
+}
+.md li > ul,
+.md li > ol {
+  margin-top: 0.2em;
+}
+.md a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--code);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+.md pre {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  line-height: 1.5;
+  background: var(--code);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.75em 0.9em;
+  overflow-x: auto;
+}
+.md pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+.md blockquote {
+  border-left: 3px solid var(--line-strong);
+  padding-left: 0.8em;
+  color: var(--muted);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+.md th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+/* Thin, quiet scrollbars inside panes. */
+.scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* While a project or session is being dragged (components/useDragReorder.ts): a grabbing hand, no text selection. */
+html.reordering,
+html.reordering * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}

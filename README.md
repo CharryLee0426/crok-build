@@ -162,6 +162,30 @@ link. The app and disk image are ad hoc signed, not notarized, and have no
 automatic updater. See the [desktop guide](desktop/macOS/README.md) for
 installing, development builds, shortcuts, and local data storage.
 
+## Remote control
+
+Follow and steer the sessions on your computers from a phone or a browser: read
+the transcript as it streams, send a prompt, stop the running turn, and see the
+session's model, tokens, cost and plan.
+
+```sh
+crok remote login --server https://<deployment>.convex.cloud   # optional on a computer
+crok remote status
+crok remote logout
+```
+
+In the TUI use `/remote` (`login`, `logout`, `on`, `off`); in Crok Desktop,
+**Settings › Remote control**. This sign-in is separate from model-provider
+sign-in. Phones sign in with GitHub or Google through the web app, which is also
+where computers are approved.
+
+- [`relay/`](relay/README.md) — the relay (Convex), the web app (Next.js on
+  Vercel, Clerk sign-in), setup steps, and the [design](relay/DESIGN.md).
+- [`mobile/iOS`](mobile/iOS/README.md) and [`mobile/Android`](mobile/Android/README.md)
+  — the phone apps.
+- `crates/codegen/crok-remote` and `xai-grok-shell/src/remote_control` — the
+  computer side, which mirrors each running crok process's sessions.
+
 ## Syncing with upstream
 
 An `upstream` remote tracks the original source this fork is derived from.
@@ -199,6 +223,9 @@ MCP servers, skills, plugins, hooks, headless mode, sandboxing, and more.
 | `crates/common/`, `crates/build/`, `prod/mc/` | Small shared leaf crates pulled in by the closure |
 | `third_party/` | Vendored upstream source (Mermaid diagram stack, SwiftTerm) |
 | `desktop/macOS/` | Crok Desktop: SwiftUI client, ACP transport, tests, and app packaging |
+| `crates/codegen/crok-remote` | Remote control on the computer: sign-in, credentials, the relay link, `crok remote` |
+| `relay/` | Remote control relay (Convex) and web app (Next.js, Vercel, Clerk) |
+| `mobile/iOS/`, `mobile/Android/` | The Crok phone apps (SwiftUI; Kotlin + Jetpack Compose) |
 | `bin/` | `crok-test` launcher, `crok-import-grok`, and DotSlash tools |
 
 A small `SOURCE_REV` file at the root records the upstream monorepo commit SHA

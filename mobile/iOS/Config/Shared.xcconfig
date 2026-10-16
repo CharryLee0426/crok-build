@@ -1,0 +1,9 @@
+// Settings shared by every configuration of the Crok iOS app.
+MARKETING_VERSION = 1.0
+CURRENT_PROJECT_VERSION = 1
+
+// The relay every build signs in to (the Info.plist's CrokRelayURL). Nobody types it in the app. `//` starts a comment
+// in xcconfig files, hence the `$()` between the slashes. To build against another relay, override it on the command
+// line (`xcodebuild … CROK_RELAY_URL=http://127.0.0.1:3210`, no escaping needed there), or launch with
+// `-CrokServer <url>` / the CROK_RELAY_URL environment variable (README.md, "The relay URL").
+CROK_RELAY_URL = https:/$()/limitless-badger-727.convex.cloud

@@ -118,7 +118,7 @@ extension AppStore {
                 let client = ACPClient()
                 let clientID = UUID(); auxiliaryClients[clientID] = client
                 defer { client.stop(); auxiliaryClients.removeValue(forKey: clientID) }
-                try client.start(executable: binaryPath, cwd: project.path)
+                try client.start(executable: binaryPath, cwd: project.path, environment: ACPClient.helperEnvironment)
                 let initial = try await initialize(client)
                 try await authenticate(client, initial: initial)
                 let response = try ExtensionResponse.unwrap(try await client.request("_x.ai/commands/list", params: ["cwd": project.path]))
@@ -159,7 +159,7 @@ extension AppStore {
     /// A live harness session for a task, which need not be the selected one. A running turn
     /// keeps its connection, so side lanes such as `/btw` reach it without interrupting.
     func session(for id: UUID) async throws -> (ACPClient, String) {
-        guard let task = task(id), let project = state.projects.first(where: { $0.id == task.projectID }) else {
+        guard let task = task(id), let project = projectRecord(task.projectID) else {
             throw DesktopError.message("This task is no longer available.")
         }
         if let client = clients[id], loaded.contains(id), let session = self.task(id)?.sessionID { return (client, session) }

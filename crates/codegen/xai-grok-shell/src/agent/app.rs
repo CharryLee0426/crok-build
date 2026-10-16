@@ -126,9 +126,18 @@ fn spawn_agent_local(
     outgoing: impl futures::AsyncWrite + Unpin + 'static,
     incoming: impl futures::AsyncRead + Unpin + 'static,
     keepalive: &AgentKeepalive,
-) -> impl std::future::Future<Output = Result<(), acp::Error>> {
+) -> (
+    impl std::future::Future<Output = Result<(), acp::Error>>,
+    Option<crate::remote_control::RemoteHandle>,
+) {
     let (gw_tx, gw_rx) = tokio::sync::mpsc::unbounded_channel();
     let gateway = GatewaySender::new(gw_tx);
+    // Crok Desktop runs one of these per task; each mirrors its session for remote control while signed in.
+    let remote = crate::remote_control::RemoteControl::new(crate::remote_control::HostApp::Desktop);
+    let gw_rx = match &remote {
+        Some(remote) => remote.tee(gw_rx),
+        None => gw_rx,
+    };
     let mut agent = MvpAgent::new(
         gateway,
         &agent_config,
@@ -144,8 +153,18 @@ fn spawn_agent_local(
     let agent = Rc::new(agent);
     *keepalive.borrow_mut() = Some(Rc::clone(&agent));
     let incoming = LineBufferedRead::spawn_local(incoming);
+    let (observed, remote_handle) = match remote {
+        Some(remote) => (
+            remote.observe(Rc::clone(&agent)),
+            Some(remote.start(&agent)),
+        ),
+        None => (
+            crate::remote_control::ObservedAgent::unobserved(agent),
+            None,
+        ),
+    };
     let (conn, handle_io) = acp::AgentSideConnection::new(
-        crate::agent::request_log::RequestLog(agent),
+        crate::agent::request_log::RequestLog(observed),
         outgoing,
         incoming,
         |fut| {
@@ -157,7 +176,7 @@ fn spawn_agent_local(
             .with_on_meta(xai_grok_otel::span_from_meta_traceparent)
             .run(),
     );
-    handle_io
+    (handle_io, remote_handle)
 }
 fn internal_reload_request_line(
     id: &str,
@@ -294,7 +313,7 @@ pub async fn run_stdio_agent(
             )
             .await?;
             apply_otel_config(&auth_manager, &agent_config.grok_com_config);
-            let handle_io = spawn_agent_local(
+            let (handle_io, remote) = spawn_agent_local(
                 agent_config,
                 auth_manager,
                 prefetched_models,
@@ -304,7 +323,12 @@ pub async fn run_stdio_agent(
                 incoming,
                 &keepalive_for_spawn,
             );
-            handle_io.await?;
+            let io_result = handle_io.await;
+            // The task closed: tell the relay now rather than after the heartbeat times out.
+            if let Some(remote) = remote {
+                remote.shutdown().await;
+            }
+            io_result?;
             Ok::<(), anyhow::Error>(())
         })
         .await;

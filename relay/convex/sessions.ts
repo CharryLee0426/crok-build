@@ -1,0 +1,353 @@
+import { paginationOptsValidator } from "convex/server";
+import { v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import type { MutationCtx } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
+import type { Viewer } from "./lib/auth";
+import { fail, requireSession, requireViewer, viewerLabel } from "./lib/auth";
+import {
+  MAX_LIST,
+  buildGroups,
+  ensureProject,
+  parseProjectKey,
+  projectKey,
+  projectName,
+  reorderWithin,
+  sessionProjectPath,
+} from "./lib/projects";
+
+/** How long a viewer counts as "watching" after its last `watch` call; clients call it every 60 s. */
+const VIEW_TTL_MS = 2 * 60 * 1000;
+/** Placing items by hand takes at most this many in one call. */
+const MAX_REORDER = 500;
+
+function planProgress(plan: Doc<"sessions">["plan"]) {
+  if (!plan || plan.length === 0) return null;
+  return { done: plan.filter((p) => p.status === "completed").length, total: plan.length };
+}
+
+/** One list row: the session with its computer's name and state, so the list needs no second query. */
+function sessionRow(session: Doc<"sessions">, device: Doc<"devices">) {
+  const projectPath = sessionProjectPath(session);
+  return {
+    _id: session._id,
+    sessionId: session.sessionId,
+    title: session.title,
+    cwd: session.cwd,
+    model: session.model ?? null,
+    status: session.status,
+    online: session.online,
+    app: session.app,
+    deviceId: session.deviceId,
+    deviceName: device.name,
+    deviceOnline: device.online,
+    preview: session.preview ?? null,
+    previewKind: session.previewKind ?? null,
+    lastActivityAt: session.lastActivityAt,
+    pinned: Boolean(session.pinned),
+    archived: Boolean(session.archived),
+    unread: Math.max(0, session.assistantCount - session.readAssistantCount),
+    plan: planProgress(session.plan),
+    projectKey: projectKey(session.deviceId, projectPath),
+    projectPath,
+    projectName: projectName(projectPath),
+    /** `none` / `requested`: the transcript is still on the computer only; `ready` or null: it is here. */
+    historyState: session.historyState ?? null,
+  };
+}
+
+/**
+ * A flat list: every session, pinned first, then by last activity. The app shows archived sessions this way; the main
+ * list is `groups`.
+ */
+export const list = query({
+  args: { archived: v.optional(v.boolean()) },
+  handler: async (ctx, { archived }) => {
+    const viewer = await requireViewer(ctx);
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_activity", (q) => q.eq("userId", viewer.user._id))
+      .order("desc")
+      .take(MAX_LIST);
+    const devices = new Map<Id<"devices">, Doc<"devices"> | null>();
+    const rows = [];
+    for (const session of sessions) {
+      if (Boolean(session.archived) !== Boolean(archived)) continue;
+      if (!devices.has(session.deviceId)) devices.set(session.deviceId, await ctx.db.get(session.deviceId));
+      const device = devices.get(session.deviceId);
+      if (!device || device.revokedAt !== undefined) continue;
+      rows.push(sessionRow(session, device));
+    }
+    rows.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return b.lastActivityAt - a.lastActivityAt;
+    });
+    return rows;
+  },
+});
+
+/**
+ * The main list: every session on every linked computer (running or only on disk), grouped by project, in the order
+ * the person put them in. Within a project, pinned sessions lead; sessions and projects never placed by hand come
+ * before placed ones, most recent first. Archived sessions are left out (`list({archived: true})`).
+ */
+export const groups = query({
+  args: {},
+  handler: async (ctx) => {
+    const viewer = await requireViewer(ctx);
+    const groups = await buildGroups(ctx, viewer);
+    return groups.map((group) => ({
+      key: group.key,
+      deviceId: group.deviceId,
+      deviceName: group.device.name,
+      deviceOnline: group.device.online,
+      path: group.path,
+      name: projectName(group.path),
+      placed: group.project?.position !== undefined,
+      lastActivityAt: group.lastActivityAt,
+      sessions: group.sessions.map((session) => sessionRow(session, group.device)),
+    }));
+  },
+});
+
+/** One session with everything the header and the info sheet show. */
+export const get = query({
+  args: { sessionDocId: v.string() },
+  handler: async (ctx, { sessionDocId }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    const device = await ctx.db.get(session.deviceId);
+    const projectPath = sessionProjectPath(session);
+    return {
+      _id: session._id,
+      sessionId: session.sessionId,
+      title: session.title,
+      cwd: session.cwd,
+      model: session.model ?? null,
+      effort: session.effort ?? null,
+      gitBranch: session.gitBranch ?? null,
+      status: session.status,
+      online: session.online,
+      app: session.app,
+      deviceId: session.deviceId,
+      deviceName: device?.name ?? "",
+      devicePlatform: device?.platform ?? "",
+      deviceOnline: device?.online ?? false,
+      createdAt: session.createdAt,
+      lastActivityAt: session.lastActivityAt,
+      plan: session.plan ?? [],
+      usage: session.usage ?? null,
+      pinned: Boolean(session.pinned),
+      archived: Boolean(session.archived),
+      unread: Math.max(0, session.assistantCount - session.readAssistantCount),
+      eventSeq: session.eventSeq,
+      projectKey: projectKey(session.deviceId, projectPath),
+      projectPath,
+      projectName: projectName(projectPath),
+      historyState: session.historyState ?? null,
+      /** A permission request waiting for an answer (`commands:answer`), or null. */
+      pending: session.pending ?? null,
+    };
+  },
+});
+
+/** The transcript, newest first, in pages (the client shows it bottom-anchored and loads older pages on scroll). */
+export const events = query({
+  args: { sessionDocId: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { sessionDocId, paginationOpts }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    return await ctx.db
+      .query("events")
+      .withIndex("by_session_seq", (q) => q.eq("sessionDocId", session._id))
+      .order("desc")
+      .paginate(paginationOpts);
+  },
+});
+
+export const markRead = mutation({
+  args: { sessionDocId: v.string() },
+  handler: async (ctx, { sessionDocId }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    if (session.readAssistantCount !== session.assistantCount) {
+      await ctx.db.patch(session._id, { readAssistantCount: session.assistantCount });
+    }
+    return null;
+  },
+});
+
+/**
+ * A session no crok runs, opened without its transcript: ask a crok running on its computer to read it from disk.
+ * Nothing happens while the computer is offline; the next `watch` (every 60 s) tries again.
+ */
+async function requestHistory(ctx: MutationCtx, viewer: Viewer, session: Doc<"sessions">) {
+  if (session.online || session.historyState === undefined || session.historyState === "ready") return;
+  const device = await ctx.db.get(session.deviceId);
+  if (!device || !device.online) return;
+  const recent = await ctx.db
+    .query("commands")
+    .withIndex("by_session", (q) => q.eq("sessionDocId", session._id))
+    .order("desc")
+    .take(20);
+  const asked = recent.some((c) => c.type === "history" && (c.status === "pending" || c.status === "delivered"));
+  if (!asked) {
+    const now = Date.now();
+    await ctx.db.insert("commands", {
+      userId: viewer.user._id,
+      deviceId: session.deviceId,
+      sessionDocId: session._id,
+      type: "history",
+      status: "pending",
+      fromDeviceId: viewer.device?._id,
+      fromLabel: viewerLabel(viewer),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  if (session.historyState !== "requested") await ctx.db.patch(session._id, { historyState: "requested" });
+}
+
+/**
+ * "I have this session open": the computer streams its reply at a fine grain while someone watches, and only at
+ * message boundaries otherwise. For a session only on the computer's disk it also fetches the transcript. Call on open
+ * and every 60 s while open.
+ */
+export const watch = mutation({
+  args: { sessionDocId: v.string() },
+  handler: async (ctx, { sessionDocId }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    const viewerKey = viewer.device ? `device:${viewer.device._id}` : `web:${viewer.user._id}`;
+    const until = Date.now() + VIEW_TTL_MS;
+    const existing = await ctx.db
+      .query("sessionViews")
+      .withIndex("by_session_viewer", (q) => q.eq("sessionDocId", session._id).eq("viewer", viewerKey))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { until, deviceId: session.deviceId });
+    } else {
+      await ctx.db.insert("sessionViews", {
+        sessionDocId: session._id,
+        deviceId: session.deviceId,
+        viewer: viewerKey,
+        until,
+      });
+    }
+    await requestHistory(ctx, viewer, session);
+    return null;
+  },
+});
+
+export const setPinned = mutation({
+  args: { sessionDocId: v.string(), pinned: v.boolean() },
+  handler: async (ctx, { sessionDocId, pinned }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    await ctx.db.patch(session._id, { pinned });
+    return null;
+  },
+});
+
+export const setArchived = mutation({
+  args: { sessionDocId: v.string(), archived: v.boolean() },
+  handler: async (ctx, { sessionDocId, archived }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    await ctx.db.patch(session._id, { archived, ...(archived ? { pinned: false } : {}) });
+    return null;
+  },
+});
+
+/**
+ * Moves projects: `keys` are some of the list's project keys in their new order (all of them, or one computer's).
+ * They take the places those projects held, so the other computers' projects stay put. Every project of the person
+ * is placed from then on; a new one appears at the top until it is moved.
+ */
+export const reorderProjects = mutation({
+  args: { keys: v.array(v.string()) },
+  handler: async (ctx, { keys }) => {
+    const viewer = await requireViewer(ctx);
+    if (keys.length > MAX_REORDER) fail("INVALID", `At most ${MAX_REORDER} projects at once.`);
+    const groups = await buildGroups(ctx, viewer);
+    const order = reorderWithin(
+      groups.map((g) => g.key),
+      keys,
+    );
+    const byKey = new Map(groups.map((g) => [g.key, g]));
+    for (const [index, key] of order.entries()) {
+      const group = byKey.get(key)!;
+      const project = group.project ?? (await ensureProject(ctx, viewer.user._id, group.deviceId, group.path));
+      if (project.position !== index) await ctx.db.patch(project._id, { position: index });
+    }
+    return null;
+  },
+});
+
+/**
+ * Moves sessions within one project: `sessionDocIds` are some of its sessions in their new order. Pinned sessions
+ * still lead the project.
+ */
+export const reorderSessions = mutation({
+  args: { projectKey: v.string(), sessionDocIds: v.array(v.string()) },
+  handler: async (ctx, { projectKey: key, sessionDocIds }) => {
+    const viewer = await requireViewer(ctx);
+    if (sessionDocIds.length > MAX_REORDER) fail("INVALID", `At most ${MAX_REORDER} sessions at once.`);
+    if (!parseProjectKey(key)) fail("INVALID", "No such project.");
+    const group = (await buildGroups(ctx, viewer)).find((g) => g.key === key);
+    if (!group) fail("NOT_FOUND", "No such project.");
+    const order = reorderWithin(
+      group.sessions.map((s) => s._id as string),
+      sessionDocIds,
+    );
+    const byId = new Map(group.sessions.map((s) => [s._id as string, s]));
+    for (const [index, id] of order.entries()) {
+      const session = byId.get(id)!;
+      if (session.position !== index) await ctx.db.patch(session._id, { position: index });
+    }
+    return null;
+  },
+});
+
+/**
+ * Back to "most recent first": with `projectKey`, for that project's sessions; without, for the projects themselves.
+ */
+export const resetOrder = mutation({
+  args: { projectKey: v.optional(v.string()) },
+  handler: async (ctx, { projectKey: key }) => {
+    const viewer = await requireViewer(ctx);
+    if (key !== undefined) {
+      const group = (await buildGroups(ctx, viewer)).find((g) => g.key === key);
+      if (!group) fail("NOT_FOUND", "No such project.");
+      for (const session of group.sessions) {
+        if (session.position !== undefined) await ctx.db.patch(session._id, { position: undefined });
+      }
+      return null;
+    }
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_user", (q) => q.eq("userId", viewer.user._id))
+      .collect();
+    for (const project of projects) {
+      if (project.position !== undefined) await ctx.db.patch(project._id, { position: undefined });
+    }
+    return null;
+  },
+});
+
+/** Deletes the relay's copy of a session that is no longer running. The session itself stays on the computer. */
+export const remove = mutation({
+  args: { sessionDocId: v.string() },
+  handler: async (ctx, { sessionDocId }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    if (session.online) fail("INVALID", "Close the session on the computer first, or archive it.");
+    await ctx.db.delete(session._id);
+    await ctx.scheduler.runAfter(0, internal.maintenance.deleteSessionEvents, {
+      sessionDocId: session._id,
+      throughSeq: Number.MAX_SAFE_INTEGER,
+    });
+    return null;
+  },
+});

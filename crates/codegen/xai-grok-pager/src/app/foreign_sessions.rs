@@ -288,6 +288,8 @@ pub(crate) fn badge_for_picker_source(source: &str) -> &'static str {
     match source {
         // Kept on the picker row; translated where the row's badge is drawn.
         "conversation" => tlm("chat"),
+        // A session on one of the person's other computers (remote control).
+        "relay" => tlm("other computer"),
         _ => ForeignPickerSource::from_picker_source(source)
             .map(ForeignPickerSource::picker_source)
             .unwrap_or(""),

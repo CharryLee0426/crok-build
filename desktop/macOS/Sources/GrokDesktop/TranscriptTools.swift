@@ -583,7 +583,7 @@ final class TranscriptToolsModel: ObservableObject {
         let local = TranscriptMarkdownExport.render(conversation.messages)
         let binary = store.binaryPath
         if let session = conversation.sessionID, FileManager.default.isExecutableFile(atPath: binary) {
-            let cwd = store.state.projects.first { $0.id == conversation.projectID }?.path
+            let cwd = store.projectRecord(conversation.projectID)?.path
             if let output = try? await GrokCLI.run(binary, arguments: ["export", session], cwd: cwd, timeout: 60), output.status == 0 {
                 var text = output.text
                 if text.hasSuffix("\n") { text.removeLast() }
@@ -708,7 +708,7 @@ final class TranscriptToolsModel: ObservableObject {
         let clientID = UUID()
         store.auxiliaryClients[clientID] = client
         defer { client.stop(); store.auxiliaryClients.removeValue(forKey: clientID) }
-        try client.start(executable: store.binaryPath, cwd: cwd)
+        try client.start(executable: store.binaryPath, cwd: cwd, environment: ACPClient.helperEnvironment)
         let initial = try await store.initialize(client)
         try await store.authenticate(client, initial: initial)
         let response = try await client.request("_x.ai/prompt_history", params: params)

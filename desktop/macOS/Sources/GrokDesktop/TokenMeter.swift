@@ -407,7 +407,7 @@ final class TokenMeterModel: ObservableObject {
         guard let store, let task = store.task(id) else { return nil }
         let saved = task.tokenUsage
         let recorded = task.sessionID.flatMap { session in
-            store.state.projects.first { $0.id == task.projectID }.flatMap { harnessRecord($0.path, session) }
+            store.projectRecord(task.projectID).flatMap { harnessRecord($0.path, session) }
         }
         guard var chosen = saved ?? recorded else { return nil }
         if let recorded, recorded.output > chosen.output {

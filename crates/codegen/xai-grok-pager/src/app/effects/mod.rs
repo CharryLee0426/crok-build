@@ -715,6 +715,11 @@ pub(crate) fn execute(
                                 "allowRelax".into(),
                                 serde_json::Value::Bool(true),
                             );
+                            // Remote control adds the person's other computers' sessions (`source: relay`).
+                            obj.insert(
+                                "otherComputers".into(),
+                                serde_json::Value::Bool(true),
+                            );
                         }
                         if let Some(kinds) = &kind_filter {
                             obj.insert(
@@ -3631,6 +3636,15 @@ pub(crate) fn execute(
                         }
                     }
                 });
+        }
+        Effect::RemoteLogin { agent_id } => {
+            tasks.spawn(crate::remote_cmd::login_start(agent_id));
+        }
+        Effect::RemoteLoginWait { agent_id, request, start } => {
+            tasks.spawn(crate::remote_cmd::login_wait(agent_id, request, start));
+        }
+        Effect::RemoteLogout { agent_id } => {
+            tasks.spawn(crate::remote_cmd::logout(agent_id));
         }
         Effect::ShowSessionInfo { agent_id, session_id, show_resolved_model, nonce } => {
             let is_api_key_auth = session_flags.is_api_key_auth;

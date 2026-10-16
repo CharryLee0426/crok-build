@@ -139,6 +139,14 @@ struct ComposerView: View {
                         ProgressView().controlSize(.small).frame(width: 20, height: 30)
                             .help("Updating conversation settings…").accessibilityLabel("Updating conversation settings")
                     }
+                    if store.remoteLink?.state == .connected {
+                        // Phones and the web can follow this Mac's tasks: a quiet sign, explained on hover.
+                        Image(systemName: "iphone.radiowaves.left.and.right")
+                            .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                            .frame(width: 20, height: 30)
+                            .help(L10n.t("remote_indicator_connected", "Remote control connected"))
+                            .accessibilityLabel(L10n.t("remote_indicator_connected", "Remote control connected"))
+                    }
                     if store.project != nil, let id = store.state.selectedConversationID {
                         ComposerContextRing(conversationID: id, catalogWindow: selectedModelWindow)
                     }

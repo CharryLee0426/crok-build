@@ -26,7 +26,7 @@ extension AppStore {
             if [.skills, .personas, .agentDefinitions].contains(panel), id == nil {
                 let fresh = ACPClient(); temporary = fresh; client = fresh
                 auxiliaryClients[temporaryID] = fresh
-                try fresh.start(executable: binaryPath, cwd: project.path)
+                try fresh.start(executable: binaryPath, cwd: project.path, environment: ACPClient.helperEnvironment)
                 let initial = try await initialize(fresh)
                 try await authenticate(fresh, initial: initial)
             } else {

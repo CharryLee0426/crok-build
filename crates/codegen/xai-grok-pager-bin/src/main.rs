@@ -75,6 +75,7 @@ fn process_identity(command: Option<&Command>, is_interactive: bool) -> Option<P
             | Command::Trace(_)
             | Command::Update { .. }
             | Command::Upgrade(_)
+            | Command::Remote(_)
             | Command::Version { .. }
             | Command::Completions { .. }
             | Command::Worktree(_)
@@ -117,6 +118,7 @@ fn command_needs_pre_sandbox_policy_heal(command: Option<&Command>) -> bool {
             | Command::Trace(_)
             | Command::Update { .. }
             | Command::Upgrade(_)
+            | Command::Remote(_)
             | Command::Version { .. }
             | Command::Completions { .. }
             | Command::DiskUsage(_)
@@ -2425,6 +2427,38 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                 )
                 .mode;
                 return xai_grok_pager::memory_cmd::run(memory_args, mode);
+            }
+            Command::Remote(remote) => {
+                let language = xai_grok_shell::config::load_effective_config()
+                    .ok()
+                    .and_then(|root| root.get("ui")?.get("ui_language")?.as_str().map(str::to_owned));
+                xai_grok_i18n::set_locale(xai_grok_i18n::resolve_locale(language.as_deref()));
+                use xai_grok_pager::app::cli::RemoteCommand;
+                let (action, json) = match remote.command {
+                    RemoteCommand::Login {
+                        server,
+                        name,
+                        no_browser,
+                        force,
+                        json,
+                    } => (
+                        crok_remote::cli::Action::Login {
+                            server,
+                            name,
+                            no_browser,
+                            force,
+                        },
+                        json,
+                    ),
+                    RemoteCommand::Logout { json } => (crok_remote::cli::Action::Logout, json),
+                    RemoteCommand::Status { json } => (crok_remote::cli::Action::Status, json),
+                };
+                return crok_remote::cli::run(crok_remote::cli::Options {
+                    action,
+                    json,
+                    client: format!("crok {}", xai_grok_version::full_version()),
+                })
+                .await;
             }
             Command::Upgrade(upgrade) => {
                 // The TUI sets the locale from [ui].ui_language; a subcommand does the same.

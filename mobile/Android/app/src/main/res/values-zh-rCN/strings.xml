@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Common -->
+    <string name="action_cancel">取消</string>
+    <string name="action_retry">重试</string>
+    <string name="action_delete">删除</string>
+    <string name="action_copy">复制</string>
+    <string name="action_done">完成</string>
+    <string name="action_back">返回</string>
+    <string name="action_undo">撤销</string>
+    <string name="copied">已复制</string>
+    <string name="error_generic">出了点问题：%1$s</string>
+    <string name="error_network">无法连接服务器。请检查网络后重试。</string>
+
+    <!-- Welcome (signed out) -->
+    <string name="welcome_title">手机上的 Crok</string>
+    <string name="welcome_body">关注电脑上运行的 crok 会话：实时阅读回复、发送提示，或停止当前回合。</string>
+    <string name="welcome_continue">使用 GitHub 或 Google 继续</string>
+    <string name="welcome_note">你在网页上登录。这台手机会单独关联到你的账户，你可以在任何其他设备上将它退出登录。</string>
+    <string name="welcome_demo">试用演示</string>
+    <string name="signin_error_denied">登录被拒绝。</string>
+    <string name="signin_error_expired">代码已过期。请重新开始以获取新代码。</string>
+    <string name="signin_error_revoked">这台手机已在另一台设备上被退出登录。</string>
+    <string name="signin_error_not_configured">该服务器尚未设置设备登录。</string>
+    <string name="signin_no_browser">没有浏览器能打开登录页面。请在任意设备上打开 %1$s 并输入代码。</string>
+
+    <!-- Waiting for approval -->
+    <string name="waiting_title">等待批准</string>
+    <string name="waiting_body">请在打开的浏览器中批准这台手机。确认页面显示的是以下代码：</string>
+    <string name="waiting_body_no_link">在任意设备上打开 Crok 网页应用，选择“关联设备”，然后输入此代码：</string>
+    <string name="waiting_device">这台手机显示为“%1$s”。</string>
+    <string name="waiting_expires">%1$s 后过期</string>
+    <string name="waiting_offline">无法连接服务器，正在重试…</string>
+    <string name="waiting_open_again">再次打开</string>
+    <string name="waiting_copy_code">复制代码</string>
+
+    <!-- Tabs and connection state -->
+    <string name="tab_sessions">会话</string>
+    <string name="tab_settings">设置</string>
+    <string name="connection_waiting_network">等待网络</string>
+    <string name="connection_connecting">正在连接…</string>
+    <string name="connection_updating">正在更新…</string>
+
+    <!-- Session list -->
+    <string name="sessions_title">会话</string>
+    <string name="filter_all">全部</string>
+    <string name="filter_archived">已归档</string>
+    <string name="sessions_search">搜索</string>
+    <string name="sessions_search_hint">搜索会话</string>
+    <string name="sessions_working">工作中</string>
+    <string name="sessions_needs_approval">需要批准</string>
+    <string name="sessions_you">"你："</string>
+    <string name="action_pin">置顶</string>
+    <string name="action_unpin">取消置顶</string>
+    <string name="action_archive">归档</string>
+    <string name="action_unarchive">取消归档</string>
+    <string name="action_stop">停止</string>
+    <string name="sessions_empty_title">还没有会话</string>
+    <string name="sessions_empty_body">在电脑上运行 crok remote login，或在 Crok Desktop 的设置 › 远程控制中登录。它的会话会显示在这里。</string>
+    <string name="sessions_link_computer">关联电脑</string>
+    <string name="sessions_archived_empty">已归档的会话会显示在这里。</string>
+    <string name="sessions_no_results">没有匹配的会话。</string>
+    <string name="sessions_archived_snackbar">会话已归档</string>
+    <string name="sessions_action_failed">无法更新会话：%1$s</string>
+    <plurals name="sessions_unread">
+        <item quantity="other">%d 条未读回复</item>
+    </plurals>
+    <plurals name="sessions_count">
+        <item quantity="other">%d 个会话</item>
+    </plurals>
+    <plurals name="sessions_show_more">
+        <item quantity="other">再显示 %d 个</item>
+    </plurals>
+    <string name="sessions_show_less">收起</string>
+    <string name="sessions_reorder">调整顺序</string>
+    <string name="sessions_reorder_hint">拖动 ≡ 可移动项目。点按项目即可移动其中的会话；置顶的会话始终排在最前。</string>
+    <string name="sessions_sort_recent">按最近活动排序</string>
+    <string name="sessions_sort_projects_recent">按最近活动排序项目</string>
+    <string name="action_move_up">上移</string>
+    <string name="action_move_down">下移</string>
+    <string name="action_collapse">收起</string>
+    <string name="action_expand">展开</string>
+
+    <!-- Session -->
+    <string name="session_status_working">工作中…</string>
+    <string name="session_status_waiting">正在 %1$s 上等待批准</string>
+    <string name="session_status_idle">空闲 · %1$s</string>
+    <string name="session_status_offline">离线 · %1$s</string>
+    <string name="session_history_loading">正在从 %1$s 加载…</string>
+    <string name="session_history_offline">%1$s 已离线。等 crok 在那台电脑上再次运行，这里就会显示此会话的记录。</string>
+    <string name="session_status_error">出错 · %1$s</string>
+    <string name="session_info">会话信息</string>
+    <string name="plan_bar">计划 %1$d/%2$d</string>
+    <string name="plan_title">计划</string>
+    <string name="day_today">今天</string>
+    <string name="day_yesterday">昨天</string>
+    <string name="message_from">来自 %1$s</string>
+    <string name="thought_title">思考</string>
+    <string name="tool_pending">等待中</string>
+    <string name="tool_running">运行中</string>
+    <string name="tool_done">完成</string>
+    <string name="tool_failed">失败</string>
+    <string name="notice_stopped">已停止</string>
+    <string name="notice_max_tokens">回复达到了输出上限。</string>
+    <string name="notice_refusal">模型拒绝继续。</string>
+    <string name="composer_placeholder">给 %1$s 上的 crok 发消息…</string>
+    <string name="composer_offline">%1$s 当前离线。在那台电脑上启动 crok 或 Crok Desktop 即可继续此会话。</string>
+    <string name="permission_asks">%1$s 上的 Crok 请求：</string>
+    <string name="composer_send">发送</string>
+    <string name="composer_stop">停止</string>
+    <string name="prompt_not_sent">未发送：%1$s</string>
+    <string name="tick_clock">正在发送</string>
+    <string name="tick_sent">已送达</string>
+    <string name="tick_done">完成</string>
+    <string name="tick_failed">未发送</string>
+    <string name="transcript_scroll_bottom">滚动到最新消息</string>
+    <string name="transcript_beginning">会话开始</string>
+    <string name="transcript_empty">还没有消息。</string>
+    <string name="transcript_load_failed">无法加载对话记录：%1$s</string>
+    <string name="session_gone">此会话已不在中继上。</string>
+    <string name="stop_failed">无法停止当前回合：%1$s</string>
+
+    <!-- Session info -->
+    <string name="info_model">模型</string>
+    <string name="info_effort">思考级别</string>
+    <string name="info_folder">文件夹</string>
+    <string name="info_branch">Git 分支</string>
+    <string name="info_computer">电脑</string>
+    <string name="info_app">应用</string>
+    <string name="app_tui">终端</string>
+    <string name="app_desktop">Crok Desktop</string>
+    <string name="app_cli">命令行</string>
+    <string name="info_started">开始时间</string>
+    <string name="info_last_activity">最近活动</string>
+    <string name="info_tokens">Token</string>
+    <string name="info_tokens_value">输入 %1$s · 输出 %2$s</string>
+    <string name="info_tokens_cached">缓存 %1$s</string>
+    <string name="info_tokens_reasoning">推理 %1$s</string>
+    <string name="info_cost">费用</string>
+    <string name="info_context">上下文</string>
+    <string name="info_context_value">%1$s / %2$s（%3$d%%）</string>
+    <string name="info_session_id">会话 ID</string>
+    <string name="info_refreshing">正在向 %1$s 获取最新数据…</string>
+    <string name="info_refresh_failed">无法获取最新数据：%1$s</string>
+    <string name="info_offline_note">电脑已离线。以下是中继最后看到的数据。</string>
+    <string name="info_not_open_note">%1$s 上目前没有打开此会话：以下是它最后发送的数据。</string>
+    <string name="info_remove">从中继中移除</string>
+    <string name="info_remove_title">从中继中移除此会话？</string>
+    <string name="info_remove_body">会话仍保留在 %1$s 上，只删除中继中的副本。</string>
+    <string name="action_remove">移除</string>
+
+    <!-- Settings -->
+    <string name="settings_title">设置</string>
+    <string name="settings_this_phone">这台手机：%1$s</string>
+    <string name="settings_devices">设备</string>
+    <plurals name="settings_devices_count">
+        <item quantity="other">%d 台设备</item>
+    </plurals>
+    <string name="settings_link_computer">关联电脑</string>
+    <string name="settings_link_computer_detail">扫描 crok remote login 显示的二维码</string>
+    <string name="settings_appearance">外观</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="settings_language">语言</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_version">版本</string>
+    <string name="settings_server">服务器</string>
+    <string name="settings_sign_out">退出登录</string>
+    <string name="sign_out_title">退出 Crok？</string>
+    <string name="sign_out_body">在你重新登录之前，这台手机将不再显示你的会话。</string>
+    <string name="settings_demo_note">演示模式：这里的内容都不是真实的。</string>
+
+    <!-- Devices -->
+    <string name="devices_title">设备</string>
+    <string name="devices_this_device">本设备</string>
+    <string name="devices_computers">电脑</string>
+    <string name="devices_phones">手机</string>
+    <string name="devices_online">在线</string>
+    <string name="devices_last_seen">最后在线 %1$s</string>
+    <plurals name="devices_live_sessions">
+        <item quantity="other">%d 个活动会话</item>
+    </plurals>
+    <string name="devices_platform">平台</string>
+    <string name="devices_app">应用</string>
+    <string name="devices_linked">关联时间</string>
+    <string name="devices_last_active">最后在线</string>
+    <string name="devices_sign_out_device">将此设备退出登录</string>
+    <string name="devices_sign_out_device_title">将 %1$s 退出登录？</string>
+    <string name="devices_sign_out_device_body">在重新登录之前，它将停止同步会话，也不再接收提示。</string>
+    <string name="devices_sign_out_others">将其他所有设备退出登录</string>
+    <string name="devices_sign_out_others_title">将其他所有设备退出登录？</string>
+    <string name="devices_sign_out_others_body">此账户下的其他所有电脑和手机都将退出登录。</string>
+    <plurals name="devices_signed_out">
+        <item quantity="other">已将 %d 台设备退出登录</item>
+    </plurals>
+    <string name="devices_footer">将设备退出登录会解除它与你账户的关联。它的会话仍保留在那台电脑上。</string>
+    <string name="devices_this_device_note">这是你正在使用的手机。将它退出登录会回到开始界面。</string>
+    <string name="devices_failed">无法将设备退出登录：%1$s</string>
+
+    <!-- Relative times -->
+    <string name="ago_just_now">刚刚</string>
+    <plurals name="ago_minutes">
+        <item quantity="other">%d 分钟前</item>
+    </plurals>
+    <plurals name="ago_hours">
+        <item quantity="other">%d 小时前</item>
+    </plurals>
+    <string name="ago_yesterday">昨天 %1$s</string>
+    <plurals name="ago_days">
+        <item quantity="other">%d 天前</item>
+    </plurals>
+    <string name="ago_on_date">%1$s</string>
+
+    <!-- Link a computer -->
+    <string name="link_title">关联电脑</string>
+    <string name="link_body">在电脑上运行 crok remote login，或在 Crok Desktop 的设置 › 远程控制中选择登录，然后扫描显示的二维码。</string>
+    <string name="link_scan">扫描二维码</string>
+    <string name="link_or_enter">或输入代码</string>
+    <string name="link_continue">继续</string>
+    <string name="link_checking">正在查找代码…</string>
+    <string name="link_confirm_title">关联此设备？</string>
+    <string name="link_confirm_body">只批准你自己刚刚发起的登录。</string>
+    <string name="link_requested">请求时间</string>
+    <string name="link_approve">批准</string>
+    <string name="link_deny">拒绝</string>
+    <string name="link_approved">%1$s 已关联，它的会话稍后会显示在这里。</string>
+    <string name="link_denied">登录已被拒绝。</string>
+    <string name="link_not_found">代码无效。请检查后重试。</string>
+    <string name="link_expired">代码已过期。请在电脑上重新开始登录。</string>
+    <string name="link_used">此代码已被使用。</string>
+    <string name="link_scanner_unavailable">这台手机无法使用扫码功能，请改为输入代码。</string>
+    <string name="link_not_crok">这个二维码不是 crok 登录代码。</string>
+    <string name="link_kind_computer">电脑</string>
+    <string name="link_kind_phone">手机</string>
+
+    <!-- Accessibility -->
+    <string name="cd_online">在线</string>
+    <string name="cd_pinned">已置顶</string>
+    <string name="cd_expand">展开</string>
+    <string name="cd_collapse">收起</string>
+    <string name="cd_clear">清除</string>
+    <string name="cd_more_options">更多选项</string>
+    <string name="cd_drag_to_reorder">拖动以调整顺序</string>
+</resources>

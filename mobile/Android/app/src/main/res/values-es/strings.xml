@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Common -->
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_retry">Reintentar</string>
+    <string name="action_delete">Eliminar</string>
+    <string name="action_copy">Copiar</string>
+    <string name="action_done">Listo</string>
+    <string name="action_back">Atrás</string>
+    <string name="action_undo">Deshacer</string>
+    <string name="copied">Copiado</string>
+    <string name="error_generic">Algo salió mal: %1$s</string>
+    <string name="error_network">No se puede conectar con el servidor. Revisa la conexión y vuelve a intentarlo.</string>
+
+    <!-- Welcome (signed out) -->
+    <string name="welcome_title">Crok en tu teléfono</string>
+    <string name="welcome_body">Sigue las sesiones de crok que se ejecutan en tus ordenadores, lee las respuestas mientras llegan, envía una instrucción o detén un turno.</string>
+    <string name="welcome_continue">Continuar con GitHub o Google</string>
+    <string name="welcome_note">El inicio de sesión se hace en la web. Este teléfono tiene su propio vínculo con tu cuenta, y puedes cerrarle la sesión desde cualquier otro dispositivo.</string>
+    <string name="welcome_demo">Probar la demo</string>
+    <string name="signin_error_denied">Se denegó el inicio de sesión.</string>
+    <string name="signin_error_expired">El código caducó. Empieza de nuevo para obtener otro.</string>
+    <string name="signin_error_revoked">Se cerró la sesión de este teléfono desde otro dispositivo.</string>
+    <string name="signin_error_not_configured">El servidor aún no está preparado para el inicio de sesión de dispositivos.</string>
+    <string name="signin_no_browser">Ningún navegador puede abrir la página de inicio de sesión. Abre %1$s en cualquier dispositivo e introduce el código.</string>
+
+    <!-- Waiting for approval -->
+    <string name="waiting_title">Esperando aprobación</string>
+    <string name="waiting_body">Aprueba este teléfono en el navegador que se abrió. Comprueba que la página muestra este código:</string>
+    <string name="waiting_body_no_link">Abre la app web de Crok en cualquier dispositivo, elige Vincular un dispositivo e introduce este código:</string>
+    <string name="waiting_device">Este teléfono aparece como «%1$s».</string>
+    <string name="waiting_expires">Caduca en %1$s</string>
+    <string name="waiting_offline">No se puede conectar con el servidor. Reintentando…</string>
+    <string name="waiting_open_again">Abrir de nuevo</string>
+    <string name="waiting_copy_code">Copiar código</string>
+
+    <!-- Tabs and connection state -->
+    <string name="tab_sessions">Sesiones</string>
+    <string name="tab_settings">Ajustes</string>
+    <string name="connection_waiting_network">Esperando red</string>
+    <string name="connection_connecting">Conectando…</string>
+    <string name="connection_updating">Actualizando…</string>
+
+    <!-- Session list -->
+    <string name="sessions_title">Sesiones</string>
+    <string name="filter_all">Todas</string>
+    <string name="filter_archived">Archivadas</string>
+    <string name="sessions_search">Buscar</string>
+    <string name="sessions_search_hint">Buscar sesiones</string>
+    <string name="sessions_working">trabajando</string>
+    <string name="sessions_needs_approval">Requiere aprobación</string>
+    <string name="sessions_you">"Tú: "</string>
+    <string name="action_pin">Fijar</string>
+    <string name="action_unpin">Dejar de fijar</string>
+    <string name="action_archive">Archivar</string>
+    <string name="action_unarchive">Desarchivar</string>
+    <string name="action_stop">Detener</string>
+    <string name="sessions_empty_title">Aún no hay sesiones</string>
+    <string name="sessions_empty_body">Ejecuta crok remote login en un ordenador o inicia sesión en Control remoto, en los Ajustes de Crok Desktop. Sus sesiones aparecerán aquí.</string>
+    <string name="sessions_link_computer">Vincular un ordenador</string>
+    <string name="sessions_archived_empty">Las sesiones archivadas aparecen aquí.</string>
+    <string name="sessions_no_results">No hay sesiones que coincidan.</string>
+    <string name="sessions_archived_snackbar">Sesión archivada</string>
+    <string name="sessions_action_failed">No se pudo actualizar la sesión: %1$s</string>
+    <plurals name="sessions_unread">
+        <item quantity="one">%d respuesta sin leer</item>
+        <item quantity="many">%d respuestas sin leer</item>
+        <item quantity="other">%d respuestas sin leer</item>
+    </plurals>
+    <plurals name="sessions_count">
+        <item quantity="one">%d sesión</item>
+        <item quantity="many">%d sesiones</item>
+        <item quantity="other">%d sesiones</item>
+    </plurals>
+    <plurals name="sessions_show_more">
+        <item quantity="one">Mostrar %d más</item>
+        <item quantity="many">Mostrar %d más</item>
+        <item quantity="other">Mostrar %d más</item>
+    </plurals>
+    <string name="sessions_show_less">Mostrar menos</string>
+    <string name="sessions_reorder">Reordenar</string>
+    <string name="sessions_reorder_hint">Arrastra ≡ para mover un proyecto. Toca un proyecto para mover sus sesiones; las fijadas se quedan arriba.</string>
+    <string name="sessions_sort_recent">Ordenar por actividad reciente</string>
+    <string name="sessions_sort_projects_recent">Ordenar proyectos por actividad reciente</string>
+    <string name="action_move_up">Subir</string>
+    <string name="action_move_down">Bajar</string>
+    <string name="action_collapse">Contraer</string>
+    <string name="action_expand">Expandir</string>
+
+    <!-- Session -->
+    <string name="session_status_working">trabajando…</string>
+    <string name="session_status_waiting">esperando aprobación en %1$s</string>
+    <string name="session_status_idle">inactiva · %1$s</string>
+    <string name="session_status_offline">sin conexión · %1$s</string>
+    <string name="session_history_loading">Cargando desde %1$s…</string>
+    <string name="session_history_offline">%1$s no está conectado. El historial de esta sesión aparecerá cuando crok vuelva a ejecutarse allí.</string>
+    <string name="session_status_error">error · %1$s</string>
+    <string name="session_info">Información de la sesión</string>
+    <string name="plan_bar">Plan %1$d/%2$d</string>
+    <string name="plan_title">Plan</string>
+    <string name="day_today">Hoy</string>
+    <string name="day_yesterday">Ayer</string>
+    <string name="message_from">desde %1$s</string>
+    <string name="thought_title">Razonamiento</string>
+    <string name="tool_pending">Pendiente</string>
+    <string name="tool_running">En curso</string>
+    <string name="tool_done">Hecho</string>
+    <string name="tool_failed">Falló</string>
+    <string name="notice_stopped">Detenido</string>
+    <string name="notice_max_tokens">La respuesta alcanzó el límite de salida.</string>
+    <string name="notice_refusal">El modelo se negó a continuar.</string>
+    <string name="composer_placeholder">Mensaje para crok en %1$s…</string>
+    <string name="composer_offline">%1$s está sin conexión. Inicia crok o Crok Desktop allí para continuar esta sesión.</string>
+    <string name="permission_asks">Crok en %1$s pregunta:</string>
+    <string name="composer_send">Enviar</string>
+    <string name="composer_stop">Detener</string>
+    <string name="prompt_not_sent">No enviado: %1$s</string>
+    <string name="tick_clock">Enviando</string>
+    <string name="tick_sent">Entregado</string>
+    <string name="tick_done">Hecho</string>
+    <string name="tick_failed">No enviado</string>
+    <string name="transcript_scroll_bottom">Ir al mensaje más reciente</string>
+    <string name="transcript_beginning">Inicio de la sesión</string>
+    <string name="transcript_empty">Aún no hay mensajes.</string>
+    <string name="transcript_load_failed">No se pudo cargar la conversación: %1$s</string>
+    <string name="session_gone">Esta sesión ya no está en el relay.</string>
+    <string name="stop_failed">No se pudo detener el turno: %1$s</string>
+
+    <!-- Session info -->
+    <string name="info_model">Modelo</string>
+    <string name="info_effort">Nivel de razonamiento</string>
+    <string name="info_folder">Carpeta</string>
+    <string name="info_branch">Rama de Git</string>
+    <string name="info_computer">Ordenador</string>
+    <string name="info_app">App</string>
+    <string name="app_tui">Terminal</string>
+    <string name="app_desktop">Crok Desktop</string>
+    <string name="app_cli">Línea de comandos</string>
+    <string name="info_started">Inicio</string>
+    <string name="info_last_activity">Última actividad</string>
+    <string name="info_tokens">Tokens</string>
+    <string name="info_tokens_value">%1$s de entrada · %2$s de salida</string>
+    <string name="info_tokens_cached">%1$s en caché</string>
+    <string name="info_tokens_reasoning">%1$s de razonamiento</string>
+    <string name="info_cost">Coste</string>
+    <string name="info_context">Contexto</string>
+    <string name="info_context_value">%1$s de %2$s (%3$d %%)</string>
+    <string name="info_session_id">ID de sesión</string>
+    <string name="info_refreshing">Pidiendo cifras actualizadas a %1$s…</string>
+    <string name="info_refresh_failed">No se pudieron obtener cifras actualizadas: %1$s</string>
+    <string name="info_offline_note">El ordenador no está conectado. Estas son las últimas cifras que vio el relay.</string>
+    <string name="info_not_open_note">Ahora no está abierta en %1$s: estas son las últimas cifras que envió.</string>
+    <string name="info_remove">Quitar del relay</string>
+    <string name="info_remove_title">¿Quitar esta sesión del relay?</string>
+    <string name="info_remove_body">La sesión sigue en %1$s. Solo se elimina la copia del relay.</string>
+    <string name="action_remove">Quitar</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_this_phone">Este teléfono: %1$s</string>
+    <string name="settings_devices">Dispositivos</string>
+    <plurals name="settings_devices_count">
+        <item quantity="one">%d dispositivo</item>
+        <item quantity="many">%d dispositivos</item>
+        <item quantity="other">%d dispositivos</item>
+    </plurals>
+    <string name="settings_link_computer">Vincular un ordenador</string>
+    <string name="settings_link_computer_detail">Escanea el código QR que muestra crok remote login</string>
+    <string name="settings_appearance">Apariencia</string>
+    <string name="theme_system">Sistema</string>
+    <string name="theme_light">Claro</string>
+    <string name="theme_dark">Oscuro</string>
+    <string name="settings_language">Idioma</string>
+    <string name="settings_about">Acerca de</string>
+    <string name="settings_version">Versión</string>
+    <string name="settings_server">Servidor</string>
+    <string name="settings_sign_out">Cerrar sesión</string>
+    <string name="sign_out_title">¿Cerrar sesión en Crok?</string>
+    <string name="sign_out_body">Este teléfono dejará de mostrar tus sesiones hasta que vuelvas a iniciar sesión.</string>
+    <string name="settings_demo_note">Modo demo: nada de esto es real.</string>
+
+    <!-- Devices -->
+    <string name="devices_title">Dispositivos</string>
+    <string name="devices_this_device">Este dispositivo</string>
+    <string name="devices_computers">Ordenadores</string>
+    <string name="devices_phones">Teléfonos</string>
+    <string name="devices_online">en línea</string>
+    <string name="devices_last_seen">visto %1$s</string>
+    <plurals name="devices_live_sessions">
+        <item quantity="one">%d sesión activa</item>
+        <item quantity="many">%d sesiones activas</item>
+        <item quantity="other">%d sesiones activas</item>
+    </plurals>
+    <string name="devices_platform">Plataforma</string>
+    <string name="devices_app">App</string>
+    <string name="devices_linked">Vinculado</string>
+    <string name="devices_last_active">Última vez</string>
+    <string name="devices_sign_out_device">Cerrar sesión en este dispositivo</string>
+    <string name="devices_sign_out_device_title">¿Cerrar sesión en %1$s?</string>
+    <string name="devices_sign_out_device_body">Dejará de reflejar sesiones y de recibir instrucciones hasta que vuelva a iniciar sesión.</string>
+    <string name="devices_sign_out_others">Cerrar sesión en los demás dispositivos</string>
+    <string name="devices_sign_out_others_title">¿Cerrar sesión en los demás dispositivos?</string>
+    <string name="devices_sign_out_others_body">Se cerrará la sesión en todos los demás ordenadores y teléfonos de esta cuenta.</string>
+    <plurals name="devices_signed_out">
+        <item quantity="one">Se cerró la sesión en %d dispositivo</item>
+        <item quantity="many">Se cerró la sesión en %d dispositivos</item>
+        <item quantity="other">Se cerró la sesión en %d dispositivos</item>
+    </plurals>
+    <string name="devices_footer">Cerrar la sesión de un dispositivo lo desvincula de tu cuenta. Sus sesiones siguen en ese ordenador.</string>
+    <string name="devices_this_device_note">Es el teléfono que estás usando. Si cierras su sesión, volverás al inicio.</string>
+    <string name="devices_failed">No se pudo cerrar la sesión del dispositivo: %1$s</string>
+
+    <!-- Relative times -->
+    <string name="ago_just_now">ahora mismo</string>
+    <plurals name="ago_minutes">
+        <item quantity="one">hace %d minuto</item>
+        <item quantity="many">hace %d minutos</item>
+        <item quantity="other">hace %d minutos</item>
+    </plurals>
+    <plurals name="ago_hours">
+        <item quantity="one">hace %d hora</item>
+        <item quantity="many">hace %d horas</item>
+        <item quantity="other">hace %d horas</item>
+    </plurals>
+    <string name="ago_yesterday">ayer a las %1$s</string>
+    <plurals name="ago_days">
+        <item quantity="one">hace %d día</item>
+        <item quantity="many">hace %d días</item>
+        <item quantity="other">hace %d días</item>
+    </plurals>
+    <string name="ago_on_date">el %1$s</string>
+
+    <!-- Link a computer -->
+    <string name="link_title">Vincular un ordenador</string>
+    <string name="link_body">Ejecuta crok remote login en el ordenador, o elige Iniciar sesión en Control remoto, en los Ajustes de Crok Desktop, y escanea el código QR que aparece.</string>
+    <string name="link_scan">Escanear código QR</string>
+    <string name="link_or_enter">O introduce el código</string>
+    <string name="link_continue">Continuar</string>
+    <string name="link_checking">Buscando el código…</string>
+    <string name="link_confirm_title">¿Vincular este dispositivo?</string>
+    <string name="link_confirm_body">Aprueba solo un inicio de sesión que acabes de empezar tú.</string>
+    <string name="link_requested">Solicitado</string>
+    <string name="link_approve">Aprobar</string>
+    <string name="link_deny">Denegar</string>
+    <string name="link_approved">%1$s está vinculado. Sus sesiones aparecerán aquí en un momento.</string>
+    <string name="link_denied">Se denegó el inicio de sesión.</string>
+    <string name="link_not_found">El código no es válido. Revísalo y vuelve a intentarlo.</string>
+    <string name="link_expired">El código caducó. Vuelve a iniciar sesión en el ordenador.</string>
+    <string name="link_used">Ese código ya se usó.</string>
+    <string name="link_scanner_unavailable">El escáner de códigos no está disponible en este teléfono. Introduce el código.</string>
+    <string name="link_not_crok">Ese código QR no es un código de inicio de sesión de crok.</string>
+    <string name="link_kind_computer">Ordenador</string>
+    <string name="link_kind_phone">Teléfono</string>
+
+    <!-- Accessibility -->
+    <string name="cd_online">En línea</string>
+    <string name="cd_pinned">Fijada</string>
+    <string name="cd_expand">Mostrar más</string>
+    <string name="cd_collapse">Mostrar menos</string>
+    <string name="cd_clear">Borrar</string>
+    <string name="cd_more_options">Más opciones</string>
+    <string name="cd_drag_to_reorder">Arrastra para reordenar</string>
+</resources>

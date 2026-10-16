@@ -46,6 +46,27 @@ final class AppStore: ObservableObject {
     var commandCatalogRefreshedAt: [UUID: Date] = [:]
     @Published var showSearch = false
     @Published var showSettings = false
+    /// The section Settings scrolls to when it opens (`/remote`); it is cleared once shown.
+    @Published var settingsFocus: SettingsFocus?
+    /// Settings › Remote control: this Mac's link to the relay, signing in and out with `crok remote`.
+    lazy var remoteControl = RemoteControlModel(runner: .crok(environment: RemoteControlModel.defaultEnvironment) { [weak self] in self?.binaryPath ?? "" })
+    /// The remote-control bridge's link, as the task harnesses report it (`x.ai/remote/status`): the
+    /// best of them, nil while no task's harness has said.
+    @Published var remoteLink: RemoteBridgeStatus?
+    /// Each connected task's bridge, which `remoteLink` combines.
+    var remoteStatuses: [UUID: RemoteBridgeStatus] = [:]
+    /// Tasks running a prompt that a phone or the web sent, by its prompt id (`remote-…`).
+    var remoteTurns: [UUID: String] = [:]
+    /// The person's other computers and their sessions, from the remote host (see `RemoteSessions.swift`).
+    @Published var remoteComputers: [RemoteComputer] = []
+    /// The background harness that keeps this Mac reachable and lists the other computers.
+    var remoteHost: ACPClient?
+    /// The host's key among the bridges `remoteLink` combines.
+    let remoteHostID = UUID()
+    var remoteHostReady = false
+    var remoteHostLoop: Task<Void, Never>?
+    var remoteHostRetryAt: Date?
+    var remoteSessionsAskedAt: Date?
     @Published var showRename = false
     /// The command sheet on screen, if any.
     @Published var sheet: DesktopSheet?
@@ -145,6 +166,7 @@ final class AppStore: ObservableObject {
     private var catalogLoadingProjectID: UUID?
     private var catalogClient: ACPClient?
     private let stateFile: URL
+    var stateFileDirectory: URL { stateFile.deletingLastPathComponent() }
     /// The browser's history, bookmarks, and open tabs, beside the state file.
     var browserDirectory: URL { stateFile.deletingLastPathComponent().appendingPathComponent("browser", isDirectory: true) }
     private let defaults: UserDefaults
@@ -161,7 +183,7 @@ final class AppStore: ObservableObject {
     var replaying: Set<UUID> = []
     var operations: [UUID: Task<Void, Never>] = [:]
     var operationIDs: [UUID: UUID] = [:]
-    private var cancellationFallbacks: [UUID: Task<Void, Never>] = [:]
+    var cancellationFallbacks: [UUID: Task<Void, Never>] = [:]
     var cancellationRequested: Set<UUID> = []
     var importBuffers: [UUID: [Message]] = [:]
     /// Tasks connecting in the background behind a transcript that is already on screen.
@@ -188,7 +210,7 @@ final class AppStore: ObservableObject {
     private var loginProcess: Process?
     private let git = WorkspaceService()
 
-    var project: Project? { state.projects.first { $0.id == state.selectedProjectID } }
+    var project: Project? { projectRecord(state.selectedProjectID) }
     var conversation: Conversation? { state.selectedConversationID.flatMap(task) }
     var run: RunState {
         var catalog = catalogRun
@@ -321,7 +343,9 @@ final class AppStore: ObservableObject {
             catalogRun.modelID = state.selectedModelID ?? ""
             updateCatalogReasoning(preferred: state.selectedReasoningID)
         }
-        if state.projects.contains(where: { $0.id == state.selectedProjectID }) == false { state.selectedProjectID = state.projects.first?.id }
+        if state.projects.contains(where: { $0.id == state.selectedProjectID }) == false, state.selectedProjectID != RemoteSessions.projectID {
+            state.selectedProjectID = state.projects.first?.id
+        }
         if let tab = defaults.string(forKey: "sidePanelTab").flatMap(SidePanelTab.init(rawValue:)) { sidePanelTab = tab }
         updateMenuState()
         menuStateObserver = objectWillChange.sink { [weak self] _ in
@@ -332,6 +356,8 @@ final class AppStore: ObservableObject {
                 DispatchQueue.main.async { [weak self] in self?.updateMenuState() }
             }
         }
+        // Only the app proper keeps a remote host; a store built for a test or a preview does not.
+        if binaryPath == nil { startRemoteHost() }
     }
 
     private func updateMenuState() {
@@ -543,7 +569,7 @@ final class AppStore: ObservableObject {
             if catalogClient === client { catalogClient = nil; catalogLoadingProjectID = nil; catalogRun.isConfiguring = false }
         }
         do {
-            try client.start(executable: binaryPath, cwd: project.path)
+            try client.start(executable: binaryPath, cwd: project.path, environment: ACPClient.helperEnvironment)
             let initial = try await initialize(client)
             try await authenticate(client, initial: initial)
             let response = try await client.request("_x.ai/models/list", timeout: 60)
@@ -711,6 +737,7 @@ final class AppStore: ObservableObject {
         client.onDisconnect = { [weak self, weak client] _ in
             guard let self, let client, self.clients[id] === client else { return }
             self.loaded.remove(id)
+            self.forgetRemote(id)
             self.runs[id]?.phase = "Disconnected"
             self.runs[id]?.approvals = []; self.runs[id]?.questions = []
         }
@@ -723,7 +750,12 @@ final class AppStore: ObservableObject {
         if let commands = (initial["_meta"] as? [String: Any])?["availableCommands"] as? [[String: Any]] {
             runs[id, default: RunState()].commands = SlashCommand.parse(commands)
         }
-        try await authenticate(client, initial: initial)
+        if task(id)?.remote == nil {
+            try await authenticate(client, initial: initial)
+        } else {
+            // A session of another computer runs its model there: no provider needs to be signed in here.
+            try? await authenticate(client, initial: initial)
+        }
         try checkOperation(id, operationID: operationID)
         var params: [String: Any] = ["cwd": project.path, "mcpServers": []]
         let sessionMeta = features.composer.sessionMeta()
@@ -817,6 +849,7 @@ final class AppStore: ObservableObject {
         let method = method.hasPrefix("_") ? String(method.dropFirst()) : method
         let index = state.conversations.firstIndex { $0.id == id }
         if let session = params["sessionId"] as? String, let index, let expected = state.conversations[index].sessionID, session != expected { return }
+        if receiveRemote(method, params: params, id: id) { return }
         if receiveFeatureNotification(method, params: params, id: id) { return }
         if method == "x.ai/models/update" {
             runs[id, default: RunState()].models = SessionOptions.models(params)
@@ -936,7 +969,8 @@ final class AppStore: ObservableObject {
             } else if let input = tool["rawInput"], let data = try? JSONSerialization.data(withJSONObject: input, options: [.prettyPrinted, .fragmentsAllowed, .sortedKeys]) {
                 detail = String(data: data, encoding: .utf8) ?? ""
             } else { detail = "Crok needs your permission to continue." }
-            runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: tool["title"] as? String ?? "Permission required", detail: detail, options: options, device: device))
+            runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: tool["title"] as? String ?? "Permission required", detail: detail, options: options, device: device,
+                                                                    toolCallID: tool["toolCallId"] as? String))
         } else if method == "x.ai/folder_trust/request" {
             let kinds = (params["configKinds"] as? [String] ?? []).joined(separator: ", ")
             runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: "Trust project configuration?",
@@ -1037,12 +1071,15 @@ final class AppStore: ObservableObject {
         runs[id]?.isRunning = false; runs[id]?.isConfiguring = false
         runs[id]?.approvals = []; runs[id]?.questions = []
         replaying.remove(id); importing.remove(id); warming.remove(id); importBuffers.removeValue(forKey: id); pendingPrompts.removeValue(forKey: id)
+        // A prompt from a phone started while this ran, and its turn goes on.
+        if remoteTurns[id] != nil, clients[id] != nil { runs[id]?.isRunning = true; runs[id]?.phase = "Working" }
         features.composer.operationDidEnd(conversationID: id)
     }
 
     func discardConnection(_ id: UUID) {
         clients.removeValue(forKey: id)?.stop()
         loaded.remove(id)
+        forgetRemote(id)
         runs[id]?.approvals = []; runs[id]?.questions = []
     }
 
@@ -1225,7 +1262,7 @@ final class AppStore: ObservableObject {
                 historyClient = client
                 defer { client.stop(); if historyClient === client { historyClient = nil } }
                 do {
-                    try client.start(executable: binaryPath, cwd: project.path)
+                    try client.start(executable: binaryPath, cwd: project.path, environment: ACPClient.helperEnvironment)
                     let initial = try await initialize(client)
                     try await authenticate(client, initial: initial)
                     var cursor: String?
@@ -1521,6 +1558,9 @@ final class AppStore: ObservableObject {
         historyClient?.stop(); historyClient = nil
         catalogClient?.stop(); catalogClient = nil
         loginProcess?.terminate()
+        remoteControl.shutdown()
+        remoteHostLoop?.cancel(); remoteHostLoop = nil
+        stopRemoteHost()
         features.terminals.terminateAll()
         features.browser.shutdown()
     }

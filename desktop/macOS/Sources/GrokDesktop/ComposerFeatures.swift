@@ -225,7 +225,7 @@ final class ComposerFeatureModel: ObservableObject {
     /// Sends a queued prompt to its task, which need not be the selected one. This mirrors the
     /// prompt path of `AppStore.send` without touching the composer draft.
     private func sendQueuedPrompt(_ prompt: String, attachments: [PromptAttachment] = [], to id: UUID) {
-        guard let store, let task = store.task(id), let project = store.state.projects.first(where: { $0.id == task.projectID }) else { return }
+        guard let store, let task = store.task(id), let project = store.projectRecord(task.projectID) else { return }
         guard FileManager.default.isExecutableFile(atPath: store.binaryPath) else {
             store.banner = "The bundled Crok runtime is missing. Reinstall Crok Desktop to start a task."; return
         }
@@ -311,7 +311,7 @@ final class ComposerFeatureModel: ObservableObject {
 
     /// `_x.ai/compact_conversation {sessionId, userContext?}`, which answers `{}`.
     private func runCompaction(_ id: UUID, instructions: String) {
-        guard let store, let task = store.task(id), let project = store.state.projects.first(where: { $0.id == task.projectID }) else { return }
+        guard let store, let task = store.task(id), let project = store.projectRecord(task.projectID) else { return }
         guard FileManager.default.isExecutableFile(atPath: store.binaryPath) else {
             store.banner = "The bundled Crok runtime is missing. Reinstall Crok Desktop to start a task."; return
         }
