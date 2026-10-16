@@ -28,6 +28,7 @@ use crate::doom_loop_recovery::{FailedResponseCapture, append_recovery_context};
 use crate::events::{SamplingErrorInfo, SamplingErrorKind, SamplingEvent, StripReason};
 use crate::handle::CollectedSamplingResult;
 use crate::metrics::InferenceLatencyStats;
+use crate::observe;
 use crate::retry::{
     self as retry_mod, RetryDecision, classify_error, clone_error, resolve_max_retries,
 };
@@ -535,6 +536,7 @@ async fn run_one_attempt(
     output_observed: Arc<AtomicBool>,
 ) -> AttemptOutcome {
     let length_policy = request.length_policy;
+    let observation = observe::Observation::start(client, &request, observe::CallPath::Turn);
     match client.api_backend() {
         ApiBackend::ChatCompletions
         | ApiBackend::OpenRouter
@@ -542,10 +544,14 @@ async fn run_one_attempt(
         | ApiBackend::Glm => {
             let (raw, metadata) = match client.conversation_stream(request).await {
                 Ok(pair) => pair,
-                Err(e) => return AttemptOutcome::InitFailed { error: e },
+                Err(e) => {
+                    observe::record_send_error(observation, &e);
+                    return AttemptOutcome::InitFailed { error: e };
+                }
             };
-            let (teed, captured) = tee_errors(raw);
+            let (teed, captured) = tee_errors(observe::tap_chat(&observation, raw));
             let l2 = stream_chat_completions(teed, metadata, request_id.clone(), idle_timeout);
+            let l2 = observe::watch(observation, l2);
             drive_l2(
                 l2,
                 request_id,
@@ -563,14 +569,17 @@ async fn run_one_attempt(
             let (raw, metadata, doom_loop) =
                 match client.conversation_stream_responses(request).await {
                     Ok(parts) => parts,
-                    Err(e) => return AttemptOutcome::InitFailed { error: e },
+                    Err(e) => {
+                        observe::record_send_error(observation, &e);
+                        return AttemptOutcome::InitFailed { error: e };
+                    }
                 };
             if doom_check.is_none()
                 && let Some(collector) = &doom_loop
             {
                 collector.disarm_abort();
             }
-            let (teed, captured) = tee_errors(raw);
+            let (teed, captured) = tee_errors(observe::tap_responses(&observation, raw));
             // Only an armed attempt can replay its failed turn, so only an armed attempt pays for buffering it
             let failed_response = if doom_check.is_some() {
                 FailedResponseCapture::armed()
@@ -586,6 +595,7 @@ async fn run_one_attempt(
                 Arc::clone(&output_observed),
                 failed_response.clone(),
             );
+            let l2 = observe::watch(observation, l2);
             drive_l2(
                 l2,
                 request_id,
@@ -602,10 +612,14 @@ async fn run_one_attempt(
         ApiBackend::Messages => {
             let (raw, metadata) = match client.conversation_stream_messages(request).await {
                 Ok(pair) => pair,
-                Err(e) => return AttemptOutcome::InitFailed { error: e },
+                Err(e) => {
+                    observe::record_send_error(observation, &e);
+                    return AttemptOutcome::InitFailed { error: e };
+                }
             };
             let (teed, captured) = tee_errors(raw);
             let l2 = stream_messages(teed, metadata, request_id.clone(), idle_timeout);
+            let l2 = observe::watch(observation, l2);
             drive_l2(
                 l2,
                 request_id,

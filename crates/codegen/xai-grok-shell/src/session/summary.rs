@@ -114,6 +114,8 @@ pub fn session_title_notifications(
     title: &str,
     kind: SessionTitleNotificationKind,
 ) -> (SessionNotification, acp::SessionNotification) {
+    // Every title change passes here; Agent Observability shows it as the conversation's name.
+    xai_grok_sampler::observe::set_session_title(session_id.0.as_ref(), title);
     let meta = match kind {
         SessionTitleNotificationKind::Automatic => None,
         SessionTitleNotificationKind::Manual => {

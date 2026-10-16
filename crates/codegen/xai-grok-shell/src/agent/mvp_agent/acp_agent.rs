@@ -137,6 +137,14 @@ impl acp::Agent for MvpAgent {
             );
         }
         tracing::debug!(target: "sampling_log", "Received initialize request");
+        // Crok Desktop's harness (`crok agent stdio`): tag its model calls as the desktop's.
+        if arguments
+            .client_info
+            .as_ref()
+            .is_some_and(|info| info.name == "grok-desktop")
+        {
+            xai_grok_sampler::observe::set_surface("desktop");
+        }
         self.models_manager.refresh_provider_catalog().await;
         xai_grok_telemetry::unified_log::info("agent initialized", None, None);
         startup::mark_agent_serving();

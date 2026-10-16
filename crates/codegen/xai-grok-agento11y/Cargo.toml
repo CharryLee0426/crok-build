@@ -1,0 +1,19 @@
+[package]
+license = "Apache-2.0"
+name = "xai-grok-agento11y"
+version = "0.1.0"
+edition.workspace = true
+description = "Sends every model call to Grafana Agent Observability through a Node bridge running the agento11y TypeScript SDK"
+
+[dependencies]
+blake3 = { workspace = true }
+tracing = { workspace = true }
+xai-dirs = { workspace = true }
+xai-grok-sampler = { path = "../xai-grok-sampler" }
+xai-tty-utils = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -1241,6 +1241,7 @@ async fn run_agent_command(
     update_config: &UpdateConfig,
 ) -> Result<()> {
     let signal_flush = agent_command::spawn_signal_flush();
+    xai_grok_agento11y::set_surface("agent");
     if matches!(
         agent_args.mode,
         Some(AgentCmd::Leader(_) | AgentCmd::Stdio | AgentCmd::Headless(_) | AgentCmd::Serve(_))
@@ -2126,6 +2127,12 @@ fn main() {
         disabled: xai_grok_shell::agent::config::is_error_reporting_disabled_sync(),
     });
     xai_grok_pager::docs::extract_user_guide_docs(&xai_grok_shell::util::grok_home::grok_home());
+    // Grafana Agent Observability, when ~/.crok/agento11y.env (or AGENTO11Y_*) configures it.
+    // `agent` subcommands relabel the surface; Crok Desktop names itself in ACP `initialize`.
+    xai_grok_agento11y::install(xai_grok_agento11y::InstallOptions {
+        agent_version: env!("CROK_RELEASE_VERSION"),
+        surface: "tui",
+    });
     xai_crash_handler::install_terminal_restore_only();
     if xai_grok_shell::util::config::load_crash_handler_enabled_sync() {
         let crash_dir = crash_dir_for(&args);

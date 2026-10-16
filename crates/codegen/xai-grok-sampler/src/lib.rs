@@ -21,6 +21,7 @@ mod doom_loop_recovery;
 pub mod events;
 pub mod handle;
 pub mod metrics;
+pub mod observe;
 mod prewarm;
 mod provider_compat;
 mod request_compression;
