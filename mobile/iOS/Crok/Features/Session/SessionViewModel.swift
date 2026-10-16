@@ -320,6 +320,21 @@ final class SessionViewModel {
 
     var isRemoved: Bool { detail.error?.code == .notFound }
 
+    /// Whether the session's computer is connected (another crok there can fetch a listed session's history).
+    var isComputerOnline: Bool {
+        detail.value?.deviceOnline ?? engine.sessionRow(sessionDocId)?.deviceOnline ?? false
+    }
+
+    var historyState: HistoryState? {
+        detail.value?.historyState ?? engine.sessionRow(sessionDocId)?.historyState
+    }
+
+    /// A session listed from the computer's disk whose transcript has not reached the relay: the screen says it is
+    /// loading from the computer (`watch` asked for it), or that the computer is offline.
+    var awaitsHistory: Bool {
+        !isRemoved && items.isEmpty && (historyState?.isOnComputerOnly ?? false)
+    }
+
     // MARK: Actions
 
     func send() {

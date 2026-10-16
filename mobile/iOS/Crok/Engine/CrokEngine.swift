@@ -15,13 +15,19 @@ final class CrokEngine {
     private(set) var connection: ConnectionStatus = .connecting
     /// Prompts sent from this phone that the transcript may not show yet, per session.
     private(set) var localPrompts: [DocID: [LocalPrompt]] = [:]
+    /// Moves sent to the relay and not confirmed yet; `groups` applies them over every value the relay sends meanwhile.
+    private(set) var pendingReorders: [PendingReorder] = []
+    /// Projects collapsed in the list (remembered on this phone).
+    private(set) var collapsedProjects: Set<String>
 
-    let sessionList: LiveQuery<[SessionRow]>
+    /// The main list as the relay sends it (`sessions:groups`); screens read `groups`.
+    let groupList: LiveQuery<[ProjectGroup]>
     let archivedList: LiveQuery<[SessionRow]>
     let deviceList: LiveQuery<[DeviceRow]>
     let account: LiveQuery<AccountInfo?>
 
     @ObservationIgnored let drafts: DraftStore
+    @ObservationIgnored private let collapsedStore: CollapsedProjectsStore
     @ObservationIgnored private let cache: SessionListCache?
     @ObservationIgnored private var networkAvailable = true
     @ObservationIgnored private var socketConnected = false
@@ -47,8 +53,10 @@ final class CrokEngine {
         self.isDemo = isDemo
         self.drafts = drafts
         self.cache = cache
+        collapsedStore = CollapsedProjectsStore(defaults: drafts.defaults)
+        collapsedProjects = collapsedStore.load()
         let cached = cache?.load(deviceId: credentials.deviceId)
-        sessionList = LiveQuery(engine: nil, initial: cached?.sessions) { backend.sessions.list(archived: false) }
+        groupList = LiveQuery(engine: nil, initial: cached?.groups) { backend.sessions.groups() }
         archivedList = LiveQuery(engine: nil) { backend.sessions.list(archived: true) }
         deviceList = LiveQuery(engine: nil, initial: cached?.computers) { backend.devices.list() }
         account = LiveQuery(engine: nil) { backend.account.me() }
@@ -58,7 +66,7 @@ final class CrokEngine {
 
     func start() {
         // LiveQuery holds the engine weakly; attach it now that `self` exists.
-        sessionList.setEngine(self)
+        groupList.setEngine(self)
         archivedList.setEngine(self)
         deviceList.setEngine(self)
         account.setEngine(self)
@@ -82,9 +90,9 @@ final class CrokEngine {
                 self.recomputeConnection()
             }
         }
-        sessionList.onValue = { [weak self] rows in self?.scheduleCacheSave(sessions: rows) }
-        deviceList.onValue = { [weak self] _ in self?.scheduleCacheSave(sessions: nil) }
-        sessionList.start()
+        groupList.onValue = { [weak self] groups in self?.scheduleCacheSave(groups: groups) }
+        deviceList.onValue = { [weak self] _ in self?.scheduleCacheSave(groups: nil) }
+        groupList.start()
         deviceList.start()
         account.start()
         let backend = self.backend
@@ -99,7 +107,7 @@ final class CrokEngine {
         startTask?.cancel()
         cacheSaveTask?.cancel()
         delayedStatus?.cancel()
-        sessionList.stop()
+        groupList.stop()
         archivedList.stop()
         deviceList.stop()
         account.stop()
@@ -126,29 +134,86 @@ final class CrokEngine {
         delayedStatus?.update(status)
     }
 
-    private func scheduleCacheSave(sessions: [SessionRow]?) {
+    private func scheduleCacheSave(groups: [ProjectGroup]?) {
         guard let cache, !isDemo else { return }
         cacheSaveTask?.cancel()
         cacheSaveTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled, let self else { return }
-            let rows = sessions ?? self.sessionList.value ?? []
+            let groups = groups ?? self.groupList.value ?? []
             let computers = (self.deviceList.value ?? []).filter { $0.kind == .computer }
             let deviceId = self.credentials.deviceId
             Task.detached(priority: .utility) {
-                cache.save(deviceId: deviceId, sessions: rows, computers: computers)
+                cache.save(deviceId: deviceId, groups: groups, computers: computers)
             }
         }
     }
 
     // MARK: Lookups
 
+    /// The main list in the order to show: the relay's, with the moves it has not confirmed yet.
+    var groups: [ProjectGroup] {
+        pendingReorders.reduce(groupList.value ?? []) { ProjectOrder.apply($1.change, to: $0) }
+    }
+
     func sessionRow(_ id: DocID) -> SessionRow? {
-        sessionList.value?.first(where: { $0.id == id }) ?? archivedList.value?.first(where: { $0.id == id })
+        for group in groupList.value ?? [] {
+            if let row = group.sessions.first(where: { $0.id == id }) { return row }
+        }
+        return archivedList.value?.first(where: { $0.id == id })
+    }
+
+    /// Unread replies over every session in the main list (the Sessions tab's badge).
+    var unreadTotal: Int {
+        (groupList.value ?? []).reduce(0) { $0 + $1.unreadCount }
     }
 
     var computers: [DeviceRow] {
         (deviceList.value ?? []).filter { $0.kind == .computer }
+    }
+
+    // MARK: Collapsed projects
+
+    func isCollapsed(_ projectKey: String) -> Bool {
+        collapsedProjects.contains(projectKey)
+    }
+
+    func toggleCollapsed(_ projectKey: String) {
+        if collapsedProjects.contains(projectKey) {
+            collapsedProjects.remove(projectKey)
+        } else {
+            collapsedProjects.insert(projectKey)
+        }
+        collapsedStore.save(collapsedProjects)
+    }
+
+    // MARK: Order
+
+    struct PendingReorder: Equatable, Sendable {
+        let id = UUID()
+        let change: ListReorder
+    }
+
+    /// Moves projects or sessions, or sorts them by recent activity: shown at once, then sent to the relay. A failure
+    /// puts the relay's order back and is returned for the caller to show.
+    func reorder(_ change: ListReorder) async -> RelayError? {
+        let pending = PendingReorder(change: change)
+        pendingReorders.append(pending)
+        let sessions = self.sessions
+        let error = await perform {
+            switch change {
+            case .projects(let keys): try await sessions.reorderProjects(keys)
+            case .sessions(let projectKey, let ids): try await sessions.reorderSessions(projectKey: projectKey, ids)
+            case .projectsByActivity: try await sessions.resetOrder(projectKey: nil)
+            case .sessionsByActivity(let projectKey): try await sessions.resetOrder(projectKey: projectKey)
+            }
+        }
+        if error == nil, let value = groupList.value {
+            // Keep the move if the relay's next value is still on its way (applying it again changes nothing).
+            groupList.override(ProjectOrder.apply(change, to: value))
+        }
+        pendingReorders.removeAll { $0.id == pending.id }
+        return error
     }
 
     // MARK: Actions
@@ -167,26 +232,24 @@ final class CrokEngine {
     }
 
     func setPinned(_ id: DocID, _ pinned: Bool) async -> RelayError? {
-        optimisticallyUpdate(id) { $0.pinned = pinned }
+        if let groups = groupList.value { groupList.override(ProjectOrder.settingPinned(id, pinned, in: groups)) }
         let sessions = self.sessions
-        return await perform { try await sessions.setPinned(id, pinned) }
+        let error = await perform { try await sessions.setPinned(id, pinned) }
+        if error != nil { groupList.revertOverride() }
+        return error
     }
 
     func setArchived(_ id: DocID, _ archived: Bool) async -> RelayError? {
+        if archived, let groups = groupList.value { groupList.override(ProjectOrder.removing(id, from: groups)) }
         let sessions = self.sessions
-        return await perform { try await sessions.setArchived(id, archived) }
+        let error = await perform { try await sessions.setArchived(id, archived) }
+        if error != nil { groupList.revertOverride() }
+        return error
     }
 
     func stopTurn(_ id: DocID) async -> RelayError? {
         let commands = self.commands
         return await perform { _ = try await commands.stop(id) }
-    }
-
-    private func optimisticallyUpdate(_ id: DocID, _ change: (inout SessionRow) -> Void) {
-        guard var rows = sessionList.value, let index = rows.firstIndex(where: { $0.id == id }) else { return }
-        change(&rows[index])
-        rows.sort { a, b in a.pinned != b.pinned ? a.pinned : a.lastActivityAt > b.lastActivityAt }
-        sessionList.override(rows)
     }
 
     // MARK: Prompts

@@ -1,13 +1,20 @@
 import XCTest
 
-/// End to end against a real relay (the Debug build's `CrokRelayURL`, by default a local `npx convex dev`). Skipped
-/// unless `CROK_LIVE_RELAY=1` (pass `TEST_RUNNER_CROK_LIVE_RELAY=1` to xcodebuild). Someone has to approve the sign-in:
+/// End to end against a real relay: a local `npx convex dev` by default, or `CROK_LIVE_RELAY_URL` (pass
+/// `TEST_RUNNER_CROK_LIVE_RELAY_URL=…` to xcodebuild), handed to the app with `-CrokServer` since the app has no Server
+/// field. Skipped unless `CROK_LIVE_RELAY=1` (pass `TEST_RUNNER_CROK_LIVE_RELAY=1`). Someone has to approve the sign-in:
 /// the test writes the user code to `$CROK_SCREENSHOT_DIR/live-user-code.txt` and waits up to three minutes. A computer
 /// must mirror a session titled "Fix the login redirect" and answer prompts (see README.md, "Checking against a real
 /// relay").
 final class LiveRelayUITests: XCTestCase {
     private var outputDir: URL? {
         ProcessInfo.processInfo.environment["CROK_SCREENSHOT_DIR"].map { URL(fileURLWithPath: $0) }
+    }
+
+    /// `-CrokServer <relay>`: the relay this test signs in to.
+    private var relayArguments: [String] {
+        let url = ProcessInfo.processInfo.environment["CROK_LIVE_RELAY_URL"].flatMap { $0.isEmpty ? nil : $0 }
+        return ["-CrokServer", url ?? "http://127.0.0.1:3210"]
     }
 
     private func snap(_ name: String) {
@@ -40,7 +47,7 @@ final class LiveRelayUITests: XCTestCase {
     func testBrowserSheetCanBeClosed() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["CROK_LIVE_RELAY"] == "1", "set CROK_LIVE_RELAY=1")
         let app = XCUIApplication()
-        app.launchArguments = ["-CrokResetState", "YES", "-CrokAppearance", "light"]
+        app.launchArguments = ["-CrokResetState", "YES", "-CrokAppearance", "light"] + relayArguments
         app.launch()
         let continueButton = element(app, "continueButton")
         XCTAssertTrue(continueButton.waitForExistence(timeout: 10))
@@ -66,7 +73,7 @@ final class LiveRelayUITests: XCTestCase {
     func testInfoSheetWhileSignedIn() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["CROK_LIVE_RELAY"] == "1", "set CROK_LIVE_RELAY=1")
         let app = XCUIApplication()
-        app.launchArguments = ["-CrokAppearance", "light"]
+        app.launchArguments = ["-CrokAppearance", "light"] + relayArguments
         app.launch()
         let session = app.staticTexts["Fix the login redirect"]
         XCTAssertTrue(session.waitForExistence(timeout: 20))
@@ -84,7 +91,7 @@ final class LiveRelayUITests: XCTestCase {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["CROK_LIVE_RELAY"] == "1", "set CROK_LIVE_RELAY=1")
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-CrokResetState", "YES", "-CrokAppearance", "light"]
+        app.launchArguments = ["-CrokResetState", "YES", "-CrokAppearance", "light"] + relayArguments
         app.launch()
 
         // Welcome → start the device sign-in.

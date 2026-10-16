@@ -12,11 +12,12 @@ struct CrokApp: App {
         if options.demo {
             environment = DemoEnvironment(signedIn: !options.demoSignIn, approveAfter: options.demoApproveAfter)
         } else {
-            environment = LiveEnvironment(opensBrowserAutomatically: !options.noBrowser)
+            environment = LiveEnvironment(opensBrowserAutomatically: !options.noBrowser, relayOverride: options.server)
         }
         if options.resetState && !options.demo {
             environment.store.wipe()
             environment.drafts.removeAll()
+            CollapsedProjectsStore(defaults: environment.drafts.defaults).removeAll()
             environment.sessionCache?.clear()
         }
         forcedAppearance = options.appearance.flatMap(Appearance.init(rawValue:))

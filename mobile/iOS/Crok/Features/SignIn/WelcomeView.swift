@@ -4,19 +4,14 @@ import SwiftUI
 struct WelcomeView: View {
     @Environment(AppModel.self) private var model
     @State private var showsAdvanced = false
-    @State private var serverDraft = ""
 
     var body: some View {
-        @Bindable var model = model
         GeometryReader { geometry in
         ScrollView {
             VStack(spacing: 28) {
                 Spacer(minLength: 24)
                 header
                 features
-                if model.needsServerField {
-                    serverField
-                }
                 VStack(spacing: 12) {
                     continueButton
                     if let notice = model.notice {
@@ -75,25 +70,6 @@ struct WelcomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var serverField: some View {
-        @Bindable var model = model
-        return VStack(alignment: .leading, spacing: 6) {
-            Text("Server")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-            TextField(text: $model.serverOverride, prompt: Text(verbatim: "https://your-relay.convex.cloud")) {
-                Text("Server")
-            }
-                .textContentType(.URL)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .padding(12)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .accessibilityIdentifier("serverField")
-        }
-    }
-
     private var continueButton: some View {
         Button {
             Task { await model.startSignIn() }
@@ -134,38 +110,15 @@ private struct FeatureRow: View {
     }
 }
 
-/// Advanced › Server and the name this phone signs in under.
+/// Advanced: the name this phone signs in under. (The relay is built into the app; there is nothing to type for it.)
 struct AdvancedSignInSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var server = ""
     @State private var name = ""
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    TextField(text: $server, prompt: Text(verbatim: "https://your-relay.convex.cloud")) {
-                        Text("Server")
-                    }
-                        .textContentType(.URL)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .accessibilityIdentifier("advancedServerField")
-                } header: {
-                    Text("Server")
-                } footer: {
-                    if model.environment.bundledServerURL.isEmpty {
-                        Text("The address of your Crok relay (a Convex deployment).")
-                    } else {
-                        Text("Leave empty to use \(model.environment.bundledServerURL).")
-                    }
-                }
-                if !server.isEmpty && ServerURL.normalize(server) == nil {
-                    Text("That isn't a valid address.")
-                        .foregroundStyle(Theme.danger)
-                }
                 Section {
                     TextField("iPhone", text: $name)
                         .accessibilityIdentifier("deviceNameField")
@@ -183,16 +136,13 @@ struct AdvancedSignInSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
-                        model.serverOverride = server.trimmingCharacters(in: .whitespacesAndNewlines)
                         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty { model.deviceName = trimmed }
                         dismiss()
                     }
-                    .disabled(!server.isEmpty && ServerURL.normalize(server) == nil)
                 }
             }
             .onAppear {
-                server = model.serverOverride
                 name = model.deviceName
             }
         }

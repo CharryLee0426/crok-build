@@ -39,9 +39,11 @@ final class TestEnvironment: AppEnvironment {
     let store = AuthStore(secure: MemorySecureStore())
     let drafts: DraftStore
     let sessionCache: SessionListCache? = nil
-    var bundledServerURL = "http://relay.test"
+    var relayURL = "http://relay.test"
     let opensBrowserAutomatically = true
     let auth: FakeAuthService
+    /// The relay each sign-in call went to.
+    private(set) var authServers: [String] = []
 
     init(auth: FakeAuthService) {
         self.auth = auth
@@ -49,7 +51,10 @@ final class TestEnvironment: AppEnvironment {
         drafts = DraftStore(defaults: defaults)
     }
 
-    func authService(serverURL: String) -> any DeviceAuthService { auth }
+    func authService(serverURL: String) -> any DeviceAuthService {
+        authServers.append(serverURL)
+        return auth
+    }
 
     func makeBackend(serverURL: String, credentials: StoredCredentials, initialToken: DeviceAccessToken?,
                      onRevoked: @escaping @Sendable () -> Void) -> any RelayBackend
@@ -176,16 +181,62 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.notice, "Can't reach the relay.")
     }
 
-    func testNoServerMeansNoSignIn() async {
+    /// Nobody types a server: sign-in goes to the relay built into the app, and an address typed into an earlier build
+    /// is forgotten.
+    func testSignInUsesTheBuiltInRelayWithoutAServerField() async {
+        defaults.set("https://typed-by-hand.convex.cloud", forKey: AppModel.legacyServerKey)
+        let environment = TestEnvironment(auth: FakeAuthService(polls: [.approved(Self.approval)]))
+        let model = makeModel(environment)
+        XCTAssertNil(defaults.string(forKey: AppModel.legacyServerKey), "the old Server field's value is dropped")
+        model.restore()
+        XCTAssertEqual(model.serverURL, "http://relay.test")
+        await model.startSignIn()
+        XCTAssertEqual(environment.auth.startCalls, 1)
+        XCTAssertEqual(model.pending?.serverURL, "http://relay.test")
+        await model.pollOnce()
+        XCTAssertEqual(model.phase, .signedIn)
+        XCTAssertEqual(environment.store.credentials?.serverURL, "http://relay.test")
+        XCTAssertEqual(Set(environment.authServers), ["http://relay.test"])
+        await model.signOutLocally(notice: nil)
+    }
+
+    func testABuildWithoutARelayCannotStartASignIn() async {
         let environment = TestEnvironment(auth: FakeAuthService())
-        environment.bundledServerURL = ""
+        environment.relayURL = ""
         let model = makeModel(environment)
         model.restore()
-        XCTAssertTrue(model.needsServerField)
+        XCTAssertNil(model.serverURL)
         await model.startSignIn()
         XCTAssertEqual(environment.auth.startCalls, 0)
-        model.serverOverride = "happy-otter-1.convex.cloud"
-        XCTAssertEqual(model.serverURL, "https://happy-otter-1.convex.cloud")
+        XCTAssertEqual(model.phase, .welcome)
+        XCTAssertNotNil(model.notice)
+    }
+
+    /// The built-in relay comes from Config/Shared.xcconfig through the Info.plist (with the `$()` trick for `//`).
+    func testTheAppHasARelayBuiltIn() {
+        let url = AppInfo.bundledRelayURL
+        XCTAssertNotNil(ServerURL.normalize(url), url)
+        XCTAssertTrue(url.hasPrefix("https://") || url.hasPrefix("http://"), url)
+        XCTAssertFalse(url.contains("$("), url)
+    }
+
+    /// A developer points a build at another relay with `-CrokServer` or `CROK_RELAY_URL`; nothing in the app's UI.
+    func testADeveloperOverrideOfTheRelay() {
+        let suite = "crok.launch.\(UUID().uuidString)"
+        let launchDefaults = UserDefaults(suiteName: suite)!
+        XCTAssertNil(LaunchOptions.current(launchDefaults, environment: [:]).server)
+        XCTAssertEqual(
+            LaunchOptions.current(launchDefaults, environment: ["CROK_RELAY_URL": " http://127.0.0.1:3210 "]).server,
+            "http://127.0.0.1:3210")
+        launchDefaults.set("http://192.168.1.20:3210", forKey: "CrokServer")
+        XCTAssertEqual(
+            LaunchOptions.current(launchDefaults, environment: ["CROK_RELAY_URL": "http://127.0.0.1:3210"]).server,
+            "http://192.168.1.20:3210", "the launch argument wins")
+        launchDefaults.removePersistentDomain(forName: suite)
+
+        XCTAssertEqual(LiveEnvironment(relayOverride: "http://127.0.0.1:3210/").relayURL, "http://127.0.0.1:3210")
+        XCTAssertEqual(LiveEnvironment(relayOverride: nil).relayURL, AppInfo.bundledRelayURL)
+        XCTAssertEqual(LiveEnvironment(relayOverride: "not a url").relayURL, AppInfo.bundledRelayURL)
     }
 
     func testSignOutUnlinksAndWipesEverything() async {
@@ -237,12 +288,24 @@ final class LocalStoreTests: XCTestCase {
         let row = SessionRow(
             id: "s1", sessionId: "x", title: "T", cwd: "/a/b", model: nil, status: .idle, online: true, app: .tui,
             deviceId: "d", deviceName: "Mac", deviceOnline: true, preview: nil, previewKind: nil, lastActivityAt: 1,
-            pinned: false, archived: false, unread: 0, plan: nil)
-        cache.save(deviceId: "phone1", sessions: [row], computers: [])
-        XCTAssertEqual(cache.load(deviceId: "phone1")?.sessions, [row])
+            pinned: false, archived: false, unread: 0, plan: nil, projectKey: "d:/a", projectPath: "/a", projectName: "a",
+            historyState: .notFetched)
+        let group = ProjectGroup(
+            key: "d:/a", deviceId: "d", deviceName: "Mac", deviceOnline: true, path: "/a", name: "a", placed: true,
+            lastActivityAt: 1, sessions: [row])
+        cache.save(deviceId: "phone1", groups: [group], computers: [])
+        XCTAssertEqual(cache.load(deviceId: "phone1")?.groups, [group])
         XCTAssertNil(cache.load(deviceId: "phone2"), "another account's cache is never shown")
         cache.clear()
         XCTAssertNil(cache.load(deviceId: "phone1"))
+    }
+
+    func testAFlatListCacheFromAnEarlierBuildIsIgnored() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(#"{"version":1,"deviceId":"phone1","savedAt":1,"sessions":[],"computers":[]}"#.utf8)
+            .write(to: directory.appendingPathComponent("sessions.json"))
+        XCTAssertNil(SessionListCache(directory: directory).load(deviceId: "phone1"))
     }
 
     func testAuthStoreKeepsBothRecordsAndWipes() {

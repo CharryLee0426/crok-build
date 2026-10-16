@@ -8,8 +8,17 @@ import Foundation
 typealias RelayStream<T> = AsyncThrowingStream<T, Error>
 
 protocol SessionsAPI: Sendable {
+    /// The main list: every non-archived session, grouped by project, in the order shared by every client.
+    func groups() -> RelayStream<[ProjectGroup]>
+    /// A flat list; the app uses it for the Archived tab.
     func list(archived: Bool) -> RelayStream<[SessionRow]>
     func get(_ sessionDocId: DocID) -> RelayStream<SessionDetail>
+    /// Some project keys (all, or one computer's) in their new order.
+    func reorderProjects(_ keys: [String]) async throws
+    /// Some of one project's sessions in their new order.
+    func reorderSessions(projectKey: String, _ sessionDocIds: [DocID]) async throws
+    /// With a key, that project's sessions go back to most recent first; without, the projects do.
+    func resetOrder(projectKey: String?) async throws
     /// Newest first. `endCursor` pins where a page ends, so pages stay contiguous as new events arrive.
     func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage>
     func markRead(_ sessionDocId: DocID) async throws

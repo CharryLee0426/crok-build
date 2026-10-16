@@ -101,6 +101,61 @@ final class RelayDecodingTests: XCTestCase {
         XCTAssertEqual(rows.first?.plan, PlanProgress(done: 3, total: 7))
     }
 
+    /// `sessions:groups` as relay/convex/sessions.ts returns it, with a session listed from the computer's disk.
+    func testGroupsDecodeWithProjectFieldsAndHistoryState() throws {
+        let json = #"""
+            [{"key":"k57x:/Users/me/src/crok-build","deviceId":"k57x","deviceName":"MacBook Pro","deviceOnline":true,
+              "path":"/Users/me/src/crok-build","name":"crok-build","placed":true,"lastActivityAt":1792098432719.0,
+              "sessions":[
+                {"_id":"jd7abc","sessionId":"0199e2e0","title":"Fix it","cwd":"/Users/me/src/crok-build/relay","model":null,
+                 "status":"idle","online":false,"app":"tui","deviceId":"k57x","deviceName":"MacBook Pro","deviceOnline":true,
+                 "preview":null,"previewKind":null,"lastActivityAt":1792098432719.0,"pinned":true,"archived":false,
+                 "unread":0.0,"plan":null,"projectKey":"k57x:/Users/me/src/crok-build",
+                 "projectPath":"/Users/me/src/crok-build","projectName":"crok-build","historyState":"none"},
+                {"_id":"jd7def","sessionId":"0199e2e1","title":"Live","cwd":"/Users/me/src/crok-build","model":"grok-4",
+                 "status":"running","online":true,"app":"desktop","deviceId":"k57x","deviceName":"MacBook Pro",
+                 "deviceOnline":true,"preview":"Working","previewKind":"tool","lastActivityAt":1792098400000.0,
+                 "pinned":false,"archived":false,"unread":3.0,"plan":{"done":1.0,"total":2.0},
+                 "projectKey":"k57x:/Users/me/src/crok-build","projectPath":"/Users/me/src/crok-build",
+                 "projectName":"crok-build","historyState":null},
+                {"_id":"jd7ghi","sessionId":"0199e2e2","title":"Asked","cwd":"/tmp/x","model":null,"status":"idle",
+                 "online":false,"app":"cli","deviceId":"k57x","deviceName":"MacBook Pro","deviceOnline":true,"preview":null,
+                 "previewKind":null,"lastActivityAt":1.0,"pinned":false,"archived":false,"unread":0.0,"plan":null,
+                 "projectKey":"k57x:/Users/me/src/crok-build","projectPath":"/Users/me/src/crok-build",
+                 "projectName":"crok-build","historyState":"requested"}
+              ]}]
+            """#
+        let groups = try JSONDecoder().decode([ProjectGroup].self, from: Data(json.utf8))
+        let group = try XCTUnwrap(groups.first)
+        XCTAssertEqual(group.id, "k57x:/Users/me/src/crok-build")
+        XCTAssertEqual(group.name, "crok-build")
+        XCTAssertTrue(group.placed)
+        XCTAssertEqual(group.unreadCount, 3)
+        XCTAssertEqual(group.sessions.map(\.historyState), [.notFetched, nil, .requested])
+        XCTAssertEqual(group.sessions[0].folderIfNotProject, "relay")
+        XCTAssertNil(group.sessions[1].folderIfNotProject)
+        XCTAssertTrue(group.sessions[0].historyState?.isOnComputerOnly ?? false)
+        XCTAssertTrue(group.sessions[2].historyState?.isOnComputerOnly ?? false)
+        XCTAssertEqual(group.sessions[1].plan, PlanProgress(done: 1, total: 2))
+
+        // A state this build does not know still decodes.
+        XCTAssertEqual(try JSONDecoder().decode(HistoryState.self, from: Data(#""archived""#.utf8)), .unknown)
+    }
+
+    func testSessionDetailCarriesTheProjectAndHistoryState() throws {
+        let json = #"""
+            {"_id":"jd7abc","sessionId":"0199e2e0","title":"Fix it","cwd":"/a/b","model":null,"effort":null,
+             "gitBranch":null,"status":"idle","online":false,"app":"tui","deviceId":"k57x","deviceName":"Studio",
+             "devicePlatform":"macOS","deviceOnline":false,"createdAt":1.0,"lastActivityAt":2.0,"plan":[],"usage":null,
+             "pinned":false,"archived":false,"unread":0.0,"eventSeq":0.0,"projectKey":"k57x:/a","projectPath":"/a",
+             "projectName":"a","historyState":"none"}
+            """#
+        let detail = try JSONDecoder().decode(SessionDetail.self, from: Data(json.utf8))
+        XCTAssertEqual(detail.historyState, .notFetched)
+        XCTAssertEqual(detail.projectName, "a")
+        XCTAssertFalse(detail.deviceOnline)
+    }
+
     func testInfoResultAcceptsNestedOrFlatUsage() throws {
         let nested = try JSONDecoder().decode(
             SessionInfoResult.self,

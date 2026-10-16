@@ -30,12 +30,7 @@ final class AppModel {
     /// Set when a sign-in starts and by "Open again"; the waiting screen opens each request once.
     private(set) var browserRequest: BrowserRequest?
 
-    /// "Advanced › Server" on the welcome screen.
-    var serverOverride: String {
-        didSet { defaults.set(serverOverride, forKey: Self.serverKey) }
-    }
-
-    /// The name this phone signs in under.
+    /// The name this phone signs in under ("Advanced" on the welcome screen).
     var deviceName: String {
         didSet { defaults.set(deviceName, forKey: Self.deviceNameKey) }
     }
@@ -49,7 +44,8 @@ final class AppModel {
     @ObservationIgnored private let platform: String
     @ObservationIgnored private let client: String
 
-    private static let serverKey = "crok.server"
+    /// Where earlier builds kept a relay address typed on the welcome screen; forgotten now that the relay is built in.
+    static let legacyServerKey = "crok.server"
     private static let deviceNameKey = "crok.deviceName"
 
     init(environment: any AppEnvironment, defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init,
@@ -60,19 +56,18 @@ final class AppModel {
         self.now = now
         self.platform = platform
         self.client = client
-        serverOverride = defaults.string(forKey: Self.serverKey) ?? ""
+        defaults.removeObject(forKey: Self.legacyServerKey)
         deviceName = defaults.string(forKey: Self.deviceNameKey) ?? defaultDeviceName
     }
 
     // MARK: Server
 
-    /// The relay to use: the override when set, else the one built into the app.
+    /// The relay new sign-ins use. It is built into the app (`CROK_RELAY_URL` in Config/Shared.xcconfig); developers
+    /// point a build elsewhere with `-CrokServer` or `CROK_RELAY_URL` at launch. A signed-in phone keeps the relay it
+    /// signed in to (`StoredCredentials.serverURL`).
     var serverURL: String? {
-        ServerURL.normalize(serverOverride) ?? ServerURL.normalize(environment.bundledServerURL)
+        ServerURL.normalize(environment.relayURL)
     }
-
-    /// No relay built in: the welcome screen shows the Server field up front.
-    var needsServerField: Bool { ServerURL.normalize(environment.bundledServerURL) == nil }
 
     // MARK: Restore
 
@@ -103,7 +98,8 @@ final class AppModel {
     func startSignIn() async {
         guard !isStarting else { return }
         guard let server = serverURL else {
-            notice = String(localized: "Enter the address of your Crok relay first.")
+            // Only a build made with an empty CROK_RELAY_URL gets here.
+            notice = String(localized: "Something went wrong.")
             return
         }
         notice = nil
@@ -247,6 +243,7 @@ final class AppModel {
         credentials = nil
         environment.store.wipe()
         environment.drafts.removeAll()
+        CollapsedProjectsStore(defaults: environment.drafts.defaults).removeAll()
         environment.sessionCache?.clear()
         self.notice = notice
         phase = .welcome

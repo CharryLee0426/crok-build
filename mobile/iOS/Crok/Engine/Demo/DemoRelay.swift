@@ -65,10 +65,24 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
 
     // MARK: SessionsAPI
 
+    func groups() -> RelayStream<[ProjectGroup]> { observe { $0.groups() } }
+
     func list(archived: Bool) -> RelayStream<[SessionRow]> { observe { $0.rows(archived: archived) } }
 
     func get(_ sessionDocId: DocID) -> RelayStream<SessionDetail> {
-        observe { world in world.sessions[try world.index(of: sessionDocId)].detail }
+        observe { world in world.detail(world.sessions[try world.index(of: sessionDocId)]) }
+    }
+
+    func reorderProjects(_ keys: [String]) async throws {
+        try await mutate { world in world.reorderProjects(keys) }
+    }
+
+    func reorderSessions(projectKey: String, _ sessionDocIds: [DocID]) async throws {
+        try await mutate { world in try world.reorderSessions(projectKey: projectKey, sessionDocIds) }
+    }
+
+    func resetOrder(projectKey: String?) async throws {
+        try await mutate { world in world.resetOrder(projectKey: projectKey) }
     }
 
     func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage> {
@@ -79,7 +93,9 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         try await mutate(.zero) { world in world.sessions[try world.index(of: sessionDocId)].detail.unread = 0 }
     }
 
-    func watch(_ sessionDocId: DocID) async throws {}
+    func watch(_ sessionDocId: DocID) async throws {
+        try await mutate(.zero) { world in world.requestHistory(sessionDocId) }
+    }
 
     func setPinned(_ sessionDocId: DocID, _ pinned: Bool) async throws {
         try await mutate { world in world.sessions[try world.index(of: sessionDocId)].detail.pinned = pinned }
@@ -178,10 +194,7 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
     func revoke(_ deviceId: DocID) async throws {
         try await mutate { world in
             world.devices.removeAll(where: { $0.id == deviceId })
-            for i in world.sessions.indices where world.sessions[i].detail.deviceId == deviceId {
-                world.sessions[i].detail.online = false
-                world.sessions[i].detail.status = .idle
-            }
+            world.sessions.removeAll(where: { $0.detail.deviceId == deviceId })
         }
     }
 
@@ -190,10 +203,7 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
             let others = world.devices.filter { !$0.isCurrent }
             for device in others {
                 world.devices.removeAll(where: { $0.id == device.id })
-                for i in world.sessions.indices where world.sessions[i].detail.deviceId == device.id {
-                    world.sessions[i].detail.online = false
-                    world.sessions[i].detail.status = .idle
-                }
+                world.sessions.removeAll(where: { $0.detail.deviceId == device.id })
             }
             return others.count
         }

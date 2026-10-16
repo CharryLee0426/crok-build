@@ -23,7 +23,8 @@ enum AppInfo {
         return "crok-ios-" + parts.prefix(3).joined(separator: ".")
     }
 
-    /// The relay deployment baked in at build time (`CrokRelayURL`, from Config/*.xcconfig). Empty in release builds.
+    /// The relay deployment baked in at build time: `CrokRelayURL` in the Info.plist, from `CROK_RELAY_URL` in
+    /// Config/Shared.xcconfig (or `CROK_RELAY_URL=…` on the xcodebuild command line).
     static var bundledRelayURL: String {
         let raw = Bundle.main.object(forInfoDictionaryKey: "CrokRelayURL") as? String ?? ""
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -37,11 +38,11 @@ enum AppInfo {
     }
 
     /// The name this phone is shown under on the Devices screen. iOS only reveals the user-assigned name with a
-    /// special entitlement, so this is often just "iPhone"; the welcome screen lets the person change it.
+    /// special entitlement, so this is often just "iPhone"; the welcome screen's Advanced sheet lets the person change it.
     @MainActor static var defaultDeviceName: String { UIDevice.current.name }
 }
 
-/// Server URL rules shared by the welcome screen and the app model.
+/// Relay URL rules for the built-in address and a developer's override.
 enum ServerURL {
     /// Trims, adds `https://` when no scheme was typed, and drops a trailing slash. Nil when it is not a URL.
     static func normalize(_ raw: String) -> String? {

@@ -17,7 +17,7 @@ extension DemoWorld {
                 createdAt: t - 30 * day, lastSeenAt: t - 2 * minute, online: true, isCurrent: false, liveSessionCount: 3),
             DeviceRow(
                 id: "studio", kind: .computer, name: "Studio", platform: "macOS 15.6 arm64", client: "crok 1.0.45",
-                createdAt: t - 60 * day, lastSeenAt: t - 4 * minute, online: true, isCurrent: false, liveSessionCount: 1),
+                createdAt: t - 60 * day, lastSeenAt: t - 3 * hour, online: false, isCurrent: false, liveSessionCount: 0),
             DeviceRow(
                 id: "ipad", kind: .phone, name: "iPad Air", platform: "iPadOS 26.0", client: "Crok iOS 1.0 (1)",
                 createdAt: t - 12 * day, lastSeenAt: t - 2 * day, online: false, isCurrent: false, liveSessionCount: 0),
@@ -27,7 +27,7 @@ extension DemoWorld {
             _ id: String, title: String, cwd: String, device: String, app: HostApp, status: SessionStatus, online: Bool,
             last: Double, created: Double, pinned: Bool = false, archived: Bool = false, unread: Double = 0,
             model: String = "grok-code-fast-1", effort: String? = "high", branch: String? = "main",
-            plan: [PlanEntry] = [], usage: SessionUsage? = nil
+            plan: [PlanEntry] = [], usage: SessionUsage? = nil, history: HistoryState? = nil
         ) -> SessionDetail {
             let deviceRow = devices.first(where: { $0.id == device })
             return SessionDetail(
@@ -35,8 +35,9 @@ extension DemoWorld {
                 cwd: cwd, model: model, effort: effort, gitBranch: branch, status: status, online: online, app: app,
                 deviceId: device, deviceName: deviceRow?.name ?? "", devicePlatform: deviceRow?.platform ?? "",
                 deviceOnline: deviceRow?.online ?? false, createdAt: created, lastActivityAt: last, plan: plan, usage: usage,
-                pinned: pinned, archived: archived, unread: unread, eventSeq: 0)
+                pinned: pinned, archived: archived, unread: unread, eventSeq: 0, historyState: history)
         }
+        let crokBuild = "/Users/charlie/src/crok-build"
 
         // 1. Running, pinned, with a plan and every kind of event.
         let flakyPlan = [
@@ -99,7 +100,8 @@ extension DemoWorld {
                 model: "claude-sonnet-4-5", effort: "medium", branch: "feat/settings-dark",
                 plan: [PlanEntry(content: "Theme tokens", status: "completed"), PlanEntry(content: "Settings pane", status: "in_progress")],
                 usage: SessionUsage(inputTokens: 40_100, outputTokens: 3_200, cachedTokens: 31_000, reasoningTokens: 0, costUsd: 0.093, contextTokens: 22_000, contextWindow: 200_000)),
-            events: [], commands: [], preview: "Allow `xcodebuild -scheme Crok build`?", previewKind: .tool)
+            events: [], commands: [], preview: "Allow `xcodebuild -scheme Crok build`?", previewKind: .tool,
+            projectPath: crokBuild)
         darkMode.events = [
             TranscriptEvent(id: "e-dark-1", seq: 1, key: "k1", kind: .user, text: "Add a dark variant to the Settings pane.", origin: "local", at: t - 50 * minute),
             TranscriptEvent(id: "e-dark-2", seq: 2, key: "k2", kind: .tool, text: "xcodebuild -scheme Crok build", title: "Run xcodebuild", toolKind: "execute", status: "pending", at: t - 4 * minute),
@@ -111,7 +113,7 @@ extension DemoWorld {
                 "s-relay", title: "Relay: device sign-in", cwd: "/Users/charlie/src/crok-build/relay", device: "mbp", app: .tui,
                 status: .idle, online: true, last: t - 2 * hour, created: t - 5 * hour,
                 usage: SessionUsage(inputTokens: 98_000, outputTokens: 7_400, cachedTokens: 80_000, reasoningTokens: 1_200, costUsd: 0.21, contextTokens: 48_000, contextWindow: 256_000)),
-            events: [], commands: [], preview: "Ship it", previewKind: .user)
+            events: [], commands: [], preview: "Ship it", previewKind: .user, projectPath: crokBuild)
         relay.events = [
             TranscriptEvent(id: "e-relay-0", seq: 1, key: "k0", kind: .user, text: "Do device codes work more than once?", origin: "remote", commandId: "c-relay-0", fromLabel: "Web", at: t - 2.3 * hour),
             TranscriptEvent(id: "e-relay-1", seq: 2, key: "k1", kind: .assistant, text: "Not any more: device codes now expire after ten minutes and work once.", at: t - 2.1 * hour),
@@ -122,11 +124,11 @@ extension DemoWorld {
             PromptCommand(id: "c-relay-0", clientId: "web-client-1", text: "Do device codes work more than once?", status: .done, error: nil, fromLabel: "Web", fromDeviceId: nil, mine: false, createdAt: t - 2.3 * hour, updatedAt: t - 2.2 * hour),
         ]
 
-        // 4. Idle on the second computer, unread reply.
+        // 4. On the second computer (offline since), with an unread reply.
         var bench = Session(
             detail: detail(
                 "s-bench", title: "Benchmark the tokenizer", cwd: "/Users/charlie/src/tokenizer", device: "studio", app: .tui,
-                status: .idle, online: true, last: t - 5 * hour, created: t - 9 * hour, unread: 1, model: "grok-4",
+                status: .idle, online: false, last: t - 5 * hour, created: t - 9 * hour, unread: 1, model: "grok-4",
                 usage: SessionUsage(inputTokens: 220_000, outputTokens: 18_000, cachedTokens: 190_000, reasoningTokens: 9_000, costUsd: 1.12, contextTokens: 130_000, contextWindow: 256_000)),
             events: [], commands: [], preview: "The SIMD path is 3.1× faster on long inputs; short inputs are unchanged.", previewKind: .assistant)
         bench.events = [
@@ -163,10 +165,71 @@ extension DemoWorld {
             TranscriptEvent(id: "e-old-1", seq: 1, key: "k1", kind: .assistant, text: "Kept the current renderer.", at: t - 12 * day),
         ]
 
-        sessions = [flaky, darkMode, relay, bench, pager, notes, old].map { session in
-            var session = session
-            session.detail.eventSeq = session.events.map(\.seq).max() ?? 0
-            return session
+        // 8. Listed from the computers' disks (no crok runs them): their transcripts come over when they are opened,
+        // while the computer is online.
+        func listed(_ prefix: String, _ seq: Double, _ kind: EventKind, _ text: String, at: Double, title: String? = nil,
+                toolKind: String? = nil, status: String? = nil) -> TranscriptEvent
+        {
+            TranscriptEvent(
+                id: "e-\(prefix)-\(Int(seq))", seq: seq, key: "k\(Int(seq))", kind: kind, text: text, title: title,
+                toolKind: toolKind, status: status, origin: "local", at: at)
         }
+        let website = "/Users/charlie/src/website"
+        var pricing = Session(
+            detail: detail(
+                "s-pricing", title: "Fix the pricing page layout", cwd: website, device: "mbp", app: .tui, status: .idle,
+                online: false, last: t - 7 * hour, created: t - 8 * hour, history: .notFetched),
+            events: [], commands: [], preview: "Moved the plan cards into a grid; phones now stack them.",
+            previewKind: .assistant)
+        pricing.historyOnComputer = [
+            listed("pricing", 1, .user, "The pricing cards overflow on small screens. Can you fix the layout?", at: t - 8 * hour),
+            listed("pricing", 2, .tool, "src/pages/pricing.tsx", at: t - 8 * hour + 20_000, title: "Read pricing.tsx", toolKind: "read", status: "completed"),
+            listed("pricing", 3, .assistant, "Moved the plan cards into a CSS grid with `minmax(240px, 1fr)` columns. On phones they now stack, and the comparison table scrolls sideways.", at: t - 7 * hour),
+            listed("pricing", 4, .system, "", at: t - 7 * hour + 1_000, status: "end_turn"),
+        ]
+        var changelog = Session(
+            detail: detail(
+                "s-changelog", title: "Add a changelog page", cwd: website, device: "mbp", app: .tui, status: .idle,
+                online: false, last: t - 2 * day, created: t - 2 * day - hour, history: .notFetched),
+            events: [], commands: [], preview: nil, previewKind: nil)
+        changelog.historyOnComputer = [
+            listed("changelog", 1, .user, "Add a changelog page that reads CHANGELOG.md at build time.", at: t - 2 * day),
+        ]
+        var releaseScript = Session(
+            detail: detail(
+                "s-release-script", title: "Tidy the release script", cwd: "\(crokBuild)/release", device: "mbp", app: .tui,
+                status: .idle, online: false, last: t - 5 * day, created: t - 5 * day - hour, history: .notFetched),
+            events: [], commands: [], preview: "publish.sh now checks the signature before uploading.", previewKind: .assistant,
+            projectPath: crokBuild)
+        releaseScript.historyOnComputer = [
+            listed("release", 1, .user, "Make publish.sh refuse to upload an unsigned build.", at: t - 5 * day - hour),
+            listed("release", 2, .assistant, "`publish.sh` now checks the signature before uploading and stops with a clear message when it is missing.", at: t - 5 * day),
+        ]
+        var settingsI18n = Session(
+            detail: detail(
+                "s-i18n", title: "Translate the settings pane", cwd: crokBuild, device: "mbp", app: .desktop, status: .idle,
+                online: false, last: t - 6 * day, created: t - 6 * day - hour, history: .notFetched),
+            events: [], commands: [], preview: "All six languages are in.", previewKind: .assistant)
+        settingsI18n.historyOnComputer = [
+            listed("i18n", 1, .user, "Translate the new settings pane into the other five languages.", at: t - 6 * day - hour),
+            listed("i18n", 2, .assistant, "All six languages are in.", at: t - 6 * day),
+        ]
+        var lexer = Session(
+            detail: detail(
+                "s-lexer", title: "Port the lexer to Rust", cwd: "/Users/charlie/src/tokenizer", device: "studio", app: .tui,
+                status: .idle, online: false, last: t - 4 * day, created: t - 4 * day - 2 * hour, model: "grok-4",
+                history: .notFetched),
+            events: [], commands: [], preview: "Started with the number literals.", previewKind: .assistant)
+        lexer.historyOnComputer = [
+            listed("lexer", 1, .user, "Port the lexer to Rust, starting with literals.", at: t - 4 * day - 2 * hour),
+            listed("lexer", 2, .assistant, "Started with the number literals.", at: t - 4 * day),
+        ]
+
+        sessions = [flaky, darkMode, relay, bench, pager, notes, old, pricing, changelog, releaseScript, settingsI18n, lexer]
+            .map { session in
+                var session = session
+                session.detail.eventSeq = session.events.map(\.seq).max() ?? 0
+                return session
+            }
     }
 }

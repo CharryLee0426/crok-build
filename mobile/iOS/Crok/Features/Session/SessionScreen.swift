@@ -77,6 +77,8 @@ private struct SessionContent: View {
                     ContentUnavailableView(
                         "Session removed", systemImage: "trash",
                         description: Text("This session is no longer on the relay. It is still on its computer."))
+                } else if model.awaitsHistory {
+                    HistoryPlaceholder(computerName: model.computerName, computerOnline: model.isComputerOnline)
                 } else if !model.initialLoaded && model.items.isEmpty {
                     ProgressView()
                 }
@@ -188,6 +190,33 @@ private struct SessionSubtitle: View {
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .accessibilityIdentifier("sessionSubtitle")
+    }
+}
+
+/// A session listed from its computer's disk, before its transcript arrives: "Loading from <computer>…" while the
+/// computer is online (opening the session asked a crok there for it), else why nothing can show yet.
+private struct HistoryPlaceholder: View {
+    let computerName: String
+    let computerOnline: Bool
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if computerOnline {
+                ProgressView()
+                Text("Loading from \(computerName)…")
+            } else {
+                Image(systemName: "desktopcomputer")
+                    .font(.title2)
+                Text("\(computerName) is offline. This session's history shows once crok runs there again.")
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 320)
+        .padding(24)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(computerOnline ? "historyLoading" : "historyOffline")
     }
 }
 

@@ -205,6 +205,86 @@ final class DemoTourUITests: XCTestCase {
         snap("23-ja-waiting")
     }
 
+    /// Sessions grouped by project: Show more, collapsing, moving a project, Reorder mode, and sessions only on a
+    /// computer's disk (loading from an online computer; an offline one's notice).
+    func testProjectsAndListedSessions() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 10))
+        let crokBuild = element(app, "projectHeader-crok-build")
+        XCTAssertTrue(crokBuild.waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "projectHeader-tokenizer").exists)
+        snap("03c-sessions-grouped")
+
+        // Five sessions, then "Show 1 more".
+        XCTAssertFalse(app.staticTexts["Translate the settings pane"].exists)
+        element(app, "showMore-crok-build").tap()
+        XCTAssertTrue(app.staticTexts["Translate the settings pane"].waitForExistence(timeout: 5))
+        element(app, "showMore-crok-build").tap()
+        XCTAssertTrue(app.staticTexts["Translate the settings pane"].waitForNonExistence(timeout: 5))
+
+        // Collapse a project (it stays collapsed for the rest of the test, so the other projects fit on screen).
+        crokBuild.tap()
+        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForNonExistence(timeout: 5))
+        snap("03d-sessions-collapsed")
+
+        // A header's menu: Move Up puts "website" above "tokenizer".
+        let website = element(app, "projectHeader-website")
+        let tokenizer = element(app, "projectHeader-tokenizer")
+        XCTAssertTrue(website.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(website.frame.minY, tokenizer.frame.minY)
+        element(app, "projectMenu-website").tap()
+        let moveUp = app.buttons["Move Up"].firstMatch
+        XCTAssertTrue(moveUp.waitForExistence(timeout: 5))
+        snap("03e-project-menu")
+        moveUp.tap()
+        let moved = wait(5) { website.frame.minY < tokenizer.frame.minY }
+        XCTAssertTrue(moved, "website moved above tokenizer")
+
+        // Reorder mode lists the projects with move handles.
+        element(app, "listMenu").tap()
+        let reorder = app.buttons["Reorder"].firstMatch
+        XCTAssertTrue(reorder.waitForExistence(timeout: 5))
+        reorder.tap()
+        XCTAssertTrue(element(app, "projectReorderRow-website").waitForExistence(timeout: 5))
+        snap("03f-reorder-mode")
+        element(app, "reorderDone").tap()
+        XCTAssertTrue(element(app, "projectReorderRow-website").waitForNonExistence(timeout: 5))
+
+        // A session only on the online MacBook's disk: loading, then its history.
+        app.staticTexts["Fix the pricing page layout"].tap()
+        XCTAssertTrue(element(app, "historyLoading").waitForExistence(timeout: 5))
+        snap("11b-session-loading-from-computer")
+        let history = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "CSS grid")).firstMatch
+        XCTAssertTrue(history.waitForExistence(timeout: 10))
+        XCTAssertTrue(element(app, "offlineNotice").exists, "not running anywhere: read-only")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // One on Studio, which is offline.
+        let lexer = app.staticTexts["Port the lexer to Rust"]
+        if !lexer.waitForExistence(timeout: 3) || !lexer.isHittable { app.swipeUp() }
+        XCTAssertTrue(lexer.waitForExistence(timeout: 5))
+        lexer.tap()
+        XCTAssertTrue(element(app, "historyOffline").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "offlineNotice").exists)
+        snap("11c-session-computer-offline")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // Expand the collapsed project again.
+        XCTAssertTrue(crokBuild.waitForExistence(timeout: 5))
+        crokBuild.tap()
+        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 5))
+    }
+
+    /// Waits until `condition` holds, sampling every 100 ms; returns whether it did.
+    private func wait(_ timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return condition()
+    }
+
     func testArchivedTabAndSearch() {
         let app = launch()
         XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 10))
@@ -218,5 +298,8 @@ final class DemoTourUITests: XCTestCase {
         search.typeText("tokenizer")
         XCTAssertTrue(app.staticTexts["Benchmark the tokenizer"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Fix the flaky upload test"].exists)
+        // Sections keep only matching sessions; empty ones hide.
+        XCTAssertTrue(element(app, "projectHeader-tokenizer").exists)
+        XCTAssertFalse(element(app, "projectHeader-crok-build").exists)
     }
 }

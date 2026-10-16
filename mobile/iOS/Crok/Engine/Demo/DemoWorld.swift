@@ -1,7 +1,8 @@
 import Foundation
 
-/// The demo relay's state: two computers, a handful of sessions in every state, and a transcript with every event
-/// kind. Launch with `-CrokDemo YES` to use it; prompts, Stop and session info are simulated.
+/// The demo relay's state: two computers, several projects with sessions in every state (some only on a computer's
+/// disk), and a transcript with every event kind. Launch with `-CrokDemo YES` to use it; prompts, Stop, session info,
+/// fetching a listed session's history and reordering are simulated.
 @MainActor
 final class DemoWorld {
     struct Session {
@@ -11,12 +12,20 @@ final class DemoWorld {
         var preview: String?
         var previewKind: EventKind?
         var turn: Task<Void, Never>?
+        /// The project folder (`projectPath`); the session's own folder when nil.
+        var projectPath: String?
+        /// Placed by hand within its project.
+        var position: Double?
+        /// For a session listed from the computer's disk: the transcript it sends when someone opens the session.
+        var historyOnComputer: [TranscriptEvent] = []
     }
 
     var sessions: [Session] = []
     var devices: [DeviceRow] = []
     var me: AccountInfo
     var infoCommands: [DocID: CommandRecord] = [:]
+    /// Hand-placed projects, by key.
+    var projectPositions: [String: Double] = [:]
     let currentDeviceId = "demo-phone"
     private var observers: [UUID: @MainActor () -> Void] = [:]
     private var nextId = 1000
@@ -48,16 +57,121 @@ final class DemoWorld {
             .sorted { a, b in a.pinned != b.pinned ? a.pinned : a.lastActivityAt > b.lastActivityAt }
     }
 
+    static func projectKey(deviceId: DocID, path: String) -> String { "\(deviceId):\(path)" }
+
+    func projectPath(of session: Session) -> String {
+        session.projectPath ?? session.detail.cwd
+    }
+
     func row(_ session: Session) -> SessionRow {
         let d = session.detail
         let plan = d.plan.isEmpty
             ? nil : PlanProgress(done: Double(d.plan.filter { $0.status == "completed" }.count), total: Double(d.plan.count))
         let device = devices.first(where: { $0.id == d.deviceId })
+        let path = projectPath(of: session)
         return SessionRow(
             id: d.id, sessionId: d.sessionId, title: d.title, cwd: d.cwd, model: d.model, status: d.status, online: d.online,
             app: d.app, deviceId: d.deviceId, deviceName: device?.name ?? d.deviceName, deviceOnline: device?.online ?? false,
             preview: session.preview, previewKind: session.previewKind, lastActivityAt: d.lastActivityAt, pinned: d.pinned,
-            archived: d.archived, unread: d.unread, plan: plan)
+            archived: d.archived, unread: d.unread, plan: plan, projectKey: Self.projectKey(deviceId: d.deviceId, path: path),
+            projectPath: path, projectName: PathText.lastComponent(path), historyState: d.historyState)
+    }
+
+    /// `sessions:get`, with the computer's current state and the project fields.
+    func detail(_ session: Session) -> SessionDetail {
+        var d = session.detail
+        let device = devices.first(where: { $0.id == d.deviceId })
+        let path = projectPath(of: session)
+        d.deviceName = device?.name ?? d.deviceName
+        d.deviceOnline = device?.online ?? false
+        d.projectKey = Self.projectKey(deviceId: d.deviceId, path: path)
+        d.projectPath = path
+        d.projectName = PathText.lastComponent(path)
+        return d
+    }
+
+    /// `sessions:groups`, ordered like the relay (`relay/convex/lib/projects.ts`): never-placed items first, most
+    /// recent first, then placed ones by position; pinned sessions lead their project.
+    func groups() -> [ProjectGroup] {
+        var groups: [String: ProjectGroup] = [:]
+        var positions: [DocID: Double] = [:]
+        for session in sessions where !session.detail.archived {
+            guard let device = devices.first(where: { $0.id == session.detail.deviceId }) else { continue }
+            let row = row(session)
+            let key = row.projectKey ?? ""
+            positions[row.id] = session.position
+            var group = groups[key] ?? ProjectGroup(
+                key: key, deviceId: device.id, deviceName: device.name, deviceOnline: device.online,
+                path: row.projectPath ?? "", name: row.projectName ?? "", placed: projectPositions[key] != nil,
+                lastActivityAt: row.lastActivityAt, sessions: [])
+            group.lastActivityAt = max(group.lastActivityAt, row.lastActivityAt)
+            group.sessions.append(row)
+            groups[key] = group
+        }
+        typealias Place = (position: Double?, activity: Double, id: String)
+        func placeOrder(_ a: Place, _ b: Place) -> Bool {
+            if (a.position == nil) != (b.position == nil) { return a.position == nil }
+            if let pa = a.position, let pb = b.position, pa != pb { return pa < pb }
+            return a.activity != b.activity ? a.activity > b.activity : a.id < b.id
+        }
+        let projectPositions = self.projectPositions
+        return groups.values
+            .sorted { a, b in
+                placeOrder((projectPositions[a.key], a.lastActivityAt, a.key), (projectPositions[b.key], b.lastActivityAt, b.key))
+            }
+            .map { group in
+                var sorted = group
+                sorted.sessions = group.sessions.sorted { a, b in
+                    if a.pinned != b.pinned { return a.pinned }
+                    return placeOrder((positions[a.id], a.lastActivityAt, a.id), (positions[b.id], b.lastActivityAt, b.id))
+                }
+                return sorted
+            }
+    }
+
+    // MARK: Order
+
+    func reorderProjects(_ keys: [String]) {
+        let order = ProjectOrder.reorderWithin(groups().map(\.key), keys)
+        for (index, key) in order.enumerated() { projectPositions[key] = Double(index) }
+    }
+
+    func reorderSessions(projectKey: String, _ ids: [DocID]) throws {
+        guard let group = groups().first(where: { $0.key == projectKey }) else {
+            throw RelayError(.notFound, "No such project.")
+        }
+        let order = ProjectOrder.reorderWithin(group.sessions.map(\.id), ids)
+        for (index, id) in order.enumerated() {
+            if let i = sessions.firstIndex(where: { $0.detail.id == id }) { sessions[i].position = Double(index) }
+        }
+    }
+
+    func resetOrder(projectKey: String?) {
+        guard let projectKey else {
+            projectPositions = [:]
+            return
+        }
+        for i in sessions.indices where row(sessions[i]).projectKey == projectKey { sessions[i].position = nil }
+    }
+
+    // MARK: History
+
+    /// `sessions:watch` on a session listed from its computer's disk: while the computer is online, a crok there
+    /// "reads" the transcript and sends it a moment later.
+    func requestHistory(_ id: DocID) {
+        guard let s = try? index(of: id), !sessions[s].detail.online,
+            sessions[s].detail.historyState == .notFetched,
+            devices.first(where: { $0.id == sessions[s].detail.deviceId })?.online == true
+        else { return }
+        sessions[s].detail.historyState = .requested
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, let s = try? self.index(of: id) else { return }
+            self.sessions[s].events = self.sessions[s].historyOnComputer
+            self.sessions[s].detail.eventSeq = self.sessions[s].events.map(\.seq).max() ?? 0
+            self.sessions[s].detail.historyState = .ready
+            self.changed()
+        }
     }
 
     func index(of id: DocID) throws -> Int {

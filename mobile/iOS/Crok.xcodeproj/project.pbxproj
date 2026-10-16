@@ -45,6 +45,8 @@
 		9EEEA1A7A516913C1296A912 /* ConnectionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00C599FEC146A7432A9AD2E8 /* ConnectionStatus.swift */; };
 		A061206E546BA4159FBA4E31 /* QueryHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9157BB7FFAD654ADD853E54 /* QueryHub.swift */; };
 		A10D3087C499AC4E488AF863 /* LocalStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F4EAD29DFDABD6455D0514 /* LocalStores.swift */; };
+		A1C0DE5E55E5510A0000C002 /* ProjectGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C0DE5E55E5510A0000C001 /* ProjectGroups.swift */; };
+		A1C0DE5E55E5510A0000C004 /* ProjectGroupsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C0DE5E55E5510A0000C003 /* ProjectGroupsTests.swift */; };
 		A573DB8FE8D32C177F52BB31 /* LocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CE756A21324334DBC7A6F7C /* LocalizationTests.swift */; };
 		A5B49BD2ED0D3AB26E8EDD41 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 833CF9A5886D9E0FCBAB3AD8 /* SettingsView.swift */; };
 		B153B41EA4E5A9D8C04F24C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D28155014B176A4C313F08DA /* Assets.xcassets */; };
@@ -100,6 +102,8 @@
 		53910C59899CA33753EF433C /* CrokUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CrokUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5FEC1B748F7C46D080E77845 /* SessionViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionViewModel.swift; sourceTree = "<group>"; };
 		633A338D67758CACA6CF6D49 /* ProjectAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAvatar.swift; sourceTree = "<group>"; };
+		A1C0DE5E55E5510A0000C001 /* ProjectGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectGroups.swift; sourceTree = "<group>"; };
+		A1C0DE5E55E5510A0000C003 /* ProjectGroupsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectGroupsTests.swift; sourceTree = "<group>"; };
 		63AA939AF8973229B03943FA /* TranscriptBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptBuilderTests.swift; sourceTree = "<group>"; };
 		657EAC8CAD8EBAEC7EE06AA4 /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
 		6A91FB48FEFC747B83C052EC /* QueryHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHubTests.swift; sourceTree = "<group>"; };
@@ -162,6 +166,7 @@
 				FA7A338A01D1F13DC40125C9 /* AppModelTests.swift */,
 				DE28C02EA5638426CFDFF7E2 /* CoreLogicTests.swift */,
 				3CE756A21324334DBC7A6F7C /* LocalizationTests.swift */,
+				A1C0DE5E55E5510A0000C003 /* ProjectGroupsTests.swift */,
 				6A91FB48FEFC747B83C052EC /* QueryHubTests.swift */,
 				4A97C5389CA312DA8728D63E /* RelayDecodingTests.swift */,
 				63AA939AF8973229B03943FA /* TranscriptBuilderTests.swift */,
@@ -340,6 +345,7 @@
 				C21CE1F4A07EA824717BE146 /* Models.swift */,
 				88912F6F943C663998C4491F /* PlanSummary.swift */,
 				633A338D67758CACA6CF6D49 /* ProjectAvatar.swift */,
+				A1C0DE5E55E5510A0000C001 /* ProjectGroups.swift */,
 				144B68ADA834886FD2035DF1 /* RelativeTime.swift */,
 				10310065DB2B5D8A4F8969E9 /* RelayError.swift */,
 				2AA0899D63ECECD0B4C1C266 /* TextRevealPacer.swift */,
@@ -505,6 +511,7 @@
 				961A8152384EFD45A32453A5 /* Models.swift in Sources */,
 				C3D639D40FB530BB79E3B5AE /* PlanSummary.swift in Sources */,
 				52463D5882B28D69EC7BE3FC /* ProjectAvatar.swift in Sources */,
+				A1C0DE5E55E5510A0000C002 /* ProjectGroups.swift in Sources */,
 				CD8C1ED16B1E7EC2032A3580 /* QRScannerView.swift in Sources */,
 				A061206E546BA4159FBA4E31 /* QueryHub.swift in Sources */,
 				C25F32E819EB1FEAE1865DEA /* RelativeTime.swift in Sources */,
@@ -543,6 +550,7 @@
 				040E3D44645300FE3C450F0B /* AppModelTests.swift in Sources */,
 				05A105B7CB307B18189CB90C /* CoreLogicTests.swift in Sources */,
 				A573DB8FE8D32C177F52BB31 /* LocalizationTests.swift in Sources */,
+				A1C0DE5E55E5510A0000C004 /* ProjectGroupsTests.swift in Sources */,
 				B3E9DEBD9F9596630709840F /* QueryHubTests.swift in Sources */,
 				20406EE9CE921D29B8B52E2D /* RelayDecodingTests.swift in Sources */,
 				0235E0E3C2B09BCAE865F855 /* TranscriptBuilderTests.swift in Sources */,

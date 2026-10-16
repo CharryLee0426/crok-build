@@ -1,4 +1,4 @@
-// Debug builds talk to a local Convex backend (`npx convex dev` in relay/) by default.
-// `//` starts a comment in xcconfig files, hence the `$()` between the slashes.
+// Debug builds use the built-in relay from Shared.xcconfig, like Release. For a local `npx convex dev` in relay/,
+// launch with `-CrokServer http://127.0.0.1:3210`, or build with `CROK_RELAY_URL=http://127.0.0.1:3210` on the
+// xcodebuild command line.
 #include "Shared.xcconfig"
-CROK_RELAY_URL = http:/$()/127.0.0.1:3210

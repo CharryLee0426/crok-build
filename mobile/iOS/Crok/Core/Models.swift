@@ -42,6 +42,17 @@ enum DeviceKind: String, LenientStringEnum {
     static let unknownValue = DeviceKind.unknown
 }
 
+/// Where a session's transcript is: `notFetched` ("none") and `requested` mean it is still only on the computer's disk
+/// (a session listed from the computer's catalog); `ready` (or no value) means the relay has it.
+enum HistoryState: String, LenientStringEnum {
+    case notFetched = "none"
+    case requested, ready, unknown
+    static let unknownValue = HistoryState.unknown
+
+    /// The transcript has not reached the relay yet.
+    var isOnComputerOnly: Bool { self == .notFetched || self == .requested }
+}
+
 struct PlanProgress: Codable, Hashable, Sendable {
     var done: Double
     var total: Double
@@ -62,7 +73,7 @@ struct SessionUsage: Codable, Hashable, Sendable {
     var contextWindow: Double?
 }
 
-/// A row of `sessions:list`.
+/// A row of `sessions:list` and of a project in `sessions:groups`.
 struct SessionRow: Codable, Identifiable, Hashable, Sendable {
     var id: DocID
     var sessionId: String
@@ -82,17 +93,84 @@ struct SessionRow: Codable, Identifiable, Hashable, Sendable {
     var archived: Bool
     var unread: Double
     var plan: PlanProgress?
+    /// The project this session is grouped under: `<deviceId>:<path>`, its folder, and that folder's name.
+    var projectKey: String?
+    var projectPath: String?
+    var projectName: String?
+    var historyState: HistoryState?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case sessionId, title, cwd, model, status, online, app, deviceId, deviceName, deviceOnline, preview,
-            previewKind, lastActivityAt, pinned, archived, unread, plan
+            previewKind, lastActivityAt, pinned, archived, unread, plan, projectKey, projectPath, projectName,
+            historyState
+    }
+
+    init(
+        id: DocID, sessionId: String, title: String, cwd: String, model: String?, status: SessionStatus, online: Bool,
+        app: HostApp, deviceId: DocID, deviceName: String, deviceOnline: Bool, preview: String?, previewKind: EventKind?,
+        lastActivityAt: Double, pinned: Bool, archived: Bool, unread: Double, plan: PlanProgress?,
+        projectKey: String? = nil, projectPath: String? = nil, projectName: String? = nil,
+        historyState: HistoryState? = nil
+    ) {
+        self.id = id
+        self.sessionId = sessionId
+        self.title = title
+        self.cwd = cwd
+        self.model = model
+        self.status = status
+        self.online = online
+        self.app = app
+        self.deviceId = deviceId
+        self.deviceName = deviceName
+        self.deviceOnline = deviceOnline
+        self.preview = preview
+        self.previewKind = previewKind
+        self.lastActivityAt = lastActivityAt
+        self.pinned = pinned
+        self.archived = archived
+        self.unread = unread
+        self.plan = plan
+        self.projectKey = projectKey
+        self.projectPath = projectPath
+        self.projectName = projectName
+        self.historyState = historyState
     }
 
     var unreadCount: Int { max(0, Int(unread.rounded())) }
     var lastActivity: Date { Date(milliseconds: lastActivityAt) }
     var folderName: String { PathText.lastComponent(cwd) }
     var isRunning: Bool { online && status == .running }
+
+    /// The project's name, or the session's own folder on a relay that does not group sessions.
+    var projectDisplayName: String {
+        if let projectName, !projectName.isEmpty { return projectName }
+        return folderName
+    }
+
+    /// The session's own folder when it is not the project's (a subfolder or a worktree); nil when the project's
+    /// header already says it.
+    var folderIfNotProject: String? {
+        let folder = folderName
+        return folder.isEmpty || folder == projectDisplayName ? nil : folder
+    }
+}
+
+/// One project of `sessions:groups`: a folder on one computer and its sessions, both in the list's order.
+struct ProjectGroup: Codable, Identifiable, Hashable, Sendable {
+    var key: String
+    var deviceId: DocID
+    var deviceName: String
+    var deviceOnline: Bool
+    var path: String
+    var name: String
+    /// Placed by hand: it keeps its place. Projects never placed come first, most recently active first.
+    var placed: Bool
+    var lastActivityAt: Double
+    var sessions: [SessionRow]
+
+    var id: String { key }
+    var unreadCount: Int { sessions.reduce(0) { $0 + $1.unreadCount } }
 }
 
 /// `sessions:get`: everything the header and the info sheet show.
@@ -119,11 +197,16 @@ struct SessionDetail: Codable, Hashable, Sendable {
     var archived: Bool
     var unread: Double
     var eventSeq: Double
+    var projectKey: String?
+    var projectPath: String?
+    var projectName: String?
+    var historyState: HistoryState?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case sessionId, title, cwd, model, effort, gitBranch, status, online, app, deviceId, deviceName,
-            devicePlatform, deviceOnline, createdAt, lastActivityAt, plan, usage, pinned, archived, unread, eventSeq
+            devicePlatform, deviceOnline, createdAt, lastActivityAt, plan, usage, pinned, archived, unread, eventSeq,
+            projectKey, projectPath, projectName, historyState
     }
 
     var unreadCount: Int { max(0, Int(unread.rounded())) }

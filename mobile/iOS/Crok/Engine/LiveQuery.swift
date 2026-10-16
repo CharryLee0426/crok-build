@@ -16,12 +16,15 @@ final class LiveQuery<Value: Sendable> {
     @ObservationIgnored private let make: @MainActor () -> RelayStream<Value>
     @ObservationIgnored private weak var engine: CrokEngine?
     @ObservationIgnored var onValue: (@MainActor (Value) -> Void)?
+    /// The last value the relay sent (or the cached one), under any local override.
+    @ObservationIgnored private var lastReceived: Value?
 
     static var stallTimeout: Duration { .seconds(8) }
 
     init(engine: CrokEngine?, initial: Value? = nil, make: @escaping @MainActor () -> RelayStream<Value>) {
         self.engine = engine
         self.value = initial
+        self.lastReceived = initial
         self.make = make
     }
 
@@ -46,6 +49,11 @@ final class LiveQuery<Value: Sendable> {
         self.value = value
     }
 
+    /// Drops a local override (the change it showed failed): back to what the relay last sent.
+    func revertOverride() {
+        if let lastReceived { value = lastReceived }
+    }
+
     private func run() async {
         var attempt = 0
         while !Task.isCancelled {
@@ -54,6 +62,7 @@ final class LiveQuery<Value: Sendable> {
                 for try await next in StallGuard.wrap(make(), timeout: Self.stallTimeout) {
                     received = true
                     attempt = 0
+                    lastReceived = next
                     value = next
                     error = nil
                     isLoading = false

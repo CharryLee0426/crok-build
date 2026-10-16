@@ -89,37 +89,37 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok verbindet sich mit dem eingestellten Relay-Server, der in deinem lokalen Netzwerk sein kann."
+            "value": "Crok nutzt dein lokales Netzwerk nur, wenn ein Entwicklungs-Build auf ein Relay dort zeigt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok connects to the relay server you set, which may be on your local network."
+            "value": "Crok uses your local network only when a development build points it at a relay there."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok se conecta al servidor relay que configures, que puede estar en tu red local."
+            "value": "Crok solo usa tu red local cuando una versión de desarrollo apunta a un relay que está en ella."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok se connecte au serveur relais que vous avez défini, qui peut se trouver sur votre réseau local."
+            "value": "Crok n'utilise votre réseau local que lorsqu'une version de développement pointe vers un relais qui s'y trouve."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok は設定したリレーサーバに接続します。サーバがローカルネットワーク上にある場合があります。"
+            "value": "Crok がローカルネットワークを使うのは、開発用ビルドがそこにあるリレーを指定しているときだけです。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok 会连接你设置的中继服务器，它可能位于你的本地网络中。"
+            "value": "仅当开发版本指向你本地网络中的中继时，Crok 才会使用本地网络。"
           }
         }
       }

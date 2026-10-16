@@ -29,23 +29,30 @@ To run on a phone, pick your team under Signing & Capabilities (the project leav
 
 ## The relay URL
 
-The app reads the relay (a Convex deployment) from the `CrokRelayURL` Info.plist key, set from the xcconfig files:
+Nobody types the relay's address: it is built in. The app reads it from the `CrokRelayURL` Info.plist key, set from
+`CROK_RELAY_URL` in `Config/Shared.xcconfig` for Debug and Release alike: `https://limitless-badger-727.convex.cloud`.
+`//` starts a comment in xcconfig files, so the file writes it as `https:/$()/limitless-badger-727.convex.cloud`.
 
-- `Config/Debug.xcconfig`: `http://127.0.0.1:3210`, a local `npx convex dev` in `relay/` (the simulator reaches the
-  Mac's localhost; `NSAllowsLocalNetworking` permits plain HTTP there).
-- `Config/Release.xcconfig`: empty. The welcome screen then shows a Server field.
+To point a build at another relay (a local `npx convex dev` in `relay/`, which the simulator reaches on the Mac's
+localhost; `NSAllowsLocalNetworking` permits plain HTTP there):
 
-`//` starts a comment in xcconfig files, so write URLs as `https:/$()/name.convex.cloud`. Whatever is built in,
-**Advanced › Server** on the welcome screen overrides it (kept in UserDefaults), and **Advanced › Device name** sets
-the name this phone signs in under (iOS only reveals the user-assigned device name with a special entitlement, so the
-default is often just "iPhone").
+- at launch: `-CrokServer http://127.0.0.1:3210` (Product › Scheme › Edit Scheme › Arguments, or
+  `xcrun simctl launch booted dev.chenli.crok.mobile -CrokServer http://127.0.0.1:3210`), or the `CROK_RELAY_URL`
+  environment variable (`SIMCTL_CHILD_CROK_RELAY_URL=… xcrun simctl launch …`). The launch argument wins;
+- at build time: `xcodebuild … CROK_RELAY_URL=http://127.0.0.1:3210` (no `$()` needed on the command line).
+
+Either applies to new sign-ins only: a signed-in phone keeps the relay it signed in to (shown in Settings › About)
+until it signs out. **Advanced › Device name** on the welcome screen sets the name this phone signs in under (iOS only
+reveals the user-assigned device name with a special entitlement, so the default is often just "iPhone").
 
 ## Demo mode
 
 Launch with `-CrokDemo YES` (Product › Scheme › Edit Scheme › Arguments) to use an in-memory relay with sample data:
-two computers, sessions in every state (running with a plan, waiting for approval, idle, offline, archived), a
-transcript with every event kind, and a failed prompt. Prompts, Stop and session info are simulated. The demo relay
-implements the same facade protocols as the live one (`Engine/RelayAPI.swift`), so every screen runs unchanged.
+two computers (one offline) with four projects, sessions in every state (running with a plan, waiting for approval,
+idle, offline, archived, and some only on a computer's disk), a transcript with every event kind, and a failed
+prompt. Prompts, Stop, session info, reordering and fetching a listed session's history (from the online computer, after
+3 s) are simulated. The demo relay implements the same facade protocols as the live one (`Engine/RelayAPI.swift`), so
+every screen runs unchanged.
 
 | launch argument | effect |
 |---|---|
@@ -56,26 +63,45 @@ implements the same facade protocols as the live one (`Engine/RelayAPI.swift`), 
 | `-CrokPageSize 8` | transcript page size (default 50), to try paging |
 | `-CrokResetState YES` | forget the Keychain credentials, drafts and caches at launch |
 | `-CrokNoBrowser YES` | do not open the browser sheet when a sign-in starts |
+| `-CrokServer http://127.0.0.1:3210` | sign in to that relay instead of the built-in one (also `CROK_RELAY_URL`) |
+
+## The session list
+
+As relay/DESIGN.md §5 "The session list" describes, for the web and both phone apps alike: All and each computer's
+tab show `sessions:groups`, one section per project (folder, name, the computer on All, the count, a chevron that
+collapses it, remembered per project key), five sessions and then "Show N more"; Archived stays the flat
+`sessions:list({archived: true})`. Projects and sessions are reordered in **⋯ › Reorder** (move handles, with a
+Projects section for the projects themselves), with a header's or a row's long-press menu (**Move Up** / **Move
+Down**, **Sort by Recent Activity**), and **⋯ › Sort Projects by Recent Activity**. Moves show at once
+(`CrokEngine.reorder` keeps applying them over the relay's values until the relay confirms them) and go back with an
+alert when the relay refuses. Search keeps only matching sessions and hides empty sections; reordering is off while
+searching. A session only on its computer's disk shows "Loading from <computer>…" when opened, or why it can't load
+while the computer is offline. The order rules are pure functions in `Core/ProjectGroups.swift`, mirroring
+`relay/convex/lib/projects.ts`.
 
 ## Tests
 
 ```sh
 # Unit tests: transcript grouping, ticks, user codes, plan summary, relative time, the sign-in state machine and its
-# persistence, HTTP API decoding, the reveal pacer, the query hub, localization coverage.
+# persistence (no server field; the built-in relay and the developer override), HTTP API decoding (incl.
+# sessions:groups), the list's order rules and optimistic moves, search, the reveal pacer, the query hub,
+# localization coverage. ConvexMobile's library has no x86_64 simulator slice, hence ARCHS=arm64.
 xcodebuild test -project Crok.xcodeproj -scheme Crok -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -only-testing:CrokTests
+  ARCHS=arm64 -only-testing:CrokTests
 
-# UI tests: a tour of demo mode (sign-in, sessions, a running session with Stop, sending a prompt, info, offline,
-# settings, devices, linking a computer, dark mode, German, Chinese and Japanese). Screenshots are attached to the
-# result bundle and, with TEST_RUNNER_CROK_SCREENSHOT_DIR, written as PNG files.
+# UI tests: a tour of demo mode (sign-in, sessions grouped by project, Show more, collapsing, moving a project, Reorder
+# mode, sessions only on a computer's disk, a running session with Stop, sending a prompt, info, offline, settings,
+# devices, linking a computer, dark mode, German, Chinese and Japanese). Screenshots are attached to the result bundle
+# and, with TEST_RUNNER_CROK_SCREENSHOT_DIR, written as PNG files.
 TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
-  -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:CrokUITests/DemoTourUITests
+  -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/DemoTourUITests
 ```
 
 ### Checking against a real relay
 
 `CrokUITests/LiveRelayUITests` drives the real sign-in and a real session. It is skipped unless
-`TEST_RUNNER_CROK_LIVE_RELAY=1`:
+`TEST_RUNNER_CROK_LIVE_RELAY=1`. It launches the app with `-CrokServer http://127.0.0.1:3210`, or with
+`TEST_RUNNER_CROK_LIVE_RELAY_URL` when set:
 
 1. Run the relay locally (`cd relay && npx convex dev`) with `CLERK_JWT_ISSUER_DOMAIN` set (see `relay/README.md`).
 2. Link a computer that mirrors a session titled "Fix the login redirect" and answers prompts. A fake one in the
@@ -101,7 +127,8 @@ screen. The positions it taps for the system's sign-in alert and the sheet's clo
 Crok/
   App/         CrokApp, RootView, AppModel (the persisted sign-in state machine), AppEnvironment (live / demo)
   Core/        models, errors and the HTTP API client, Keychain, transcript builder, Markdown blocks, reveal pacer,
-               connection state, user codes, plan summary, relative time, avatars, drafts and the list cache
+               connection state, user codes, plan summary, relative time, avatars, the list's order rules and search,
+               drafts, collapsed projects and the list cache
   Engine/      CrokEngine (one per signed-in account), RelayAPI (facades), ConvexRelay + QueryHub + DeviceAuthProvider
                (ConvexMobile), LiveQuery, Demo/ (in-memory relay and sample data)
   Features/    SignIn, Sessions, Session (transcript, composer, plan bar), Info, Settings (devices, link a computer, QR)
@@ -129,7 +156,7 @@ table is in `relay/DESIGN.md` §5; in this app:
 | `AccountContext` / `TelegramEngine` | `CrokEngine` owns the relay backend and the facades (`sessions`, `commands`, `devices`, `account`); sign-out tears it down |
 | `AuthorizationSequenceController` state | `AppModel`: welcome → waiting (code, browser sheet, polling) → signed in; the pending sign-in is in the Keychain, so a killed app resumes waiting |
 | chat-list connection title, 0.3 s delay | `ConnectionStatus` + `DelayedConnectionStatus`: "Waiting for network" / "Connecting…" / "Updating…" in the Sessions title and the session header |
-| `ChatListItem`, typing node, badges, folder tabs, reveal options | `SessionRowView` (avatar with online dot, time, computer · folder, preview / "working…" / "Needs approval", unread badge, pin), `FilterTabs`, swipe Pin / Stop / Archive |
+| `ChatListItem`, typing node, badges, folder tabs, reveal options | `SessionRowView` (avatar with online dot, time, the session's folder when it isn't the project's, preview / "working…" / "Needs approval", unread badge, pin) under a `ProjectSectionHeader`, `FilterTabs`, swipe Pin / Stop / Archive |
 | `ChatHistoryListNode`, merge fingerprint, date headers | bottom-anchored transcript, 50 events per page, `TranscriptBuilder` groups one author within 10 minutes and adds day headers |
 | `EnqueueMessage`, status ticks, delivery-failed node | optimistic bubbles keyed by `clientId`, clock → ✓ → ✓✓ from `commands:forSession` (`mine` only), red "!" with Retry / Delete |
 | `ChatTextInputPanelNode` stop | the composer shows Stop while the session runs and a read-only notice while it is offline |

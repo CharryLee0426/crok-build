@@ -17,7 +17,7 @@ struct MainView: View {
                     }
             }
             .tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }
-            .badge(unreadTotal)
+            .badge(engine.unreadTotal)
             .tag(MainTab.sessions)
 
             NavigationStack {
@@ -26,10 +26,6 @@ struct MainView: View {
             .tabItem { Label("Settings", systemImage: "gearshape") }
             .tag(MainTab.settings)
         }
-    }
-
-    private var unreadTotal: Int {
-        (engine.sessionList.value ?? []).reduce(0) { $0 + $1.unreadCount }
     }
 }
 

@@ -202,8 +202,27 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
 
     // MARK: SessionsAPI
 
+    func groups() -> RelayStream<[ProjectGroup]> {
+        observe("sessions:groups")
+    }
+
     func list(archived: Bool) -> RelayStream<[SessionRow]> {
         observe("sessions:list", ["archived": .bool(archived)])
+    }
+
+    func reorderProjects(_ keys: [String]) async throws {
+        try await run("sessions:reorderProjects", ["keys": .array(keys.map(JSONValue.string))])
+    }
+
+    func reorderSessions(projectKey: String, _ sessionDocIds: [DocID]) async throws {
+        try await run(
+            "sessions:reorderSessions",
+            ["projectKey": .string(projectKey), "sessionDocIds": .array(sessionDocIds.map(JSONValue.string))])
+    }
+
+    func resetOrder(projectKey: String?) async throws {
+        // An optional argument is left out, not sent as null.
+        try await run("sessions:resetOrder", projectKey.map { ["projectKey": .string($0)] } ?? [:])
     }
 
     func get(_ sessionDocId: DocID) -> RelayStream<SessionDetail> {
