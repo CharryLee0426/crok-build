@@ -30,8 +30,10 @@ pub(crate) mod prompt_ack;
 pub(crate) fn is_daemon_session_row(_source: &str) -> bool {
     false
 }
-pub(crate) fn is_daemon_or_remote_control_row(_source: &str) -> bool {
-    false
+/// A picker row for a session on one of the person's other computers (remote control, `source: relay`): it opens by
+/// its `relay:` id, served by the remote-control bridge.
+pub(crate) fn is_daemon_or_remote_control_row(source: &str) -> bool {
+    source == "relay"
 }
 pub use xai_prompt_queue as prompt_queue;
 mod acp_handler;

@@ -1266,6 +1266,9 @@ const NON_SERDE_CONFIG_PATHS: &[&str] = &[
     "cli.grove",
     "cli.grove_worktree",
     "cli.nfs_worktree",
+    // Remote control (`crok_remote::settings` reads them).
+    "remote.enabled",
+    "remote.url",
 ];
 /// [`NON_SERDE_CONFIG_PATHS`] plus the multi-path groups, every registered feature, every
 /// [`UNMIRRORED_BOOLEAN_FEATURES`] key, and the managed policy pins (no-op in plain config.toml).

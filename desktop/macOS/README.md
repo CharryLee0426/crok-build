@@ -33,11 +33,20 @@ Settings offers to repair the link. The terminal in the side panel runs the app'
 
 **Crok Desktop › Check for Updates…** (also at the bottom of Settings) looks for
 a newer [GitHub release](https://github.com/CharryLee0426/crok-build/releases)
-of this fork. **Install and Relaunch** downloads the disk image for this Mac,
-checks it, quits the app, swaps the new bundle into place and opens it again; if
-a task is running, the usual "Quit while Crok is working?" question appears, and
-the update installs whenever the app quits next. The bundled `crok` is part of the
-bundle, so the `crok` command in Terminal is updated at the same moment.
+of this fork. **Install and Relaunch** downloads the disk image for this copy,
+checks it, quits the app, swaps the new bundle into place and opens it again,
+which then says the new version is installed. The image follows the SDK the
+installed app was built with, whatever macOS it runs on: a copy from the macOS 26
+SDK image only takes the next macOS 26 SDK image, a copy from the macOS 15 SDK
+image only the next macOS 15 SDK one, and a release without that image is not
+offered (the sheet's subtitle names the SDK, and the image to install is shown
+under the release). If tasks are running when the update is ready, the sheet says
+how many stop and offers **Quit and Install**; or keep working, and the update
+installs whenever the app quits next. If the swap fails after the app has quit,
+the old version opens again and Software Update shows why. The bundled `crok` is
+part of the bundle, so the `crok` command in Terminal is updated at the same
+moment; `crok` sessions already open keep running the old version until they are
+restarted.
 
 The same updater is `crok upgrade` in a terminal (`crok upgrade --check` only
 reports). Run from the app's `crok`, it upgrades the app; run from a standalone
@@ -272,6 +281,16 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   **Allow…**, and opens iPhone Mirroring. Each action appears as its own row
   with a phone icon, and the approval card offers to allow phone actions for
   the rest of the session. See the **Phone Use** guide (`/docs Phone Use`).
+- **Remote control:** optional. **Settings › Remote control** (or `/remote`)
+  signs this Mac in to a relay with the bundled `crok remote login`, apart from
+  the model providers under Accounts: it shows a code, opens the sign-in page,
+  and waits for the approval. While signed in, every open task's harness shares
+  it with the Crok app on your phone and the web, which can follow it and send
+  it prompts or stop it; a prompt sent that way shows with a "from …" caption
+  and the task works as if it were typed here. **Share tasks with my phone**
+  (`[remote] enabled`, or `/remote on|off`) pauses sharing without signing
+  out. Helper harnesses (model and command catalogs, history import, panels)
+  run with `CROK_REMOTE_BRIDGE=0`. See `relay/DESIGN.md`.
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
 records all 76 pager commands, shell built-ins, CLI families, exact ACP
@@ -623,7 +642,10 @@ for desktop state, `CROK_DESKTOP_HARNESS` selects a test executable,
 `CROK_DESKTOP_BROWSER` opens the side panel's browser on an address at launch
 (`run-perf.sh <app> <out> browser` streams a long task beside a page that keeps
 changing; with a state file named this way the browser keeps no cookies or site
-data on disk). The normal
+data on disk). `CROK_DESKTOP_UPDATE=install` runs Check for Updates at launch and
+installs what it finds, quit and relaunch included; with `CROK_UPGRADE_REPO_URL`
+pointing at a local server that serves a signed release, it checks the whole update
+without a click. The normal
 packaged app continues to use its embedded runtime and standard local state.
 
 ## App icon

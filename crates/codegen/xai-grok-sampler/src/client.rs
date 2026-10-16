@@ -739,6 +739,24 @@ impl SamplingClient {
         self.defaults.api_backend.clone()
     }
 
+    /// The model a request without its own `model` goes to, for [`crate::observe`].
+    pub(crate) fn observed_default_model(&self) -> &str {
+        &self.defaults.model
+    }
+
+    pub(crate) fn observed_base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// The temperature, top-p and output cap [`Self::apply_conversation_defaults`] fills in, for [`crate::observe`].
+    pub(crate) fn observed_defaults(&self) -> (Option<f32>, Option<f32>, Option<u32>) {
+        (
+            self.defaults.temperature,
+            self.defaults.top_p,
+            self.defaults.max_completion_tokens,
+        )
+    }
+
     /// Give the bearer resolver its pre-send hook before [`Self::post`] reads it.
     /// Awaited separately because `post` is sync (its callers hand the builder straight to `send()`).
     async fn prepare_bearer(&self) {
@@ -2450,28 +2468,51 @@ impl SamplingClient {
         request: ConversationRequest,
         idle_timeout: std::time::Duration,
     ) -> Result<ConversationResponse> {
+        use crate::observe;
         let request_id = crate::types::RequestId::random();
         let length_policy = request.length_policy;
+        let observation = observe::Observation::start(self, &request, observe::CallPath::SideCall);
         let result = match self.api_backend() {
             ApiBackend::ChatCompletions
             | ApiBackend::OpenRouter
             | ApiBackend::DeepSeek
             | ApiBackend::Glm => {
-                let (raw, meta) = self.conversation_stream(request).await?;
+                let (raw, meta) = match self.conversation_stream(request).await {
+                    Ok(pair) => pair,
+                    Err(e) => {
+                        observe::record_send_error(observation, &e);
+                        return Err(e);
+                    }
+                };
+                let raw = observe::tap_chat(&observation, raw);
                 let events =
                     crate::stream::stream_chat_completions(raw, meta, request_id, idle_timeout);
-                crate::stream::collect_response(events).await
+                crate::stream::collect_response(observe::watch(observation, events)).await
             }
             ApiBackend::Responses | ApiBackend::OpenAiCodex => {
-                let (raw, meta, doom_loop) = self.conversation_stream_responses(request).await?;
+                let (raw, meta, doom_loop) = match self.conversation_stream_responses(request).await
+                {
+                    Ok(parts) => parts,
+                    Err(e) => {
+                        observe::record_send_error(observation, &e);
+                        return Err(e);
+                    }
+                };
+                let raw = observe::tap_responses(&observation, raw);
                 let events =
                     crate::stream::stream_responses(raw, meta, request_id, idle_timeout, doom_loop);
-                crate::stream::collect_response(events).await
+                crate::stream::collect_response(observe::watch(observation, events)).await
             }
             ApiBackend::Messages => {
-                let (raw, meta) = self.conversation_stream_messages(request).await?;
+                let (raw, meta) = match self.conversation_stream_messages(request).await {
+                    Ok(pair) => pair,
+                    Err(e) => {
+                        observe::record_send_error(observation, &e);
+                        return Err(e);
+                    }
+                };
                 let events = crate::stream::stream_messages(raw, meta, request_id, idle_timeout);
-                crate::stream::collect_response(events).await
+                crate::stream::collect_response(observe::watch(observation, events)).await
             }
         };
         let response = result

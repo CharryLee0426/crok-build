@@ -75,6 +75,7 @@ fn process_identity(command: Option<&Command>, is_interactive: bool) -> Option<P
             | Command::Trace(_)
             | Command::Update { .. }
             | Command::Upgrade(_)
+            | Command::Remote(_)
             | Command::Version { .. }
             | Command::Completions { .. }
             | Command::Worktree(_)
@@ -117,6 +118,7 @@ fn command_needs_pre_sandbox_policy_heal(command: Option<&Command>) -> bool {
             | Command::Trace(_)
             | Command::Update { .. }
             | Command::Upgrade(_)
+            | Command::Remote(_)
             | Command::Version { .. }
             | Command::Completions { .. }
             | Command::DiskUsage(_)
@@ -1239,6 +1241,7 @@ async fn run_agent_command(
     update_config: &UpdateConfig,
 ) -> Result<()> {
     let signal_flush = agent_command::spawn_signal_flush();
+    xai_grok_agento11y::set_surface("agent");
     if matches!(
         agent_args.mode,
         Some(AgentCmd::Leader(_) | AgentCmd::Stdio | AgentCmd::Headless(_) | AgentCmd::Serve(_))
@@ -2124,6 +2127,12 @@ fn main() {
         disabled: xai_grok_shell::agent::config::is_error_reporting_disabled_sync(),
     });
     xai_grok_pager::docs::extract_user_guide_docs(&xai_grok_shell::util::grok_home::grok_home());
+    // Grafana Agent Observability, when ~/.crok/agento11y.env (or AGENTO11Y_*) configures it.
+    // `agent` subcommands relabel the surface; Crok Desktop names itself in ACP `initialize`.
+    xai_grok_agento11y::install(xai_grok_agento11y::InstallOptions {
+        agent_version: env!("CROK_RELEASE_VERSION"),
+        surface: "tui",
+    });
     xai_crash_handler::install_terminal_restore_only();
     if xai_grok_shell::util::config::load_crash_handler_enabled_sync() {
         let crash_dir = crash_dir_for(&args);
@@ -2425,6 +2434,38 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                 )
                 .mode;
                 return xai_grok_pager::memory_cmd::run(memory_args, mode);
+            }
+            Command::Remote(remote) => {
+                let language = xai_grok_shell::config::load_effective_config()
+                    .ok()
+                    .and_then(|root| root.get("ui")?.get("ui_language")?.as_str().map(str::to_owned));
+                xai_grok_i18n::set_locale(xai_grok_i18n::resolve_locale(language.as_deref()));
+                use xai_grok_pager::app::cli::RemoteCommand;
+                let (action, json) = match remote.command {
+                    RemoteCommand::Login {
+                        server,
+                        name,
+                        no_browser,
+                        force,
+                        json,
+                    } => (
+                        crok_remote::cli::Action::Login {
+                            server,
+                            name,
+                            no_browser,
+                            force,
+                        },
+                        json,
+                    ),
+                    RemoteCommand::Logout { json } => (crok_remote::cli::Action::Logout, json),
+                    RemoteCommand::Status { json } => (crok_remote::cli::Action::Status, json),
+                };
+                return crok_remote::cli::run(crok_remote::cli::Options {
+                    action,
+                    json,
+                    client: format!("crok {}", xai_grok_version::full_version()),
+                })
+                .await;
             }
             Command::Upgrade(upgrade) => {
                 // The TUI sets the locale from [ui].ui_language; a subcommand does the same.

@@ -22,6 +22,7 @@ xai-grok-pager = { path = "../xai-grok-pager", default-features = false }
 xai-grok-pager-minimal = { path = "../xai-grok-pager-minimal", default-features = false }
 
 # Agent runtime + leader/stdio/headless entry points.
+xai-grok-agento11y = { workspace = true }
 xai-grok-cloud-config = { workspace = true }
 xai-grok-login = { workspace = true }
 xai-grok-shell = { path = "../xai-grok-shell", default-features = false }
@@ -54,6 +55,7 @@ xai-grok-config = { workspace = true }
 xai-grok-sandbox = { path = "../xai-grok-sandbox", default-features = false }
 xai-grok-extra-ca = { workspace = true }
 # `crok upgrade`: the fork's own updater, from its GitHub releases.
+crok-remote = { workspace = true }
 crok-upgrade = { workspace = true }
 xai-grok-i18n = { workspace = true }
 

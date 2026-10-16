@@ -179,15 +179,21 @@ enum L10n {
     // MARK: - Translation tables
 
     /// Each language's strings: the tables below, with the ones for Settings and the side panel
-    /// (`L10nPanelTables.swift`), for browser and computer use (`L10nDeviceTables.swift`) and for phone use
-    /// (`L10nPhoneTables.swift`) added to them.
+    /// (`L10nPanelTables.swift`), for browser and computer use (`L10nDeviceTables.swift`), for phone use
+    /// (`L10nPhoneTables.swift`) and for remote control (`L10nRemoteTables.swift`) added to them.
     private static let tables: [String: [String: String]] = [
-        "en": english.merging(englishPanels) { own, _ in own }.merging(englishDevice) { own, _ in own }.merging(englishPhone) { own, _ in own },
-        "zh-Hans": chineseSimplified.merging(chineseSimplifiedPanels) { own, _ in own }.merging(chineseSimplifiedDevice) { own, _ in own }.merging(chineseSimplifiedPhone) { own, _ in own },
-        "ja": japanese.merging(japanesePanels) { own, _ in own }.merging(japaneseDevice) { own, _ in own }.merging(japanesePhone) { own, _ in own },
-        "es": spanish.merging(spanishPanels) { own, _ in own }.merging(spanishDevice) { own, _ in own }.merging(spanishPhone) { own, _ in own },
-        "fr": french.merging(frenchPanels) { own, _ in own }.merging(frenchDevice) { own, _ in own }.merging(frenchPhone) { own, _ in own },
-        "de": german.merging(germanPanels) { own, _ in own }.merging(germanDevice) { own, _ in own }.merging(germanPhone) { own, _ in own },
+        "en": english.merging(englishPanels) { own, _ in own }.merging(englishDevice) { own, _ in own }.merging(englishPhone) { own, _ in own }
+            .merging(englishRemote) { own, _ in own },
+        "zh-Hans": chineseSimplified.merging(chineseSimplifiedPanels) { own, _ in own }.merging(chineseSimplifiedDevice) { own, _ in own }
+            .merging(chineseSimplifiedPhone) { own, _ in own }.merging(chineseSimplifiedRemote) { own, _ in own },
+        "ja": japanese.merging(japanesePanels) { own, _ in own }.merging(japaneseDevice) { own, _ in own }.merging(japanesePhone) { own, _ in own }
+            .merging(japaneseRemote) { own, _ in own },
+        "es": spanish.merging(spanishPanels) { own, _ in own }.merging(spanishDevice) { own, _ in own }.merging(spanishPhone) { own, _ in own }
+            .merging(spanishRemote) { own, _ in own },
+        "fr": french.merging(frenchPanels) { own, _ in own }.merging(frenchDevice) { own, _ in own }.merging(frenchPhone) { own, _ in own }
+            .merging(frenchRemote) { own, _ in own },
+        "de": german.merging(germanPanels) { own, _ in own }.merging(germanDevice) { own, _ in own }.merging(germanPhone) { own, _ in own }
+            .merging(germanRemote) { own, _ in own },
     ]
 
     // MARK: English
@@ -235,6 +241,8 @@ enum L10n {
         "update_downloading": "Downloading…",
         "update_quit_to_install": "The update is ready. Crok Desktop installs it when it quits.",
         "update_quit_detail": "Quit when your tasks are done; the new version opens by itself.",
+        "update_quit_running": "Quitting stops {count} running tasks; your conversations are saved and can be resumed. Or keep working: the update installs the next time Crok Desktop quits, and the new version opens by itself.",
+        "update_installed": "Crok Desktop {version} is installed.",
         "quit_and_install": "Quit and Install",
         "release_notes": "Release Notes",
         "check_again": "Check Again",
@@ -382,6 +390,8 @@ enum L10n {
         "update_downloading": "正在下载…",
         "update_quit_to_install": "更新已就绪。Crok Desktop 退出时将完成安装。",
         "update_quit_detail": "任务完成后退出即可；新版本会自动打开。",
+        "update_quit_running": "退出会停止 {count} 个正在运行的任务；对话已保存，之后可以继续。也可以继续工作：下次退出 Crok Desktop 时会安装更新，新版本会自动打开。",
+        "update_installed": "Crok Desktop {version} 已安装。",
         "quit_and_install": "退出并安装",
         "release_notes": "发行说明",
         "check_again": "重新检查",
@@ -529,6 +539,8 @@ enum L10n {
         "update_downloading": "ダウンロードしています…",
         "update_quit_to_install": "アップデートの準備ができました。Crok Desktop は終了時にインストールします。",
         "update_quit_detail": "タスクが終わったら終了してください。新しいバージョンが自動的に開きます。",
+        "update_quit_running": "終了すると実行中の {count} 件のタスクが止まります。会話は保存され、あとで再開できます。作業を続けることもできます。次に Crok Desktop を終了したときにアップデートがインストールされ、新しいバージョンが自動的に開きます。",
+        "update_installed": "Crok Desktop {version} をインストールしました。",
         "quit_and_install": "終了してインストール",
         "release_notes": "リリースノート",
         "check_again": "再確認",
@@ -676,6 +688,8 @@ enum L10n {
         "update_downloading": "Descargando…",
         "update_quit_to_install": "La actualización está lista. Crok Desktop la instala al cerrarse.",
         "update_quit_detail": "Cierra la app cuando terminen tus tareas; la nueva versión se abre sola.",
+        "update_quit_running": "Al cerrar se detienen {count} tareas en curso; tus conversaciones se guardan y puedes reanudarlas. O sigue trabajando: la actualización se instala la próxima vez que cierres Crok Desktop y la nueva versión se abre sola.",
+        "update_installed": "Crok Desktop {version} está instalado.",
         "quit_and_install": "Salir e instalar",
         "release_notes": "Notas de la versión",
         "check_again": "Buscar de nuevo",
@@ -823,6 +837,8 @@ enum L10n {
         "update_downloading": "Téléchargement…",
         "update_quit_to_install": "La mise à jour est prête. Crok Desktop l'installe en quittant.",
         "update_quit_detail": "Quittez quand vos tâches sont terminées ; la nouvelle version s'ouvre d'elle-même.",
+        "update_quit_running": "Quitter arrête {count} tâches en cours ; vos conversations sont enregistrées et peuvent être reprises. Ou continuez à travailler : la mise à jour s'installe la prochaine fois que vous quittez Crok Desktop, et la nouvelle version s'ouvre d'elle-même.",
+        "update_installed": "Crok Desktop {version} est installé.",
         "quit_and_install": "Quitter et installer",
         "release_notes": "Notes de version",
         "check_again": "Vérifier à nouveau",
@@ -970,6 +986,8 @@ enum L10n {
         "update_downloading": "Wird heruntergeladen…",
         "update_quit_to_install": "Das Update ist bereit. Crok Desktop installiert es beim Beenden.",
         "update_quit_detail": "Beenden Sie die App, wenn Ihre Aufgaben erledigt sind; die neue Version öffnet sich von selbst.",
+        "update_quit_running": "Beim Beenden werden {count} laufende Aufgaben gestoppt; Ihre Unterhaltungen sind gespeichert und können fortgesetzt werden. Oder arbeiten Sie weiter: Das Update wird installiert, wenn Sie Crok Desktop das nächste Mal beenden, und die neue Version öffnet sich von selbst.",
+        "update_installed": "Crok Desktop {version} ist installiert.",
         "quit_and_install": "Beenden und installieren",
         "release_notes": "Versionshinweise",
         "check_again": "Erneut suchen",

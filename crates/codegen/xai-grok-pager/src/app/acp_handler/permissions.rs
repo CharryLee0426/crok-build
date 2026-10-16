@@ -58,6 +58,43 @@ pub(super) fn handle_permission_request(
     needs_redraw && is_active
 }
 
+/// `x.ai/remote/permission_resolved {sessionId, toolCallId}`: another device answered a permission request this view
+/// still shows (remote control); its prompt goes away as if answered here.
+pub(super) fn handle_permission_resolved(notif: &acp::ExtNotification, app: &mut AppView) -> bool {
+    let Ok(params) = serde_json::from_str::<serde_json::Value>(notif.params.get()) else {
+        return false;
+    };
+    let (Some(session_id), Some(tool_call_id)) = (
+        params.get("sessionId").and_then(|v| v.as_str()),
+        params.get("toolCallId").and_then(|v| v.as_str()),
+    ) else {
+        return false;
+    };
+    let sid = acp::SessionId::new(session_id.to_string());
+    let Some(matched) = find_session_match(app, &sid) else {
+        return false;
+    };
+    let owning_agent_id = matched.agent_id();
+    let is_active = is_matched_agent_active(app, owning_agent_id);
+    let Some(agent) = app.agents.get_mut(&owning_agent_id) else {
+        return false;
+    };
+    let Some(index) = agent.permission_queue.iter().position(|state| {
+        state.request.request.session_id == sid
+            && state.request.request.tool_call.tool_call_id.0.as_ref() == tool_call_id
+    }) else {
+        return false;
+    };
+    if let Some(state) = agent.permission_queue.remove(index) {
+        cancel_permission(state.request);
+    }
+    if index == 0 {
+        crate::app::dispatch::resolve_permission_queue_transition(agent);
+    }
+    agent.show_toast(tl("Answered on another device"));
+    is_active
+}
+
 fn enqueue_permission(
     perm: xai_acp_lib::AcpArgs<acp::RequestPermissionRequest>,
     agent: &mut AgentView,

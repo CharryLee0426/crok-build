@@ -45,6 +45,7 @@ pub use xai_grok_models as models;
 pub mod plugin;
 pub mod relay;
 pub mod remote;
+pub mod remote_control;
 pub mod sampling;
 pub mod session;
 pub use xai_grok_shell_terminal as terminal;

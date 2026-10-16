@@ -61,7 +61,7 @@ struct ContentView: View {
             .overlay(alignment: .topTrailing) { DebugOverlay() }
             .background { GlassBackdrop(role: .canvas).ignoresSafeArea() }
             .navigationTitle(store.conversation?.title ?? L10n.t("new_task_row", "New task"))
-            .navigationSubtitle(store.project?.name ?? L10n.t("your_workspace", "Your workspace"))
+            .navigationSubtitle(windowSubtitle)
             .toolbar { workspaceToolbar }
             .toolbar(store.minimalMode ? .hidden : .automatic, for: .windowToolbar)
             .themedToolbarBackground()
@@ -86,6 +86,14 @@ struct ContentView: View {
                 columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
             }
         }.keyboardShortcut("b").hidden())
+    }
+
+    /// The project's folder, or for a session of another computer that computer and the session's folder.
+    private var windowSubtitle: String {
+        if let remote = store.conversation?.remote {
+            return "\(remote.computer) · \(URL(fileURLWithPath: remote.cwd).lastPathComponent)"
+        }
+        return store.project?.name ?? L10n.t("your_workspace", "Your workspace")
     }
 
     @ToolbarContentBuilder

@@ -21,7 +21,11 @@ struct GrokDesktopApp: App {
         Window(displayName, id: "main") {
             ContentView().desktopEnvironment(store)
                 .preferredColorScheme(appearance == "system" ? nil : appearance == "dark" ? .dark : .light)
-                .onAppear { delegate.store = store; NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true) }
+                .onAppear {
+                    delegate.store = store; NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true)
+                    store.reportLastInstall()
+                    store.installUpdateIfAsked()
+                }
         }
         .defaultSize(width: 1240, height: 820)
         .defaultPosition(.center)
@@ -143,7 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if store?.runs.values.contains(where: { $0.isRunning }) == true {
+        // Quit and Install has already said that running tasks stop.
+        if store?.runs.values.contains(where: { $0.isRunning }) == true, store?.softwareUpdate.quitConfirmed != true {
             let alert = NSAlert()
             alert.messageText = "Quit while Crok is working?"
             alert.informativeText = "Active tasks will stop. Your conversations are saved and can be resumed."

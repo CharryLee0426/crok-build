@@ -7,6 +7,7 @@ async-openai = { git = "https://github.com/our-forks/async-openai.git", rev = "9
 resolver = "2"
 members = [
     "crates/build/xai-proto-build",
+    "crates/codegen/crok-remote",
     "crates/codegen/crok-upgrade",
     "crates/codegen/ptyctl",
     "crates/codegen/ptyctl-cli",
@@ -24,6 +25,7 @@ members = [
     "crates/codegen/xai-gix-status",
     "crates/codegen/xai-grok-active-sessions",
     "crates/codegen/xai-grok-agent",
+    "crates/codegen/xai-grok-agento11y",
     "crates/codegen/xai-grok-announcements",
     "crates/codegen/xai-grok-auth",
     "crates/codegen/xai-grok-bundle",
@@ -333,12 +335,14 @@ xai-circuit-breaker = { path = "crates/common/xai-circuit-breaker" }
 xai-compaction-transcript = { path = "crates/codegen/xai-compaction-transcript" }
 xai-computer-hub-core = { path = "crates/common/xai-computer-hub-core" }
 xai-computer-hub-sdk = { path = "crates/common/xai-computer-hub-sdk" }
+crok-remote = { path = "crates/codegen/crok-remote" }
 crok-upgrade = { path = "crates/codegen/crok-upgrade" }
 xai-dirs = { path = "crates/codegen/xai-dirs" }
 xai-fuzzy-file-search = { path = "crates/codegen/xai-fuzzy-file-search" }
 xai-gix-status = { path = "crates/codegen/xai-gix-status" }
 xai-grok-active-sessions = { path = "crates/codegen/xai-grok-active-sessions" }
 xai-grok-agent = { path = "crates/codegen/xai-grok-agent" }
+xai-grok-agento11y = { path = "crates/codegen/xai-grok-agento11y" }
 xai-grok-announcements = { path = "crates/codegen/xai-grok-announcements" }
 xai-grok-auth = { path = "crates/codegen/xai-grok-auth" }
 xai-grok-bundle = { path = "crates/codegen/xai-grok-bundle" }

@@ -1,0 +1,2 @@
+// Release builds use the built-in relay from Shared.xcconfig.
+#include "Shared.xcconfig"

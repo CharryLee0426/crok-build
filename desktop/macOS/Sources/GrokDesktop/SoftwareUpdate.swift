@@ -17,9 +17,13 @@ enum SoftwareUpdateEvent: Equatable {
         let page: String
         let notes: String?
         let updateAvailable: Bool
+        /// The release file this copy takes: for the app, the disk image of the SDK it was built with.
         let asset: String?
         /// Why this installation cannot take the release, when it cannot.
         let unavailable: String?
+        /// The macOS SDK this copy was linked against (`26.0`), and so the image it installs (`26`).
+        var sdk: String? = nil
+        var image: Int? = nil
     }
 
     case check(Check)
@@ -40,7 +44,8 @@ enum SoftwareUpdateEvent: Equatable {
             guard let current = object["current"] as? String, let latest = object["latest"] as? String else { return nil }
             return .check(Check(current: current, latest: latest, page: object["page"] as? String ?? "",
                                 notes: object["notes"] as? String, updateAvailable: object["updateAvailable"] as? Bool ?? false,
-                                asset: object["asset"] as? String, unavailable: object["unavailable"] as? String))
+                                asset: object["asset"] as? String, unavailable: object["unavailable"] as? String,
+                                sdk: object["sdk"] as? String, image: (object["image"] as? NSNumber)?.intValue))
         case "progress":
             let bytes = (object["bytes"] as? NSNumber)?.int64Value ?? 0
             return .progress(bytes: bytes, total: (object["total"] as? NSNumber)?.int64Value)
@@ -176,10 +181,17 @@ final class SoftwareUpdateModel: ObservableObject {
     let currentVersion: String
     /// Quits the app; the helper then swaps the bundle and opens the new one. Tests replace it.
     var terminate: @MainActor () -> Void = { NSApp.terminate(nil) }
+    /// How many tasks are working. With none, a ready update quits at once; with some, the sheet
+    /// asks first, since quitting stops them.
+    var runningTasks: @MainActor () -> Int = { 0 }
+    /// Brings the Software Update sheet up, when the update is ready or an earlier one failed.
+    var present: @MainActor () -> Void = {}
+    /// The person chose to quit for the update, so the quit does not ask again about running tasks.
+    private(set) var quitConfirmed = false
 
     private let helper: SoftwareUpdateHelper
     private var stopInstall: (() -> Void)?
-    private var lastCheck: SoftwareUpdateEvent.Check?
+    private(set) var lastCheck: SoftwareUpdateEvent.Check?
 
     init(helper: SoftwareUpdateHelper = .bundled(), currentVersion: String = DesktopVersion.current) {
         self.helper = helper
@@ -255,13 +267,23 @@ final class SoftwareUpdateModel: ObservableObject {
     func cancel() {
         stopInstall?()
         stopInstall = nil
+        quitConfirmed = false
+        DesktopLog.info("update.cancel")
         if let lastCheck { phase = .available(lastCheck) } else { phase = .idle }
     }
 
-    /// Quits now, for the helper that is waiting.
+    /// Quits now, for the helper that is waiting. Running tasks stop without a second question:
+    /// the sheet has said so.
     func quitAndInstall() {
         guard case .waitingToQuit = phase else { return }
+        quitConfirmed = true
         terminate()
+    }
+
+    /// The quit for the update was refused or cancelled; the helper keeps waiting, and a later quit
+    /// asks about running tasks as usual.
+    func quitDidNotHappen() {
+        quitConfirmed = false
     }
 
     func handle(_ line: String) {
@@ -271,8 +293,11 @@ final class SoftwareUpdateModel: ObservableObject {
 
     func handle(_ event: SoftwareUpdateEvent) {
         switch event {
-        case .check, .installed:
+        case .installed:
             break
+        case .check(let check):
+            lastCheck = check
+            if !check.updateAvailable, isBusy { phase = .upToDate }
         case .progress(let bytes, let total):
             if let total, total > 0 {
                 phase = .downloading(min(1, Double(bytes) / Double(total)))
@@ -280,24 +305,65 @@ final class SoftwareUpdateModel: ObservableObject {
                 phase = .downloading(nil)
             }
         case .status(let stage, let message):
+            DesktopLog.info("update.status", ["phase": stage, "message": message])
+            // After "ready" the helper only says that it waits for the quit, which must not take
+            // the sheet's Quit and Install away.
+            if case .waitingToQuit = phase { return }
             if stage == "download" { phase = .downloading(nil) } else { phase = .installing(message) }
         case .ready:
+            DesktopLog.info("update.ready", ["running_tasks": runningTasks()])
             phase = .waitingToQuit
-            terminate()
-            // Still here: the quit was cancelled (a task was running). The helper keeps waiting, so
-            // the update installs whenever the app quits next.
+            present()
+            // Quitting stops running tasks, so with any running the sheet asks first. Either way
+            // the helper waits, and the update installs whenever the app quits next.
+            if runningTasks() == 0 { quitAndInstall() }
         case .error(let message):
+            DesktopLog.error("update.failed", ["message": message])
             stopInstall = nil
+            quitConfirmed = false
             phase = .failed(message)
         }
     }
 
     private func installExited(status: Int32, errors: String) {
         stopInstall = nil
+        DesktopLog.info("update.helper_exit", ["status": status, "stderr": DesktopLog.bounded(errors, to: 2000)])
         if case .failed = phase { return }
         if status != 0 {
             phase = .failed(errors.isEmpty ? "crok upgrade exited with status \(status)" : errors)
+        } else if case .waitingToQuit = phase {
+            // The helper is gone, so nothing installs when the app quits.
+            quitConfirmed = false
+            phase = .failed(errors.isEmpty ? "crok upgrade stopped before Crok Desktop quit" : errors)
         }
+    }
+
+    /// What `crok upgrade` wrote after the app quit: `$CROK_HOME/updates/last-install.json`.
+    struct LastInstall: Codable, Equatable {
+        let version: String
+        let previous: String
+        let installed: Bool
+        let message: String?
+    }
+
+    nonisolated static var lastInstallFile: URL {
+        GrokPaths.home.appendingPathComponent("updates", isDirectory: true).appendingPathComponent("last-install.json")
+    }
+
+    /// Reads and removes the result of an install that finished after the app quit. A failure
+    /// opens the sheet with the reason; a success returns the installed version for a banner.
+    @discardableResult
+    func reportLastInstall(from file: URL = SoftwareUpdateModel.lastInstallFile) -> String? {
+        guard let data = try? Data(contentsOf: file) else { return nil }
+        try? FileManager.default.removeItem(at: file)
+        guard let result = try? JSONDecoder().decode(LastInstall.self, from: data) else { return nil }
+        DesktopLog.info("update.result", ["version": result.version, "previous": result.previous,
+                                          "installed": result.installed, "message": result.message ?? ""])
+        if result.installed { return result.version == currentVersion ? result.version : nil }
+        guard !isBusy else { return nil }
+        phase = .failed(result.message ?? L10n.t("update_failed_title", "The update did not finish."))
+        present()
+        return nil
     }
 }
 
@@ -307,7 +373,7 @@ struct SoftwareUpdateSheet: View {
     @ObservedObject var model: SoftwareUpdateModel
 
     var body: some View {
-        DesktopPanel(title: L10n.t("software_update", "Software Update"), subtitle: "Crok Desktop · \(model.currentVersion)",
+        DesktopPanel(title: L10n.t("software_update", "Software Update"), subtitle: subtitle,
                      width: 540, onClose: close) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 14) {
@@ -317,6 +383,10 @@ struct SoftwareUpdateSheet: View {
                         if let detail {
                             Text(detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
                                 .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                        }
+                        if case .available(let check) = model.phase, check.unavailable == nil, let asset = check.asset {
+                            Text(asset).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
+                                .textSelection(.enabled)
                         }
                         progress
                     }
@@ -419,10 +489,22 @@ struct SoftwareUpdateSheet: View {
         case .failed(let message):
             return message
         case .waitingToQuit:
+            let running = store.runs.values.filter(\.isRunning).count
+            if running > 0 {
+                return L10n.t("update_quit_running", "Quitting stops {count} running tasks; your conversations are saved and can be resumed. Or keep working: the update installs the next time Crok Desktop quits, and the new version opens by itself.")
+                    .replacingOccurrences(of: "{count}", with: String(running))
+            }
             return L10n.t("update_quit_detail", "Quit when your tasks are done; the new version opens by itself.")
         default:
             return nil
         }
+    }
+
+    /// The version, and once a check has said so, the SDK this copy was built with: the disk image
+    /// it installs is the one for that SDK.
+    private var subtitle: String {
+        guard let image = model.lastCheck?.image else { return "Crok Desktop · \(model.currentVersion)" }
+        return "Crok Desktop · \(model.currentVersion) · macOS \(image) SDK"
     }
 
     /// The English part of the notes, before the translations, with blank lines folded.

@@ -676,6 +676,10 @@ pub enum Action {
     ShareSession,
     /// Show session info (auth, ID, cwd, model, context usage) instantly.
     ShowSessionInfo,
+    /// `/remote login`: sign this computer in to remote control (device code, approved on the web or a phone).
+    RemoteLogin,
+    /// `/remote logout`.
+    RemoteLogout,
     /// Show release notes in a modal.
     ShowReleaseNotes {
         title: String,
@@ -1996,6 +2000,16 @@ pub enum Effect {
         agent_id: AgentId,
         session_id: acp::SessionId,
     },
+    /// `/remote login`: start the device sign-in and show its code.
+    RemoteLogin { agent_id: AgentId },
+    /// Wait for the shown code to be approved.
+    RemoteLoginWait {
+        agent_id: AgentId,
+        request: crok_remote::login::LoginRequest,
+        start: crok_remote::api::LoginStart,
+    },
+    /// `/remote logout`.
+    RemoteLogout { agent_id: AgentId },
     /// Fetch and display session info via x.ai/session/info.
     /// Auth lines are derived in the effect from SessionFlags and env (not Effect fields).
     ShowSessionInfo {
@@ -2905,6 +2919,20 @@ pub enum TaskResult {
     ShareSessionFailed {
         agent_id: AgentId,
         error: String,
+    },
+    /// `/remote login` got a code: show it, then wait for approval.
+    RemoteLoginCode {
+        agent_id: AgentId,
+        request: crok_remote::login::LoginRequest,
+        start: crok_remote::api::LoginStart,
+        /// The sign-in page was opened in a browser.
+        opened: bool,
+    },
+    /// A `/remote` step finished: a line for the scrollback and, optionally, a toast.
+    RemoteNotice {
+        agent_id: AgentId,
+        text: String,
+        toast: Option<String>,
     },
     /// Session info fetched successfully.
     SessionInfoComplete {
