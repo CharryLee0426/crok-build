@@ -453,13 +453,77 @@ LoggingHarness().run()
         XCTAssertEqual(store.remoteLink?.state, .connecting)
     }
 
+    // MARK: Other computers
+
+    private let otherComputers: [String: Any] = [
+        "signedIn": true,
+        "computers": [[
+            "deviceId": "d2", "deviceName": "Office PC", "online": true,
+            "projects": [[
+                "key": "d2:/w/api", "name": "api", "path": "/w/api",
+                "sessions": [
+                    ["sessionId": "relay:k1", "title": "Fix the login redirect", "cwd": "/w/api", "status": "running", "running": true,
+                     "lastActivityAt": 1_792_000_000_000.0, "model": "grok-code-fast-1"],
+                    ["sessionId": "not-a-relay-id", "title": "Ignored"],
+                ],
+            ]],
+        ]],
+    ]
+
+    func testOtherComputersParseAndOpenAsTasksTheyRun() throws {
+        let computers = RemoteComputer.list(otherComputers)
+        XCTAssertEqual(computers.count, 1)
+        let computer = try XCTUnwrap(computers.first)
+        XCTAssertEqual(computer.name, "Office PC")
+        XCTAssertEqual(computer.sessions.map(\.sessionID), ["relay:k1"], "only relay ids are sessions of another computer")
+        let entry = try XCTUnwrap(computer.sessions.first)
+        XCTAssertTrue(entry.isWorking)
+        XCTAssertEqual(entry.lastActivityAt.timeIntervalSince1970, 1_792_000_000, accuracy: 1)
+
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
+        defer { store.shutdown() }
+        let local = Project(path: directory.path)
+        store.state = DesktopState(projects: [local], selectedProjectID: local.id)
+        store.noteRemoteComputers(otherComputers)
+        XCTAssertEqual(store.remoteComputers, computers)
+        store.openRemoteSession(entry, on: computer)
+        let task = try XCTUnwrap(store.conversation)
+        XCTAssertEqual(task.sessionID, "relay:k1")
+        XCTAssertEqual(task.remote, RemoteTaskInfo(computer: "Office PC", deviceID: "d2", cwd: "/w/api"))
+        XCTAssertEqual(task.projectID, RemoteSessions.projectID)
+        XCTAssertEqual(store.project?.id, RemoteSessions.projectID, "its harness runs in the app's own folder")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.remoteProject.path))
+        XCTAssertEqual(store.state.projects, [local], "the projects list stays as it was")
+        // Opening it again selects the same task.
+        store.newTask()
+        store.openRemoteSession(entry, on: computer)
+        XCTAssertEqual(store.state.conversations.count, 1)
+        XCTAssertEqual(store.conversation?.id, task.id)
+    }
+
+    func testAnApprovalAnsweredOnAnotherDeviceLeavesTheTask() throws {
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
+        defer { store.shutdown() }
+        let project = Project(path: directory.path)
+        let task = Conversation(projectID: project.id, title: "Task", sessionID: "s1")
+        store.state = DesktopState(projects: [project], conversations: [task], selectedProjectID: project.id, selectedConversationID: task.id)
+        let allow = PermissionOption(id: "allow", name: "Allow", kind: "allow_once")
+        store.runs[task.id, default: RunState()].approvals = [
+            Approval(requestID: 7, title: "Run ls", detail: "ls", options: [allow], toolCallID: "call_1"),
+            Approval(requestID: 8, title: "Edit a file", detail: "a.txt", options: [allow], toolCallID: "call_2"),
+        ]
+        XCTAssertTrue(store.receiveRemote("x.ai/remote/permission_resolved", params: ["sessionId": "s1", "toolCallId": "call_1"], id: task.id))
+        XCTAssertEqual(store.runs[task.id]?.approvals.map(\.toolCallID), ["call_2"])
+        XCTAssertEqual(store.banner, L10n.t("remote_answered_elsewhere", "Answered on another device."))
+    }
+
     // MARK: Languages
 
     func testRemoteControlReadsInEveryLanguage() {
         let english = L10n.englishRemote
         XCTAssertFalse(english.isEmpty)
-        // Words that are the same in a language: German keeps "Relay".
-        let same: Set<String> = ["de:remote_relay"]
+        // Words that are the same in a language: German keeps "Relay", "online" and "offline".
+        let same: Set<String> = ["de:remote_relay", "de:remote_computer_online", "de:remote_computer_offline"]
         for code in L10n.languageCodes where code != "en" {
             for (key, text) in english {
                 let translated = L10n.text(key, in: code)

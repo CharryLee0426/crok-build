@@ -520,6 +520,9 @@ extension AppStore {
         case "x.ai/remote/prompt":
             startRemoteTurn(params, id: id)
             return true
+        case "x.ai/remote/permission_resolved":
+            dropAnsweredApproval(params, id: id)
+            return true
         case "x.ai/session/prompt_complete":
             // The fire-and-forget end of every turn the harness ran through `prompt`.
             finishRemoteTurn(promptID: params["promptId"] as? String, stopReason: params["stopReason"] as? String, id: id)

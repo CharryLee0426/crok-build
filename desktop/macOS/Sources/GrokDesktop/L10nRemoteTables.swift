@@ -47,6 +47,12 @@ extension L10n {
         "remote_from_web": "from the web",
         "remote_from_help": "Sent through remote control",
         "remote_indicator_connected": "Remote control connected",
+        "remote_other_computers": "Other computers",
+        "remote_computer_offline": "offline",
+        "remote_computer_online": "online",
+        "remote_no_sessions": "No sessions",
+        "remote_open_session_help": "Open this session of {computer}",
+        "remote_answered_elsewhere": "Answered on another device.",
     ]
 
     // MARK: Simplified Chinese
@@ -91,6 +97,12 @@ extension L10n {
         "remote_from_web": "来自网页",
         "remote_from_help": "通过远程控制发送",
         "remote_indicator_connected": "远程控制已连接",
+        "remote_other_computers": "其他电脑",
+        "remote_computer_offline": "离线",
+        "remote_computer_online": "在线",
+        "remote_no_sessions": "没有会话",
+        "remote_open_session_help": "打开 {computer} 上的这个会话",
+        "remote_answered_elsewhere": "已在其他设备上回应。",
     ]
 
     // MARK: Japanese
@@ -135,6 +147,12 @@ extension L10n {
         "remote_from_web": "Web から",
         "remote_from_help": "リモートコントロールで送信",
         "remote_indicator_connected": "リモートコントロール接続中",
+        "remote_other_computers": "ほかのコンピューター",
+        "remote_computer_offline": "オフライン",
+        "remote_computer_online": "オンライン",
+        "remote_no_sessions": "セッションはありません",
+        "remote_open_session_help": "{computer} のこのセッションを開く",
+        "remote_answered_elsewhere": "別のデバイスで回答されました。",
     ]
 
     // MARK: Spanish
@@ -179,6 +197,12 @@ extension L10n {
         "remote_from_web": "desde la web",
         "remote_from_help": "Enviado por control remoto",
         "remote_indicator_connected": "Control remoto conectado",
+        "remote_other_computers": "Otros ordenadores",
+        "remote_computer_offline": "sin conexión",
+        "remote_computer_online": "en línea",
+        "remote_no_sessions": "Sin sesiones",
+        "remote_open_session_help": "Abrir esta sesión de {computer}",
+        "remote_answered_elsewhere": "Respondido en otro dispositivo.",
     ]
 
     // MARK: French
@@ -223,6 +247,12 @@ extension L10n {
         "remote_from_web": "depuis le web",
         "remote_from_help": "Envoyé par le contrôle à distance",
         "remote_indicator_connected": "Contrôle à distance connecté",
+        "remote_other_computers": "Autres ordinateurs",
+        "remote_computer_offline": "hors ligne",
+        "remote_computer_online": "en ligne",
+        "remote_no_sessions": "Aucune session",
+        "remote_open_session_help": "Ouvrir cette session de {computer}",
+        "remote_answered_elsewhere": "Répondu sur un autre appareil.",
     ]
 
     // MARK: German
@@ -267,5 +297,11 @@ extension L10n {
         "remote_from_web": "aus dem Web",
         "remote_from_help": "Über die Fernsteuerung gesendet",
         "remote_indicator_connected": "Fernsteuerung verbunden",
+        "remote_other_computers": "Andere Computer",
+        "remote_computer_offline": "offline",
+        "remote_computer_online": "online",
+        "remote_no_sessions": "Keine Sitzungen",
+        "remote_open_session_help": "Diese Sitzung von {computer} öffnen",
+        "remote_answered_elsewhere": "Auf einem anderen Gerät beantwortet.",
     ]
 }

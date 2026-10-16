@@ -583,7 +583,7 @@ final class TranscriptToolsModel: ObservableObject {
         let local = TranscriptMarkdownExport.render(conversation.messages)
         let binary = store.binaryPath
         if let session = conversation.sessionID, FileManager.default.isExecutableFile(atPath: binary) {
-            let cwd = store.state.projects.first { $0.id == conversation.projectID }?.path
+            let cwd = store.projectRecord(conversation.projectID)?.path
             if let output = try? await GrokCLI.run(binary, arguments: ["export", session], cwd: cwd, timeout: 60), output.status == 0 {
                 var text = output.text
                 if text.hasSuffix("\n") { text.removeLast() }

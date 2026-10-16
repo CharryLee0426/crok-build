@@ -23,6 +23,8 @@ struct Conversation: Identifiable, Codable, Sendable {
     var sideChat: [SideChatMessage]?
     /// The composer footer's token figures when the task last counted, so a task opened again shows them at once.
     var tokenUsage: SavedTokenUsage?
+    /// Set for a session of another computer (`sessionID` is `relay:…`): which computer has it.
+    var remote: RemoteTaskInfo?
 }
 
 extension Conversation {
@@ -146,6 +148,8 @@ struct Approval: Identifiable {
     var options: [PermissionOption]
     /// A browser or computer action, which the card words in the interface language.
     var device: DeviceCall?
+    /// The tool call it asks about; remote control drops the card when another device answers it.
+    var toolCallID: String?
 }
 
 struct PlanEntry: Identifiable {

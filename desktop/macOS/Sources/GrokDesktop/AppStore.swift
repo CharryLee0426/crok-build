@@ -57,6 +57,16 @@ final class AppStore: ObservableObject {
     var remoteStatuses: [UUID: RemoteBridgeStatus] = [:]
     /// Tasks running a prompt that a phone or the web sent, by its prompt id (`remote-…`).
     var remoteTurns: [UUID: String] = [:]
+    /// The person's other computers and their sessions, from the remote host (see `RemoteSessions.swift`).
+    @Published var remoteComputers: [RemoteComputer] = []
+    /// The background harness that keeps this Mac reachable and lists the other computers.
+    var remoteHost: ACPClient?
+    /// The host's key among the bridges `remoteLink` combines.
+    let remoteHostID = UUID()
+    var remoteHostReady = false
+    var remoteHostLoop: Task<Void, Never>?
+    var remoteHostRetryAt: Date?
+    var remoteSessionsAskedAt: Date?
     @Published var showRename = false
     /// The command sheet on screen, if any.
     @Published var sheet: DesktopSheet?
@@ -156,6 +166,7 @@ final class AppStore: ObservableObject {
     private var catalogLoadingProjectID: UUID?
     private var catalogClient: ACPClient?
     private let stateFile: URL
+    var stateFileDirectory: URL { stateFile.deletingLastPathComponent() }
     /// The browser's history, bookmarks, and open tabs, beside the state file.
     var browserDirectory: URL { stateFile.deletingLastPathComponent().appendingPathComponent("browser", isDirectory: true) }
     private let defaults: UserDefaults
@@ -199,7 +210,7 @@ final class AppStore: ObservableObject {
     private var loginProcess: Process?
     private let git = WorkspaceService()
 
-    var project: Project? { state.projects.first { $0.id == state.selectedProjectID } }
+    var project: Project? { projectRecord(state.selectedProjectID) }
     var conversation: Conversation? { state.selectedConversationID.flatMap(task) }
     var run: RunState {
         var catalog = catalogRun
@@ -332,7 +343,9 @@ final class AppStore: ObservableObject {
             catalogRun.modelID = state.selectedModelID ?? ""
             updateCatalogReasoning(preferred: state.selectedReasoningID)
         }
-        if state.projects.contains(where: { $0.id == state.selectedProjectID }) == false { state.selectedProjectID = state.projects.first?.id }
+        if state.projects.contains(where: { $0.id == state.selectedProjectID }) == false, state.selectedProjectID != RemoteSessions.projectID {
+            state.selectedProjectID = state.projects.first?.id
+        }
         if let tab = defaults.string(forKey: "sidePanelTab").flatMap(SidePanelTab.init(rawValue:)) { sidePanelTab = tab }
         updateMenuState()
         menuStateObserver = objectWillChange.sink { [weak self] _ in
@@ -343,6 +356,8 @@ final class AppStore: ObservableObject {
                 DispatchQueue.main.async { [weak self] in self?.updateMenuState() }
             }
         }
+        // Only the app proper keeps a remote host; a store built for a test or a preview does not.
+        if binaryPath == nil { startRemoteHost() }
     }
 
     private func updateMenuState() {
@@ -735,7 +750,12 @@ final class AppStore: ObservableObject {
         if let commands = (initial["_meta"] as? [String: Any])?["availableCommands"] as? [[String: Any]] {
             runs[id, default: RunState()].commands = SlashCommand.parse(commands)
         }
-        try await authenticate(client, initial: initial)
+        if task(id)?.remote == nil {
+            try await authenticate(client, initial: initial)
+        } else {
+            // A session of another computer runs its model there: no provider needs to be signed in here.
+            try? await authenticate(client, initial: initial)
+        }
         try checkOperation(id, operationID: operationID)
         var params: [String: Any] = ["cwd": project.path, "mcpServers": []]
         let sessionMeta = features.composer.sessionMeta()
@@ -949,7 +969,8 @@ final class AppStore: ObservableObject {
             } else if let input = tool["rawInput"], let data = try? JSONSerialization.data(withJSONObject: input, options: [.prettyPrinted, .fragmentsAllowed, .sortedKeys]) {
                 detail = String(data: data, encoding: .utf8) ?? ""
             } else { detail = "Crok needs your permission to continue." }
-            runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: tool["title"] as? String ?? "Permission required", detail: detail, options: options, device: device))
+            runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: tool["title"] as? String ?? "Permission required", detail: detail, options: options, device: device,
+                                                                    toolCallID: tool["toolCallId"] as? String))
         } else if method == "x.ai/folder_trust/request" {
             let kinds = (params["configKinds"] as? [String] ?? []).joined(separator: ", ")
             runs[id, default: RunState()].approvals.append(Approval(requestID: requestID, title: "Trust project configuration?",
@@ -1538,6 +1559,8 @@ final class AppStore: ObservableObject {
         catalogClient?.stop(); catalogClient = nil
         loginProcess?.terminate()
         remoteControl.shutdown()
+        remoteHostLoop?.cancel(); remoteHostLoop = nil
+        stopRemoteHost()
         features.terminals.terminateAll()
         features.browser.shutdown()
     }
