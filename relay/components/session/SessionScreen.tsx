@@ -64,6 +64,7 @@ function LiveSession({ id }: { id: SessionId }) {
   const retryCommand = useMutation(api.commands.retry);
   const discardCommand = useMutation(api.commands.discard);
   const requestInfo = useMutation(api.commands.requestInfo);
+  const answerRequest = useMutation(api.commands.answer);
   // Pin and archive from the info panel move the row in the list at once, like the list's own menu.
   const sessionActions = useSessionActions();
   const watch = useMutation(api.sessions.watch);
@@ -71,6 +72,7 @@ function LiveSession({ id }: { id: SessionId }) {
 
   const [outbox, setOutbox] = useState<OutboxItem[]>([]);
   const [stopping, setStopping] = useState(false);
+  const [answering, setAnswering] = useState<string | null>(null);
   const [infoCommandId, setInfoCommandId] = useState<CommandId | null>(null);
   const [infoLocal, setInfoLocal] = useState<InfoState["state"]>("idle");
   const infoCommand = useQuery(api.commands.get, infoCommandId ? { commandId: infoCommandId } : "skip");
@@ -162,19 +164,21 @@ function LiveSession({ id }: { id: SessionId }) {
     [id, sendPrompt, errorText],
   );
 
-  // Info: ask the computer for fresh numbers when the panel opens; fall back to the stored ones.
-  const online = session?.online ?? false;
+  // "Answering…" lasts until the computer takes the answer (the request goes from the session).
+  const pendingId = session?.pending?.id ?? null;
+  useEffect(() => {
+    if (answering && answering !== pendingId) setAnswering(null);
+  }, [answering, pendingId]);
+
+  // Info: ask the computer for fresh numbers when the panel opens. For a session nobody runs the relay answers at once
+  // with what the computer last reported.
   const doRequestInfo = useCallback(() => {
-    if (!online) {
-      setInfoLocal("offline");
-      return;
-    }
     setInfoLocal("loading");
     requestInfo({ sessionDocId: id }).then(
       ({ commandId }) => setInfoCommandId(commandId),
       (error) => setInfoLocal(relayError(error).code === "OFFLINE" ? "offline" : "failed"),
     );
-  }, [id, online, requestInfo]);
+  }, [id, requestInfo]);
 
   useEffect(() => {
     if (infoLocal !== "loading") return;
@@ -183,8 +187,10 @@ function LiveSession({ id }: { id: SessionId }) {
   }, [infoLocal, infoCommandId]);
 
   let info: InfoState = { state: infoLocal, result: null };
-  if (infoCommand?.status === "done") info = { state: "ready", result: (infoCommand.result ?? null) as SessionInfoResult | null };
-  else if (infoCommand?.status === "failed") info = { state: "failed", result: null };
+  if (infoCommand?.status === "done") {
+    const result = (infoCommand.result ?? null) as (SessionInfoResult & { stored?: boolean }) | null;
+    info = { state: result?.stored ? "offline" : "ready", result };
+  } else if (infoCommand?.status === "failed") info = { state: "failed", result: null };
   else if (infoLocal === "loading" && !infoCommand) info = { state: "loading", result: null };
 
   if (session === undefined) return <Loading />;
@@ -203,9 +209,17 @@ function LiveSession({ id }: { id: SessionId }) {
     pending,
     info,
     stopping,
+    answering,
     now,
     actions: {
       send: (text) => send(text),
+      answer: (interactionId, optionId) => {
+        setAnswering(interactionId);
+        answerRequest({ sessionDocId: id, interactionId, optionId }).catch((error) => {
+          setAnswering(null);
+          toast.show(errorText(error), "error");
+        });
+      },
       stop: () => {
         setStopping(true);
         stopTurn({ sessionDocId: id }).catch((error) => {

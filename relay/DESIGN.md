@@ -3,8 +3,10 @@
 Status: first implementation, 2026-10-15. Branch `worktree-remote-relay`.
 
 Crok runs on your computers (the `crok` TUI and Crok Desktop). Remote control lets you follow and steer those sessions
-from a phone or a browser: see every session on every computer, read the transcript as it streams, send a prompt, stop
-the running turn, and look at the session's info (model, tokens, cost, context, plan).
+from a phone, a browser or another of your computers: see every session on every computer, read the transcript as it
+streams, send a prompt to any of them (open or not, as long as its computer runs crok), stop the running turn, answer
+its permission requests, and look at the session's info (model, tokens, cost, context, plan). Every device is a peer:
+a computer lists the other computers' sessions next to its own and works in them like in its own.
 
 ```
  computers                                   relay (Convex)                        viewers
@@ -75,9 +77,10 @@ the same tiny auth surface, and lets the person see and revoke every linked devi
   device and when it asked, and says to approve only a sign-in you just started. Codes live ten minutes.
 - **Brute-forcing user codes**: 20⁸ codes, ten-minute lifetime, approval requires a signed-in account; a guess links
   the attacker's account to someone else's device at worst, not the reverse.
-- **Remote execution**: a prompt from a phone runs on the computer with the session's own permission mode; permission
-  prompts still appear on the computer (the phone shows "Waiting for approval on <computer>"). A computer can turn
-  control off (`[remote] enabled = false`) or sign out.
+- **Remote execution**: a prompt from another device runs on the computer with the session's own permission mode,
+  also in a session nobody has open there (crok opens it). Permission requests are offered on the relay to every device
+  of the person and, for a session the computer shows, on the computer too; the first answer counts. A computer can
+  turn control off (`[remote] enabled = false`) or sign out.
 - **Data at rest on the relay**: transcripts are stored in the person's own Convex deployment. End-to-end encryption is
   listed under future work.
 
@@ -88,12 +91,12 @@ the same tiny auth surface, and lets the person see and revoke every linked devi
 | `users` | a person | `users.ensure` | `tokenIdentifier` from Clerk |
 | `devices` | a linked computer or phone | `deviceAuth`, `devices`, `bridge` | `refreshTokenHash`, coarse `lastSeenAt`, `online`, `revokedAt` |
 | `deviceLogins` | a sign-in in progress | `deviceAuth` | `deviceCodeHash`, `userCode`, `status` pending → approved → consumed |
-| `hosts` | one running crok process | `bridge.connect/heartbeat` | heartbeat every 30 s touches only this row |
-| `sessions` | a crok session on a computer: mirrored live, or listed from disk | `bridge.upsertSession`, `bridge.catalogBatch` | title, cwd, `projectPath`, model, status, `online`, preview, plan, usage, unread counters, `position`, `historyState` |
+| `hosts` | one running crok process | `bridge.connect/heartbeat` | heartbeat every 30 s touches only this row; `canAdopt`: it opens sessions nobody runs |
+| `sessions` | a crok session on a computer: mirrored live, or listed from disk | `bridge.upsertSession`, `bridge.catalogBatch`, `bridge.setPending` | title, cwd, `projectPath`, model, status, `online`, preview, plan, usage, unread counters, `position`, `historyState`, `pending` (a permission request) |
 | `projects` | a folder sessions are grouped under, per computer | `bridge`, `sessions.reorderProjects` | `path`, `position` (hand-placed order) |
 | `catalogSyncs` | the last "list every session on disk" per computer | `bridge.beginCatalog/finishCatalog` | one crok process per computer does it, at most every 10 min |
 | `events` | one transcript item | `bridge.pushEvents` | `seq` order, `key` for in-place updates (streaming text, tool status) |
-| `commands` | a prompt / stop / info request | viewers; `bridge.claim/complete` | `pending → delivered → done/failed`, `clientId` for idempotency |
+| `commands` | a prompt / stop / info / answer / history request | viewers; `bridge.claim/complete` | `pending → delivered → done/failed`, `clientId` for idempotency; `interactionId` for an answer |
 | `sessionViews` | "someone has this session open" | `sessions.watch` | the bridge streams finely only while one is live |
 
 Write-amplification rules (Convex re-runs a subscription whenever a document it read changes):
@@ -129,8 +132,25 @@ A running crok (one per computer at a time, at most every 10 minutes) lists ever
 title, cwd, project, times, model, last-turn summary. New ones arrive offline with `historyState: "none"`; sessions
 deleted on the computer are dropped. When a viewer opens one (`sessions:watch`) while the computer is online, the
 relay queues a `history` command; any crok there claims it, reads the transcript from disk (`x.ai/session/updates`,
-last 20 turns) and pushes it (`historyState` → `requested` → `ready`). Sessions not running anywhere are read-only:
-sending a prompt is `OFFLINE`, as before.
+last 20 turns) and pushes it (`historyState` → `requested` → `ready`).
+
+### Prompts for sessions nobody runs
+
+A session no crok process runs still takes prompts while its computer is online. `commands:sendPrompt` refuses only
+when no crok on that computer can open sessions (`OFFLINE`: no online host with `canAdopt`). The inbox offers such a
+prompt (`adopt: true`) to every crok of the computer; the first `claimCommand` makes that crok the session's runner at
+once (`hostId`, `online`, `status: running`), so the next commands for the session (Stop, more prompts, answers) go to
+it while it opens the session (§4, "Adopted sessions"). Stop for a session nobody runs fails the prompts no crok
+picked up yet and is done at once; info is answered at once from the stored row (`result.stored: true`).
+
+### Permission requests from any device
+
+While a session waits on a permission request (run this command, edit that file), its runner publishes it as
+`sessions.pending` (`{id, kind: "permission", title, detail?, toolKind?, options: [{optionId, name, kind}], at}`,
+`bridge:setPending`) and sets the status to `waiting`. Any device answers with `commands:answer({sessionDocId,
+interactionId, optionId})`; the first answer counts (an answer for a request that is no longer pending is `EXPIRED`).
+For a session the computer shows, the computer asks too, and whichever answer comes first goes to the agent; the other
+side drops its prompt (`x.ai/remote/permission_resolved {sessionId, toolCallId}` tells the TUI and Crok Desktop).
 
 ## 3. API (the contract every client codes against)
 
@@ -172,7 +192,7 @@ callback.
 |---|---|---|
 | `sessions:groups` (query) | — | `[{key, deviceId, deviceName, deviceOnline, path, name, placed, lastActivityAt, sessions: [row]}]` — the main list: non-archived sessions grouped by project, both levels in list order (above) |
 | `sessions:list` (query) | `archived?: boolean` | `[row]` flat, pinned first, then newest (the Archived tab) |
-| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow}, eventSeq}` |
+| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}}` |
 | `sessions:reorderProjects` (mutation) | `keys: string[]` | `null` — some project keys in their new order (all, or one computer's) |
 | `sessions:reorderSessions` (mutation) | `projectKey, sessionDocIds: string[]` | `null` — some of the project's sessions in their new order |
 | `sessions:resetOrder` (mutation) | `projectKey?` | `null` — with a key: that project's sessions back to newest first; without: the projects |
@@ -200,15 +220,18 @@ An **event** is `{_id, seq, key, kind, text, title?, toolKind?, status?, origin?
   `refusal`, …); `kind: "error"` — a failure line.
 
 Session `status`: `idle`, `running` (a turn is in progress: show Stop), `waiting` (the agent asked a question or a
-permission on the computer), `error`. `online: false` = no crok process runs it now (read-only).
+permission; `pending` holds a permission request any device can answer), `error`. `online: false` = no crok process
+runs it now; it still takes prompts while `deviceOnline` (its computer opens it). Clients gate the composer on
+`deviceOnline`.
 
 ### Commands (viewers)
 
 | function | args | returns |
 |---|---|---|
-| `commands:sendPrompt` (mutation) | `sessionDocId, text, clientId` (UUID) | `{commandId}`; same `clientId` → same command; throws `OFFLINE` |
-| `commands:stop` (mutation) | `sessionDocId` | `{commandId}` |
-| `commands:requestInfo` (mutation) | `sessionDocId` | `{commandId}`; the answer arrives in `commands:get(...).result` |
+| `commands:sendPrompt` (mutation) | `sessionDocId, text, clientId` (UUID) | `{commandId}`; same `clientId` → same command; throws `OFFLINE` only when no crok on its computer can take it |
+| `commands:stop` (mutation) | `sessionDocId` | `{commandId}` (done at once for a session nobody runs) |
+| `commands:requestInfo` (mutation) | `sessionDocId` | `{commandId}`; the answer arrives in `commands:get(...).result` (at once, `stored: true`, for a session nobody runs) |
+| `commands:answer` (mutation) | `sessionDocId, interactionId, optionId` | `{commandId}`; throws `EXPIRED` when that request is no longer pending |
 | `commands:get` (query) | `commandId` | the command row or `null` |
 | `commands:forSession` (query) | `sessionDocId` | recent prompts `[{_id, clientId, text, status, error, fromLabel, fromDeviceId, mine, createdAt, updatedAt}]`; `mine` = sent by this caller |
 | `commands:retry` / `discard` (mutation) | `commandId` | `null` |
@@ -225,17 +248,18 @@ of sending (keyed by `clientId`) until the transcript holds the user event whose
 
 | function | args | returns |
 |---|---|---|
-| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?` | `{hostId, deviceId, serverTime}` |
+| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?, canAdopt?` | `{hostId, deviceId, serverTime}` |
 | `bridge:heartbeat` | `hostId` | `{serverTime}` (every 30 s) |
 | `bridge:disconnect` | `hostId` | `null` |
 | `bridge:upsertSession` | `hostId, sessionId, fields:{title?, cwd?, model?, effort?, gitBranch?, status?, preview?, previewKind?, plan?, usage?, createdAt?, lastActivityAt?, projectPath?}` | `{sessionDocId, eventSeq, created}` |
 | `bridge:closeSession` | `hostId, sessionId` | `null` |
 | `bridge:pushEvents` | `hostId, sessionDocId, replace?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history) |
-| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer |
+| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer, a prompt for one (`adopt: true`) to every host with `canAdopt`; `hosted` = the sessions the relay has this host running |
+| `bridge:setPending` | `hostId, sessionId, pending?` | `null` — the session's permission request, or none (absent) once answered or gone |
 | `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another host did it lately, or is doing it) |
 | `bridge:catalogBatch` | `hostId, syncId, sessions:[{sessionId, title, cwd, projectPath, createdAt, lastActivityAt, model?, effort?, gitBranch?, preview?}]` (≤100) | `{added}` |
 | `bridge:finishCatalog` | `hostId, syncId, sessionIds: string[]` (all listed) | `{removed}` — offline sessions of this computer not listed are dropped |
-| `bridge:claimCommand` | `hostId, commandId` | `boolean` |
+| `bridge:claimCommand` | `hostId, commandId` | `boolean` — claiming a prompt for a session nobody runs makes this host its runner |
 | `bridge:completeCommand` | `hostId, commandId, status: done\|failed, result?, error?` | `null` |
 
 ## 4. The bridge (computer side)
@@ -278,6 +302,41 @@ transcript from `updates.jsonl` (`x.ai/session/updates`).
 Turn state survives sign-in at any time: the tee always passes on the once-per-turn `x.ai/session/prompt_complete`,
 and on sign-in the bridge reads each session's running prompt from the agent instead of trusting what it saw before.
 
+### Adopted sessions
+
+A prompt for a session nobody runs (`adopt: true`, §2) is claimed by whichever crok of the computer gets there first.
+That bridge loads the session into its own agent (`load_session` with `_meta.noReplay`) and keeps it from its front
+end: the tee drops the session's notifications, refuses its questions and plan approvals, and hands its permission
+requests to the bridge, which offers them on the relay only. Once loaded, the mirror registers (with the usual
+backfill, which leaves out the prompt that is starting) and the prompt runs. The bridge closes an adopted session after
+ten minutes without a turn or a viewer, at once while signed out, and when another crok of the computer took the
+session over (it is gone from the inbox's `hosted`), so two processes do not write one session. If the person opens
+it in that same process (`/resume`, Crok Desktop), it is theirs from then on.
+
+Crok Desktop keeps one harness of its own running while the Mac is signed in and sharing (the "remote host"), so a Mac
+with no task open still takes prompts and lists the other computers' sessions.
+
+### Sessions on other computers
+
+A computer is a viewer too. `ObservedAgent` serves every session id `relay:<sessionDocId>` from the relay instead of
+the agent (`remote_control/viewer.rs`), so the TUI and Crok Desktop open another computer's session like one of their
+own:
+
+- `session/load` reads the session (`sessions:get`) and the last 200 transcript items (`sessions:events`) and replays
+  them as `session/update`s marked `isReplay`; then it watches the session, its newest 40 items and its prompts.
+- New and growing items become `user_message_chunk` / `agent_message_chunk` / `agent_thought_chunk` deltas and
+  `tool_call` / `tool_call_update`s. A transcript the computer re-sent under new keys (it read it from disk again) is
+  matched by content and not shown twice. Turns started elsewhere come with `x.ai/remote/prompt` and end with
+  `x.ai/session/prompt_complete`, as a phone's prompt does in a local session.
+- `session/prompt` is `commands:sendPrompt`; it returns when the command is done and the session is idle (after a
+  short settle, so the last transcript update lands first). `session/cancel` is `commands:stop`.
+- The session's `pending` request becomes an ordinary `session/request_permission` to the front end; its choice goes
+  back as `commands:answer`.
+- `x.ai/remote/sessions` (`{watch: true}` keeps `x.ai/remote/sessions_changed` coming for ten minutes) lists the other
+  computers' sessions (`sessions:groups` without this computer); `x.ai/session/list` adds them as rows with
+  `source: relay` when asked (`otherComputers: true`, or any search).
+- Setting a model, mode or option, and forking, are refused for such a session; they belong to its computer.
+
 Not covered yet: the leader (`[cli] use_leader = true`, where the TUI talks to a shared `crok agent leader`), `crok agent
 serve` and headless `crok -p` runs host no bridge, so their sessions are not mirrored.
 
@@ -304,6 +363,9 @@ the Android build) and the web app (`NEXT_PUBLIC_CONVEX_URL`). `--server` (hidde
 - `crok remote logout`, `crok remote status [--json]`.
 - TUI: `/remote` shows status and signs in or out in place (`/remote login`, `/remote logout`); the footer shows a
   phone glyph while the bridge is connected; Settings has a "Remote control" row (`[remote] enabled`).
+- TUI: `/resume` lists the other computers' sessions too ("Title · Computer", badge "other computer"); picking one opens
+  it (§4, "Sessions on other computers"). A permission request answered on another device leaves the prompt queue with
+  "Answered on another device".
 
 ### Crok Desktop
 
@@ -312,6 +374,9 @@ the Android build) and the web app (`NEXT_PUBLIC_CONVEX_URL`). `--server` (hidde
   "Sign out".
 - A remote prompt (`_x.ai/remote/prompt`) appears in the transcript with a small "from <phone>" label and the task
   shows as running, the same as a typed prompt.
+- The sidebar has an "Other computers" section (from the remote host): each computer with its sessions; clicking one
+  opens it as a task (`relay:` session id, kept under a hidden project whose folder is the app's own) that the other
+  computer runs. An approval answered on another device leaves the task.
 
 ### The session list (web, iOS, Android alike)
 
@@ -322,9 +387,12 @@ the Android build) and the web app (`NEXT_PUBLIC_CONVEX_URL`). `--server` (hidde
   project key). A section shows its first 5 sessions, then "Show N more" / "Show less".
 - Rows as before (avatar, title, time, preview or "working…", badges), but the second line shows the session's own
   folder only when it differs from the project's name (the header names project and computer).
-- Sessions only on the computer's disk (`online: false`) look like other offline rows; opening one shows "Loading from
-  <computer>…" until its history arrives, or "<computer> is offline…" (see `historyState` above). The composer stays
-  blocked as for any offline session.
+- Sessions only on the computer's disk (`online: false`) look like any other row while their computer is online, and
+  dimmed when it is not; opening one shows "Loading from <computer>…" until its history arrives, or "<computer> is
+  offline…" (see `historyState` above). The composer works whenever the computer is online (a prompt opens the session
+  there) and is blocked only while it is offline.
+- A pending permission request shows as a card above the composer: "Crok on <computer> asks:", the request, its
+  detail, and a button per choice (allow ones prominent); a tap answers it (`commands:answer`).
 - **Reorder projects**: drag a section header (web: pointer drag with a handle; iOS: Edit mode's move handles; Android:
   drag handle in Reorder mode), or a header menu's **Move up** / **Move down**, then `sessions:reorderProjects` with
   the keys visible in the current tab in their new order. **Reorder sessions** the same way within a section
@@ -395,8 +463,8 @@ command `npx convex deploy --cmd 'npm run build'`, then point crok and the apps 
 
 ## 9. Future work
 
-- Answer permission prompts and questions from the phone (`PendingInteraction` → actionable banner, like Telegram's
-  "Is this you?" review panel).
+- Answer questions and plan approvals from other devices (permission requests already can be; an adopted session
+  refuses questions for now).
 - Push notifications for "turn finished" and "needs approval" (APNs / FCM via a Convex action; per-session threads and
   Approve / Deny actions, as Telegram's notification service does).
 - Start a new session on a chosen computer and folder from the phone.

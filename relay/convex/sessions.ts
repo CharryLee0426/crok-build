@@ -146,6 +146,8 @@ export const get = query({
       projectPath,
       projectName: projectName(projectPath),
       historyState: session.historyState ?? null,
+      /** A permission request waiting for an answer (`commands:answer`), or null. */
+      pending: session.pending ?? null,
     };
   },
 });

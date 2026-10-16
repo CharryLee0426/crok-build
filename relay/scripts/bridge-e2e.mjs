@@ -13,7 +13,7 @@
 // the sign-in is listed, grouped with the running one, and that opening it fetches its transcript from disk.
 
 import { execFileSync, spawn } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
 
@@ -68,9 +68,13 @@ function approve(userCode) {
   });
 }
 
-/** A `crok agent stdio` process (what Crok Desktop runs per task), initialized and signed in to its model. */
-async function startAgent() {
-  const agent = spawn(CROK, ["agent", "stdio"], { cwd: PROJECT, env: { ...env, GROK_CLIENT_VERSION: "e2e" } });
+/**
+ * A `crok agent stdio` process (what Crok Desktop runs per task), initialized and signed in to its model. Permission
+ * requests are held in `permissions` for the test to answer (`answer(request, optionId)`), not refused.
+ */
+async function startAgent(agentEnv = env) {
+  const agent = spawn(CROK, ["agent", "stdio"], { cwd: PROJECT, env: { ...agentEnv, GROK_CLIENT_VERSION: "e2e" } });
+  const permissions = [];
   let stderr = "";
   agent.stderr.on("data", (d) => (stderr += d));
   const exited = new Promise((resolve) => agent.on("exit", resolve));
@@ -106,12 +110,18 @@ async function startAgent() {
       // Requests from the agent: trust the folder, refuse everything else.
       const method = message.method.replace(/^_/, "");
       if (method === "x.ai/folder_trust/request") write({ id: message.id, result: { outcome: "trust" } });
-      else if (method === "session/request_permission") write({ id: message.id, result: { outcome: { outcome: "cancelled" } } });
+      else if (method === "session/request_permission") permissions.push({ id: message.id, params: message.params });
       else write({ id: message.id, error: { code: -32601, message: `unsupported: ${method}` } });
       return;
     }
     if (message.method) notifications.push({ method: message.method.replace(/^_/, ""), params: message.params });
   });
+  const answer = (request, optionId) =>
+    write({
+      id: request.id,
+      result: { outcome: optionId ? { outcome: "selected", optionId } : { outcome: "cancelled" } },
+    });
+  const notify = (method, params) => write({ method, params });
   const init = await rpc("initialize", {
     protocolVersion: 1,
     clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
@@ -119,8 +129,15 @@ async function startAgent() {
   });
   const methods = (init.authMethods ?? []).map((m) => m.id);
   if (methods.includes("xai.api_key")) await rpc("authenticate", { methodId: "xai.api_key", _meta: { headless: true } });
-  return { agent, rpc, notifications, exited, stderr: () => stderr };
+  return { agent, rpc, notify, notifications, permissions, answer, exited, stderr: () => stderr };
 }
+
+// The file the mock model's "marker command" touches (start mock-llm.py with the same E2E_MARKER).
+const marker = process.env.E2E_MARKER ?? "/tmp/.e2e-permission-marker";
+const markerName = marker.split("/").pop();
+rmSync(marker, { force: true });
+/** The phone's choice for a pending request: the first "allow once" option. */
+const allowOnce = (pending) => pending.options.find((o) => o.kind === "allow_once")?.optionId ?? pending.options[0]?.optionId;
 
 console.log(`Bridge e2e: ${CROK}\n  relay ${url}\n  home ${HOME}\n  project ${PROJECT}`);
 
@@ -137,19 +154,24 @@ check(olderTurn.stopReason === "end_turn", "an older session runs while signed o
 older.agent.stdin.end();
 await Promise.race([older.exited, sleep(15_000)]);
 
+/** `crok remote login` for a computer, approved as the test person; returns the exit code, events and stderr. */
+async function signIn(loginEnv, name) {
+  const login = spawn(CROK, ["remote", "login", "--json", "--no-browser", "--server", url, "--name", name], { env: loginEnv });
+  const events = [];
+  let stderr = "";
+  login.stderr.on("data", (d) => (stderr += d));
+  const done = new Promise((resolve) => login.on("exit", resolve));
+  for await (const line of createInterface({ input: login.stdout })) {
+    const event = JSON.parse(line);
+    events.push(event);
+    if (event.event === "code") approve(event.userCode);
+  }
+  return { code: await done, events, stderr };
+}
+
 // 1. `crok remote login` signs this computer in.
 console.log("crok remote login");
-const login = spawn(CROK, ["remote", "login", "--json", "--no-browser", "--server", url, "--name", "E2E Mac"], { env });
-const loginEvents = [];
-let loginErr = "";
-login.stderr.on("data", (d) => (loginErr += d));
-const loginDone = new Promise((resolve) => login.on("exit", resolve));
-for await (const line of createInterface({ input: login.stdout })) {
-  const event = JSON.parse(line);
-  loginEvents.push(event);
-  if (event.event === "code") approve(event.userCode);
-}
-const loginCode = await loginDone;
+const { code: loginCode, events: loginEvents, stderr: loginErr } = await signIn(env, "E2E Mac");
 check(loginCode === 0, "login exits 0", loginErr.slice(-500));
 check(loginEvents[0]?.event === "code" && /^[B-Z]{4}-[B-Z]{4}$/.test(loginEvents[0].userCode), "prints the code first");
 check(loginEvents.at(-1)?.event === "signed_in" && loginEvents.at(-1).account.name === "Bridge Tester", "then signed_in with the account");
@@ -160,7 +182,15 @@ check(status.signedIn && status.reachable && status.deviceName === "E2E Mac", "c
 
 // 2. A task process, driven like Crok Desktop drives it.
 console.log("crok agent stdio");
-const { agent, rpc, notifications, exited: agentExit, stderr: agentStderr } = await startAgent();
+const {
+  agent,
+  rpc,
+  notifications,
+  permissions,
+  answer: answerHere,
+  exited: agentExit,
+  stderr: agentStderr,
+} = await startAgent();
 const { sessionId } = await rpc("session/new", { cwd: PROJECT, mcpServers: [] });
 check(typeof sessionId === "string", "session/new", sessionId);
 const firstTurn = await rpc("session/prompt", {
@@ -226,14 +256,58 @@ check(
   olderEvents?.map((e) => [e.kind, e.text.slice(0, 40)]),
 );
 const olderNow = await phone.query("sessions:get", { sessionDocId: olderRow?._id });
-check(olderNow?.historyState === "ready" && !olderNow.online, "it is marked loaded and stays read-only", olderNow?.historyState);
-let readOnly;
-try {
-  await phone.mutation("commands:sendPrompt", { sessionDocId: olderRow._id, text: "hi", clientId: crypto.randomUUID() });
-} catch (error) {
-  readOnly = error.data?.code;
-}
-check(readOnly === "OFFLINE", "a prompt to it is refused as offline", readOnly);
+check(olderNow?.historyState === "ready" && !olderNow.online, "it is marked loaded, and nobody runs it", olderNow?.historyState);
+
+// 3c. A prompt for it all the same: the running crok opens the session (out of its front end's sight) and runs it.
+console.log("a prompt for a session nobody runs");
+const { commandId: olderPromptId } = await phone.mutation("commands:sendPrompt", {
+  sessionDocId: olderRow._id,
+  text: "and one more thing",
+  clientId: crypto.randomUUID(),
+});
+const olderPrompt = await until("the prompt to the older session finishes", async () => {
+  const command = await phone.query("commands:get", { commandId: olderPromptId });
+  return command?.status === "done" || command?.status === "failed" ? command : null;
+}, 60_000);
+check(olderPrompt?.status === "done", "it runs to the end (two ticks)", olderPrompt);
+const olderReplied = await until("its reply is mirrored", async () => {
+  const page = (await phone.query("sessions:events", { sessionDocId: olderRow._id, paginationOpts: { numItems: 50, cursor: null } })).page.reverse();
+  const prompt = page.find((e) => e.commandId === olderPromptId);
+  return prompt && page.some((e) => e.kind === "assistant" && e.seq > prompt.seq && e.text.includes("Hi from mock")) ? page : null;
+}, 30_000);
+check(
+  olderReplied?.filter((e) => e.kind === "user").map((e) => e.text).join(" | ") === "an older question from yesterday | and one more thing",
+  "the transcript holds the old turn and the new one, once each",
+  olderReplied?.map((e) => [e.kind, e.text.slice(0, 30)]),
+);
+const olderLive = await phone.query("sessions:get", { sessionDocId: olderRow._id });
+check(olderLive?.online && olderLive.status === "idle", "the session now runs on the computer, idle", olderLive && [olderLive.online, olderLive.status]);
+// Its permission requests go to the other devices only: nobody on this computer sees the session.
+const { commandId: olderMarkerId } = await phone.mutation("commands:sendPrompt", {
+  sessionDocId: olderRow._id,
+  text: "please run the marker command",
+  clientId: crypto.randomUUID(),
+});
+const olderAsk = await until("its permission request reaches the relay", async () => (await phone.query("sessions:get", { sessionDocId: olderRow._id })).pending, 60_000);
+check(
+  olderAsk?.kind === "permission" && (olderAsk.detail ?? "").includes(markerName) && olderAsk.options.length >= 2,
+  "the phone sees what the hidden session asks, with its choices",
+  olderAsk,
+);
+check((await phone.query("sessions:get", { sessionDocId: olderRow._id })).status === "waiting", "the session shows it waits");
+await phone.mutation("commands:answer", { sessionDocId: olderRow._id, interactionId: olderAsk.id, optionId: allowOnce(olderAsk) });
+const olderMarker = await until("the allowed turn ends", async () => {
+  const command = await phone.query("commands:get", { commandId: olderMarkerId });
+  return command?.status === "done" || command?.status === "failed" ? command : null;
+}, 60_000);
+check(olderMarker?.status === "done" && existsSync(marker), "allowed from the phone, the command ran", olderMarker);
+check((await phone.query("sessions:get", { sessionDocId: olderRow._id })).pending === null, "nothing is pending any more");
+rmSync(marker, { force: true });
+check(
+  !notifications.some((n) => n.params?.sessionId === olderId) && !permissions.some((p) => p.params?.sessionId === olderId),
+  "the computer's front end heard nothing of it, requests included",
+  notifications.filter((n) => n.params?.sessionId === olderId).map((n) => n.method),
+);
 
 // 4. A prompt from the phone.
 console.log("remote prompt");
@@ -298,6 +372,120 @@ const idle = await until("back to idle", async () => (await phone.query("session
 check(Boolean(idle), "the session is idle again");
 const partial = (await events()).find((e) => e.kind === "assistant" && e.text.includes("word0"));
 check(partial && !partial.text.includes("word59"), "the reply was cut short", partial?.text?.slice(-40));
+
+// 6b. A permission request in a session the computer shows: the computer and the phone are both asked; the phone wins.
+console.log("permission, answered on the phone");
+const { commandId: markerId } = await phone.mutation("commands:sendPrompt", {
+  sessionDocId,
+  text: "please run the marker command",
+  clientId: crypto.randomUUID(),
+});
+const asked = await until("the request is on the relay", async () => (await phone.query("sessions:get", { sessionDocId })).pending, 60_000);
+check(asked?.kind === "permission" && (asked.detail ?? "").includes(markerName), "the phone sees what is asked", asked);
+const askedHere = permissions.find((p) => p.params?.sessionId === sessionId);
+check(Boolean(askedHere), "the computer is asked too");
+await phone.mutation("commands:answer", { sessionDocId, interactionId: asked.id, optionId: allowOnce(asked) });
+const markerDone = await until("the allowed turn ends", async () => {
+  const command = await phone.query("commands:get", { commandId: markerId });
+  return command?.status === "done" || command?.status === "failed" ? command : null;
+}, 60_000);
+check(markerDone?.status === "done" && existsSync(marker), "the command ran once the phone allowed it", markerDone);
+check(
+  notifications.some((n) => n.method === "x.ai/remote/permission_resolved" && n.params?.sessionId === sessionId),
+  "the computer is told to drop its own prompt",
+);
+if (askedHere) answerHere(askedHere, null);
+rmSync(marker, { force: true });
+
+// 6c. A second computer of the same person lists this one's sessions, opens one and works in it.
+console.log("a second computer");
+const home2 = `${HOME}-second`;
+rmSync(home2, { recursive: true, force: true });
+mkdirSync(home2, { recursive: true });
+cpSync(`${HOME}/config.toml`, `${home2}/config.toml`);
+const env2 = { ...env, CROK_HOME: home2 };
+const secondLogin = await signIn(env2, "E2E Mac 2");
+check(secondLogin.code === 0, "the second computer signs in", secondLogin.stderr.slice(-300));
+const second = await startAgent(env2);
+const remoteId = `relay:${sessionDocId}`;
+const listed = await until("this computer's sessions are listed there", async () => {
+  const list = await second.rpc("_x.ai/remote/sessions", { watch: true });
+  const here = list.computers?.find((c) => c.deviceName === "E2E Mac");
+  return here?.projects.flatMap((p) => p.sessions).some((s) => s.sessionId === remoteId) ? list : null;
+}, 30_000);
+check(
+  listed && !listed.computers.some((c) => c.deviceName === "E2E Mac 2"),
+  "it lists the other computer's sessions, not its own",
+  listed?.computers.map((c) => c.deviceName),
+);
+await second.rpc("session/load", { sessionId: remoteId, cwd: PROJECT, mcpServers: [] });
+const replayed = second.notifications.filter((n) => n.method === "session/update" && n.params.sessionId === remoteId);
+check(
+  replayed.some(
+    (n) => n.params._meta?.isReplay && n.params.update.sessionUpdate === "user_message_chunk" && n.params.update.content.text === "hello there from the desk",
+  ),
+  "opening it replays its transcript",
+  replayed.length,
+);
+let mark = second.notifications.length;
+const turn = await second.rpc("session/prompt", {
+  sessionId: remoteId,
+  prompt: [{ type: "text", text: "hello from the other desk" }],
+  _meta: { promptId: "second-1" },
+});
+check(turn.stopReason === "end_turn", "a prompt there returns when its turn ends here", turn);
+const streamed = second.notifications.slice(mark).filter((n) => n.params?.sessionId === remoteId);
+const reply = streamed
+  .filter((n) => n.params.update?.sessionUpdate === "agent_message_chunk" && n.params._meta?.promptId === "second-1")
+  .map((n) => n.params.update.content.text)
+  .join("");
+check(reply.includes("Hi from mock"), "the reply streams there, stamped with its prompt", reply);
+const ended = await until("its end arrives", async () =>
+  second.notifications.slice(mark).some((n) => n.method === "x.ai/session/prompt_complete" && n.params.promptId === "second-1"),
+);
+check(Boolean(ended), "and its end");
+check(
+  (await events()).some((e) => e.kind === "user" && e.text === "hello from the other desk" && e.fromLabel === "E2E Mac 2"),
+  "this computer ran it as a prompt from the second",
+);
+mark = second.notifications.length;
+await rpc("session/prompt", { sessionId, prompt: [{ type: "text", text: "typed at the first desk" }], _meta: { promptId: "local-2" } });
+const typedSeen = await until("a turn typed here shows there", async () => {
+  const after = second.notifications.slice(mark);
+  return after.some((n) => n.method === "x.ai/remote/prompt" && n.params.text === "typed at the first desk") &&
+    after.some((n) => n.method === "x.ai/session/prompt_complete" && n.params.sessionId === remoteId)
+    ? after
+    : null;
+}, 30_000);
+check(Boolean(typedSeen), "a turn typed on this computer streams to the second, start to end");
+const markerTurn = second.rpc("session/prompt", {
+  sessionId: remoteId,
+  prompt: [{ type: "text", text: "please run the marker command again" }],
+  _meta: { promptId: "second-2" },
+});
+const remoteAsk = await until("the second computer is asked", async () => second.permissions.find((p) => p.params?.sessionId === remoteId), 60_000);
+check(Boolean(remoteAsk?.params?.toolCall?.title), "the second computer is asked as for a session of its own", remoteAsk?.params);
+second.answer(remoteAsk, remoteAsk?.params?.options?.find((o) => o.kind === "allow_once")?.optionId);
+const markerTurnDone = await markerTurn;
+check(markerTurnDone.stopReason === "end_turn" && existsSync(marker), "allowed there, the command ran here", markerTurnDone);
+rmSync(marker, { force: true });
+for (const held of permissions.filter((p) => p.params?.sessionId === sessionId && p !== askedHere)) answerHere(held, null);
+const slowThere = second.rpc("session/prompt", {
+  sessionId: remoteId,
+  prompt: [{ type: "text", text: "be slow over there" }],
+  _meta: { promptId: "second-3" },
+});
+await until("the slow turn streams there", async () =>
+  second.notifications.some((n) => n.params?._meta?.promptId === "second-3" && (n.params.update?.content?.text ?? "").includes("word2")),
+30_000);
+second.notify("session/cancel", { sessionId: remoteId });
+const slowThereDone = await slowThere;
+check(slowThereDone.stopReason === "cancelled", "Stop there stops the turn here", slowThereDone);
+await until("this session is idle again", async () => (await phone.query("sessions:get", { sessionDocId })).status === "idle");
+second.agent.stdin.end();
+await Promise.race([second.exited, sleep(15_000)]);
+execFileSync(CROK, ["remote", "logout", "--json"], { env: env2, encoding: "utf8" });
+rmSync(home2, { recursive: true, force: true });
 
 // 7. The task closes.
 console.log("task closes");

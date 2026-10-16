@@ -50,6 +50,7 @@ export const SCREENS = [
   "session-info",
   "session-offline",
   "session-waiting",
+  "session-permission",
   "session-catalog",
   "session-catalog-offline",
   "link",
@@ -135,10 +136,12 @@ function sessionModel(
     pending: session.online && !events ? fakePending(now) : [],
     info,
     stopping: false,
+    answering: null,
     now,
     actions: {
       send: noop,
       stop: noop,
+      answer: noop,
       retry: noop,
       discard: noop,
       requestInfo: noop,
@@ -221,6 +224,28 @@ function Screen({ name }: { name: string }) {
       );
     case "session-waiting":
       return <SessionScreenPreview session={fakeSession(now, { status: "waiting", plan: [] })} />;
+    case "session-permission":
+      return (
+        <SessionScreenPreview
+          session={fakeSession(now, {
+            status: "waiting",
+            plan: [],
+            pending: {
+              id: "call_7#1",
+              kind: "permission",
+              title: "Run npm test -- auth --runInBand",
+              detail: "npm test -- auth --runInBand",
+              toolKind: "execute",
+              options: [
+                { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+                { optionId: "allow-always", name: "Always allow npm test", kind: "allow_always" },
+                { optionId: "reject-once", name: "Deny", kind: "reject_once" },
+              ],
+              at: now,
+            },
+          })}
+        />
+      );
     case "session-catalog":
       return <SessionScreenPreview session={fakeCatalogSession(now, true)} events={[]} />;
     case "session-catalog-offline":

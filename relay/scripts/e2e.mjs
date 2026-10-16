@@ -323,6 +323,97 @@ await phone.mutation("sessions:watch", { sessionDocId: catRow._id });
 const recent = await phone.query("commands:forSession", { sessionDocId: catRow._id });
 check(recent.length === 0, "history requests are not shown as prompts", recent);
 
+// A prompt for a session nobody runs goes to a crok on its computer that can open it; claiming it makes that crok the
+// session's runner at once.
+console.log("Prompts for sessions nobody runs");
+let notOpenable;
+try {
+  await phone.mutation("commands:sendPrompt", { sessionDocId: catRow._id, text: "x", clientId: crypto.randomUUID() });
+} catch (error) {
+  notOpenable = error.data?.code;
+}
+check(notOpenable === "OFFLINE", "with no crok there that can open sessions, the prompt is refused", notOpenable);
+const { hostId: adoptHost } = await computer.mutation("bridge:connect", {
+  instanceId: `e2e-${process.pid}-adopt`,
+  app: "tui",
+  appVersion: "crok e2e",
+  canAdopt: true,
+});
+const adoptWait = nextValue(computer, "bridge:inbox", { hostId: adoptHost }, (v) => v.commands.some((c) => c.type === "prompt"));
+const { commandId: adoptId } = await phone.mutation("commands:sendPrompt", {
+  sessionDocId: catRow._id,
+  text: "Carry on with the parser",
+  clientId: crypto.randomUUID(),
+});
+const adoptCommand = (await adoptWait).commands.find((c) => c._id === adoptId);
+check(
+  adoptCommand?.adopt === true && adoptCommand.cwd === "/Users/e2e/project/crates/core",
+  "it reaches the crok that can open it, marked to open the session first",
+  adoptCommand,
+);
+const plainInbox = await computer.query("bridge:inbox", { hostId });
+check(!plainInbox.commands.some((c) => c._id === adoptId), "a crok that cannot open sessions is not offered it");
+check(await computer.mutation("bridge:claimCommand", { hostId: adoptHost, commandId: adoptId }), "the crok claims it");
+const adopted = await phone.query("sessions:get", { sessionDocId: catRow._id });
+check(adopted.online && adopted.status === "running", "claiming makes the session run there at once", adopted);
+check((await computer.query("bridge:inbox", { hostId: adoptHost })).hosted.includes(catOne), "the crok's inbox lists it as its own");
+
+// A permission request in a session: any device may answer it, once.
+await computer.mutation("bridge:setPending", {
+  hostId: adoptHost,
+  sessionId: catOne,
+  pending: {
+    id: "call_1#1",
+    kind: "permission",
+    title: "Run cargo test",
+    detail: "cargo test",
+    toolKind: "execute",
+    options: [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "deny", name: "Deny", kind: "reject_once" },
+    ],
+    at: Date.now(),
+  },
+});
+const withPending = await phone.query("sessions:get", { sessionDocId: catRow._id });
+check(withPending.pending?.title === "Run cargo test" && withPending.pending.options.length === 2, "the request shows on the phone", withPending.pending);
+let staleAnswer;
+try {
+  await phone.mutation("commands:answer", { sessionDocId: catRow._id, interactionId: "call_0#9", optionId: "allow" });
+} catch (error) {
+  staleAnswer = error.data?.code;
+}
+check(staleAnswer === "EXPIRED", "an answer to an earlier request is refused", staleAnswer);
+const answerWait = nextValue(computer, "bridge:inbox", { hostId: adoptHost }, (v) => v.commands.some((c) => c.type === "answer"));
+const { commandId: answerId } = await phone.mutation("commands:answer", {
+  sessionDocId: catRow._id,
+  interactionId: "call_1#1",
+  optionId: "allow",
+});
+const answerCommand = (await answerWait).commands.find((c) => c._id === answerId);
+check(answerCommand?.interactionId === "call_1#1" && answerCommand.text === "allow", "the choice reaches the crok running it", answerCommand);
+await computer.mutation("bridge:setPending", { hostId: adoptHost, sessionId: catOne });
+check((await phone.query("sessions:get", { sessionDocId: catRow._id })).pending === null, "once answered, the request is gone");
+await computer.mutation("bridge:completeCommand", { hostId: adoptHost, commandId: adoptId, status: "done" });
+await computer.mutation("bridge:closeSession", { hostId: adoptHost, sessionId: catOne });
+
+// Info and Stop for a session nobody runs are settled by the relay.
+const { commandId: storedInfoId } = await phone.mutation("commands:requestInfo", { sessionDocId: catRow._id });
+const storedInfo = await phone.query("commands:get", { commandId: storedInfoId });
+check(
+  storedInfo?.status === "done" && storedInfo.result?.stored && storedInfo.result.cwd === "/Users/e2e/project/crates/core",
+  "info for a session nobody runs comes at once from what the relay stored",
+  storedInfo?.result,
+);
+const { commandId: waitingId } = await phone.mutation("commands:sendPrompt", {
+  sessionDocId: catRow._id,
+  text: "later",
+  clientId: crypto.randomUUID(),
+});
+await phone.mutation("commands:stop", { sessionDocId: catRow._id });
+check((await phone.query("commands:get", { commandId: waitingId }))?.status === "failed", "Stop drops a prompt no crok picked up yet");
+await computer.mutation("bridge:disconnect", { hostId: adoptHost });
+
 // A host that drops off and comes back brings back what it had open, not what it only listed or had closed.
 const { hostId: otherHost } = await computer.mutation("bridge:connect", {
   instanceId: `e2e-${process.pid}-b`,

@@ -288,6 +288,7 @@ export function fakeSession(now: number, overrides: Partial<SessionDetail> = {})
     projectPath: "/Users/me/code/web-app",
     projectName: "web-app",
     historyState: null,
+    pending: null,
     ...overrides,
   };
 }

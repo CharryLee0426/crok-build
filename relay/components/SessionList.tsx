@@ -161,7 +161,8 @@ export function SessionRowView({
   dragging?: boolean;
 }) {
   const { t, tn, lang } = useI18n();
-  const offline = !row.online;
+  // Dimmed only when its computer is offline: a session nobody runs opens there when you send it a prompt.
+  const offline = !row.deviceOnline;
   const time = timeText ?? formatListTime(row.lastActivityAt, lang, now);
   const folder = folderName(row.cwd);
   const place = grouped ? (folder !== row.projectName ? folder : null) : `${row.deviceName} · ${folder}`;

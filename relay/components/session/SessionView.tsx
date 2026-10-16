@@ -49,10 +49,14 @@ export type SessionModel = {
   pending: PendingPrompt[];
   info: InfoState;
   stopping: boolean;
+  /** The pending request this viewer just answered, until the computer takes the answer. */
+  answering: string | null;
   now: number;
   actions: {
     send: (text: string) => void;
     stop: () => void;
+    /** Answers the session's pending permission request (`commands:answer`). */
+    answer: (interactionId: string, optionId: string) => void;
     retry: (prompt: PendingPrompt) => void;
     discard: (prompt: PendingPrompt) => void;
     requestInfo: () => void;
@@ -95,12 +99,20 @@ export function SessionView({ model, initialInfoOpen = false }: { model: Session
               : null
           }
         />
+        {session.pending && session.online ? (
+          <PermissionCard
+            pending={session.pending}
+            computer={session.deviceName}
+            answering={model.answering === session.pending.id}
+            onAnswer={actions.answer}
+          />
+        ) : null}
         <Composer
           key={session._id}
           sessionKey={session._id}
-          online={session.online}
+          online={session.deviceOnline}
           running={session.status === "running"}
-          waiting={session.status === "waiting"}
+          waiting={session.status === "waiting" && !session.pending}
           computer={session.deviceName}
           stopping={model.stopping}
           onSend={actions.send}
@@ -133,8 +145,11 @@ function SessionHeader({
 }) {
   const { t, lang } = useI18n();
   let status: ReactNode;
-  if (!session.online) {
+  // A session nobody runs is still reachable while its computer is online: a prompt opens it there.
+  if (!session.deviceOnline) {
     status = <span className="text-faint">{t("status_offline", { time: formatRelative(session.lastActivityAt, lang, now) })}</span>;
+  } else if (!session.online) {
+    status = <span className="text-accent-text">{t("status_online")}</span>;
   } else if (session.status === "running") {
     status = (
       <span className="text-accent-text">
@@ -160,7 +175,7 @@ function SessionHeader({
         <ChevronLeftIcon size={22} />
       </Link>
       <button type="button" onClick={onInfo} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1.5 py-1 text-left">
-        <ProjectAvatar cwd={session.cwd} title={session.title} online={session.online} dim={!session.online} size={38} />
+        <ProjectAvatar cwd={session.cwd} title={session.title} online={session.online} dim={!session.deviceOnline} size={38} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[15px] font-semibold leading-tight">{session.title || folderName(session.cwd)}</span>
           <span className="block truncate text-[13px] leading-tight">
@@ -249,6 +264,58 @@ function useCoarsePointer(): boolean {
     return () => query.removeEventListener("change", update);
   }, []);
   return coarse;
+}
+
+/**
+ * A permission request the session waits on (run this command, edit that file), with its choices. Any of the person's
+ * devices may answer; the first answer counts, and the card goes once the computer has it.
+ */
+export function PermissionCard({
+  pending,
+  computer,
+  answering,
+  onAnswer,
+}: {
+  pending: NonNullable<SessionDetail["pending"]>;
+  computer: string;
+  answering: boolean;
+  onAnswer: (interactionId: string, optionId: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="shrink-0 border-t border-line bg-surface px-3 pt-3 sm:px-4" role="region" aria-label={pending.title}>
+      <div className="mx-auto max-w-3xl rounded-2xl bg-warning-soft p-3">
+        <div className="flex items-start gap-2 text-[13px] text-warning">
+          <WarningIcon size={16} className="mt-px shrink-0" />
+          <span className="font-medium">{t("permission_asks", { computer })}</span>
+        </div>
+        <p className="mt-1.5 break-words text-[14px] font-semibold text-fg">{pending.title}</p>
+        {pending.detail ? (
+          <pre className="scroll-quiet mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface px-2.5 py-2 font-mono text-[12.5px] text-fg">
+            {pending.detail}
+          </pre>
+        ) : null}
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          {pending.options.map((option) => (
+            <button
+              key={option.optionId}
+              type="button"
+              disabled={answering}
+              onClick={() => onAnswer(pending.id, option.optionId)}
+              className={
+                option.kind.startsWith("allow")
+                  ? "rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+                  : "rounded-full border border-line bg-surface px-3.5 py-1.5 text-[13px] text-fg hover:bg-hover disabled:opacity-50"
+              }
+            >
+              {option.name || option.optionId}
+            </button>
+          ))}
+          {answering ? <SpinnerIcon size={16} className="text-muted" /> : null}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** Enter sends, Shift+Enter breaks the line (on touch screens Enter breaks the line and the button sends). */
@@ -421,7 +488,8 @@ export function InfoPanel({
   onArchive: () => void;
 }) {
   const { t, lang } = useI18n();
-  const r = info.state === "ready" ? info.result : null;
+  // Fresh numbers, or (a session nobody runs) the ones the relay kept.
+  const r = info.result;
   const model = r?.model ?? session.model;
   const effort = r?.effort ?? session.effort;
   const cwd = r?.cwd ?? session.cwd;
@@ -450,7 +518,7 @@ export function InfoPanel({
         {t("info_updating")}
       </span>
     ) : info.state === "offline" ? (
-      t("info_offline")
+      session.deviceOnline ? t("info_stored", { computer: session.deviceName }) : t("info_offline")
     ) : info.state === "failed" ? (
       t("info_failed")
     ) : null;

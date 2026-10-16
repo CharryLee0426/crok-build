@@ -5,7 +5,7 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { fail, requireHost, requireViewer } from "./lib/auth";
 import { ensureProject, inferProjectPath } from "./lib/projects";
-import { eventKind, hostApp, planEntry, sessionStatus, sessionUsage } from "./schema";
+import { eventKind, hostApp, pendingInteraction, planEntry, sessionStatus, sessionUsage } from "./schema";
 
 /**
  * The computer side. Every running crok process that is signed in (a TUI, or one Crok Desktop task) is a "host": it
@@ -35,13 +35,17 @@ async function markDeviceOnline(ctx: MutationCtx, device: Doc<"devices">, now: n
   if (Object.keys(patch).length > 0) await ctx.db.patch(device._id, patch);
 }
 
-/** Registers this process. `instanceId` is random per process, so a restart is a new host. */
+/**
+ * Registers this process. `instanceId` is random per process, so a restart is a new host. `canAdopt`: it can open a
+ * session nobody runs when a prompt arrives for it.
+ */
 export const connect = mutation({
   args: {
     instanceId: v.string(),
     app: hostApp,
     appVersion: v.string(),
     pid: v.optional(v.number()),
+    canAdopt: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -55,7 +59,13 @@ export const connect = mutation({
     let hostId: Id<"hosts">;
     if (existing) {
       hostId = existing._id;
-      await ctx.db.patch(hostId, { lastSeenAt: now, online: true, appVersion: args.appVersion, pid: args.pid });
+      await ctx.db.patch(hostId, {
+        lastSeenAt: now,
+        online: true,
+        appVersion: args.appVersion,
+        pid: args.pid,
+        canAdopt: args.canAdopt,
+      });
       await setHostSessionsOnline(ctx, hostId, true);
     } else {
       hostId = await ctx.db.insert("hosts", {
@@ -65,6 +75,7 @@ export const connect = mutation({
         app: args.app,
         appVersion: args.appVersion.slice(0, 80),
         pid: args.pid,
+        canAdopt: args.canAdopt,
         startedAt: now,
         lastSeenAt: now,
         online: true,
@@ -87,7 +98,7 @@ async function setHostSessionsOnline(ctx: MutationCtx, hostId: Id<"hosts">, onli
       // Only what went offline with the host: not sessions closed since, nor ones only listed from disk.
       if (session.suspended) await ctx.db.patch(session._id, { online: true, suspended: undefined });
     } else if (session.online) {
-      await ctx.db.patch(session._id, { online: false, status: "idle", suspended: true });
+      await ctx.db.patch(session._id, { online: false, status: "idle", suspended: true, pending: undefined });
     }
   }
 }
@@ -228,8 +239,34 @@ export const closeSession = mutation({
       .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", sessionId))
       .unique();
     if (session && session.hostId === hostId && (session.online || session.suspended)) {
-      await ctx.db.patch(session._id, { online: false, status: "idle", suspended: undefined });
+      await ctx.db.patch(session._id, { online: false, status: "idle", suspended: undefined, pending: undefined });
     }
+    return null;
+  },
+});
+
+/**
+ * The session's permission request waiting for an answer, or none (`pending` absent) once it was answered anywhere or
+ * the turn ended. Viewers show it with its choices; `commands:answer` brings the choice back.
+ */
+export const setPending = mutation({
+  args: { hostId: v.id("hosts"), sessionId: v.string(), pending: v.optional(pendingInteraction) },
+  handler: async (ctx, { hostId, sessionId, pending }) => {
+    const { viewer } = await requireHost(ctx, hostId);
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", sessionId))
+      .unique();
+    if (!session || session.hostId !== hostId) return null;
+    const next = pending
+      ? {
+          ...pending,
+          title: pending.title.slice(0, 500),
+          detail: pending.detail?.slice(0, 4_000),
+          options: pending.options.slice(0, 8),
+        }
+      : undefined;
+    if (JSON.stringify(session.pending) !== JSON.stringify(next)) await ctx.db.patch(session._id, { pending: next });
     return null;
   },
 });
@@ -347,13 +384,15 @@ export const pushEvents = mutation({
 });
 
 /**
- * Whether this host should act on the command: one for a session it runs, or a `history` request for a session of this
- * computer nobody runs (any of its crok processes can read the transcript from disk; the first to claim it does).
+ * Whether this host should act on the command: one for a session it runs; for a session of this computer nobody runs,
+ * a `history` request (any of its crok processes can read the transcript from disk) or a prompt (any that can open the
+ * session: the first to claim it runs the session from then on).
  */
 function forHost(command: Doc<"commands">, session: Doc<"sessions"> | null, host: Doc<"hosts">): boolean {
   if (!session) return false;
   if (command.type === "history") return session.deviceId === host.deviceId && !session.online;
-  return session.hostId === host._id;
+  if (session.online) return session.hostId === host._id;
+  return command.type === "prompt" && session.deviceId === host.deviceId && host.canAdopt === true;
 }
 
 /**
@@ -387,6 +426,10 @@ export const inbox = query({
         cwd: session.cwd,
         type: command.type,
         text: command.text ?? null,
+        /** For `answer`: the pending request it answers. */
+        interactionId: command.interactionId ?? null,
+        /** A prompt for a session nobody runs: the host that claims it opens the session first. */
+        adopt: command.type === "prompt" && !session.online,
         fromLabel: command.fromLabel,
         /** `web` for a browser, else the sending device's kind (`phone`, or `computer`). */
         fromKind: command.fromDeviceId ? (sender?.kind ?? "phone") : "web",
@@ -405,11 +448,24 @@ export const inbox = query({
       if (!session || session.hostId !== hostId) continue;
       views.push({ sessionDocId: view.sessionDocId, sessionId: session.sessionId, until: view.until });
     }
-    return { commands, views, serverTime: now };
+    // The sessions this host runs as far as the relay knows: one another crok here took over is gone from it.
+    const hosted = (
+      await ctx.db
+        .query("sessions")
+        .withIndex("by_host", (q) => q.eq("hostId", hostId))
+        .take(500)
+    )
+      .filter((s) => s.online)
+      .map((s) => s.sessionId);
+    return { commands, views, hosted, serverTime: now };
   },
 });
 
-/** Takes a pending command for one of this host's sessions. False if another host or a retry got it first. */
+/**
+ * Takes a pending command for one of this host's sessions. False if another host or a retry got it first. Claiming a
+ * prompt for a session nobody runs makes this host its runner at once, so the next commands for it come here while
+ * the session opens.
+ */
 export const claimCommand = mutation({
   args: { hostId: v.id("hosts"), commandId: v.id("commands") },
   handler: async (ctx, { hostId, commandId }) => {
@@ -417,8 +473,19 @@ export const claimCommand = mutation({
     const command = await ctx.db.get(commandId);
     if (!command || command.deviceId !== viewer.device._id || command.status !== "pending") return false;
     const session = await ctx.db.get(command.sessionDocId);
-    if (!forHost(command, session, host)) return false;
-    await ctx.db.patch(commandId, { status: "delivered", updatedAt: Date.now() });
+    if (!session || !forHost(command, session, host)) return false;
+    const now = Date.now();
+    await ctx.db.patch(commandId, { status: "delivered", updatedAt: now });
+    if (command.type === "prompt" && !session.online) {
+      await ctx.db.patch(session._id, {
+        hostId,
+        app: host.app,
+        online: true,
+        suspended: undefined,
+        status: "running",
+        ...(session.archived ? { archived: false } : {}),
+      });
+    }
     return true;
   },
 });

@@ -24,8 +24,17 @@ export const eventKind = v.union(
   v.literal("error"),
 );
 
-/** `history`: the relay asks any running crok on the computer to read a session's transcript from disk. */
-export const commandType = v.union(v.literal("prompt"), v.literal("cancel"), v.literal("info"), v.literal("history"));
+/**
+ * `history`: the relay asks any running crok on the computer to read a session's transcript from disk. `answer`: a
+ * choice for the session's pending permission request.
+ */
+export const commandType = v.union(
+  v.literal("prompt"),
+  v.literal("cancel"),
+  v.literal("info"),
+  v.literal("history"),
+  v.literal("answer"),
+);
 
 /**
  * For a session listed from the computer's disk while no crok runs it: `none` = no transcript on the relay yet,
@@ -47,6 +56,27 @@ export const commandStatus = v.union(
 export const planEntry = v.object({
   content: v.string(),
   status: v.string(),
+});
+
+/** One choice of a pending request: `kind` is ACP's `allow_once`, `allow_always`, `reject_once` or `reject_always`. */
+export const pendingOption = v.object({
+  optionId: v.string(),
+  name: v.string(),
+  kind: v.string(),
+});
+
+/**
+ * What the session waits for: a permission request (run this command, edit that file) any of the person's devices may
+ * answer. `id` names this request; an answer for another id is ignored.
+ */
+export const pendingInteraction = v.object({
+  id: v.string(),
+  kind: v.literal("permission"),
+  title: v.string(),
+  detail: v.optional(v.string()),
+  toolKind: v.optional(v.string()),
+  options: v.array(pendingOption),
+  at: v.number(),
 });
 
 export const sessionUsage = v.object({
@@ -124,12 +154,15 @@ export default defineSchema({
     app: hostApp,
     appVersion: v.string(),
     pid: v.optional(v.number()),
+    /** It can open a session nobody runs, to take a prompt for it. */
+    canAdopt: v.optional(v.boolean()),
     startedAt: v.number(),
     lastSeenAt: v.number(),
     online: v.boolean(),
   })
     .index("by_instance", ["deviceId", "instanceId"])
     .index("by_device", ["deviceId"])
+    .index("by_device_online", ["deviceId", "online"])
     .index("by_online_seen", ["online", "lastSeenAt"]),
 
   /**
@@ -172,6 +205,8 @@ export default defineSchema({
     historyState: v.optional(historyState),
     /** Offline only because its host stopped heartbeating: it comes back with the host (a closed one does not). */
     suspended: v.optional(v.boolean()),
+    /** A permission request waiting for an answer, from the computer or from any other device. */
+    pending: v.optional(pendingInteraction),
   })
     .index("by_user_activity", ["userId", "lastActivityAt"])
     .index("by_user_session", ["userId", "sessionId"])
@@ -232,6 +267,8 @@ export default defineSchema({
     sessionDocId: v.id("sessions"),
     type: commandType,
     text: v.optional(v.string()),
+    /** For `answer`: the pending request it answers (`text` holds the chosen option). */
+    interactionId: v.optional(v.string()),
     /** Client-made id: makes a resend idempotent and lets the sender match its optimistic bubble. */
     clientId: v.optional(v.string()),
     status: commandStatus,
