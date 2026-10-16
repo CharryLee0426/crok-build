@@ -89,7 +89,6 @@
     <string name="session_status_waiting">wartet auf Bestätigung auf %1$s</string>
     <string name="session_status_idle">bereit · %1$s</string>
     <string name="session_status_offline">offline · %1$s</string>
-    <string name="session_status_not_running">läuft nicht · %1$s</string>
     <string name="session_history_loading">Wird von %1$s geladen …</string>
     <string name="session_history_offline">%1$s ist offline. Der Verlauf dieser Sitzung erscheint, sobald crok dort wieder läuft.</string>
     <string name="session_status_error">Fehler · %1$s</string>
@@ -108,8 +107,8 @@
     <string name="notice_max_tokens">Die Antwort hat das Ausgabelimit erreicht.</string>
     <string name="notice_refusal">Das Modell hat das Weitermachen abgelehnt.</string>
     <string name="composer_placeholder">Nachricht an crok auf %1$s …</string>
-    <string name="composer_offline">%1$s ist offline. Öffne dort crok, um diese Sitzung fortzusetzen.</string>
-    <string name="composer_not_running">Diese Sitzung ist auf %1$s nicht in crok geöffnet. Öffne sie dort, um weiterzumachen.</string>
+    <string name="composer_offline">%1$s ist offline. Starte dort crok oder Crok Desktop, um diese Sitzung fortzusetzen.</string>
+    <string name="permission_asks">Crok auf %1$s fragt:</string>
     <string name="composer_send">Senden</string>
     <string name="composer_stop">Stopp</string>
     <string name="prompt_not_sent">Nicht gesendet: %1$s</string>
@@ -147,6 +146,7 @@
     <string name="info_refreshing">Frage %1$s nach aktuellen Zahlen …</string>
     <string name="info_refresh_failed">Keine aktuellen Zahlen erhalten: %1$s</string>
     <string name="info_offline_note">Der Computer ist offline. Das sind die letzten Zahlen, die das Relay gesehen hat.</string>
+    <string name="info_not_open_note">Gerade nicht auf %1$s geöffnet: Das sind die zuletzt gesendeten Werte.</string>
     <string name="info_remove">Vom Relay entfernen</string>
     <string name="info_remove_title">Diese Sitzung vom Relay entfernen?</string>
     <string name="info_remove_body">Die Sitzung bleibt auf %1$s. Nur die Kopie auf dem Relay wird gelöscht.</string>

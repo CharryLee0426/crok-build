@@ -171,6 +171,46 @@ class WireModelsTest {
     }
 
     @Test
+    fun readsPendingRequests() {
+        // `sessions:get` as relay/convex/sessions.ts returns it while the session waits on a permission request.
+        val detail = RelayJson.decodeFromString(
+            SessionDetail.serializer(),
+            """{"_id":"s1","status":"waiting","online":true,"deviceOnline":true,
+               "pending":{"id":"tc-42","kind":"permission","title":"Run npm run build","detail":"npm run build",
+                 "toolKind":"execute","at":1760500000123.0,"somethingNew":true,
+                 "options":[{"optionId":"o1","name":"Allow once","kind":"allow_once"},
+                            {"optionId":"o2","name":"Always allow","kind":"allow_always"},
+                            {"optionId":"o3","name":"Reject","kind":"reject_once"}]}}""",
+        )
+        val pending = detail.pending!!
+        assertEquals("tc-42", pending.id)
+        assertEquals("permission", pending.kind)
+        assertEquals("Run npm run build", pending.title)
+        assertEquals("npm run build", pending.detail)
+        assertEquals("execute", pending.toolKind)
+        assertEquals(1760500000123L, pending.at)
+        assertEquals(listOf("o1", "o2", "o3"), pending.options.map { it.optionId })
+        assertEquals(listOf(true, true, false), pending.options.map { it.allows })
+
+        // Absent, null, or with only the required fields: still a detail.
+        assertNull(RelayJson.decodeFromString(SessionDetail.serializer(), """{"_id":"s1"}""").pending)
+        assertNull(RelayJson.decodeFromString(SessionDetail.serializer(), """{"_id":"s1","pending":null}""").pending)
+        val bare = RelayJson.decodeFromString(SessionDetail.serializer(), """{"_id":"s1","pending":{"id":"x","options":[{"optionId":"a"}]}}""").pending!!
+        assertNull(bare.detail)
+        assertFalse(bare.options.single().allows)
+    }
+
+    @Test
+    fun readsWhichComputersTakePrompts() {
+        // Reachable: running, or the computer is online (it opens the session); not when the computer is offline.
+        assertTrue(SessionRow(id = "a", online = true, deviceOnline = true).reachable)
+        assertTrue(SessionRow(id = "b", online = false, deviceOnline = true).reachable)
+        assertFalse(SessionRow(id = "c", online = false, deviceOnline = false).reachable)
+        assertTrue(SessionDetail(id = "d", online = false, deviceOnline = true).reachable)
+        assertFalse(SessionDetail(id = "e", online = false, deviceOnline = false).reachable)
+    }
+
+    @Test
     fun writesIntegersAsFloats() {
         val json = RelayJson.encodeToString(PlanProgress.serializer(), PlanProgress(1, 2))
         assertEquals("""{"done":1.0,"total":2.0}""", json)
@@ -189,7 +229,15 @@ class WireModelsTest {
         assertEquals(256000L, nested.contextWindow)
         val flat = SessionInfoResult.from(RelayJson.parseToJsonElement("""{"model":"grok-code","inputTokens":1200,"costUsd":0.01}"""))!!
         assertEquals(1200L, flat.inputTokens)
+        assertFalse(flat.stored)
         assertNull(SessionInfoResult.from(JsonPrimitive("x")))
+        // A session nobody runs: the relay's stored numbers (fields it never had are left out).
+        val stored = SessionInfoResult.from(
+            RelayJson.parseToJsonElement("""{"model":"grok-4","usage":{"inputTokens":900},"context":{},"stored":true}"""),
+        )!!
+        assertTrue(stored.stored)
+        assertEquals(900L, stored.inputTokens)
+        assertNull(stored.contextWindow)
     }
 
     @Test

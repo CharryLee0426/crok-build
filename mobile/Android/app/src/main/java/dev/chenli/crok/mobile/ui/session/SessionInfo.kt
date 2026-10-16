@@ -43,8 +43,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dev.chenli.crok.mobile.R
 import dev.chenli.crok.mobile.data.CommandStatus
+import dev.chenli.crok.mobile.data.RelayErrorCode
 import dev.chenli.crok.mobile.data.SessionDetail
 import dev.chenli.crok.mobile.data.SessionInfoResult
+import dev.chenli.crok.mobile.data.relayCode
 import dev.chenli.crok.mobile.engine.CrokEngine
 import dev.chenli.crok.mobile.logic.RelativeTime
 import dev.chenli.crok.mobile.logic.SessionList
@@ -82,11 +84,11 @@ class SessionInfoViewModel(private val engine: CrokEngine, private val sessionDo
     private val _refresh = MutableStateFlow<InfoRefresh>(InfoRefresh.Idle)
     val refresh: StateFlow<InfoRefresh> = _refresh.asStateFlow()
 
-    /** Each time the sheet opens: fresh numbers from the computer, if it is online. */
-    suspend fun refreshOnOpen() {
-        val current = detail.first { it != null } ?: return
-        if (current.online) refreshNow()
-    }
+    /**
+     * Each time the sheet opens: fresh numbers from the computer, or, for a session nobody runs, the ones its computer
+     * last sent (the relay answers those at once, `stored`).
+     */
+    fun refreshOnOpen() = refreshNow()
 
     fun refreshNow() {
         if (_refresh.value == InfoRefresh.Loading) return
@@ -107,7 +109,8 @@ class SessionInfoViewModel(private val engine: CrokEngine, private val sessionDo
             } catch (e: CancellationException) {
                 if (e is kotlinx.coroutines.TimeoutCancellationException) InfoRefresh.Failed("timeout") else throw e
             } catch (e: Exception) {
-                InfoRefresh.Failed(e.message ?: e.javaClass.simpleName)
+                // A relay from before sessions nobody runs answered with what it has: the sheet shows the stored numbers.
+                if (e.relayCode == RelayErrorCode.OFFLINE) InfoRefresh.Idle else InfoRefresh.Failed(e.message ?: e.javaClass.simpleName)
             }
         }
     }
@@ -206,9 +209,15 @@ fun SessionInfoContent(detail: SessionDetail, refresh: InfoRefresh, now: Long, a
                 color = colors.warning,
                 modifier = Modifier.padding(horizontal = 32.dp, vertical = 6.dp),
             )
-            else -> if (!detail.online) {
+            // The numbers the computer last sent: the relay's answer for a session nobody runs, or what it holds so far.
+            else -> if (fresh?.stored == true || (fresh == null && !detail.online)) {
                 Text(
-                    stringResource(R.string.info_offline_note),
+                    // An online computer just does not have the session open.
+                    if (fresh?.stored == true && detail.deviceOnline) {
+                        stringResource(R.string.info_not_open_note, detail.deviceName)
+                    } else {
+                        stringResource(R.string.info_offline_note)
+                    },
                     fontSize = 13.sp,
                     color = colors.textSecondary,
                     modifier = Modifier.padding(horizontal = 32.dp, vertical = 6.dp),

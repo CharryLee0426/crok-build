@@ -173,6 +173,9 @@ data class SessionRow(
 ) {
     val isRunning: Boolean get() = online && status == SessionStatus.RUNNING
     val isWaiting: Boolean get() = online && status == SessionStatus.WAITING
+
+    /** Takes prompts: a crok runs it, or its computer is online and opens it when one arrives. */
+    val reachable: Boolean get() = online || deviceOnline
 }
 
 /**
@@ -191,6 +194,32 @@ data class SessionGroup(
     val placed: Boolean = false,
     val lastActivityAt: WireLong = 0,
     val sessions: List<SessionRow> = emptyList(),
+)
+
+/** One choice of a pending request; [kind] is ACP's `allow_once`, `allow_always`, `reject_once` or `reject_always`. */
+@Serializable
+data class PendingOption(
+    val optionId: String = "",
+    val name: String = "",
+    val kind: String = "",
+) {
+    val allows: Boolean get() = kind.startsWith("allow")
+}
+
+/**
+ * A permission request the session waits on (run this command, edit that file). Any of the person's devices may answer
+ * it with one of [options] (`commands:answer`); the first answer wins, and the session's `pending` goes back to null
+ * once the computer took one.
+ */
+@Serializable
+data class PendingInteraction(
+    val id: String,
+    val kind: String = "permission",
+    val title: String = "",
+    val detail: String? = null,
+    val toolKind: String? = null,
+    val options: List<PendingOption> = emptyList(),
+    val at: WireLong = 0,
 )
 
 /** `sessions:get`: everything the session header and the info sheet show. */
@@ -222,8 +251,13 @@ data class SessionDetail(
     val projectPath: String = "",
     val projectName: String = "",
     val historyState: String? = null,
+    /** A permission request the session waits on, or null. */
+    val pending: PendingInteraction? = null,
 ) {
     val isRunning: Boolean get() = online && status == SessionStatus.RUNNING
+
+    /** Takes prompts: a crok runs it, or its computer is online and opens it when one arrives. */
+    val reachable: Boolean get() = online || deviceOnline
 }
 
 object EventKind {
@@ -304,7 +338,8 @@ data class CommandDoc(
 
 /**
  * Fresh numbers from the computer (`commands:requestInfo` → `commands:get(...).result`). Every field may be missing;
- * [from] reads both the documented nested shape and flat fields.
+ * [from] reads both the documented nested shape and flat fields. [stored]: no crok runs the session, so the relay
+ * answered at once with the numbers its computer last sent.
  */
 data class SessionInfoResult(
     val model: String? = null,
@@ -322,6 +357,7 @@ data class SessionInfoResult(
     val contextWindow: Long? = null,
     val messages: Long? = null,
     val sessionId: String? = null,
+    val stored: Boolean = false,
 ) {
     companion object {
         fun from(result: JsonElement?): SessionInfoResult? {
@@ -345,6 +381,7 @@ data class SessionInfoResult(
                 contextWindow = (context?.number("window") ?: root.number("contextWindow"))?.toLong(),
                 messages = root.number("messages")?.toLong(),
                 sessionId = root.string("sessionId"),
+                stored = root.boolean("stored") == true,
             )
         }
     }

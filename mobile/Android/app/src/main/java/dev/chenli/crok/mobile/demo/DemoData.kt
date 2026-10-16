@@ -7,6 +7,8 @@ import dev.chenli.crok.mobile.data.EventKind
 import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.Me
 import dev.chenli.crok.mobile.data.MeDevice
+import dev.chenli.crok.mobile.data.PendingInteraction
+import dev.chenli.crok.mobile.data.PendingOption
 import dev.chenli.crok.mobile.data.PlanEntry
 import dev.chenli.crok.mobile.data.PlanProgress
 import dev.chenli.crok.mobile.data.PromptCommand
@@ -88,8 +90,9 @@ data class DemoState(
 
 /**
  * The demo account: three computers, a phone, and sessions in every state the screens draw (running with a plan,
- * waiting for approval, idle, offline, archived, listed from disk with the history still on the computer), in several
- * projects on two computers. Used by demo mode (`crokDemo=true`) and by the screenshot tests.
+ * waiting on a permission request any device can answer, idle, offline, archived, listed from disk with the history
+ * still on the computer), in several projects on two computers. Used by demo mode (`crokDemo=true`) and by the
+ * screenshot tests.
  */
 object DemoData {
     const val PHONE_ID = "demo-phone"
@@ -98,7 +101,10 @@ object DemoData {
     const val STUDIO_ID = "demo-studio"
     const val LINUX_ID = "demo-linux"
     const val RUNNING_SESSION = "demo-s1"
+
+    /** Waits on [WAITING_REQUEST]: crok asks to run `npm run build`. */
     const val WAITING_SESSION = "demo-s2"
+    const val WAITING_REQUEST = "demo-request-1"
 
     /** Listed from the MacBook's disk, never opened on the relay: opening it loads the history from the computer. */
     const val CATALOG_SESSION = "demo-s8"
@@ -190,6 +196,7 @@ object DemoData {
         archived: Boolean = false,
         historyState: String? = null,
         eventSeq: Long = 0,
+        pending: PendingInteraction? = null,
         preview: String?,
         previewKind: String? = EventKind.ASSISTANT,
         unread: Int = 0,
@@ -220,6 +227,7 @@ object DemoData {
             projectPath = project,
             projectName = SessionList.folderName(project),
             historyState = historyState,
+            pending = pending,
         ),
         preview = preview,
         previewKind = previewKind,
@@ -241,7 +249,7 @@ object DemoData {
                 WAITING_SESSION, "Add dark mode to the settings page", macbook, crokSite,
                 lastActivityAt = now - 4 * MIN, status = SessionStatus.WAITING, model = "claude-sonnet-4-5", effort = "high",
                 gitBranch = "dark-settings", usage = SessionUsage(40_100, 3_200, 31_000, null, 0.18, 22_000, 200_000),
-                pinned = true, eventSeq = 3, preview = "Run npm run build to check the new theme?", unread = 1,
+                pinned = true, eventSeq = 4, pending = buildRequest(now), preview = "Run npm run build to check the new theme?", unread = 1,
             ),
             session(
                 "demo-s7", "Group the session list by project", macbook, crokBuild,
@@ -399,9 +407,27 @@ object DemoData {
                 s, 2, EventKind.TOOL, "src/styles/settings.css", now - 15 * MIN,
                 title = "Edit src/styles/settings.css", toolKind = "edit", status = "completed",
             ),
-            event(s, 3, EventKind.ASSISTANT, "The theme follows `prefers-color-scheme` now. Run `npm run build` to check the new theme?", now - 4 * MIN),
+            event(s, 3, EventKind.ASSISTANT, "The theme follows `prefers-color-scheme` now. I'll build the site to check it.", now - 4 * MIN),
+            event(
+                s, 4, EventKind.TOOL, "$ npm run build", now - 4 * MIN + 2_000,
+                title = "Run npm run build", toolKind = "execute", status = "pending",
+            ),
         )
     }
+
+    /** What [WAITING_SESSION] waits on: permission to run its pending tool call. */
+    fun buildRequest(now: Long) = PendingInteraction(
+        id = WAITING_REQUEST,
+        title = "Run npm run build",
+        detail = "npm run build\n# in /Users/chen/code/crok-site",
+        toolKind = "execute",
+        options = listOf(
+            PendingOption("allow", "Allow", "allow_once"),
+            PendingOption("allow-always", "Always allow", "allow_always"),
+            PendingOption("reject", "Reject", "reject_once"),
+        ),
+        at = now - 4 * MIN + 2_000,
+    )
 
     /** What a computer pushes for a listed session someone opened: the last turn, read from its disk. */
     fun historyFromDisk(session: DemoSession): List<RelayEvent> {

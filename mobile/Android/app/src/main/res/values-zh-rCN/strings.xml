@@ -86,7 +86,6 @@
     <string name="session_status_waiting">正在 %1$s 上等待批准</string>
     <string name="session_status_idle">空闲 · %1$s</string>
     <string name="session_status_offline">离线 · %1$s</string>
-    <string name="session_status_not_running">未运行 · %1$s</string>
     <string name="session_history_loading">正在从 %1$s 加载…</string>
     <string name="session_history_offline">%1$s 已离线。等 crok 在那台电脑上再次运行，这里就会显示此会话的记录。</string>
     <string name="session_status_error">出错 · %1$s</string>
@@ -105,8 +104,8 @@
     <string name="notice_max_tokens">回复达到了输出上限。</string>
     <string name="notice_refusal">模型拒绝继续。</string>
     <string name="composer_placeholder">给 %1$s 上的 crok 发消息…</string>
-    <string name="composer_offline">%1$s 已离线。在那台电脑上打开 crok 即可继续此会话。</string>
-    <string name="composer_not_running">此会话没有在 %1$s 的 crok 中打开。在那里打开它即可继续。</string>
+    <string name="composer_offline">%1$s 当前离线。在那台电脑上启动 crok 或 Crok Desktop 即可继续此会话。</string>
+    <string name="permission_asks">%1$s 上的 Crok 请求：</string>
     <string name="composer_send">发送</string>
     <string name="composer_stop">停止</string>
     <string name="prompt_not_sent">未发送：%1$s</string>
@@ -144,6 +143,7 @@
     <string name="info_refreshing">正在向 %1$s 获取最新数据…</string>
     <string name="info_refresh_failed">无法获取最新数据：%1$s</string>
     <string name="info_offline_note">电脑已离线。以下是中继最后看到的数据。</string>
+    <string name="info_not_open_note">%1$s 上目前没有打开此会话：以下是它最后发送的数据。</string>
     <string name="info_remove">从中继中移除</string>
     <string name="info_remove_title">从中继中移除此会话？</string>
     <string name="info_remove_body">会话仍保留在 %1$s 上，只删除中继中的副本。</string>

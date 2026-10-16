@@ -79,20 +79,28 @@ client shares.
   keeps the matching sessions per project, hides empty projects and turns reordering off.
 - A session listed from disk opens on "Loading from <computer>…" while that computer is online (`sessions:watch` asks
   a crok there for the history, and asks again when the computer comes back online), else "<computer> is offline…".
-  The composer stays blocked: "<computer> is offline…" or, for an online computer, "This session isn't open in crok
-  on <computer>…".
+- Rows are dimmed only when their computer is offline (`deviceOnline`). A session nobody runs on an online computer
+  looks like any other and takes prompts: a crok there opens it when the prompt arrives. The session header then reads
+  "idle", and the composer is blocked only while the computer is offline ("<computer> is offline. Start crok or Crok
+  Desktop there…"). Stop on such a session drops prompts nobody picked up; its info sheet shows the numbers the
+  computer last sent (`result.stored`).
+- A permission request the session waits on (`sessions:get` → `pending`) shows as a card above the composer: "Crok on
+  <computer> asks:", the request, its detail in a scrollable monospaced box, and one button per option (allowing ones
+  filled). Tapping one calls `commands:answer`; the buttons stay disabled until the request leaves the session, and
+  `EXPIRED` (another device answered first) is ignored quietly.
 
 ## Demo mode
 
 Debug builds can run on built-in demo data (three computers, several projects, sessions in every state including ones
-listed from disk, a reply that streams and finishes), with no relay:
+listed from disk and one waiting on a permission request, a reply that streams and finishes), with no relay:
 
 - tap **Try the demo** on the Welcome screen, or
 - `adb shell am start -n dev.chenli.crok.mobile/.MainActivity --ez crokDemo true`
 
-Prompts, Stop, info requests, pin / archive, reordering projects and sessions, loading a listed session's history and
-device sign-outs all work against the in-memory relay (`demo/DemoTransport.kt`, which answers the same Convex function
-names). Release builds ignore it.
+Prompts (also to a session nobody runs, which the demo computer then opens), Stop, info requests, answering the
+permission request (the turn goes on: the build runs, or is skipped on Reject), pin / archive, reordering projects and
+sessions, loading a listed session's history and device sign-outs all work against the in-memory relay
+(`demo/DemoTransport.kt`, which answers the same Convex function names). Release builds ignore it.
 
 ## Tests
 
@@ -105,9 +113,11 @@ Unit tests (JVM) cover the transcript building (grouping, day headers, optimisti
 plan summary, relative times, the Markdown reader and its AnnotatedString rendering, streaming-reveal pacing, the
 project sections (tabs, 5 + "Show more", collapse, search, freezing, the folder line), the ordering rules (the relay's
 `reorderWithin`, pinned first, Move up / Move down, sort by recent), the HTTP API reply and error decoding, the wire
-models (float64 numbers, `sessions:groups`), the auth state machine with persistence across a "killed" process and the
+models (float64 numbers, `sessions:groups`, `pending`, stored info), the session screen's state (header status,
+composer gating, the permission card), the auth state machine with persistence across a "killed" process and the
 built-in relay, token refresh and revocation, the delayed connection state, and the engine against the demo relay
-(paging, commands, devices, optimistic reorders and taking a refused one back, loading a listed session's history).
+(paging, commands, devices, optimistic reorders and taking a refused one back, loading a listed session's history,
+prompts / Stop / info for a session nobody runs, answering a permission request).
 `ReorderDragTest` drags Reorder mode's handles with touch input under Robolectric.
 
 ### Screenshot tests

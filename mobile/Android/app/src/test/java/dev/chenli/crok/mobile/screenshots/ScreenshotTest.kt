@@ -115,6 +115,22 @@ class ScreenshotTest {
         )
     }
 
+    /** The session waiting on a permission request; [answering]: this phone's answer is on its way. */
+    private fun waitingSession(answering: Boolean = false): SessionUiState {
+        val session = DemoData.sessions(now).first { it.id == DemoData.WAITING_SESSION }
+        return SessionUiState.build(
+            row = session.row(),
+            detail = session.detail,
+            gone = false,
+            transcript = TranscriptState(DemoData.waitingEvents(now).sortedByDescending { it.seq }, loaded = true, historyComplete = true),
+            prompts = emptyList(),
+            optimistic = emptyList(),
+            connection = ConnectionState.Connected,
+            zone = zone,
+            answering = if (answering) DemoData.WAITING_REQUEST else null,
+        )
+    }
+
     /** A session listed from its computer's disk, opened before its history arrived. */
     private fun listedSession(id: String): SessionUiState {
         val session = DemoData.sessions(now).first { it.id == id }
@@ -331,5 +347,18 @@ class ScreenshotTest {
     @Config(qualifiers = "+de")
     fun sessionsReorderGerman() = shoot("24-sessions-reorder-de", dark = true) {
         HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(reordering = true), SessionsActions()) }
+    }
+
+    // A permission request any device can answer.
+
+    @Test
+    fun permissionRequest() = shoot("25-session-permission") {
+        SessionContent(waitingSession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    @Config(qualifiers = "+fr")
+    fun permissionRequestAnsweringFrench() = shoot("26-session-permission-answering-fr", dark = true) {
+        SessionContent(waitingSession(answering = true), draft = "", now = now, actions = SessionActions())
     }
 }

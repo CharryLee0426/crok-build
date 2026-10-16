@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -30,14 +32,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
@@ -68,6 +75,11 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -77,6 +89,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chenli.crok.mobile.R
+import dev.chenli.crok.mobile.data.PendingInteraction
 import dev.chenli.crok.mobile.data.PlanEntry
 import dev.chenli.crok.mobile.engine.ConnectionState
 import dev.chenli.crok.mobile.logic.PlanSummary
@@ -95,6 +108,8 @@ data class SessionActions(
     val onDraft: (String) -> Unit = {},
     val onSend: () -> Unit = {},
     val onStop: () -> Unit = {},
+    /** Answers the pending permission request (`interactionId`, `optionId`). */
+    val onAnswer: (String, String) -> Unit = { _, _ -> },
     val onLoadMore: () -> Unit = {},
     val onReload: () -> Unit = {},
     val transcript: TranscriptActions = TranscriptActions(),
@@ -117,6 +132,7 @@ fun SessionScreen(viewModel: SessionViewModel, onBack: () -> Unit, infoSheet: @C
         viewModel.events.collect { event ->
             when (event) {
                 is SessionEvent.StopFailed -> snackbar.showSnackbar(resources.getString(R.string.stop_failed, event.message))
+                is SessionEvent.AnswerFailed -> snackbar.showSnackbar(resources.getString(R.string.error_generic, event.message))
             }
         }
     }
@@ -132,6 +148,7 @@ fun SessionScreen(viewModel: SessionViewModel, onBack: () -> Unit, infoSheet: @C
             onDraft = viewModel::updateDraft,
             onSend = viewModel::send,
             onStop = viewModel::stop,
+            onAnswer = viewModel::answer,
             onLoadMore = viewModel::loadMore,
             onReload = viewModel::reload,
             transcript = TranscriptActions(
@@ -321,9 +338,9 @@ private fun SessionHeader(state: SessionUiState) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 SessionPhase.Idle -> Text(stringResource(R.string.session_status_idle, state.deviceName), fontSize = subtitleSize, color = colors.textSecondary, maxLines = 1)
+                // Only for an offline computer: a session nobody runs on an online one is idle (a prompt opens it there).
                 SessionPhase.Offline -> Text(
-                    // The computer may be online with this session closed (or only on its disk).
-                    stringResource(if (state.deviceOnline) R.string.session_status_not_running else R.string.session_status_offline, state.deviceName),
+                    stringResource(R.string.session_status_offline, state.deviceName),
                     fontSize = subtitleSize,
                     color = colors.textTertiary,
                     maxLines = 1,
@@ -428,7 +445,10 @@ private fun ScrollToBottomButton(count: Int, onClick: () -> Unit) {
     }
 }
 
-/** Message field with Send, or Stop while a turn runs (Telegram's streaming-stop button); blocked while offline. */
+/**
+ * Message field with Send, or Stop while a turn runs (Telegram's streaming-stop button), under the pending permission
+ * request if there is one; blocked only while the computer is offline (a session nobody runs opens for a prompt).
+ */
 @Composable
 private fun Composer(state: SessionUiState, draft: String, actions: SessionActions) {
     val colors = CrokTheme.colors
@@ -445,12 +465,7 @@ private fun Composer(state: SessionUiState, draft: String, actions: SessionActio
                 Icon(CrokIcons.Laptop, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    when {
-                        state.gone -> stringResource(R.string.session_gone)
-                        // Online computer, session not running there: closed, or only listed from its disk.
-                        state.deviceOnline -> stringResource(R.string.composer_not_running, state.deviceName)
-                        else -> stringResource(R.string.composer_offline, state.deviceName)
-                    },
+                    if (state.gone) stringResource(R.string.session_gone) else stringResource(R.string.composer_offline, state.deviceName),
                     color = colors.textSecondary,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.testTag("composer-blocked"),
@@ -458,6 +473,7 @@ private fun Composer(state: SessionUiState, draft: String, actions: SessionActio
             }
             return@Column
         }
+        state.pending?.let { PermissionCard(it, state.deviceName, state.answering, actions.onAnswer) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
             TextField(
                 value = draft,
@@ -492,6 +508,94 @@ private fun Composer(state: SessionUiState, draft: String, actions: SessionActio
                     if (blank) colors.textTertiary else colors.onAccent,
                     enabled = !blank,
                     onClick = actions.onSend,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A permission request the session waits on (run this command, edit that file), with its choices: any of the person's
+ * devices may answer, the first answer counts, and the card goes once the computer has it. Allowing choices are filled,
+ * the others outlined; all are disabled while this phone's answer is on its way.
+ */
+@Composable
+private fun PermissionCard(pending: PendingInteraction, computer: String, answering: Boolean, onAnswer: (String, String) -> Unit) {
+    val colors = CrokTheme.colors
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, end = 8.dp, top = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.warningContainer)
+            .padding(12.dp)
+            .testTag("permission-card"),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(CrokIcons.Warning, contentDescription = null, tint = colors.warning, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                stringResource(R.string.permission_asks, computer),
+                color = colors.warning,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.semantics { heading() },
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            pending.title,
+            color = colors.textPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            // A new request is read out when it arrives.
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        pending.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 96.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.card)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            ) {
+                Text(detail, style = CrokTheme.codeStyle, color = colors.textPrimary)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            val shape = RoundedCornerShape(20.dp)
+            val padding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            pending.options.forEach { option ->
+                val label = option.name.ifBlank { option.optionId }
+                val onClick = { onAnswer(pending.id, option.optionId) }
+                if (option.allows) {
+                    Button(
+                        onClick = onClick,
+                        enabled = !answering,
+                        shape = shape,
+                        contentPadding = padding,
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.onAccent),
+                    ) { Text(label, fontSize = 14.sp) }
+                } else {
+                    OutlinedButton(onClick = onClick, enabled = !answering, shape = shape, contentPadding = padding) {
+                        Text(label, fontSize = 14.sp, color = if (answering) colors.textTertiary else colors.textPrimary)
+                    }
+                }
+            }
+            if (answering) {
+                val sending = stringResource(R.string.tick_clock)
+                CircularProgressIndicator(
+                    Modifier.size(18.dp).semantics { contentDescription = sending },
+                    strokeWidth = 2.dp,
+                    color = colors.textSecondary,
                 )
             }
         }

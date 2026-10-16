@@ -91,7 +91,6 @@
     <string name="session_status_waiting">waiting for approval on %1$s</string>
     <string name="session_status_idle">idle · %1$s</string>
     <string name="session_status_offline">offline · %1$s</string>
-    <string name="session_status_not_running">not running · %1$s</string>
     <string name="session_history_loading">Loading from %1$s…</string>
     <string name="session_history_offline">%1$s is offline. This session’s history shows once crok runs there again.</string>
     <string name="session_status_error">error · %1$s</string>
@@ -110,8 +109,8 @@
     <string name="notice_max_tokens">The reply hit the output limit.</string>
     <string name="notice_refusal">The model declined to continue.</string>
     <string name="composer_placeholder">Message crok on %1$s…</string>
-    <string name="composer_offline">%1$s is offline. Open crok there to continue this session.</string>
-    <string name="composer_not_running">This session isn’t open in crok on %1$s. Open it there to continue.</string>
+    <string name="composer_offline">%1$s is offline. Start crok or Crok Desktop there to continue this session.</string>
+    <string name="permission_asks">Crok on %1$s asks:</string>
     <string name="composer_send">Send</string>
     <string name="composer_stop">Stop</string>
     <string name="prompt_not_sent">Not sent: %1$s</string>
@@ -149,6 +148,7 @@
     <string name="info_refreshing">Asking %1$s for fresh numbers…</string>
     <string name="info_refresh_failed">Couldn’t get fresh numbers: %1$s</string>
     <string name="info_offline_note">The computer is offline. These are the last numbers the relay saw.</string>
+    <string name="info_not_open_note">Not open on %1$s right now: these are the last numbers it sent.</string>
     <string name="info_remove">Remove from relay</string>
     <string name="info_remove_title">Remove this session from the relay?</string>
     <string name="info_remove_body">The session stays on %1$s. Only the relay’s copy is deleted.</string>

@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.chenli.crok.mobile.data.DraftStore
 import dev.chenli.crok.mobile.data.HistoryState
+import dev.chenli.crok.mobile.data.PendingInteraction
 import dev.chenli.crok.mobile.data.PlanEntry
 import dev.chenli.crok.mobile.data.PromptCommand
 import dev.chenli.crok.mobile.data.RelayErrorCode
@@ -15,6 +16,7 @@ import dev.chenli.crok.mobile.data.RelayNetworkException
 import dev.chenli.crok.mobile.data.SessionDetail
 import dev.chenli.crok.mobile.data.SessionRow
 import dev.chenli.crok.mobile.data.SessionStatus
+import dev.chenli.crok.mobile.data.relayCode
 import dev.chenli.crok.mobile.engine.ConnectionState
 import dev.chenli.crok.mobile.engine.CrokEngine
 import dev.chenli.crok.mobile.engine.TranscriptState
@@ -45,7 +47,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** The header's subtitle (connection trouble overrides it). */
+/** The header's subtitle (connection trouble overrides it). [Offline]: the session's computer is offline. */
 enum class SessionPhase { Working, Waiting, Idle, Offline, Error }
 
 data class SessionUiState(
@@ -66,7 +68,12 @@ data class SessionUiState(
     val error: String? = null,
     /** The relay no longer has this session. */
     val gone: Boolean = false,
+    /** A permission request the session waits on while a crok runs it: a card with its choices above the composer. */
+    val pending: PendingInteraction? = null,
+    /** This phone answered [pending] and waits for the computer to take the answer. */
+    val answering: Boolean = false,
 ) {
+    /** Prompts go wherever the computer is online: one for a session nobody runs opens it there. */
     val canSend: Boolean get() = phase != SessionPhase.Offline && !gone
     val running: Boolean get() = phase == SessionPhase.Working
 
@@ -74,8 +81,10 @@ data class SessionUiState(
     val historyOnComputer: Boolean get() = loaded && items.isEmpty() && HistoryState.onComputerOnly(historyState)
 
     companion object {
-        fun phaseOf(status: String, online: Boolean): SessionPhase = when {
-            !online -> SessionPhase.Offline
+        /** [online]: a crok runs the session; [deviceOnline]: its computer is online (it opens the session for a prompt). */
+        fun phaseOf(status: String, online: Boolean, deviceOnline: Boolean): SessionPhase = when {
+            !online && !deviceOnline -> SessionPhase.Offline
+            !online -> SessionPhase.Idle
             status == SessionStatus.RUNNING -> SessionPhase.Working
             status == SessionStatus.WAITING -> SessionPhase.Waiting
             status == SessionStatus.ERROR -> SessionPhase.Error
@@ -92,15 +101,19 @@ data class SessionUiState(
             optimistic: List<OptimisticPrompt>,
             connection: ConnectionState,
             zone: ZoneId,
+            answering: String? = null,
         ): SessionUiState {
             val status = detail?.status ?: row?.status ?: SessionStatus.IDLE
             val online = detail?.online ?: row?.online ?: false
-            val phase = phaseOf(status, online)
+            val deviceOnline = detail?.deviceOnline ?: row?.deviceOnline ?: false
+            val phase = phaseOf(status, online, deviceOnline)
             val plan = detail?.plan.orEmpty()
+            // Only a crok that runs the session can take an answer: a stale request of a closed one is not shown.
+            val pending = detail?.pending?.takeIf { detail.online }
             return SessionUiState(
                 title = detail?.title ?: row?.title.orEmpty(),
                 deviceName = detail?.deviceName ?: row?.deviceName.orEmpty(),
-                deviceOnline = detail?.deviceOnline ?: row?.deviceOnline ?: false,
+                deviceOnline = deviceOnline,
                 historyState = if (detail != null) detail.historyState else row?.historyState,
                 phase = phase,
                 connection = connection,
@@ -119,6 +132,8 @@ data class SessionUiState(
                 loadingMore = transcript.loadingMore,
                 error = transcript.error?.message,
                 gone = gone,
+                pending = pending,
+                answering = pending != null && pending.id == answering,
             )
         }
     }
@@ -126,6 +141,7 @@ data class SessionUiState(
 
 sealed interface SessionEvent {
     data class StopFailed(val message: String) : SessionEvent
+    data class AnswerFailed(val message: String) : SessionEvent
 }
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
@@ -154,7 +170,10 @@ class SessionViewModel(
 
     private val row = engine.sessions.active.map { list -> list.rows.firstOrNull { it.id == sessionDocId } }
 
-    private val header = combine(row, detail) { r, d -> r to d }
+    /** The pending request this phone answered, until the computer takes the answer (the request leaves the session). */
+    private val answering = MutableStateFlow<String?>(null)
+
+    private val header = combine(row, detail, answering) { r, d, a -> Triple(r, d, a) }
 
     val state: StateFlow<SessionUiState> = combine(
         header,
@@ -162,10 +181,10 @@ class SessionViewModel(
         prompts,
         optimistic,
         engine.connection.delayedForDisplay(),
-    ) { (r, d), transcript, commands, mine, connection ->
+    ) { (r, d, a), transcript, commands, mine, connection ->
         val detailResult = d
         val gone = detailResult != null && detailResult.isSuccess && detailResult.getOrNull() == null
-        SessionUiState.build(r, detailResult?.getOrNull(), gone, transcript, commands, mine, connection, zone)
+        SessionUiState.build(r, detailResult?.getOrNull(), gone, transcript, commands, mine, connection, zone, answering = a)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionUiState())
 
     init {
@@ -186,6 +205,12 @@ class SessionViewModel(
                 .distinctUntilChanged()
                 .filter { it }
                 .collect { runCatching { engine.sessions.markRead(sessionDocId) } }
+        }
+        // "Answering…" ends once the request is gone from the session (the computer took an answer, maybe another's).
+        viewModelScope.launch {
+            detail.map { it?.getOrNull()?.pending?.id }.distinctUntilChanged().collect { pendingId ->
+                answering.update { if (it != null && it != pendingId) null else it }
+            }
         }
     }
 
@@ -261,6 +286,25 @@ class SessionViewModel(
                 throw e
             } catch (e: Exception) {
                 _events.trySend(SessionEvent.StopFailed(describe(e)))
+            }
+        }
+    }
+
+    /**
+     * Answers the pending permission request with one of its options, as if clicked on the computer. The card's buttons
+     * stay disabled until the request leaves the session. `EXPIRED` (someone answered first) is not worth a message.
+     */
+    fun answer(interactionId: String, optionId: String) {
+        if (answering.value == interactionId) return
+        answering.value = interactionId
+        viewModelScope.launch {
+            try {
+                engine.commands.answer(sessionDocId, interactionId, optionId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                answering.update { if (it == interactionId) null else it }
+                if (e.relayCode != RelayErrorCode.EXPIRED) _events.trySend(SessionEvent.AnswerFailed(describe(e)))
             }
         }
     }

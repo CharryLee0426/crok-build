@@ -330,6 +330,14 @@ class CrokEngine(
         suspend fun requestInfo(sessionDocId: String): String =
             call("commands:requestInfo", mapOf("sessionDocId" to sessionDocId), CommandRef.serializer()).commandId
 
+        /** Answers the session's pending permission request; `EXPIRED` once that request is no longer pending. */
+        suspend fun answer(sessionDocId: String, interactionId: String, optionId: String): String =
+            call(
+                "commands:answer",
+                mapOf("sessionDocId" to sessionDocId, "interactionId" to interactionId, "optionId" to optionId),
+                CommandRef.serializer(),
+            ).commandId
+
         fun get(commandId: String): Flow<Result<CommandDoc?>> =
             live("commands:get", mapOf("commandId" to commandId), CommandDoc.serializer().nullable)
 

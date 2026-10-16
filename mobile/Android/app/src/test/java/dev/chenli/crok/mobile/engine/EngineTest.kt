@@ -6,6 +6,8 @@ import dev.chenli.crok.mobile.data.RelayErrorCode
 import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
 import dev.chenli.crok.mobile.data.SessionGroup
+import dev.chenli.crok.mobile.data.SessionInfoResult
+import dev.chenli.crok.mobile.data.SessionStatus
 import dev.chenli.crok.mobile.demo.DemoData
 import dev.chenli.crok.mobile.demo.DemoTransport
 import kotlinx.coroutines.CompletableDeferred
@@ -171,18 +173,88 @@ class EngineOverDemoTest {
         pager.close()
     }
 
+    private suspend fun expectError(code: RelayErrorCode, block: suspend () -> Unit) {
+        try {
+            block()
+            fail("expected $code")
+        } catch (e: RelayException) {
+            assertEquals(code, e.code)
+        }
+    }
+
     @Test
     fun sendsPromptsIdempotentlyAndReportsOffline() = await {
         val id = engine.commands.sendPrompt(DemoData.WAITING_SESSION, "Yes, build it", "client-x")
         assertEquals(id, engine.commands.sendPrompt(DemoData.WAITING_SESSION, "Yes, build it", "client-x"))
         val prompts = engine.commands.forSession(DemoData.WAITING_SESSION).first().getOrThrow()
         assertEquals(CommandStatus.PENDING, prompts.first { it.clientId == "client-x" }.status)
-        try {
-            engine.commands.sendPrompt("demo-s5", "hello?", "client-y")
-            fail("expected OFFLINE")
-        } catch (e: RelayException) {
-            assertEquals(RelayErrorCode.OFFLINE, e.code)
+        // Only an offline computer refuses a prompt.
+        expectError(RelayErrorCode.OFFLINE) { engine.commands.sendPrompt(DemoData.OFFLINE_SESSION, "hello?", "client-y") }
+    }
+
+    @Test
+    fun aSessionNobodyRunsTakesPromptsWhileItsComputerIsOnline() = await {
+        // Listed from the MacBook's disk, not running: the prompt waits for a crok there to open the session.
+        val listed = engine.sessions.get(DemoData.CATALOG_SESSION).first().getOrThrow()!!
+        assertTrue(!listed.online && listed.deviceOnline)
+        val id = engine.commands.sendPrompt(DemoData.CATALOG_SESSION, "What changed since?", "client-z")
+        val prompt = engine.commands.forSession(DemoData.CATALOG_SESSION).first().getOrThrow().single()
+        assertEquals(id, prompt.id)
+        assertEquals(CommandStatus.PENDING, prompt.status)
+
+        // Stop settles at once and drops the prompt nobody picked up.
+        val stopId = engine.commands.stop(DemoData.CATALOG_SESSION)
+        assertEquals(CommandStatus.DONE, engine.commands.get(stopId).first().getOrThrow()?.status)
+        val dropped = engine.commands.forSession(DemoData.CATALOG_SESSION).first { result ->
+            result.getOrNull()?.singleOrNull()?.status == CommandStatus.FAILED
+        }.getOrThrow().single()
+        assertEquals("Stopped before it ran.", dropped.error)
+        // Its computer is online, so the prompt can go again.
+        engine.commands.retry(id)
+        assertEquals(CommandStatus.PENDING, engine.commands.forSession(DemoData.CATALOG_SESSION).first().getOrThrow().single().status)
+
+        // Stop on the offline computer's session settles too; a prompt there is OFFLINE.
+        engine.commands.stop(DemoData.OFFLINE_SESSION)
+        expectError(RelayErrorCode.OFFLINE) { engine.commands.sendPrompt(DemoData.OFFLINE_SESSION, "hi", "client-w") }
+    }
+
+    @Test
+    fun infoForASessionNobodyRunsIsTheStoredNumbersAtOnce() = await {
+        for (sessionDocId in listOf(DemoData.CATALOG_SESSION, DemoData.OFFLINE_SESSION)) {
+            val command = engine.commands.get(engine.commands.requestInfo(sessionDocId)).first().getOrThrow()!!
+            assertEquals(CommandStatus.DONE, command.status)
+            val result = SessionInfoResult.from(command.result)!!
+            assertTrue(result.stored)
+            assertEquals(engine.sessions.get(sessionDocId).first().getOrThrow()!!.sessionId, result.sessionId)
         }
+        // A running session asks its computer: fresh numbers, not stored ones.
+        val fresh = engine.commands.get(engine.commands.requestInfo(DemoData.RUNNING_SESSION))
+            .first { it.getOrNull()?.status == CommandStatus.DONE }.getOrThrow()!!
+        val result = SessionInfoResult.from(fresh.result)!!
+        assertTrue(!result.stored)
+        assertEquals(184_800L, result.inputTokens)
+    }
+
+    @Test
+    fun answersAPendingRequestOnce() = await {
+        val waiting = engine.sessions.get(DemoData.WAITING_SESSION).first().getOrThrow()!!
+        val pending = waiting.pending!!
+        assertEquals(DemoData.WAITING_REQUEST, pending.id)
+        assertEquals(SessionStatus.WAITING, waiting.status)
+        assertEquals(listOf("allow", "allow-always", "reject"), pending.options.map { it.optionId })
+
+        expectError(RelayErrorCode.INVALID) { engine.commands.answer(DemoData.WAITING_SESSION, pending.id, "maybe") }
+        expectError(RelayErrorCode.EXPIRED) { engine.commands.answer(DemoData.WAITING_SESSION, "an-older-request", "allow") }
+        // Nothing waits in a session nobody runs.
+        expectError(RelayErrorCode.EXPIRED) { engine.commands.answer(DemoData.CATALOG_SESSION, pending.id, "allow") }
+
+        val commandId = engine.commands.answer(DemoData.WAITING_SESSION, pending.id, "allow")
+        // The computer takes it: the request leaves the session and the turn goes on.
+        val answered = engine.sessions.get(DemoData.WAITING_SESSION).first { it.getOrNull()?.pending == null }.getOrThrow()!!
+        assertEquals(SessionStatus.RUNNING, answered.status)
+        assertEquals(CommandStatus.DONE, engine.commands.get(commandId).first().getOrThrow()?.status)
+        // A second answer (another device, a double tap) is too late.
+        expectError(RelayErrorCode.EXPIRED) { engine.commands.answer(DemoData.WAITING_SESSION, pending.id, "reject") }
     }
 
     @Test

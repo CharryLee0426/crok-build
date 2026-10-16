@@ -706,7 +706,8 @@ fun SessionRowItem(
     val formatter = rememberFormatter()
     var menu by remember { mutableStateOf(false) }
     val folder = SessionList.folderName(row.cwd)
-    val dimmed = !row.online
+    // Dimmed only when its computer is offline: a session nobody runs opens there when it gets a prompt.
+    val dimmed = !row.reachable
     val effectiveNow = if (now > 0) now else System.currentTimeMillis()
     val time = formatter.listTime(RelativeTime.listTime(row.lastActivityAt, effectiveNow, formatter.zone))
     val secondLine = if (projectName != null) SessionList.folderLine(row, projectName) else "${row.deviceName} · $folder"

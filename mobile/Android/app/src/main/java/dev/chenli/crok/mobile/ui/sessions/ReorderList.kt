@@ -438,14 +438,15 @@ private fun ReorderRow(
             Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 16.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            InitialsAvatar(folder, key = folder, size = 40.dp, dimmed = !row.online, online = row.online)
+            // Dimmed only when its computer is offline, as in the list.
+            InitialsAvatar(folder, key = folder, size = 40.dp, dimmed = !row.reachable, online = row.online)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     row.title.ifBlank { folder },
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (row.online) colors.textPrimary else colors.textSecondary,
+                    color = if (row.reachable) colors.textPrimary else colors.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

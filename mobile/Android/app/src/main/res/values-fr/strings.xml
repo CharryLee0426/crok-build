@@ -92,7 +92,6 @@
     <string name="session_status_waiting">en attente d’approbation sur %1$s</string>
     <string name="session_status_idle">inactive · %1$s</string>
     <string name="session_status_offline">hors ligne · %1$s</string>
-    <string name="session_status_not_running">non lancée · %1$s</string>
     <string name="session_history_loading">Chargement depuis %1$s…</string>
     <string name="session_history_offline">%1$s est hors ligne. L’historique de cette session s’affichera quand crok y tournera de nouveau.</string>
     <string name="session_status_error">erreur · %1$s</string>
@@ -111,8 +110,8 @@
     <string name="notice_max_tokens">La réponse a atteint la limite de sortie.</string>
     <string name="notice_refusal">Le modèle a refusé de continuer.</string>
     <string name="composer_placeholder">Message pour crok sur %1$s…</string>
-    <string name="composer_offline">%1$s est hors ligne. Ouvrez crok sur cet ordinateur pour poursuivre cette session.</string>
-    <string name="composer_not_running">Cette session n’est pas ouverte dans crok sur %1$s. Ouvrez-la là-bas pour continuer.</string>
+    <string name="composer_offline">%1$s est hors ligne. Lancez crok ou Crok Desktop sur cet ordinateur pour poursuivre cette session.</string>
+    <string name="permission_asks">Crok sur %1$s demande :</string>
     <string name="composer_send">Envoyer</string>
     <string name="composer_stop">Arrêter</string>
     <string name="prompt_not_sent">Non envoyé : %1$s</string>
@@ -150,6 +149,7 @@
     <string name="info_refreshing">Demande de chiffres à jour à %1$s…</string>
     <string name="info_refresh_failed">Impossible d’obtenir des chiffres à jour : %1$s</string>
     <string name="info_offline_note">L’ordinateur est hors ligne. Voici les derniers chiffres vus par le relais.</string>
+    <string name="info_not_open_note">Pas ouverte sur %1$s en ce moment : voici les derniers chiffres envoyés.</string>
     <string name="info_remove">Retirer du relais</string>
     <string name="info_remove_title">Retirer cette session du relais ?</string>
     <string name="info_remove_body">La session reste sur %1$s. Seule la copie du relais est supprimée.</string>

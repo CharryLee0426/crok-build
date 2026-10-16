@@ -92,7 +92,6 @@
     <string name="session_status_waiting">esperando aprobación en %1$s</string>
     <string name="session_status_idle">inactiva · %1$s</string>
     <string name="session_status_offline">sin conexión · %1$s</string>
-    <string name="session_status_not_running">sin ejecutar · %1$s</string>
     <string name="session_history_loading">Cargando desde %1$s…</string>
     <string name="session_history_offline">%1$s no está conectado. El historial de esta sesión aparecerá cuando crok vuelva a ejecutarse allí.</string>
     <string name="session_status_error">error · %1$s</string>
@@ -111,8 +110,8 @@
     <string name="notice_max_tokens">La respuesta alcanzó el límite de salida.</string>
     <string name="notice_refusal">El modelo se negó a continuar.</string>
     <string name="composer_placeholder">Mensaje para crok en %1$s…</string>
-    <string name="composer_offline">%1$s no está conectado. Abre crok allí para continuar esta sesión.</string>
-    <string name="composer_not_running">Esta sesión no está abierta en crok en %1$s. Ábrela allí para continuar.</string>
+    <string name="composer_offline">%1$s está sin conexión. Inicia crok o Crok Desktop allí para continuar esta sesión.</string>
+    <string name="permission_asks">Crok en %1$s pregunta:</string>
     <string name="composer_send">Enviar</string>
     <string name="composer_stop">Detener</string>
     <string name="prompt_not_sent">No enviado: %1$s</string>
@@ -150,6 +149,7 @@
     <string name="info_refreshing">Pidiendo cifras actualizadas a %1$s…</string>
     <string name="info_refresh_failed">No se pudieron obtener cifras actualizadas: %1$s</string>
     <string name="info_offline_note">El ordenador no está conectado. Estas son las últimas cifras que vio el relay.</string>
+    <string name="info_not_open_note">Ahora no está abierta en %1$s: estas son las últimas cifras que envió.</string>
     <string name="info_remove">Quitar del relay</string>
     <string name="info_remove_title">¿Quitar esta sesión del relay?</string>
     <string name="info_remove_body">La sesión sigue en %1$s. Solo se elimina la copia del relay.</string>
