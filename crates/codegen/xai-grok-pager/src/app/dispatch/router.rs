@@ -1094,8 +1094,8 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::CycleMode => dispatch_cycle_mode(app),
         Action::ShareSession => dispatch_share_session(app),
         Action::ShowSessionInfo => dispatch_show_session_info(app),
-        Action::RemoteLogin { server } => match app.active_view {
-            ActiveView::Agent(agent_id) => vec![Effect::RemoteLogin { agent_id, server }],
+        Action::RemoteLogin => match app.active_view {
+            ActiveView::Agent(agent_id) => vec![Effect::RemoteLogin { agent_id }],
             _ => vec![],
         },
         Action::RemoteLogout => match app.active_view {

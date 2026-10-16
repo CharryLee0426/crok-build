@@ -506,7 +506,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | Key | Type / Values | Requirements | Managed | Details |
 | --- | --- | --- | --- | --- |
 | `remote.enabled` | `boolean` | `no` | `user` | While this computer is signed in to [remote control](30-remote-control.md), mirror its sessions and take prompts from phones and the web. Default true. Also `CROK_REMOTE_CONTROL`. Checked every few seconds by running sessions. |
-| `remote.url` | `string` | `no` | `user` | The remote-control relay (a Convex deployment URL, `https://<name>.convex.cloud`). Written by `crok remote login --server`. Also `CROK_REMOTE_URL`. |
+| `remote.url` | `string` | `no` | `user` | A remote-control relay of your own (a Convex deployment URL, `https://<name>.convex.cloud`) instead of the one built into crok. Unset by default. Also `CROK_REMOTE_URL`. |
 
 ### `sandbox`
 

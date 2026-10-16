@@ -676,10 +676,8 @@ pub enum Action {
     ShareSession,
     /// Show session info (auth, ID, cwd, model, context usage) instantly.
     ShowSessionInfo,
-    /// `/remote login [url]`: sign this computer in to remote control (device code, approved on the web or a phone).
-    RemoteLogin {
-        server: Option<String>,
-    },
+    /// `/remote login`: sign this computer in to remote control (device code, approved on the web or a phone).
+    RemoteLogin,
     /// `/remote logout`.
     RemoteLogout,
     /// Show release notes in a modal.
@@ -2003,10 +2001,7 @@ pub enum Effect {
         session_id: acp::SessionId,
     },
     /// `/remote login`: start the device sign-in and show its code.
-    RemoteLogin {
-        agent_id: AgentId,
-        server: Option<String>,
-    },
+    RemoteLogin { agent_id: AgentId },
     /// Wait for the shown code to be approved.
     RemoteLoginWait {
         agent_id: AgentId,

@@ -128,14 +128,7 @@ async fn login_command(
         }
         credentials::remove()?;
     }
-    let Some(server) = settings::server_url(server, None) else {
-        bail!(
-            "{}",
-            tl(
-                "No relay is configured. Pass --server https://<deployment>.convex.cloud, or set [remote] url in ~/.crok/config.toml (see relay/README.md)."
-            )
-        );
-    };
+    let server = settings::server_url(server, None);
     settings::validate_url(&server)?;
     let request = LoginRequest {
         server: server.clone(),
@@ -205,12 +198,6 @@ async fn login_command(
         },
         _ = tokio::signal::ctrl_c() => bail!("{}", tl("Sign-in cancelled.")),
     };
-    // Remember the relay, so the TUI and Crok Desktop find it without flags.
-    if settings::load().url.as_deref() != Some(server.as_str())
-        && let Err(error) = settings::save_url(&server)
-    {
-        tracing::warn!(%error, "could not save [remote] url");
-    }
     out.event(json!({
         "event": "signed_in",
         "account": account_json(&credentials),

@@ -1,12 +1,13 @@
-//! `/remote`: remote control from the TUI. No argument shows the status; `login [url]` signs this computer in (a
-//! code to approve on the web or from the Crok app), `logout` signs it out, `on` / `off` turn sharing on or off.
+//! `/remote`: remote control from the TUI. No argument shows the status; `login` signs this computer in to the
+//! built-in relay (a code to approve on the web or from the Crok app), `logout` signs it out, `on` / `off` turn
+//! sharing on or off.
 
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 use xai_grok_i18n::{tl, tlm};
 
 const USAGE_ERROR: &str =
-    tlm("Use /remote, /remote login [url], /remote logout, /remote on or /remote off");
+    tlm("Use /remote, /remote login, /remote logout, /remote on or /remote off");
 
 pub struct RemoteCommand;
 
@@ -14,7 +15,7 @@ impl SlashCommand for RemoteCommand {
     slash_meta! {
         name: "remote",
         description: tlm("Remote control: follow and steer this computer's sessions from your phone or the web"),
-        usage: "/remote [login [url]|logout|on|off]",
+        usage: "/remote [login|logout|on|off]",
         arg_placeholder: tlm("login/logout/on/off"),
     }
 
@@ -23,9 +24,7 @@ impl SlashCommand for RemoteCommand {
         let verb = words.next().map(str::to_ascii_lowercase);
         match verb.as_deref() {
             None | Some("status") => CommandResult::Message(crate::remote_cmd::status_text()),
-            Some("login" | "signin" | "sign-in") => CommandResult::Action(Action::RemoteLogin {
-                server: words.next().map(str::to_owned),
-            }),
+            Some("login" | "signin" | "sign-in") => CommandResult::Action(Action::RemoteLogin),
             Some("logout" | "signout" | "sign-out") => CommandResult::Action(Action::RemoteLogout),
             Some(word @ ("on" | "off")) => match crate::remote_cmd::set_enabled(word == "on") {
                 Ok(text) => CommandResult::Message(text),

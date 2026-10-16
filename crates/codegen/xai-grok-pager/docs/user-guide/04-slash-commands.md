@@ -150,7 +150,7 @@ Turn the [phone tool](29-phone-use.md) on or off: pass `on` or `off`, or nothing
 
 ### `/remote`
 
-[Remote control](30-remote-control.md): follow and steer this computer's sessions from your phone or the web. With no argument it shows whether this computer is signed in, as whom, and whether the link is up. `/remote login [url]` signs this computer in (a code to approve on the web or from the Crok app; the URL is the relay, needed the first time), `/remote logout` signs it out, and `/remote on` / `/remote off` start or stop sharing without signing out (`[remote] enabled`). The footer shows **● remote** while phones can reach this session. Outside the TUI: `crok remote login | logout | status`.
+[Remote control](30-remote-control.md): follow and steer this computer's sessions from your phone or the web. With no argument it shows whether this computer is signed in, as whom, and whether the link is up. `/remote login` signs this computer in (a code to approve on the web or from the Crok app), `/remote logout` signs it out, and `/remote on` / `/remote off` start or stop sharing without signing out (`[remote] enabled`). The footer shows **● remote** while phones can reach this session. Outside the TUI: `crok remote login | logout | status`.
 
 ### `/multiline`
 

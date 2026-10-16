@@ -214,8 +214,8 @@ pub enum RemoteCommand {
     /// Link this computer to your remote-control account: shows a code and a QR code, opens the
     /// sign-in page (GitHub or Google), and waits for you to approve it.
     Login {
-        /// The relay (Convex deployment URL). Saved as `[remote] url` in ~/.crok/config.toml.
-        #[arg(long, value_name = "URL")]
+        /// Another relay than the built-in one (a local relay for development). Hidden: nobody needs it.
+        #[arg(long, value_name = "URL", hide = true)]
         server: Option<String>,
         /// How this computer is named on your phone (default: the computer's name).
         #[arg(long)]

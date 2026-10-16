@@ -17,9 +17,6 @@ private struct RemoteControlCard: View {
     @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
     @ObservedObject var model: RemoteControlModel
-    /// The relay address being typed; it follows `[remote] url` until it is edited.
-    @State private var relay = ""
-    @State private var relayEdited = false
     @State private var confirmSignOut = false
     @State private var copied = false
 
@@ -42,7 +39,6 @@ private struct RemoteControlCard: View {
         .settingsCard()
         .onAppear {
             model.refresh()
-            if !relayEdited { relay = model.configuredURL ?? "" }
             model.checkStatus()
         }
         // A sign-in or sign-out made in the terminal shows within a couple of seconds.
@@ -52,7 +48,6 @@ private struct RemoteControlCard: View {
                 model.refreshIfChanged()
             }
         }
-        .onChange(of: model.configuredURL) { _, url in if !relayEdited { relay = url ?? "" } }
         // A reason shown once is not shown again the next time Settings opens.
         .onDisappear { model.failure = nil }
         .alert(L10n.t("remote_sign_out_title", "Sign this Mac out of remote control?"), isPresented: $confirmSignOut) {
@@ -64,10 +59,6 @@ private struct RemoteControlCard: View {
     }
 
     // MARK: Signed out
-
-    private var relayIsValid: Bool {
-        relay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || RemoteRelayAddress.normalized(relay) != nil
-    }
 
     @ViewBuilder private var signedOut: some View {
         HStack(spacing: 12) {
@@ -81,26 +72,9 @@ private struct RemoteControlCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if model.phase == .idle {
-                Button(L10n.t("remote_sign_in", "Sign in…")) { model.signIn(relay: relay) }
+                Button(L10n.t("remote_sign_in", "Sign in…")) { model.signIn() }
                     .buttonStyle(.bordered)
-                    .disabled(!relayIsValid)
                     .accessibilityLabel(L10n.t("remote_sign_in_label", "Sign in to remote control"))
-            }
-        }
-        Divider()
-        row(L10n.t("remote_relay", "Relay"), detail: L10n.t("remote_relay_detail", "The address of your relay, which the Crok app on your phone uses too.")) {
-            VStack(alignment: .trailing, spacing: 4) {
-                TextField("https://your-deployment.convex.cloud", text: Binding(get: { relay }, set: { relay = $0; relayEdited = true }))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 270)
-                    .disabled(model.isBusy)
-                    .onSubmit { if model.phase == .idle, relayIsValid { model.signIn(relay: relay) } }
-                    .accessibilityLabel(L10n.t("remote_relay", "Relay"))
-                if !relayIsValid {
-                    Text(L10n.t("remote_invalid_relay", "Enter the relay's address, starting with https:// or http://."))
-                        .font(.system(size: 11)).foregroundStyle(Theme.red).frame(width: 270, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
         }
         switch model.phase {

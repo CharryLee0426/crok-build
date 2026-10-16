@@ -3,7 +3,7 @@
 //! ```toml
 //! [remote]
 //! enabled = true                                  # mirror sessions and take commands while signed in
-//! url = "https://<deployment>.convex.cloud"       # the relay; `crok remote login --server` writes it
+//! url = "https://<deployment>.convex.cloud"       # only for a relay of your own; crok has one built in
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -19,14 +19,17 @@ const ENABLED_ENVS: [&str; 2] = ["CROK_REMOTE_CONTROL", "GROK_REMOTE_CONTROL"];
 /// their own and must not appear as hosts.
 const BRIDGE_ENVS: [&str; 2] = ["CROK_REMOTE_BRIDGE", "GROK_REMOTE_BRIDGE"];
 
-/// A relay built into this binary, for a build that ships with its own deployment.
-const BUILT_IN_URL: Option<&str> = option_env!("CROK_REMOTE_DEFAULT_URL");
+/// The relay built into this binary: crok's own, unless the build names another (`CROK_REMOTE_DEFAULT_URL`).
+pub const BUILT_IN_URL: &str = match option_env!("CROK_REMOTE_DEFAULT_URL") {
+    Some(url) => url,
+    None => "https://limitless-badger-727.convex.cloud",
+};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RemoteSettings {
     /// `[remote] enabled`; defaults to true (being signed in is the opt-in).
     pub enabled: bool,
-    /// `[remote] url`.
+    /// `[remote] url`: a relay of one's own instead of the built-in one.
     pub url: Option<String>,
 }
 
@@ -89,15 +92,15 @@ pub fn normalize_url(url: &str) -> String {
 }
 
 /// The relay to use: an explicit `--server`, then `CROK_REMOTE_URL`, then `[remote] url`, then the one the saved
-/// credentials were issued by, then one built into this binary.
-pub fn server_url(explicit: Option<&str>, credentials: Option<&Credentials>) -> Option<String> {
+/// credentials were issued by, then the one built into this binary, so nobody has to set it.
+pub fn server_url(explicit: Option<&str>, credentials: Option<&Credentials>) -> String {
     explicit
         .map(normalize_url)
         .filter(|url| !url.is_empty())
         .or_else(|| env_value(&URL_ENVS).map(|url| normalize_url(&url)))
         .or_else(|| load().url)
         .or_else(|| credentials.map(|c| c.server.clone()))
-        .or_else(|| BUILT_IN_URL.map(normalize_url))
+        .unwrap_or_else(|| normalize_url(BUILT_IN_URL))
 }
 
 /// Rejects anything that is not an http(s) URL, so a typo fails at sign-in rather than at connect.
@@ -134,14 +137,6 @@ fn edit_config(path: &Path, edit: impl FnOnce(&mut toml_edit::Table)) -> anyhow:
     std::fs::write(&tmp, doc.to_string()).with_context(|| format!("writing {}", tmp.display()))?;
     std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
     Ok(())
-}
-
-/// Writes `[remote] url`.
-pub fn save_url(url: &str) -> anyhow::Result<()> {
-    let url = normalize_url(url);
-    edit_config(&config_path(), |table| {
-        table["url"] = toml_edit::value(url);
-    })
 }
 
 /// Writes `[remote] enabled`.
@@ -192,6 +187,11 @@ mod tests {
         assert!(text.contains("# mine"));
         assert!(text.contains("theme = \"auto\" # keep"));
         assert!(text.contains("[remote]\nurl = \"https://b.convex.cloud\""));
+    }
+
+    #[test]
+    fn a_relay_is_built_in() {
+        assert!(validate_url(BUILT_IN_URL).is_ok());
     }
 
     #[test]

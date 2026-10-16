@@ -118,15 +118,6 @@ final class RemoteControlTests: XCTestCase {
         XCTAssertNil(RemoteLink.read(RemoteLink.file(home: home)))
     }
 
-    func testTheRelayAddressMustBeAWebAddress() {
-        XCTAssertEqual(RemoteRelayAddress.normalized(" https://quiet-otter-123.convex.cloud/ "), "https://quiet-otter-123.convex.cloud")
-        XCTAssertEqual(RemoteRelayAddress.normalized("http://127.0.0.1:3210"), "http://127.0.0.1:3210")
-        XCTAssertNil(RemoteRelayAddress.normalized("quiet-otter-123.convex.cloud"))
-        XCTAssertNil(RemoteRelayAddress.normalized("ftp://example.com"))
-        XCTAssertNil(RemoteRelayAddress.normalized("https://"))
-        XCTAssertNil(RemoteRelayAddress.normalized(""))
-    }
-
     func testTheBridgeStatusParsesAndTheBestLinkWins() {
         let status = RemoteBridgeStatus(params: ["state": "connected", "account": "Ada (ada@example.com)", "device": "Mac", "server": "https://x"])
         XCTAssertEqual(status, RemoteBridgeStatus(state: .connected, account: "Ada (ada@example.com)", device: "Mac", server: "https://x"))
@@ -156,14 +147,12 @@ final class RemoteControlTests: XCTestCase {
         let (model, home, _) = try model()
         XCTAssertNil(model.link)
         XCTAssertTrue(model.enabled, "on until config.toml turns it off")
-        XCTAssertNil(model.configuredURL)
 
         // Signed in from the terminal: seen at the next check.
         try writeLink(Self.linkJSON, home: home)
         try Data("[remote]\nurl = \"https://quiet-otter-123.convex.cloud\"\n".utf8).write(to: home.appendingPathComponent("config.toml"))
         model.refreshIfChanged()
         XCTAssertEqual(model.link?.deviceName, "Charlie's MacBook Pro")
-        XCTAssertEqual(model.configuredURL, "https://quiet-otter-123.convex.cloud")
 
         // The switch writes `[remote] enabled` and keeps the rest of the table.
         XCTAssertNil(model.setEnabled(false))
@@ -183,12 +172,12 @@ final class RemoteControlTests: XCTestCase {
 
     func testSigningInShowsTheCodeOpensThePageAndEndsSignedIn() async throws {
         let (model, home, opened) = try model()
-        model.signIn(relay: " http://127.0.0.1:3210/ ")
+        model.signIn()
         XCTAssertEqual(model.phase, .starting)
         try await eventually { if case .waiting = model.phase { return true } else { return false } }
         guard case .waiting(let code) = model.phase else { return XCTFail("no code shown") }
         XCTAssertEqual(code.userCode, "BCDF-GHJK")
-        XCTAssertEqual(code.server, "http://127.0.0.1:3210", "the address went to crok without the slash")
+        XCTAssertEqual(code.server, "http://127.0.0.1:3210", "crok picked the relay itself")
         XCTAssertEqual(opened.urls, [URL(string: "http://127.0.0.1:9/link?code=BCDF-GHJK")!], "the page with the code opens at once")
         model.openSignInPage()
         XCTAssertEqual(opened.urls.count, 2)
@@ -212,19 +201,12 @@ final class RemoteControlTests: XCTestCase {
 
     func testACancelledSignInIsNotAFailure() async throws {
         let (model, _, _) = try model()
-        model.signIn(relay: "")
+        model.signIn()
         try await eventually { if case .waiting = model.phase { return true } else { return false } }
         model.cancelSignIn()
         try await eventually { model.phase == .idle }
         XCTAssertNil(model.failure)
         XCTAssertNil(model.link)
-    }
-
-    func testAnAddressThatIsNotWebIsRefusedBeforeCrokRuns() throws {
-        let (model, _, _) = try model()
-        model.signIn(relay: "quiet-otter.convex.cloud")
-        XCTAssertEqual(model.phase, .idle)
-        XCTAssertEqual(model.failure, "Enter the relay's address, starting with https:// or http://.")
     }
 
     func testAFailedSignInSaysWhyInCroksWords() async throws {
@@ -235,17 +217,17 @@ final class RemoteControlTests: XCTestCase {
             stream: { args, onLine, onExit in
                 arguments = args
                 DispatchQueue.main.async {
-                    onLine(#"{"event":"error","message":"No relay is configured. Pass --server."}"#)
+                    onLine(#"{"event":"error","message":"The relay could not be reached."}"#)
                     onExit(1, "")
                 }
                 return {}
             },
             run: { _ in GrokCLI.Output(status: 1, stdout: Data(), stderr: "Error: relay unreachable\n") })
         let model = RemoteControlModel(runner: runner, home: home)
-        model.signIn(relay: "")
+        model.signIn()
         XCTAssertEqual(arguments, ["remote", "login", "--json", "--no-browser"], "no --server: crok picks the relay")
         try await eventually { model.phase == .idle }
-        XCTAssertEqual(model.failure, "No relay is configured. Pass --server.")
+        XCTAssertEqual(model.failure, "The relay could not be reached.")
     }
 
     func testASignOutTheRelayDidNotHearSaysWhatToDo() async throws {
@@ -268,11 +250,12 @@ final class RemoteControlTests: XCTestCase {
               let folder = environment["CROK_DESKTOP_REMOTE_E2E_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_REMOTE_E2E_BINARY, _RELAY and _DIR") }
         let home = directory.appendingPathComponent("e2e-home", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        let model = RemoteControlModel(runner: .crok(environment: ["CROK_HOME": home.path]) { binary }, home: home)
+        // The app never names a relay; this test points crok's own choice at the one under test.
+        let model = RemoteControlModel(runner: .crok(environment: ["CROK_HOME": home.path, "CROK_REMOTE_URL": relay]) { binary }, home: home)
         let opened = Opened()
         model.openURL = { opened.urls.append($0) }
         // A sign-in cancelled while it waits ends at once and says nothing.
-        model.signIn(relay: relay)
+        model.signIn()
         try await eventually(timeout: 60) { if case .waiting = model.phase { return true } else { return model.failure != nil } }
         model.cancelSignIn()
         try await eventually(timeout: 5) { model.phase == .idle }
@@ -280,7 +263,7 @@ final class RemoteControlTests: XCTestCase {
         XCTAssertNil(model.link)
         opened.urls = []
 
-        model.signIn(relay: relay)
+        model.signIn()
         try await eventually(timeout: 60) { if case .waiting = model.phase { return true } else { return model.failure != nil } }
         XCTAssertNil(model.failure)
         guard case .waiting(let code) = model.phase else { return XCTFail("no code: \(model.failure ?? "")") }
@@ -291,8 +274,9 @@ final class RemoteControlTests: XCTestCase {
         XCTAssertNil(model.failure)
         let link = try XCTUnwrap(model.link, "signed in")
         print("e2e signed in: \(link.account.title ?? "?") <\(link.account.subtitle ?? "")> device \(link.deviceName) id \(link.deviceID) relay \(link.server)")
-        XCTAssertEqual(link.server, RemoteRelayAddress.normalized(relay))
-        XCTAssertEqual(model.configuredURL, RemoteRelayAddress.normalized(relay), "crok remembers the relay in [remote] url")
+        XCTAssertEqual(link.server, relay.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+        XCTAssertNil(GrokConfig(url: home.appendingPathComponent("config.toml")).string("url", in: "remote"),
+                     "the relay is not written into config.toml")
         let raw = try String(contentsOf: RemoteLink.file(home: home), encoding: .utf8)
         XCTAssertTrue(raw.contains("refreshToken"), "the file has the token; the app never reads it")
         XCTAssertFalse(String(describing: link).contains("crr_"))
@@ -520,7 +504,7 @@ LoggingHarness().run()
             }
         }
         try write("signed-out", height: 330)
-        model.signIn(relay: "https://quiet-otter-123.convex.cloud")
+        model.signIn()
         try write("waiting", height: 480)
         model.cancelSignIn()
         XCTAssertEqual(model.phase, .idle)

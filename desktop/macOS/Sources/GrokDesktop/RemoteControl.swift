@@ -169,18 +169,6 @@ struct RemoteBridgeStatus: Equatable, Sendable {
     }
 }
 
-/// The relay's address as `crok remote login --server` takes it.
-enum RemoteRelayAddress {
-    /// The address without spaces or a trailing slash, or nil when it is not an http or https address with a host.
-    static func normalized(_ text: String) -> String? {
-        var address = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: address), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              let host = url.host, !host.isEmpty else { return nil }
-        while address.hasSuffix("/") { address.removeLast() }
-        return address
-    }
-}
-
 /// Runs the bundled `crok remote …`. Tests replace it.
 struct RemoteCLIRunner {
     /// The `crok` executable; empty when there is none.
@@ -299,8 +287,6 @@ final class RemoteControlModel: ObservableObject {
     @Published private(set) var link: RemoteLink?
     /// `[remote] enabled`; on unless config.toml turns it off.
     @Published private(set) var enabled = true
-    /// `[remote] url`.
-    @Published private(set) var configuredURL: String?
     @Published private(set) var phase: Phase = .idle
     /// Why the last sign-in or sign-out did not finish.
     @Published var failure: String?
@@ -351,8 +337,6 @@ final class RemoteControlModel: ObservableObject {
         let config = GrokConfig(url: configURL)
         let enabled = config.bool("enabled", in: "remote") ?? true
         if self.enabled != enabled { self.enabled = enabled }
-        let url = config.string("url", in: "remote").flatMap { RemoteAccount.text($0) }
-        if configuredURL != url { configuredURL = url }
     }
 
     /// Reads again only when either file changed; two `stat`s otherwise. Settings calls it every couple of seconds.
@@ -363,21 +347,13 @@ final class RemoteControlModel: ObservableObject {
 
     // MARK: Signing in
 
-    /// `crok remote login --json --no-browser [--server relay]`: shows the code, opens the page with
-    /// it, and waits for the approval. An empty `relay` leaves the choice to crok (`[remote] url`,
-    /// `CROK_REMOTE_URL`, or the relay built into it).
-    func signIn(relay: String) {
+    /// `crok remote login --json --no-browser`: shows the code, opens the page with it, and waits for
+    /// the approval. The relay is the one built into crok; nobody types an address.
+    func signIn() {
         guard phase == .idle, link == nil else { return }
         failure = nil
         notice = nil
-        var arguments = ["remote", "login", "--json", "--no-browser"]
-        if !relay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            guard let server = RemoteRelayAddress.normalized(relay) else {
-                failure = L10n.t("remote_invalid_relay", "Enter the relay's address, starting with https:// or http://.")
-                return
-            }
-            arguments += ["--server", server]
-        }
+        let arguments = ["remote", "login", "--json", "--no-browser"]
         let run = UUID()
         loginRun = run
         loginError = nil
@@ -386,7 +362,7 @@ final class RemoteControlModel: ObservableObject {
         do {
             stopLogin = try runner.stream(arguments, { [weak self] line in self?.loginLine(line, run: run) },
                                           { [weak self] status, errors in self?.loginExited(status: status, errors: errors, run: run) })
-            DesktopLog.info("remote.login_start", ["server": arguments.count > 5 ? arguments[5] : nil])
+            DesktopLog.info("remote.login_start")
         } catch {
             phase = .idle
             failure = error.localizedDescription

@@ -3632,8 +3632,8 @@ pub(crate) fn execute(
                     }
                 });
         }
-        Effect::RemoteLogin { agent_id, server } => {
-            tasks.spawn(crate::remote_cmd::login_start(agent_id, server));
+        Effect::RemoteLogin { agent_id } => {
+            tasks.spawn(crate::remote_cmd::login_start(agent_id));
         }
         Effect::RemoteLoginWait { agent_id, request, start } => {
             tasks.spawn(crate::remote_cmd::login_wait(agent_id, request, start));

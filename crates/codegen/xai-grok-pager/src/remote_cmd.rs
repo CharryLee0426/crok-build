@@ -93,8 +93,8 @@ pub fn set_enabled(enabled: bool) -> Result<String, String> {
     })
 }
 
-/// `/remote login [url]`, first half: get a code to show.
-pub async fn login_start(agent_id: AgentId, server: Option<String>) -> TaskResult {
+/// `/remote login`, first half: get a code to show. The relay is the built-in one (or `CROK_REMOTE_URL`).
+pub async fn login_start(agent_id: AgentId) -> TaskResult {
     let notice = |text: String| TaskResult::RemoteNotice {
         agent_id,
         text,
@@ -107,12 +107,7 @@ pub async fn login_start(agent_id: AgentId, server: Option<String>) -> TaskResul
             &[("account", &who)],
         ));
     }
-    let Some(server) = settings::server_url(server.as_deref(), None) else {
-        return notice(
-            tl("No relay is set. Use /remote login https://<deployment>.convex.cloud, or set [remote] url in ~/.crok/config.toml.")
-                .to_string(),
-        );
-    };
+    let server = settings::server_url(None, None);
     if let Err(error) = settings::validate_url(&server) {
         return notice(format!("{error:#}"));
     }
@@ -178,9 +173,6 @@ pub async fn login_wait(agent_id: AgentId, request: LoginRequest, start: LoginSt
     };
     match login::wait(&api, &request, &start).await {
         Ok(linked) => {
-            if settings::load().url.as_deref() != Some(linked.server.as_str()) {
-                let _ = settings::save_url(&linked.server);
-            }
             let who = linked.account.display();
             TaskResult::RemoteNotice {
                 agent_id,
