@@ -307,3 +307,198 @@ final class EngineReorderTests: XCTestCase {
         XCTAssertFalse(world.sessions[online].events.isEmpty)
     }
 }
+
+/// Sessions nobody runs and permission requests, as the demo relay implements relay/convex/commands.ts: a prompt
+/// reaches any session of an online computer, Stop and info settle at once for a session nobody runs, and the first
+/// answer to a pending request wins.
+@MainActor
+final class RemoteCommandsTests: XCTestCase {
+    private func makeEngine(_ world: DemoWorld) -> CrokEngine {
+        let credentials = StoredCredentials(
+            serverURL: "https://demo", deviceId: "demo-phone", refreshToken: "r", user: AccountUser(), deviceName: "Phone",
+            signedInAt: 0)
+        let drafts = DraftStore(defaults: UserDefaults(suiteName: "crok.remote.\(UUID().uuidString)")!)
+        return CrokEngine(backend: DemoRelay(world: world), credentials: credentials, isDemo: true, drafts: drafts, cache: nil)
+    }
+
+    /// Waits until `condition` holds, checking every 20 ms; returns whether it did.
+    private func eventually(_ timeout: Double = 5, _ condition: () -> Bool) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        return condition()
+    }
+
+    private func relayCode(_ work: () async throws -> Void) async -> RelayError.Code? {
+        do {
+            try await work()
+            return nil
+        } catch {
+            return error.relayCode
+        }
+    }
+
+    func testAPromptOpensASessionNobodyRunsOnAnOnlineComputer() async throws {
+        let world = DemoWorld()
+        let relay = DemoRelay(world: world)
+        let notes = try world.index(of: "s-notes")
+        XCTAssertFalse(world.sessions[notes].detail.online)
+        let commandId = try await relay.sendPrompt("s-notes", text: "Add the German notes", clientId: "c-1")
+        XCTAssertEqual(world.sessions[notes].commands.first?.status, .pending)
+        let opened = try await eventually { world.sessions[notes].detail.online }
+        XCTAssertTrue(opened, "a crok on the MacBook opened it")
+        XCTAssertEqual(world.sessions[notes].detail.status, .running)
+        XCTAssertEqual(world.sessions[notes].events.last(where: { $0.kind == .user })?.commandId, commandId)
+        _ = try await relay.stop("s-notes")
+
+        // A session only on the computer's disk comes with its history, the prompt after it.
+        let pricing = try world.index(of: "s-pricing")
+        _ = try await relay.sendPrompt("s-pricing", text: "Now the footer", clientId: "c-2")
+        let loaded = try await eventually { world.sessions[pricing].detail.online }
+        XCTAssertTrue(loaded)
+        XCTAssertEqual(world.sessions[pricing].detail.historyState, .ready)
+        XCTAssertEqual(world.sessions[pricing].events.first?.id, "e-pricing-1")
+        XCTAssertEqual(world.sessions[pricing].events.last(where: { $0.kind == .user })?.text, "Now the footer")
+        _ = try await relay.stop("s-pricing")
+    }
+
+    func testAPromptToAnOfflineComputerIsRefused() async throws {
+        let world = DemoWorld()
+        let relay = DemoRelay(world: world)
+        let code = await relayCode { _ = try await relay.sendPrompt("s-bench", text: "Run it again", clientId: "c-3") }
+        XCTAssertEqual(code, .offline, "Studio is offline")
+        XCTAssertTrue(world.sessions[try world.index(of: "s-bench")].commands.isEmpty)
+    }
+
+    func testStopAndInfoSettleAtOnceForASessionNobodyRuns() async throws {
+        let world = DemoWorld()
+        let relay = DemoRelay(world: world)
+        let notes = try world.index(of: "s-notes")
+        // Stop before any computer picked the prompt up: it is dropped, and nothing opens the session.
+        _ = try await relay.sendPrompt("s-notes", text: "Queued", clientId: "c-4")
+        _ = try await relay.stop("s-notes")
+        XCTAssertEqual(world.sessions[notes].commands.first?.status, .failed)
+        try await Task.sleep(for: .milliseconds(1200))
+        XCTAssertFalse(world.sessions[notes].detail.online)
+        XCTAssertFalse(world.sessions[notes].events.contains(where: { $0.text == "Queued" }))
+
+        // Info: what the computer last sent, at once, for a session nobody runs (even on an offline computer).
+        for id in ["s-notes", "s-bench"] {
+            let infoId = try await relay.requestInfo(id)
+            XCTAssertEqual(world.infoCommands[infoId]?.status, .done, id)
+            XCTAssertEqual(world.infoCommands[infoId]?.result?.stored, true, id)
+            XCTAssertEqual(world.infoCommands[infoId]?.result?.model, world.sessions[try world.index(of: id)].detail.model)
+        }
+        let running = try await relay.requestInfo("s-flaky")
+        XCTAssertEqual(world.infoCommands[running]?.status, .pending, "a running session asks its computer")
+    }
+
+    func testTheFirstAnswerToAPermissionRequestWinsAndTheTurnGoesOn() async throws {
+        let world = DemoWorld()
+        let relay = DemoRelay(world: world)
+        let deps = try world.index(of: "s-deps")
+        let pending = try XCTUnwrap(world.sessions[deps].detail.pending)
+        XCTAssertEqual(world.sessions[deps].detail.status, .waiting)
+
+        let unknown = await relayCode { _ = try await relay.answer("s-deps", interactionId: pending.id, optionId: "nope") }
+        XCTAssertEqual(unknown, .invalid)
+        let other = await relayCode { _ = try await relay.answer("s-deps", interactionId: "call_9#1", optionId: "allow-once") }
+        XCTAssertEqual(other, .expired, "not the request the session waits on")
+
+        _ = try await relay.answer("s-deps", interactionId: pending.id, optionId: "allow-once")
+        let second = await relayCode {
+            _ = try await relay.answer("s-deps", interactionId: pending.id, optionId: "reject-once")
+        }
+        XCTAssertEqual(second, .expired, "another device answered first")
+        let taken = try await eventually { world.sessions[deps].detail.pending == nil }
+        XCTAssertTrue(taken, "the computer took the answer")
+        XCTAssertEqual(world.sessions[deps].detail.status, .running)
+        let finished = try await eventually { world.sessions[deps].detail.status == .idle }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(world.sessions[deps].events.first(where: { $0.id == "e-deps-4" })?.status, "completed")
+        XCTAssertEqual(world.sessions[deps].events.last?.status, "end_turn")
+    }
+
+    func testDenyingAPermissionRequestEndsTheTurn() async throws {
+        let world = DemoWorld()
+        let relay = DemoRelay(world: world)
+        let deps = try world.index(of: "s-deps")
+        let pending = try XCTUnwrap(world.sessions[deps].detail.pending)
+        _ = try await relay.answer("s-deps", interactionId: pending.id, optionId: "reject-once")
+        let taken = try await eventually { world.sessions[deps].detail.pending == nil }
+        XCTAssertTrue(taken)
+        XCTAssertEqual(world.sessions[deps].detail.status, .idle)
+        XCTAssertEqual(world.sessions[deps].events.first(where: { $0.id == "e-deps-4" })?.status, "failed")
+        XCTAssertEqual(world.sessions[deps].events.last(where: { $0.kind == .assistant })?.text, DemoWorld.deniedReply)
+    }
+
+    /// The composer's rule: it takes prompts whenever the computer is online; only an offline computer blocks it.
+    func testTheComposerTakesPromptsWheneverTheComputerIsOnline() async throws {
+        let engine = makeEngine(DemoWorld())
+        engine.start()
+        let notRunning = SessionViewModel(sessionDocId: "s-notes", engine: engine)
+        let offlineComputer = SessionViewModel(sessionDocId: "s-bench", engine: engine)
+        notRunning.appear()
+        offlineComputer.appear()
+        let loaded = try await eventually { notRunning.detail.value != nil && offlineComputer.detail.value != nil }
+        XCTAssertTrue(loaded)
+
+        XCTAssertFalse(notRunning.isOnline)
+        XCTAssertTrue(notRunning.canSendPrompts, "nobody runs it, but the MacBook is online")
+        XCTAssertEqual(notRunning.presence, .idle)
+        XCTAssertFalse(offlineComputer.canSendPrompts)
+        XCTAssertEqual(offlineComputer.presence, .offline)
+
+        offlineComputer.draft = "Run it again"
+        offlineComputer.send()
+        XCTAssertNil(engine.localPrompts["s-bench"], "nothing is sent while Studio is offline")
+        XCTAssertEqual(offlineComputer.draft, "Run it again")
+
+        // Sending to the session nobody runs: the optimistic bubble at once, then a crok opens it and the turn runs.
+        notRunning.draft = "Add the German notes"
+        notRunning.send()
+        XCTAssertEqual(engine.localPrompts["s-notes"]?.map(\.text), ["Add the German notes"])
+        let running = try await eventually { notRunning.isRunning }
+        XCTAssertTrue(running)
+        XCTAssertEqual(notRunning.presence, .running)
+        await notRunning.stop()
+
+        notRunning.tearDown()
+        offlineComputer.tearDown()
+        await engine.shutdown()
+    }
+
+    func testAnsweringFromTheSessionScreen() async throws {
+        let world = DemoWorld()
+        let engine = makeEngine(world)
+        engine.start()
+        let model = SessionViewModel(sessionDocId: "s-deps", engine: engine)
+        model.appear()
+        let shown = try await eventually { model.pendingRequest != nil }
+        XCTAssertTrue(shown)
+        let request = try XCTUnwrap(model.pendingRequest)
+        XCTAssertEqual(request.options.filter(\.isAllow).map(\.optionId), ["allow-once", "allow-always"])
+
+        // A refused answer is shown; the buttons come back.
+        await model.answer(PendingOption(optionId: "nope", name: "Nope", kind: "allow_once"), to: request)
+        XCTAssertEqual(model.actionError?.code, .invalid)
+        XCTAssertFalse(model.isAnsweringRequest)
+        model.actionError = nil
+
+        // The answer: buttons disabled until the computer takes it, then the card goes.
+        await model.answer(request.options[0], to: request)
+        XCTAssertNil(model.actionError)
+        XCTAssertTrue(model.isAnsweringRequest, "the computer has not taken it yet")
+        let taken = try await eventually { model.pendingRequest == nil }
+        XCTAssertTrue(taken)
+        XCTAssertFalse(model.isAnsweringRequest)
+        XCTAssertNil(model.answeringRequestId)
+
+        // Answering the old request again (another device was faster, say) is quiet.
+        await model.answer(request.options[2], to: request)
+        XCTAssertNil(model.actionError, "EXPIRED needs no alert")
+        XCTAssertNil(model.answeringRequestId)
+
+        model.tearDown()
+        await engine.shutdown()
+    }
+}

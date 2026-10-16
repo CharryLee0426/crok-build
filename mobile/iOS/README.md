@@ -49,9 +49,11 @@ reveals the user-assigned device name with a special entitlement, so the default
 
 Launch with `-CrokDemo YES` (Product › Scheme › Edit Scheme › Arguments) to use an in-memory relay with sample data:
 two computers (one offline) with four projects, sessions in every state (running with a plan, waiting for approval,
-idle, offline, archived, and some only on a computer's disk), a transcript with every event kind, and a failed
-prompt. Prompts, Stop, session info, reordering and fetching a listed session's history (from the online computer, after
-3 s) are simulated. The demo relay implements the same facade protocols as the live one (`Engine/RelayAPI.swift`), so
+waiting on a permission request the phone can answer, idle, offline, archived, and some only on a computer's disk), a
+transcript with every event kind, and a failed prompt. Prompts (also to a session nobody runs on the online computer,
+which a crok there then opens), Stop, session info (the stored numbers at once for a session nobody runs), answering the
+permission request, reordering and fetching a listed session's history (from the online computer, after 3 s) are
+simulated. The demo relay implements the same facade protocols as the live one (`Engine/RelayAPI.swift`), so
 every screen runs unchanged.
 
 | launch argument | effect |
@@ -76,7 +78,8 @@ Down**, **Sort by Recent Activity**), and **⋯ › Sort Projects by Recent Acti
 (`CrokEngine.reorder` keeps applying them over the relay's values until the relay confirms them) and go back with an
 alert when the relay refuses. Search keeps only matching sessions and hides empty sections; reordering is off while
 searching. A session only on its computer's disk shows "Loading from <computer>…" when opened, or why it can't load
-while the computer is offline. The order rules are pure functions in `Core/ProjectGroups.swift`, mirroring
+while the computer is offline. Rows are dimmed and "offline" only while their computer is: a session nobody runs on an
+online computer takes prompts (a crok there opens it when one arrives), so it looks like any other. The order rules are pure functions in `Core/ProjectGroups.swift`, mirroring
 `relay/convex/lib/projects.ts`.
 
 ## Tests
@@ -84,13 +87,15 @@ while the computer is offline. The order rules are pure functions in `Core/Proje
 ```sh
 # Unit tests: transcript grouping, ticks, user codes, plan summary, relative time, the sign-in state machine and its
 # persistence (no server field; the built-in relay and the developer override), HTTP API decoding (incl.
-# sessions:groups), the list's order rules and optimistic moves, search, the reveal pacer, the query hub,
-# localization coverage. ConvexMobile's library has no x86_64 simulator slice, hence ARCHS=arm64.
+# sessions:groups and pending requests), the list's order rules and optimistic moves, search, the reveal pacer, the
+# query hub, prompts to sessions nobody runs and answering permission requests (demo relay), localization coverage.
+# ConvexMobile's library has no x86_64 simulator slice, hence ARCHS=arm64.
 xcodebuild test -project Crok.xcodeproj -scheme Crok -destination 'platform=iOS Simulator,name=iPhone 17' \
   ARCHS=arm64 -only-testing:CrokTests
 
 # UI tests: a tour of demo mode (sign-in, sessions grouped by project, Show more, collapsing, moving a project, Reorder
-# mode, sessions only on a computer's disk, a running session with Stop, sending a prompt, info, offline, settings,
+# mode, sessions only on a computer's disk, a running session with Stop, sending a prompt, answering a permission
+# request, a session nobody runs, an offline computer's session, info, settings,
 # devices, linking a computer, dark mode, German, Chinese and Japanese). Screenshots are attached to the result bundle
 # and, with TEST_RUNNER_CROK_SCREENSHOT_DIR, written as PNG files.
 TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
@@ -159,7 +164,8 @@ table is in `relay/DESIGN.md` §5; in this app:
 | `ChatListItem`, typing node, badges, folder tabs, reveal options | `SessionRowView` (avatar with online dot, time, the session's folder when it isn't the project's, preview / "working…" / "Needs approval", unread badge, pin) under a `ProjectSectionHeader`, `FilterTabs`, swipe Pin / Stop / Archive |
 | `ChatHistoryListNode`, merge fingerprint, date headers | bottom-anchored transcript, 50 events per page, `TranscriptBuilder` groups one author within 10 minutes and adds day headers |
 | `EnqueueMessage`, status ticks, delivery-failed node | optimistic bubbles keyed by `clientId`, clock → ✓ → ✓✓ from `commands:forSession` (`mine` only), red "!" with Retry / Delete |
-| `ChatTextInputPanelNode` stop | the composer shows Stop while the session runs and a read-only notice while it is offline |
+| `ChatTextInputPanelNode` stop | the composer shows Stop while the session runs and a read-only notice while its computer is offline |
+| bot keyboard above the input panel | `PermissionCard`: a pending permission request with one button per choice (`commands:answer`; the first answer from any device wins) |
 | `TextRevealController` | `TextRevealPacer`: reveal speed from the chunk interval, finish within 0.3 s |
 | pinned message bar, page-down button, drafts | `PlanBar`, the scroll-to-bottom button with a new-item counter, `DraftStore` |
 | `AuthTransfer` / QR scan, Active Sessions | Settings › Link a computer (QR or typed code, approve / deny), Settings › Devices |

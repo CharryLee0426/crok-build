@@ -154,6 +154,44 @@ final class RelayDecodingTests: XCTestCase {
         XCTAssertEqual(detail.historyState, .notFetched)
         XCTAssertEqual(detail.projectName, "a")
         XCTAssertFalse(detail.deviceOnline)
+        XCTAssertNil(detail.pending, "a relay from before permission requests")
+    }
+
+    /// `sessions:get` while the session waits on a permission request (relay/convex/schema.ts `pendingInteraction`).
+    func testSessionDetailDecodesAPendingPermissionRequest() throws {
+        let fields = #"""
+            {"_id":"jd7abc","sessionId":"0199e2e0","title":"Fix it","cwd":"/a/b","model":null,"effort":null,
+             "gitBranch":null,"status":"waiting","online":true,"app":"tui","deviceId":"k57x","deviceName":"Studio",
+             "devicePlatform":"macOS","deviceOnline":true,"createdAt":1.0,"lastActivityAt":2.0,"plan":[],"usage":null,
+             "pinned":false,"archived":false,"unread":0.0,"eventSeq":4.0,"projectKey":"k57x:/a","projectPath":"/a",
+             "projectName":"a","historyState":null,
+            """#
+        func decode(pending: String) throws -> SessionDetail {
+            try JSONDecoder().decode(SessionDetail.self, from: Data((fields + #""pending":"# + pending + "}").utf8))
+        }
+        let detail = try decode(
+            pending: #"""
+                {"id":"call_7#1","kind":"permission","title":"Run npm test","detail":"npm test -- auth",
+                 "toolKind":"execute","at":1792098432719.0,"options":[
+                   {"optionId":"allow-once","name":"Allow once","kind":"allow_once"},
+                   {"optionId":"allow-always","name":"Always allow npm test","kind":"allow_always"},
+                   {"optionId":"reject-once","name":"","kind":"reject_once"}]}
+                """#)
+        let pending = try XCTUnwrap(detail.pending)
+        XCTAssertEqual(pending.id, "call_7#1")
+        XCTAssertEqual(pending.title, "Run npm test")
+        XCTAssertEqual(pending.detail, "npm test -- auth")
+        XCTAssertEqual(pending.toolKind, "execute")
+        XCTAssertEqual(pending.options.map(\.optionId), ["allow-once", "allow-always", "reject-once"])
+        XCTAssertEqual(pending.options.map(\.isAllow), [true, true, false])
+        XCTAssertEqual(pending.options[2].label, "reject-once", "a choice without a name shows its id")
+        XCTAssertEqual(detail.presence, .waiting)
+
+        // `null` once the computer took an answer; a sparse request still decodes.
+        XCTAssertNil(try decode(pending: "null").pending)
+        let minimal = try XCTUnwrap(try decode(pending: #"{"id":"x#2","title":"Allow this?"}"#).pending)
+        XCTAssertEqual(minimal.kind, "permission")
+        XCTAssertEqual(minimal.options, [])
     }
 
     func testInfoResultAcceptsNestedOrFlatUsage() throws {
@@ -172,6 +210,22 @@ final class RelayDecodingTests: XCTestCase {
         XCTAssertEqual(flat.model, "grok-code")
         XCTAssertEqual(flat.usage?.inputTokens, 1200)
         XCTAssertEqual(flat.usage?.costUsd, 0.01)
+        XCTAssertFalse(flat.stored)
+    }
+
+    /// `commands:requestInfo` for a session nobody runs: settled at once with the relay's stored values.
+    func testInfoResultMarksStoredValues() throws {
+        let record = try JSONDecoder().decode(
+            CommandRecord.self,
+            from: Data(
+                #"{"_id":"c1","type":"info","status":"done","result":{"sessionId":"0199e2e0","title":"Fix it","model":"grok-4","cwd":"/a","createdAt":1.0,"usage":{"inputTokens":10.0,"costUsd":0.5},"context":{"used":100.0,"window":1000.0},"stored":true}}"#
+                    .utf8))
+        let result = try XCTUnwrap(record.result)
+        XCTAssertTrue(result.stored)
+        XCTAssertEqual(result.model, "grok-4")
+        XCTAssertEqual(result.usage?.costUsd, 0.5)
+        XCTAssertEqual(result.contextWindow, 1000)
+        XCTAssertNil(result.messages)
     }
 
     func testForSessionRowsCarryMine() throws {

@@ -130,6 +130,20 @@ final class ProjectAvatarTests: XCTestCase {
     }
 }
 
+/// The session header's status (relay/components/session/SessionView.tsx `SessionHeader`).
+final class SessionPresenceTests: XCTestCase {
+    func testOnlyAnOfflineComputerMakesASessionOffline() {
+        XCTAssertEqual(SessionPresence(online: false, deviceOnline: false, status: .idle), .offline)
+        XCTAssertEqual(SessionPresence(online: true, deviceOnline: false, status: .running), .offline)
+        XCTAssertEqual(SessionPresence(online: false, deviceOnline: true, status: .idle), .idle, "a prompt opens it there")
+        XCTAssertEqual(SessionPresence(online: false, deviceOnline: true, status: .running), .idle, "nobody runs it")
+        XCTAssertEqual(SessionPresence(online: true, deviceOnline: true, status: .running), .running)
+        XCTAssertEqual(SessionPresence(online: true, deviceOnline: true, status: .waiting), .waiting)
+        XCTAssertEqual(SessionPresence(online: true, deviceOnline: true, status: .error), .error)
+        XCTAssertEqual(SessionPresence(online: true, deviceOnline: true, status: .idle), .idle)
+    }
+}
+
 final class ConnectionStatusTests: XCTestCase {
     func testDerivation() {
         XCTAssertEqual(ConnectionStatus.derive(networkAvailable: false, socketConnected: true, synced: true), .waitingForNetwork)

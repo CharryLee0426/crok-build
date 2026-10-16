@@ -5,24 +5,29 @@ import SwiftUI
 ///
 /// In a project's section (`grouped`) the header already names the project and the computer, so the second line only
 /// shows the session's own folder when it is not the project's, and "offline"; it is left out when it has neither.
+///
+/// A row is dimmed and "offline" only while its computer is offline: a session nobody runs on an online computer takes
+/// prompts like any other (the online dot still says whether a crok runs it now).
 struct SessionRowView: View {
     let row: SessionRow
     var grouped = false
 
+    private var computerOffline: Bool { !row.deviceOnline }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            ProjectAvatarView(folder: row.projectDisplayName, online: row.online, dimmed: !row.online)
+            ProjectAvatarView(folder: row.projectDisplayName, online: row.online, dimmed: computerOffline)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(row.title)
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
-                        .foregroundStyle(row.online ? Color.primary : Color.secondary)
+                        .foregroundStyle(computerOffline ? Color.secondary : Color.primary)
                     Spacer(minLength: 4)
                     TimelineView(.periodic(from: .now, by: 30)) { context in
                         Text(RelativeTime.compact(row.lastActivity, now: context.date))
                             .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(row.unreadCount > 0 && row.online ? Theme.accent : Color.secondary)
+                            .foregroundStyle(row.unreadCount > 0 && !computerOffline ? Theme.accent : Color.secondary)
                     }
                 }
                 if let locationLine {
@@ -52,7 +57,7 @@ struct SessionRowView: View {
     private var locationLine: String? {
         var parts = grouped ? [] : [row.deviceName, row.projectDisplayName]
         if let folder = row.folderIfNotProject { parts.append(folder) }
-        if !row.online { parts.append(String(localized: "offline")) }
+        if computerOffline { parts.append(String(localized: "offline")) }
         parts = parts.filter { !$0.isEmpty }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -98,7 +103,7 @@ struct SessionRowView: View {
     @ViewBuilder
     private var trailingMark: some View {
         if row.unreadCount > 0 {
-            UnreadBadge(count: row.unreadCount, muted: !row.online)
+            UnreadBadge(count: row.unreadCount, muted: computerOffline)
         } else if row.pinned {
             Image(systemName: "pin.fill")
                 .font(.caption)

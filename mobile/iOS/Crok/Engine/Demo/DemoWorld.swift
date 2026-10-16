@@ -1,8 +1,9 @@
 import Foundation
 
 /// The demo relay's state: two computers, several projects with sessions in every state (some only on a computer's
-/// disk), and a transcript with every event kind. Launch with `-CrokDemo YES` to use it; prompts, Stop, session info,
-/// fetching a listed session's history and reordering are simulated.
+/// disk, one waiting on a permission request), and a transcript with every event kind. Launch with `-CrokDemo YES` to
+/// use it; prompts (also to sessions nobody runs on the online computer), Stop, session info, answering the permission
+/// request, fetching a listed session's history and reordering are simulated.
 @MainActor
 final class DemoWorld {
     struct Session {
@@ -18,6 +19,8 @@ final class DemoWorld {
         var position: Double?
         /// For a session listed from the computer's disk: the transcript it sends when someone opens the session.
         var historyOnComputer: [TranscriptEvent] = []
+        /// The pending request has an answer the computer has not taken yet; a second one is `EXPIRED`.
+        var answered = false
     }
 
     var sessions: [Session] = []
@@ -166,12 +169,30 @@ final class DemoWorld {
         sessions[s].detail.historyState = .requested
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
-            guard let self, let s = try? self.index(of: id) else { return }
+            // A prompt in the meantime opened the session, history and all.
+            guard let self, let s = try? self.index(of: id), self.sessions[s].detail.historyState == .requested else { return }
             self.sessions[s].events = self.sessions[s].historyOnComputer
             self.sessions[s].detail.eventSeq = self.sessions[s].events.map(\.seq).max() ?? 0
             self.sessions[s].detail.historyState = .ready
             self.changed()
         }
+    }
+
+    /// A crok on the session's computer opens a session nobody runs, to take a prompt: it runs there from now on, with
+    /// its transcript read from disk if the relay did not have it yet.
+    func adopt(_ s: Int) {
+        guard !sessions[s].detail.online else { return }
+        if sessions[s].detail.historyState?.isOnComputerOnly == true {
+            if sessions[s].events.isEmpty { sessions[s].events = sessions[s].historyOnComputer }
+            sessions[s].detail.eventSeq = sessions[s].events.map(\.seq).max() ?? 0
+            sessions[s].detail.historyState = .ready
+        }
+        sessions[s].detail.online = true
+        sessions[s].detail.status = .idle
+    }
+
+    func isComputerOnline(_ s: Int) -> Bool {
+        devices.first(where: { $0.id == sessions[s].detail.deviceId })?.online == true
     }
 
     func index(of id: DocID) throws -> Int {
@@ -234,6 +255,7 @@ final class DemoWorld {
         sessions[s].turn = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(900))
             guard let self, !Task.isCancelled, let s = try? self.index(of: sessionId) else { return }
+            self.adopt(s)
             self.setCommand(s, commandId, status: .delivered)
             _ = self.pushEvent(s, kind: .user, text: text, origin: "remote", commandId: commandId, fromLabel: "Charlie's iPhone")
             self.sessions[s].detail.status = .running
@@ -276,6 +298,14 @@ final class DemoWorld {
         guard let s = try? index(of: sessionId) else { return }
         sessions[s].turn?.cancel()
         sessions[s].turn = nil
+        guard sessions[s].detail.online else {
+            // Nobody runs it: nothing to stop, but prompts no computer picked up yet are dropped (settled at once).
+            for command in sessions[s].commands where command.status == .pending {
+                setCommand(s, command.id, status: .failed, error: "Stopped before it ran.")
+            }
+            changed()
+            return
+        }
         for i in sessions[s].events.indices where sessions[s].events[i].kind == .tool {
             if sessions[s].events[i].status == "in_progress" || sessions[s].events[i].status == "pending" {
                 sessions[s].events[i].status = "failed"
@@ -289,13 +319,66 @@ final class DemoWorld {
         changed()
     }
 
-    func info(for sessionId: DocID) -> SessionInfoResult? {
+    /// Fresh numbers from the crok running the session, or (`stored`) what its computer last sent, without a message
+    /// count, as the relay keeps them.
+    func info(for sessionId: DocID, stored: Bool = false) -> SessionInfoResult? {
         guard let s = try? index(of: sessionId) else { return nil }
         let d = sessions[s].detail
         return SessionInfoResult(
             model: d.model, effort: d.effort, cwd: d.cwd, gitBranch: d.gitBranch, title: d.title, createdAt: d.createdAt,
             usage: d.usage, contextUsed: d.usage?.contextTokens, contextWindow: d.usage?.contextWindow,
-            messages: Double(sessions[s].events.count), sessionId: d.sessionId)
+            messages: stored ? nil : Double(sessions[s].events.count), sessionId: d.sessionId, stored: stored)
+    }
+
+    // MARK: Permission requests
+
+    /// `commands:answer`: the first answer to the pending request wins; one for a request that is no longer pending is
+    /// `EXPIRED`. The computer takes it a moment later, the request goes, and the turn goes on (or ends, if denied).
+    func answer(sessionId: DocID, interactionId: String, optionId: String) throws {
+        let s = try index(of: sessionId)
+        guard sessions[s].detail.online, let pending = sessions[s].detail.pending, pending.id == interactionId,
+            !sessions[s].answered
+        else { throw RelayError(.expired, "That request was already answered.") }
+        guard let option = pending.options.first(where: { $0.optionId == optionId }) else {
+            throw RelayError(.invalid, "No such choice.")
+        }
+        sessions[s].answered = true
+        sessions[s].turn?.cancel()
+        sessions[s].turn = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let self, !Task.isCancelled, let s = try? self.index(of: sessionId) else { return }
+            self.sessions[s].detail.pending = nil
+            self.sessions[s].answered = false
+            let tool = self.sessions[s].events.last(where: { $0.kind == .tool && $0.status == "pending" })?.id
+            guard option.isAllow else {
+                if let tool { self.updateEvent(s, id: tool, status: "failed") }
+                self.finishTurn(s, reply: DemoWorld.deniedReply)
+                return
+            }
+            self.sessions[s].detail.status = .running
+            if let tool { self.updateEvent(s, id: tool, status: "in_progress") }
+            self.sessions[s].preview = DemoWorld.installCommand
+            self.sessions[s].previewKind = .tool
+            self.changed()
+
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard !Task.isCancelled else { return }
+            if let tool { self.updateEvent(s, id: tool, text: DemoWorld.installOutput, status: "completed") }
+            self.changed()
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            self.finishTurn(s, reply: DemoWorld.allowedReply)
+        }
+    }
+
+    /// The reply, then the end of the turn.
+    private func finishTurn(_ s: Int, reply: String) {
+        _ = pushEvent(s, kind: .assistant, text: reply)
+        _ = pushEvent(s, kind: .system, text: "", status: "end_turn")
+        sessions[s].detail.status = .idle
+        sessions[s].preview = reply
+        sessions[s].previewKind = .assistant
+        changed()
     }
 
     static let streamedReply = """
@@ -312,4 +395,15 @@ final class DemoWorld {
 
         Ran the test 50 times in a row: all green.
         """
+
+    /// The demo's permission request: the command the agent wants to run, and what it prints.
+    static let installCommand = "npm install convex@1.27.3 next@15.5.4"
+    static let installOutput = "\(installCommand)\nadded 3 packages, changed 2 packages in 4s"
+
+    static let allowedReply = """
+        Updated `convex` to 1.27.3 and `next` to 15.5.4. The relay builds and `npm test` passes; no code changes were \
+        needed.
+        """
+
+    static let deniedReply = "OK, I left the dependencies as they are. Tell me if you want only one of them updated."
 }

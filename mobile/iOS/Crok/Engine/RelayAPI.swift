@@ -29,9 +29,13 @@ protocol SessionsAPI: Sendable {
 }
 
 protocol CommandsAPI: Sendable {
+    /// Throws `OFFLINE` only when the session's computer is offline: a session nobody runs is opened there.
     func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String) async throws -> DocID
     func stop(_ sessionDocId: DocID) async throws -> DocID
     func requestInfo(_ sessionDocId: DocID) async throws -> DocID
+    /// Answers the session's pending permission request; `EXPIRED` once it is no longer pending (another device or the
+    /// computer answered first).
+    func answer(_ sessionDocId: DocID, interactionId: String, optionId: String) async throws -> DocID
     func get(_ commandId: DocID) -> RelayStream<CommandRecord?>
     func forSession(_ sessionDocId: DocID) -> RelayStream<[PromptCommand]>
     func retry(_ commandId: DocID) async throws

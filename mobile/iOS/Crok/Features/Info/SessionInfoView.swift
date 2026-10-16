@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Session info: `sessions:get`, refreshed from the computer with `commands:requestInfo` while it is online.
+/// Session info: `sessions:get`, refreshed with `commands:requestInfo`: fresh numbers from the crok running the session,
+/// or, for a session nobody runs, the ones its computer last sent (the relay answers at once, `stored`).
 @MainActor
 @Observable
 final class SessionInfoModel {
@@ -22,7 +23,7 @@ final class SessionInfoModel {
 
     func start() {
         detail.onValue = { [weak self] value in
-            guard let self, !self.requested, value.online else { return }
+            guard let self, !self.requested else { return }
             self.requested = true
             Task { await self.requestFreshInfo() }
         }
@@ -124,7 +125,7 @@ struct SessionInfoView: View {
         Form {
             Section {
                 HStack(spacing: 14) {
-                    ProjectAvatarView(folder: detail.folderName, online: detail.online, dimmed: !detail.online, size: 52)
+                    ProjectAvatarView(folder: detail.folderName, online: detail.online, dimmed: !detail.deviceOnline, size: 52)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(fresh?.title ?? detail.title)
                             .font(.headline)
@@ -197,8 +198,23 @@ struct SessionInfoView: View {
             } footer: {
                 if let problem = model.refreshProblem {
                     Text("Showing the last numbers the relay has. \(problem)")
-                } else if usage?.costUsd != nil {
-                    Text("Estimated at standard API prices.")
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if fresh?.stored == true {
+                            // Nobody runs the session: its computer is offline, or online with the session not open.
+                            Group {
+                                if detail.deviceOnline {
+                                    Text("Not open on \(detail.deviceName) right now: these are the last numbers it sent.")
+                                } else {
+                                    Text("Offline: these are the last numbers the computer sent.")
+                                }
+                            }
+                            .accessibilityIdentifier("infoStored")
+                        }
+                        if usage?.costUsd != nil {
+                            Text("Estimated at standard API prices.")
+                        }
+                    }
                 }
             }
 
@@ -275,8 +291,8 @@ struct SessionInfoView: View {
     }
 
     private func statusLine(_ detail: SessionDetail) -> String {
-        guard detail.online else { return String(localized: "offline") }
-        switch detail.status {
+        switch detail.presence {
+        case .offline: return String(localized: "offline")
         case .running: return String(localized: "working…")
         case .waiting: return String(localized: "waiting for approval on \(detail.deviceName)")
         case .error: return String(localized: "error · \(detail.deviceName)")

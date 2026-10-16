@@ -277,6 +277,13 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         return ref.commandId
     }
 
+    func answer(_ sessionDocId: DocID, interactionId: String, optionId: String) async throws -> DocID {
+        let ref: CommandRef = try await call(
+            "commands:answer",
+            ["sessionDocId": .string(sessionDocId), "interactionId": .string(interactionId), "optionId": .string(optionId)])
+        return ref.commandId
+    }
+
     func get(_ commandId: DocID) -> RelayStream<CommandRecord?> {
         observe("commands:get", ["commandId": .string(commandId)])
     }

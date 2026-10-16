@@ -125,8 +125,9 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         try await mutate(.milliseconds(350)) { world in
             let i = try world.index(of: sessionDocId)
             if let existing = world.sessions[i].commands.first(where: { $0.clientId == clientId }) { return existing.id }
-            guard world.sessions[i].detail.online else {
-                throw RelayError(.offline, "This session is not running on its computer right now.")
+            // A session nobody runs is opened by a crok on its computer; only an offline computer refuses.
+            guard world.isComputerOnline(i) else {
+                throw RelayError(.offline, "\(world.sessions[i].detail.deviceName) is offline: start crok or Crok Desktop there.")
             }
             let id = world.newId("command")
             let now = Date().milliseconds
@@ -149,6 +150,12 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
     func requestInfo(_ sessionDocId: DocID) async throws -> DocID {
         try await mutate { world in
             let id = world.newId("command")
+            // Nobody runs it: the relay answers at once with what the computer last sent.
+            if !world.sessions[try world.index(of: sessionDocId)].detail.online {
+                world.infoCommands[id] = CommandRecord(
+                    id: id, type: "info", status: .done, result: world.info(for: sessionDocId, stored: true))
+                return id
+            }
             world.infoCommands[id] = CommandRecord(id: id, type: "info", status: .pending)
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(900))
@@ -156,6 +163,13 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
                 world.changed()
             }
             return id
+        }
+    }
+
+    func answer(_ sessionDocId: DocID, interactionId: String, optionId: String) async throws -> DocID {
+        try await mutate { world in
+            try world.answer(sessionId: sessionDocId, interactionId: interactionId, optionId: optionId)
+            return world.newId("command")
         }
     }
 

@@ -161,7 +161,8 @@ private struct SessionContent: View {
     }
 }
 
-/// "working…", "waiting for approval on <computer>", "idle · <computer>", "offline".
+/// "working…", "waiting for approval on <computer>" ("Needs approval" while the card above the composer can answer it),
+/// "idle · <computer>" (also for a session nobody runs on an online computer), "offline" (the computer is).
 private struct SessionSubtitle: View {
     let model: SessionViewModel
 
@@ -169,15 +170,20 @@ private struct SessionSubtitle: View {
         Group {
             if model.isRemoved {
                 Text("removed")
-            } else if !model.isOnline {
-                Text("offline")
             } else {
-                switch model.status {
+                switch model.presence {
+                case .offline:
+                    Text("offline")
                 case .running:
                     WorkingIndicator(font: .caption)
                 case .waiting:
-                    Text("waiting for approval on \(model.computerName)")
-                        .foregroundStyle(Theme.waiting)
+                    if model.pendingRequest != nil {
+                        Text("Needs approval")
+                            .foregroundStyle(Theme.waiting)
+                    } else {
+                        Text("waiting for approval on \(model.computerName)")
+                            .foregroundStyle(Theme.waiting)
+                    }
                 case .error:
                     Text("error · \(model.computerName)")
                         .foregroundStyle(Theme.danger)

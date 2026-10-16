@@ -48,6 +48,8 @@ final class SessionViewModel {
     /// Assistant events whose text is being revealed gradually.
     private(set) var revealing: Set<DocID> = []
     var actionError: RelayError?
+    /// The pending request this phone just answered, until the computer takes the answer (the request's id changes).
+    private(set) var answeringRequestId: String?
     var isAtBottom = true {
         didSet { if isAtBottom { newWhileAway = 0 } }
     }
@@ -271,6 +273,7 @@ final class SessionViewModel {
     private func detailChanged(_ value: SessionDetail) {
         if !value.isRunning { finishAllReveals() }
         if value.unreadCount > 0 { scheduleMarkRead(force: false) }
+        if let answering = answeringRequestId, value.pending?.id != answering { answeringRequestId = nil }
     }
 
     private func scheduleMarkRead(force: Bool) {
@@ -304,6 +307,7 @@ final class SessionViewModel {
         detail.value?.deviceName ?? engine.sessionRow(sessionDocId)?.deviceName ?? ""
     }
 
+    /// A crok process runs the session now.
     var isOnline: Bool {
         detail.value?.online ?? engine.sessionRow(sessionDocId)?.online ?? false
     }
@@ -316,6 +320,11 @@ final class SessionViewModel {
         detail.value?.status ?? engine.sessionRow(sessionDocId)?.status ?? .idle
     }
 
+    /// What the header says: offline only while the computer is.
+    var presence: SessionPresence {
+        SessionPresence(online: isOnline, deviceOnline: isComputerOnline, status: status)
+    }
+
     var plan: [PlanEntry] { detail.value?.plan ?? [] }
 
     var isRemoved: Bool { detail.error?.code == .notFound }
@@ -323,6 +332,21 @@ final class SessionViewModel {
     /// Whether the session's computer is connected (another crok there can fetch a listed session's history).
     var isComputerOnline: Bool {
         detail.value?.deviceOnline ?? engine.sessionRow(sessionDocId)?.deviceOnline ?? false
+    }
+
+    /// The composer takes prompts whenever the computer is online, whether or not a crok runs the session: one there
+    /// opens it when the prompt arrives (`commands:sendPrompt` is `OFFLINE` only for an offline computer).
+    var canSendPrompts: Bool { !isRemoved && isComputerOnline }
+
+    /// The permission request the card above the composer shows: one the running session waits on.
+    var pendingRequest: PendingInteraction? {
+        guard let detail = detail.value, detail.online else { return nil }
+        return detail.pending
+    }
+
+    /// This phone answered the request shown and the computer has not taken the answer yet.
+    var isAnsweringRequest: Bool {
+        answeringRequestId != nil && answeringRequestId == pendingRequest?.id
     }
 
     var historyState: HistoryState? {
@@ -339,7 +363,7 @@ final class SessionViewModel {
 
     func send() {
         let text = draft
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, isOnline else { return }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, canSendPrompts else { return }
         engine.sendPrompt(text, to: sessionDocId)
         bottomSeenAt = Date()
         draft = ""
@@ -349,6 +373,18 @@ final class SessionViewModel {
 
     func stop() async {
         actionError = await engine.stopTurn(sessionDocId)
+    }
+
+    /// Answers the pending request with one of its options. The buttons stay disabled until the computer takes an
+    /// answer; `EXPIRED` (another device or the computer answered first) is not worth an alert, the card just goes.
+    func answer(_ option: PendingOption, to request: PendingInteraction) async {
+        guard answeringRequestId == nil else { return }
+        answeringRequestId = request.id
+        guard let error = await engine.answer(sessionDocId, interactionId: request.id, optionId: option.optionId) else {
+            return
+        }
+        if answeringRequestId == request.id { answeringRequestId = nil }
+        if error.code != .expired { actionError = error }
     }
 
     func retry(_ message: UserMessage) async {

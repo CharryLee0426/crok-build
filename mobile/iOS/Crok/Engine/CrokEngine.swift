@@ -252,6 +252,12 @@ final class CrokEngine {
         return await perform { _ = try await commands.stop(id) }
     }
 
+    /// Answers a session's pending permission request, as if clicked on its computer.
+    func answer(_ id: DocID, interactionId: String, optionId: String) async -> RelayError? {
+        let commands = self.commands
+        return await perform { _ = try await commands.answer(id, interactionId: interactionId, optionId: optionId) }
+    }
+
     // MARK: Prompts
 
     /// Shows the prompt at once and sends it; the bubble's ticks follow `commands:forSession`.

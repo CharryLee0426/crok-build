@@ -107,6 +107,30 @@ extension DemoWorld {
             TranscriptEvent(id: "e-dark-2", seq: 2, key: "k2", kind: .tool, text: "xcodebuild -scheme Crok build", title: "Run xcodebuild", toolKind: "execute", status: "pending", at: t - 4 * minute),
         ]
 
+        // 2b. Waiting on a permission request any device can answer (`pending`): allowing it runs the command and
+        // finishes the turn; denying it ends the turn.
+        var deps = Session(
+            detail: detail(
+                "s-deps", title: "Bump the relay's dependencies", cwd: "\(crokBuild)/relay", device: "mbp", app: .tui,
+                status: .waiting, online: true, last: t - 1 * minute, created: t - 20 * minute, branch: "chore/deps",
+                usage: SessionUsage(inputTokens: 21_300, outputTokens: 1_450, cachedTokens: 17_800, reasoningTokens: 600, costUsd: 0.034, contextTokens: 14_200, contextWindow: 256_000)),
+            events: [], commands: [], preview: "Run npm install", previewKind: .tool, projectPath: crokBuild)
+        deps.events = [
+            TranscriptEvent(id: "e-deps-1", seq: 1, key: "k1", kind: .user, text: "Update convex and next in the relay to their latest versions.", origin: "local", at: t - 20 * minute),
+            TranscriptEvent(id: "e-deps-2", seq: 2, key: "k2", kind: .tool, text: "relay/package.json", title: "Read package.json", toolKind: "read", status: "completed", at: t - 19.5 * minute),
+            TranscriptEvent(id: "e-deps-3", seq: 3, key: "k3", kind: .assistant, text: "`convex` is on 1.25.4 and `next` on 15.3.2; both have newer releases with fixes the relay wants. Installing them, then I'll run the tests.", at: t - 1.2 * minute),
+            TranscriptEvent(id: "e-deps-4", seq: 4, key: "k4", kind: .tool, text: DemoWorld.installCommand, title: "Run npm install", toolKind: "execute", status: "pending", at: t - 1 * minute),
+        ]
+        deps.detail.pending = PendingInteraction(
+            id: "call_deps#1", title: "Run \(DemoWorld.installCommand)", detail: "cd relay && \(DemoWorld.installCommand)",
+            toolKind: "execute",
+            options: [
+                PendingOption(optionId: "allow-once", name: "Allow once", kind: "allow_once"),
+                PendingOption(optionId: "allow-always", name: "Always allow npm install", kind: "allow_always"),
+                PendingOption(optionId: "reject-once", name: "Deny", kind: "reject_once"),
+            ],
+            at: t - 1 * minute)
+
         // 3. Idle, last word from the phone.
         var relay = Session(
             detail: detail(
@@ -225,7 +249,9 @@ extension DemoWorld {
             listed("lexer", 2, .assistant, "Started with the number literals.", at: t - 4 * day),
         ]
 
-        sessions = [flaky, darkMode, relay, bench, pager, notes, old, pricing, changelog, releaseScript, settingsI18n, lexer]
+        sessions = [
+            flaky, darkMode, deps, relay, bench, pager, notes, old, pricing, changelog, releaseScript, settingsI18n, lexer,
+        ]
             .map { session in
                 var session = session
                 session.detail.eventSeq = session.events.map(\.seq).max() ?? 0

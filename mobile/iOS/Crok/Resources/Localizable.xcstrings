@@ -35,6 +35,40 @@
         }
       }
     },
+    "%@ is offline. Start crok or Crok Desktop there to continue this session.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist offline. Starte dort crok oder Crok Desktop, um diese Sitzung fortzusetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ está sin conexión. Inicia crok o Crok Desktop allí para continuar esta sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est hors ligne. Lancez crok ou Crok Desktop sur cet ordinateur pour poursuivre cette session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はオフラインです。続けるには、そのコンピュータで crok か Crok Desktop を起動してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 当前离线。在那台电脑上启动 crok 或 Crok Desktop 即可继续此会话。"
+          }
+        }
+      }
+    },
     "%@ is offline. This session's history shows once crok runs there again.": {
       "localizations": {
         "de": {
@@ -1797,6 +1831,40 @@
         }
       }
     },
+    "Crok on %@ asks:": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crok auf %@ fragt:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crok en %@ pregunta:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crok sur %@ demande :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の Crok からの確認:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 Crok 请求："
+          }
+        }
+      }
+    },
     "Dark": {
       "localizations": {
         "de": {
@@ -3429,6 +3497,40 @@
         }
       }
     },
+    "Not open on %@ right now: these are the last numbers it sent.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerade nicht auf %@ geöffnet: Das sind die zuletzt gesendeten Werte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no está abierta en %@: estas son las últimas cifras que envió."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas ouverte sur %@ en ce moment : voici les derniers chiffres envoyés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ では今このセッションは開かれていません。最後に送られた数値です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上目前没有打开此会话：以下是它最后发送的数据。"
+          }
+        }
+      }
+    },
     "Not sent": {
       "localizations": {
         "de": {
@@ -3527,6 +3629,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "好"
+          }
+        }
+      }
+    },
+    "Offline: these are the last numbers the computer sent.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline: Das sind die letzten Werte, die der Computer gesendet hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión: estas son las últimas cifras que envió el ordenador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne : voici les derniers chiffres envoyés par l'ordinateur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン: コンピュータが最後に送った数値です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线：以下是电脑最后发送的数据。"
           }
         }
       }
@@ -6247,40 +6383,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "这个会话已不在中继上，但仍保留在它的电脑上。"
-          }
-        }
-      }
-    },
-    "This session isn't running. Open it on %@ to continue.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Sitzung läuft nicht. Öffne sie auf %@, um weiterzumachen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta sesión no se está ejecutando. Ábrela en %@ para continuar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cette session n'est pas en cours. Ouvrez-la sur %@ pour continuer."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このセッションは実行されていません。続けるには %@ で開いてください。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这个会话没有在运行。请在 %@ 上打开它以继续。"
           }
         }
       }

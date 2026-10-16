@@ -201,17 +201,91 @@ struct SessionDetail: Codable, Hashable, Sendable {
     var projectPath: String?
     var projectName: String?
     var historyState: HistoryState?
+    /// A permission request the session waits on, which any of the person's devices may answer (`commands:answer`).
+    /// Missing from older relays.
+    var pending: PendingInteraction?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case sessionId, title, cwd, model, effort, gitBranch, status, online, app, deviceId, deviceName,
             devicePlatform, deviceOnline, createdAt, lastActivityAt, plan, usage, pinned, archived, unread, eventSeq,
-            projectKey, projectPath, projectName, historyState
+            projectKey, projectPath, projectName, historyState, pending
     }
 
     var unreadCount: Int { max(0, Int(unread.rounded())) }
     var folderName: String { PathText.lastComponent(cwd) }
     var isRunning: Bool { online && status == .running }
+    var presence: SessionPresence { SessionPresence(online: online, deviceOnline: deviceOnline, status: status) }
+}
+
+/// What a session's header says about it. Only a computer that is offline makes a session offline: a session nobody
+/// runs on an online computer takes prompts (a crok there opens it when one arrives), so it reads as idle.
+enum SessionPresence: Equatable, Sendable {
+    case offline, idle, running, waiting, error
+
+    init(online: Bool, deviceOnline: Bool, status: SessionStatus) {
+        if !deviceOnline {
+            self = .offline
+        } else if !online {
+            self = .idle
+        } else {
+            switch status {
+            case .running: self = .running
+            case .waiting: self = .waiting
+            case .error: self = .error
+            case .idle: self = .idle
+            }
+        }
+    }
+}
+
+/// One choice of a pending request: `kind` is ACP's `allow_once`, `allow_always`, `reject_once` or `reject_always`.
+struct PendingOption: Codable, Identifiable, Hashable, Sendable {
+    var optionId: String
+    var name: String
+    var kind: String
+
+    var id: String { optionId }
+    /// Allowing choices are the prominent buttons.
+    var isAllow: Bool { kind.hasPrefix("allow") }
+    var label: String { name.isEmpty ? optionId : name }
+}
+
+/// What a session waits for (`sessions:get` → `pending`): a permission request (run this command, edit that file).
+/// `id` names this request; the first answer from any device wins, and the field goes back to null once the computer
+/// took an answer. Decoded leniently, so a field this build does not expect never hides the session.
+struct PendingInteraction: Codable, Identifiable, Hashable, Sendable {
+    var id: String
+    var kind: String
+    var title: String
+    var detail: String?
+    var toolKind: String?
+    var options: [PendingOption]
+    var at: Double
+
+    init(
+        id: String, kind: String = "permission", title: String, detail: String? = nil, toolKind: String? = nil,
+        options: [PendingOption], at: Double
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        self.toolKind = toolKind
+        self.options = options
+        self.at = at
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? "permission"
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        detail = try? c.decodeIfPresent(String.self, forKey: .detail)
+        toolKind = try? c.decodeIfPresent(String.self, forKey: .toolKind)
+        options = (try? c.decodeIfPresent([PendingOption].self, forKey: .options)) ?? []
+        at = (try? c.decodeIfPresent(Double.self, forKey: .at)) ?? 0
+    }
 }
 
 /// One transcript item (`sessions:events`).
@@ -302,7 +376,8 @@ struct CommandRecord: Decodable, Sendable, Equatable {
     }
 }
 
-/// What a computer answers to `commands:requestInfo`. Fields may be missing; usage may be nested or flat.
+/// What a computer answers to `commands:requestInfo`. Fields may be missing; usage may be nested or flat. For a session
+/// no crok runs the relay answers at once with what the computer last sent (`stored`).
 struct SessionInfoResult: Decodable, Hashable, Sendable {
     var model: String?
     var effort: String?
@@ -315,11 +390,13 @@ struct SessionInfoResult: Decodable, Hashable, Sendable {
     var contextWindow: Double?
     var messages: Double?
     var sessionId: String?
+    /// The relay's stored values, not fresh ones from the computer.
+    var stored: Bool
 
     init(
         model: String? = nil, effort: String? = nil, cwd: String? = nil, gitBranch: String? = nil,
         title: String? = nil, createdAt: Double? = nil, usage: SessionUsage? = nil, contextUsed: Double? = nil,
-        contextWindow: Double? = nil, messages: Double? = nil, sessionId: String? = nil
+        contextWindow: Double? = nil, messages: Double? = nil, sessionId: String? = nil, stored: Bool = false
     ) {
         self.model = model
         self.effort = effort
@@ -332,6 +409,7 @@ struct SessionInfoResult: Decodable, Hashable, Sendable {
         self.contextWindow = contextWindow
         self.messages = messages
         self.sessionId = sessionId
+        self.stored = stored
     }
 
     private struct AnyKey: CodingKey {
@@ -358,6 +436,7 @@ struct SessionInfoResult: Decodable, Hashable, Sendable {
         title = string("title")
         sessionId = string("sessionId")
         messages = number("messages")
+        stored = (try? c.decodeIfPresent(Bool.self, forKey: AnyKey("stored"))) ?? false
         if let ms = number("createdAt") {
             createdAt = ms
         } else if let iso = string("createdAt") {

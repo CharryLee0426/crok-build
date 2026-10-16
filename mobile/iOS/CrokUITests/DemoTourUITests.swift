@@ -117,14 +117,29 @@ final class DemoTourUITests: XCTestCase {
         snap("10-session-info-more")
         element(app, "infoDone").tap()
 
-        // An offline session is read-only.
+        // A session nobody runs on the online MacBook still takes prompts (a crok there opens it).
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        let offline = app.staticTexts["Release notes for 1.5"]
+        let notRunning = app.staticTexts["Release notes for 1.5"]
+        XCTAssertTrue(notRunning.waitForExistence(timeout: 5))
+        notRunning.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "offlineNotice").exists)
+        let subtitle = element(app, "sessionSubtitle")
+        XCTAssertTrue(subtitle.waitForExistence(timeout: 5))
+        XCTAssertTrue(subtitle.label.contains("MacBook Pro"), "idle · MacBook Pro, not offline: \(subtitle.label)")
+        snap("11-session-not-running")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // A session on Studio, which is offline, is read-only.
+        app.buttons["Studio"].firstMatch.tap()
+        let offline = app.staticTexts["Benchmark the tokenizer"]
         XCTAssertTrue(offline.waitForExistence(timeout: 5))
         offline.tap()
         XCTAssertTrue(element(app, "offlineNotice").waitForExistence(timeout: 5))
-        snap("11-session-offline")
+        XCTAssertFalse(field.exists)
+        snap("11a-session-offline")
         app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["All"].firstMatch.tap()
 
         // Settings, Devices, Link a computer.
         openSettings(app)
@@ -215,7 +230,7 @@ final class DemoTourUITests: XCTestCase {
         XCTAssertTrue(element(app, "projectHeader-tokenizer").exists)
         snap("03c-sessions-grouped")
 
-        // Five sessions, then "Show 1 more".
+        // Five sessions, then "Show 2 more".
         XCTAssertFalse(app.staticTexts["Translate the settings pane"].exists)
         element(app, "showMore-crok-build").tap()
         XCTAssertTrue(app.staticTexts["Translate the settings pane"].waitForExistence(timeout: 5))
@@ -256,7 +271,8 @@ final class DemoTourUITests: XCTestCase {
         snap("11b-session-loading-from-computer")
         let history = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "CSS grid")).firstMatch
         XCTAssertTrue(history.waitForExistence(timeout: 10))
-        XCTAssertTrue(element(app, "offlineNotice").exists, "not running anywhere: read-only")
+        XCTAssertTrue(element(app, "composerField").exists, "not running anywhere, but the MacBook can open it")
+        XCTAssertFalse(element(app, "offlineNotice").exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         // One on Studio, which is offline.
@@ -273,6 +289,26 @@ final class DemoTourUITests: XCTestCase {
         XCTAssertTrue(crokBuild.waitForExistence(timeout: 5))
         crokBuild.tap()
         XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 5))
+    }
+
+    /// A session waiting on a permission request: the card above the composer, answered from the phone.
+    func testPermissionRequest() {
+        let app = launch()
+        let deps = app.staticTexts["Bump the relay's dependencies"]
+        XCTAssertTrue(deps.waitForExistence(timeout: 10))
+        deps.tap()
+        let card = element(app, "permissionCard")
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "permissionDetail").exists)
+        XCTAssertTrue(element(app, "permissionOption-reject-once").exists)
+        XCTAssertTrue(element(app, "composerField").exists, "a prompt can still be queued")
+        snap("05c-session-permission")
+
+        element(app, "permissionOption-allow-once").tap()
+        XCTAssertTrue(card.waitForNonExistence(timeout: 5), "the computer took the answer")
+        let reply = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "no code changes")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 10), "the turn went on")
+        snap("05d-session-permission-answered")
     }
 
     /// Waits until `condition` holds, sampling every 100 ms; returns whether it did.
