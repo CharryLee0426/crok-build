@@ -1413,6 +1413,18 @@ pub(crate) async fn spawn_session_actor(
     prompt_context.normalize_for_persistence();
     save_prompt_context(&session_info, &prompt_context);
     let is_subagent_spawn = startup_hints.is_subagent;
+    // Agent Observability names a sub-agent's generations by its type and links its first one to the parent's.
+    xai_grok_sampler::observe::register_session(
+        session_info.id.0.as_ref(),
+        startup_hints
+            .subagent_type
+            .as_deref()
+            .filter(|_| is_subagent_spawn),
+        startup_hints
+            .parent_session_id
+            .as_deref()
+            .filter(|_| is_subagent_spawn),
+    );
     let session_non_interactive = startup_hints.non_interactive;
     install_system_prompt(
         &mut conversation,

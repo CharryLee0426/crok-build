@@ -13679,6 +13679,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xai-grok-agento11y"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "tempfile",
+ "tracing",
+ "xai-dirs",
+ "xai-grok-sampler",
+ "xai-tty-utils",
+]
+
+[[package]]
 name = "xai-grok-announcements"
 version = "0.1.0"
 dependencies = [
@@ -14402,6 +14414,7 @@ dependencies = [
  "xai-acp-lib",
  "xai-crash-handler",
  "xai-dirs",
+ "xai-grok-agento11y",
  "xai-grok-cloud-config",
  "xai-grok-config",
  "xai-grok-extra-ca",
