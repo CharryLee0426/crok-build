@@ -25,8 +25,6 @@ data class DeviceInfo(val name: String, val platform: String, val client: String
 
 /** Why the phone is (back) on the Welcome screen. */
 sealed interface SignInError {
-    data object NoServer : SignInError
-    data object BadServer : SignInError
     data object Network : SignInError
     data object Denied : SignInError
     data object Expired : SignInError
@@ -55,6 +53,8 @@ class AuthController(
     private val store: AuthStore,
     private val apiFactory: DeviceAuthApiFactory,
     private val scope: CoroutineScope,
+    /** The relay this build signs in to (`BuildConfig.RELAY_URL`): built in, nobody types it. */
+    private val relayUrl: String,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val _state = MutableStateFlow<AuthState>(AuthState.Restoring)
@@ -87,18 +87,15 @@ class AuthController(
         }
     }
 
-    /** `deviceAuth:start`, then the browser, then polling. */
-    fun startSignIn(serverInput: String, device: DeviceInfo) {
+    /** `deviceAuth:start` on the built-in relay, then the browser, then polling. */
+    fun startSignIn(device: DeviceInfo) {
         val current = _state.value
         if (current is AuthState.SignedOut && current.busy) return
         if (current is AuthState.SignedIn || current is AuthState.Waiting) return
-        if (serverInput.isBlank()) {
-            _state.value = AuthState.SignedOut(SignInError.NoServer)
-            return
-        }
-        val serverUrl = ConvexHttpApi.normalizeServerUrl(serverInput)
+        // The build checks RELAY_URL, so this only fails in a hand-edited build.
+        val serverUrl = ConvexHttpApi.normalizeServerUrl(relayUrl)
         if (serverUrl == null) {
-            _state.value = AuthState.SignedOut(SignInError.BadServer)
+            _state.value = AuthState.SignedOut(SignInError.Other("This build has no relay address."))
             return
         }
         _state.value = AuthState.SignedOut(busy = true)
@@ -274,7 +271,6 @@ class AuthController(
             RelayErrorCode.NOT_CONFIGURED -> SignInError.NotConfigured
             else -> SignInError.Other(e.message ?: e.code.name)
         }
-        is IllegalArgumentException -> SignInError.BadServer
         else -> SignInError.Other(e.message ?: e.javaClass.simpleName)
     }
 

@@ -17,12 +17,7 @@
     <string name="welcome_body">Verfolge die crok-Sitzungen auf deinen Computern, lies Antworten, während sie entstehen, sende einen Prompt oder stoppe einen Durchgang.</string>
     <string name="welcome_continue">Weiter mit GitHub oder Google</string>
     <string name="welcome_note">Die Anmeldung erfolgt im Web. Dieses Handy wird eigenständig mit deinem Konto verknüpft und lässt sich von jedem anderen Gerät aus abmelden.</string>
-    <string name="welcome_server">Server</string>
-    <string name="welcome_server_help">Das Relay deiner Computer: [remote] url in ~/.crok/config.toml.</string>
-    <string name="welcome_server_show">Anderen Server verwenden</string>
     <string name="welcome_demo">Demo ausprobieren</string>
-    <string name="signin_error_no_server">Gib zuerst die Serveradresse ein.</string>
-    <string name="signin_error_bad_server">Das sieht nicht nach einer Serveradresse aus. Sie sollte mit https:// beginnen.</string>
     <string name="signin_error_denied">Die Anmeldung wurde abgelehnt.</string>
     <string name="signin_error_expired">Der Code ist abgelaufen. Starte neu, um einen neuen zu erhalten.</string>
     <string name="signin_error_revoked">Dieses Handy wurde von einem anderen Gerät abgemeldet.</string>
@@ -71,12 +66,32 @@
         <item quantity="one">%d ungelesene Antwort</item>
         <item quantity="other">%d ungelesene Antworten</item>
     </plurals>
+    <plurals name="sessions_count">
+        <item quantity="one">%d Sitzung</item>
+        <item quantity="other">%d Sitzungen</item>
+    </plurals>
+    <plurals name="sessions_show_more">
+        <item quantity="one">%d weitere anzeigen</item>
+        <item quantity="other">%d weitere anzeigen</item>
+    </plurals>
+    <string name="sessions_show_less">Weniger anzeigen</string>
+    <string name="sessions_reorder">Neu anordnen</string>
+    <string name="sessions_reorder_hint">Ziehe ≡, um ein Projekt zu verschieben. Tippe auf ein Projekt, um seine Sitzungen zu verschieben; angeheftete bleiben oben.</string>
+    <string name="sessions_sort_recent">Nach letzter Aktivität sortieren</string>
+    <string name="sessions_sort_projects_recent">Projekte nach letzter Aktivität sortieren</string>
+    <string name="action_move_up">Nach oben</string>
+    <string name="action_move_down">Nach unten</string>
+    <string name="action_collapse">Einklappen</string>
+    <string name="action_expand">Ausklappen</string>
 
     <!-- Session -->
     <string name="session_status_working">arbeitet …</string>
     <string name="session_status_waiting">wartet auf Bestätigung auf %1$s</string>
     <string name="session_status_idle">bereit · %1$s</string>
     <string name="session_status_offline">offline · %1$s</string>
+    <string name="session_status_not_running">läuft nicht · %1$s</string>
+    <string name="session_history_loading">Wird von %1$s geladen …</string>
+    <string name="session_history_offline">%1$s ist offline. Der Verlauf dieser Sitzung erscheint, sobald crok dort wieder läuft.</string>
     <string name="session_status_error">Fehler · %1$s</string>
     <string name="session_info">Sitzungsinfo</string>
     <string name="plan_bar">Plan %1$d/%2$d</string>
@@ -94,6 +109,7 @@
     <string name="notice_refusal">Das Modell hat das Weitermachen abgelehnt.</string>
     <string name="composer_placeholder">Nachricht an crok auf %1$s …</string>
     <string name="composer_offline">%1$s ist offline. Öffne dort crok, um diese Sitzung fortzusetzen.</string>
+    <string name="composer_not_running">Diese Sitzung ist auf %1$s nicht in crok geöffnet. Öffne sie dort, um weiterzumachen.</string>
     <string name="composer_send">Senden</string>
     <string name="composer_stop">Stopp</string>
     <string name="prompt_not_sent">Nicht gesendet: %1$s</string>
@@ -233,4 +249,6 @@
     <string name="cd_expand">Mehr anzeigen</string>
     <string name="cd_collapse">Weniger anzeigen</string>
     <string name="cd_clear">Löschen</string>
+    <string name="cd_more_options">Weitere Optionen</string>
+    <string name="cd_drag_to_reorder">Ziehen zum Neuanordnen</string>
 </resources>

@@ -24,6 +24,7 @@ import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
 import dev.chenli.crok.mobile.data.SecretBox
 import dev.chenli.crok.mobile.data.SessionDetail
+import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.SessionInfoResult
 import dev.chenli.crok.mobile.data.SessionRow
 import dev.chenli.crok.mobile.logic.OptimisticPrompt
@@ -48,6 +49,7 @@ import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -117,9 +119,10 @@ class RelayIntegrationTest {
                 override fun open(sealed: ByteArray) = sealed
             }
             val store = AuthStore(MemoryKeyValueStore(), passThrough, BytesCodec.Jvm)
-            val controller = AuthController(store, { url -> HttpDeviceAuthApi(ConvexHttpApi(url)) }, scope)
+            // The relay under test stands in for the app's built-in one (BuildConfig.RELAY_URL).
+            val controller = AuthController(store, { url -> HttpDeviceAuthApi(ConvexHttpApi(url)) }, scope, relayUrl)
             controller.restore()
-            controller.startSignIn(relayUrl, DeviceInfo("IT Pixel", "Android 16", "Crok Android IT"))
+            controller.startSignIn(DeviceInfo("IT Pixel", "Android 16", "Crok Android IT"))
             val waiting = withTimeout(20_000) { controller.state.first { it is AuthState.Waiting || it is AuthState.SignedOut && it.error != null } }
             assertTrue("start failed: $waiting", waiting is AuthState.Waiting)
             val pending = (waiting as AuthState.Waiting).pending
@@ -209,6 +212,24 @@ class RelayIntegrationTest {
             assertEquals(1, row.plan?.done)
             assertEquals(2, row.plan?.total)
             assertTrue(row.lastActivityAt > 0)
+
+            // The main list: the same session under its project (its cwd until the computer says otherwise).
+            val groups = decode(ListSerializer(SessionGroup.serializer()), http.query("sessions:groups", args { }, jwt))
+            val group = groups.first { g -> g.sessions.any { it.sessionId == sessionId } }
+            assertEquals("IT MacBook", group.deviceName)
+            assertEquals("/Users/it/code/crok-build", group.path)
+            assertEquals("crok-build", group.name)
+            assertEquals(group.key, group.sessions.first { it.sessionId == sessionId }.projectKey)
+            // Reordering a project's sessions and resetting the order both answer null.
+            http.mutation(
+                "sessions:reorderSessions",
+                args {
+                    put("projectKey", group.key)
+                    putJsonArray("sessionDocIds") { group.sessions.forEach { add(JsonPrimitive(it.id)) } }
+                },
+                jwt,
+            )
+            http.mutation("sessions:resetOrder", args { put("projectKey", group.key) }, jwt)
 
             val detail = decode(SessionDetail.serializer(), http.query("sessions:get", args { put("sessionDocId", sessionDocId) }, jwt))
             assertEquals(1200L, detail.usage?.inputTokens)

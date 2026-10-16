@@ -1,7 +1,6 @@
 package dev.chenli.crok.mobile.ui.signin
 
 import android.content.ClipData
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -30,17 +28,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,8 +48,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,9 +80,8 @@ fun CrokMark(size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
     }
 }
 
+/** The Welcome screen. There is no server to choose: the app signs in to the relay built into it. */
 data class WelcomeUiState(
-    val defaultServer: String,
-    val savedServer: String?,
     val error: SignInError?,
     val busy: Boolean,
     val demoAllowed: Boolean,
@@ -97,8 +89,6 @@ data class WelcomeUiState(
 
 @Composable
 fun signInErrorText(error: SignInError): String = when (error) {
-    SignInError.NoServer -> stringResource(R.string.signin_error_no_server)
-    SignInError.BadServer -> stringResource(R.string.signin_error_bad_server)
     SignInError.Network -> stringResource(R.string.error_network)
     SignInError.Denied -> stringResource(R.string.signin_error_denied)
     SignInError.Expired -> stringResource(R.string.signin_error_expired)
@@ -110,13 +100,9 @@ fun signInErrorText(error: SignInError): String = when (error) {
 @Composable
 fun WelcomeScreen(
     state: WelcomeUiState,
-    onContinue: (server: String) -> Unit,
+    onContinue: () -> Unit,
     onDemo: () -> Unit,
 ) {
-    val initialServer = state.savedServer ?: state.defaultServer
-    var server by rememberSaveable(initialServer) { mutableStateOf(initialServer) }
-    // Without a built-in relay the field is always shown; otherwise it hides behind "Use another server".
-    var showServer by rememberSaveable { mutableStateOf(state.defaultServer.isBlank() || state.savedServer != null) }
     val colors = CrokTheme.colors
 
     Column(
@@ -149,7 +135,7 @@ fun WelcomeScreen(
         )
         Spacer(Modifier.height(36.dp))
         Button(
-            onClick = { onContinue(server) },
+            onClick = onContinue,
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp).height(52.dp),
             shape = RoundedCornerShape(14.dp),
@@ -164,29 +150,6 @@ fun WelcomeScreen(
         state.error?.let { error ->
             Spacer(Modifier.height(14.dp))
             Text(signInErrorText(error), color = colors.danger, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-        }
-        Spacer(Modifier.height(20.dp))
-        AnimatedVisibility(showServer) {
-            Column(Modifier.fillMaxWidth().widthIn(max = 420.dp)) {
-                OutlinedTextField(
-                    value = server,
-                    onValueChange = { server = it.trim() },
-                    label = { Text(stringResource(R.string.welcome_server)) },
-                    placeholder = { Text(stringResource(R.string.welcome_server_hint)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    stringResource(R.string.welcome_server_help),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.textSecondary,
-                    modifier = Modifier.padding(start = 4.dp, top = 6.dp),
-                )
-            }
-        }
-        if (!showServer) {
-            TextButton(onClick = { showServer = true }) { Text(stringResource(R.string.welcome_server_show), color = colors.accent) }
         }
         Spacer(Modifier.weight(1f).heightIn(min = 24.dp))
         Text(

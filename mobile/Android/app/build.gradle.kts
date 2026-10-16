@@ -5,8 +5,19 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
-/** `-PcrokRelayUrl=https://<deployment>.convex.cloud`; empty means the build type's default below. */
-val relayUrlOverride: String? = providers.gradleProperty("crokRelayUrl").orNull?.trim()?.takeIf { it.isNotEmpty() }
+/** The relay every build signs in to: nobody types its address (relay/DESIGN.md §4). */
+val builtInRelayUrl = "https://limitless-badger-727.convex.cloud"
+
+/**
+ * For development only: `-PcrokRelayUrl=http://10.0.2.2:3210` (the emulator's alias for the host's `npx convex dev`) or
+ * another deployment. Empty means [builtInRelayUrl].
+ */
+val relayUrl: String = providers.gradleProperty("crokRelayUrl").orNull?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
+    ?: builtInRelayUrl
+
+require(Regex("^https?://[^\\s/]+(:\\d+)?$").matches(relayUrl)) {
+    "crokRelayUrl must be a deployment URL such as https://<deployment>.convex.cloud, not \"$relayUrl\""
+}
 
 fun quoted(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
@@ -25,15 +36,14 @@ android {
 
     buildTypes {
         debug {
-            // 10.0.2.2 is the Android emulator's alias for the host, where `npx convex dev` serves the local relay.
-            buildConfigField("String", "RELAY_URL", quoted(relayUrlOverride ?: "http://10.0.2.2:3210"))
+            buildConfigField("String", "RELAY_URL", quoted(relayUrl))
             buildConfigField("boolean", "DEMO_ALLOWED", "true")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            buildConfigField("String", "RELAY_URL", quoted(relayUrlOverride ?: ""))
+            buildConfigField("String", "RELAY_URL", quoted(relayUrl))
             buildConfigField("boolean", "DEMO_ALLOWED", "false")
             // Signed with the debug key so `assembleRelease` produces an installable APK; use a real key to ship.
             signingConfig = signingConfigs.getByName("debug")

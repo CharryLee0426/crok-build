@@ -19,13 +19,7 @@
     <string name="welcome_body">Follow the crok sessions running on your computers, read replies as they stream, send a prompt, or stop a turn.</string>
     <string name="welcome_continue">Continue with GitHub or Google</string>
     <string name="welcome_note">You sign in on the web. This phone gets its own link to your account, which you can sign out from any other device.</string>
-    <string name="welcome_server">Server</string>
-    <string name="welcome_server_hint" translatable="false">https://your-deployment.convex.cloud</string>
-    <string name="welcome_server_help">The relay your computers use: [remote] url in ~/.crok/config.toml.</string>
-    <string name="welcome_server_show">Use another server</string>
     <string name="welcome_demo">Try the demo</string>
-    <string name="signin_error_no_server">Enter the server address first.</string>
-    <string name="signin_error_bad_server">That doesn’t look like a server address. It should start with https://.</string>
     <string name="signin_error_denied">The sign-in was denied.</string>
     <string name="signin_error_expired">The code expired. Start again to get a new one.</string>
     <string name="signin_error_revoked">This phone was signed out from another device.</string>
@@ -74,12 +68,32 @@
         <item quantity="one">%d unread reply</item>
         <item quantity="other">%d unread replies</item>
     </plurals>
+    <plurals name="sessions_count">
+        <item quantity="one">%d session</item>
+        <item quantity="other">%d sessions</item>
+    </plurals>
+    <plurals name="sessions_show_more">
+        <item quantity="one">Show %d more</item>
+        <item quantity="other">Show %d more</item>
+    </plurals>
+    <string name="sessions_show_less">Show less</string>
+    <string name="sessions_reorder">Reorder</string>
+    <string name="sessions_reorder_hint">Drag ≡ to move a project. Tap a project to move its sessions; pinned ones stay at the top.</string>
+    <string name="sessions_sort_recent">Sort by recent activity</string>
+    <string name="sessions_sort_projects_recent">Sort projects by recent activity</string>
+    <string name="action_move_up">Move up</string>
+    <string name="action_move_down">Move down</string>
+    <string name="action_collapse">Collapse</string>
+    <string name="action_expand">Expand</string>
 
     <!-- Session -->
     <string name="session_status_working">working…</string>
     <string name="session_status_waiting">waiting for approval on %1$s</string>
     <string name="session_status_idle">idle · %1$s</string>
     <string name="session_status_offline">offline · %1$s</string>
+    <string name="session_status_not_running">not running · %1$s</string>
+    <string name="session_history_loading">Loading from %1$s…</string>
+    <string name="session_history_offline">%1$s is offline. This session’s history shows once crok runs there again.</string>
     <string name="session_status_error">error · %1$s</string>
     <string name="session_info">Session info</string>
     <string name="plan_bar">Plan %1$d/%2$d</string>
@@ -97,6 +111,7 @@
     <string name="notice_refusal">The model declined to continue.</string>
     <string name="composer_placeholder">Message crok on %1$s…</string>
     <string name="composer_offline">%1$s is offline. Open crok there to continue this session.</string>
+    <string name="composer_not_running">This session isn’t open in crok on %1$s. Open it there to continue.</string>
     <string name="composer_send">Send</string>
     <string name="composer_stop">Stop</string>
     <string name="prompt_not_sent">Not sent: %1$s</string>
@@ -237,4 +252,6 @@
     <string name="cd_expand">Show more</string>
     <string name="cd_collapse">Show less</string>
     <string name="cd_clear">Clear</string>
+    <string name="cd_more_options">More options</string>
+    <string name="cd_drag_to_reorder">Drag to reorder</string>
 </resources>

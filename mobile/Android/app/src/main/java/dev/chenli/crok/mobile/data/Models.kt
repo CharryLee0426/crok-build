@@ -132,7 +132,19 @@ object SessionStatus {
     const val ERROR = "error"
 }
 
-/** A row of `sessions:list`: the chat list. */
+/**
+ * Where a session's transcript is (`historyState`): `none` / `requested` — still only on its computer (listed from disk,
+ * fetched when someone opens it while the computer is online); `ready` or null — on the relay.
+ */
+object HistoryState {
+    const val NONE = "none"
+    const val REQUESTED = "requested"
+    const val READY = "ready"
+
+    fun onComputerOnly(state: String?): Boolean = state == NONE || state == REQUESTED
+}
+
+/** A row of the session list (the sessions of `sessions:groups`, and `sessions:list`). */
 @Serializable
 data class SessionRow(
     @SerialName("_id") val id: String,
@@ -153,10 +165,33 @@ data class SessionRow(
     val archived: Boolean = false,
     val unread: WireInt = 0,
     val plan: PlanProgress? = null,
+    /** `<deviceId>:<path>`: the project this session is listed under. */
+    val projectKey: String = "",
+    val projectPath: String = "",
+    val projectName: String = "",
+    val historyState: String? = null,
 ) {
     val isRunning: Boolean get() = online && status == SessionStatus.RUNNING
     val isWaiting: Boolean get() = online && status == SessionStatus.WAITING
 }
+
+/**
+ * One project of the main list (`sessions:groups`): a folder on one computer and its sessions, both levels in the order
+ * the person put them in (pinned sessions lead their project).
+ */
+@Serializable
+data class SessionGroup(
+    val key: String,
+    val deviceId: String = "",
+    val deviceName: String = "",
+    val deviceOnline: Boolean = false,
+    val path: String = "",
+    val name: String = "",
+    /** Placed by hand; otherwise it sorts by recent activity, ahead of the placed ones. */
+    val placed: Boolean = false,
+    val lastActivityAt: WireLong = 0,
+    val sessions: List<SessionRow> = emptyList(),
+)
 
 /** `sessions:get`: everything the session header and the info sheet show. */
 @Serializable
@@ -183,6 +218,10 @@ data class SessionDetail(
     val archived: Boolean = false,
     val unread: WireInt = 0,
     val eventSeq: WireLong = 0,
+    val projectKey: String = "",
+    val projectPath: String = "",
+    val projectName: String = "",
+    val historyState: String? = null,
 ) {
     val isRunning: Boolean get() = online && status == SessionStatus.RUNNING
 }

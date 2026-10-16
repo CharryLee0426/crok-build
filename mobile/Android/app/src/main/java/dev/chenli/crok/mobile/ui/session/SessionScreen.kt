@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -230,6 +231,30 @@ fun SessionContent(
                     TextButton(onClick = actions.onReload) { Text(stringResource(R.string.action_retry), color = colors.accent) }
                 }
                 !state.loaded -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = colors.accent)
+                state.historyOnComputer && state.deviceOnline -> Column(
+                    Modifier.align(Alignment.Center).padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp, color = colors.accent)
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        stringResource(R.string.session_history_loading, state.deviceName),
+                        color = colors.textSecondary,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                state.historyOnComputer -> Column(
+                    Modifier.align(Alignment.Center).padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(CrokIcons.Laptop, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(40.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        stringResource(R.string.session_history_offline, state.deviceName),
+                        color = colors.textSecondary,
+                        textAlign = TextAlign.Center,
+                    )
+                }
                 state.items.isEmpty() -> CenterNote(stringResource(R.string.transcript_empty))
                 else -> LazyColumn(
                     state = listState,
@@ -296,7 +321,13 @@ private fun SessionHeader(state: SessionUiState) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 SessionPhase.Idle -> Text(stringResource(R.string.session_status_idle, state.deviceName), fontSize = subtitleSize, color = colors.textSecondary, maxLines = 1)
-                SessionPhase.Offline -> Text(stringResource(R.string.session_status_offline, state.deviceName), fontSize = subtitleSize, color = colors.textTertiary, maxLines = 1)
+                SessionPhase.Offline -> Text(
+                    // The computer may be online with this session closed (or only on its disk).
+                    stringResource(if (state.deviceOnline) R.string.session_status_not_running else R.string.session_status_offline, state.deviceName),
+                    fontSize = subtitleSize,
+                    color = colors.textTertiary,
+                    maxLines = 1,
+                )
                 SessionPhase.Error -> Text(stringResource(R.string.session_status_error, state.deviceName), fontSize = subtitleSize, color = colors.danger, maxLines = 1)
             }
         }
@@ -414,9 +445,15 @@ private fun Composer(state: SessionUiState, draft: String, actions: SessionActio
                 Icon(CrokIcons.Laptop, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    if (state.gone) stringResource(R.string.session_gone) else stringResource(R.string.composer_offline, state.deviceName),
+                    when {
+                        state.gone -> stringResource(R.string.session_gone)
+                        // Online computer, session not running there: closed, or only listed from its disk.
+                        state.deviceOnline -> stringResource(R.string.composer_not_running, state.deviceName)
+                        else -> stringResource(R.string.composer_offline, state.deviceName)
+                    },
                     color = colors.textSecondary,
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.testTag("composer-blocked"),
                 )
             }
             return@Column

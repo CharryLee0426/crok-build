@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -127,6 +128,46 @@ class WireModelsTest {
         assertEquals(2, row.unread)
         assertEquals(PlanProgress(3, 7), row.plan)
         assertTrue(row.isRunning)
+    }
+
+    @Test
+    fun readsTheGroupedList() {
+        // `sessions:groups` as relay/convex/sessions.ts returns it.
+        val groups = RelayJson.decodeFromString(
+            ListSerializer(SessionGroup.serializer()),
+            """[{"key":"d1:/Users/me/code/crok","deviceId":"d1","deviceName":"MacBook","deviceOnline":true,
+                 "path":"/Users/me/code/crok","name":"crok","placed":true,"lastActivityAt":1760500000123.0,
+                 "sessions":[{"_id":"s1","sessionId":"x","title":"Plan 1.6","cwd":"/Users/me/code/crok/relay","model":null,
+                   "status":"idle","online":false,"app":"tui","deviceId":"d1","deviceName":"MacBook","deviceOnline":true,
+                   "preview":"Three milestones","previewKind":"assistant","lastActivityAt":1760500000123.0,"pinned":false,
+                   "archived":false,"unread":0,"plan":null,"projectKey":"d1:/Users/me/code/crok",
+                   "projectPath":"/Users/me/code/crok","projectName":"crok","historyState":"none"}]},
+                {"key":"d2:/srv","deviceId":"d2","deviceName":"Box","deviceOnline":false,"path":"/srv","name":"srv",
+                 "placed":false,"lastActivityAt":1.7e12,"sessions":[],"somethingNew":1}]""",
+        )
+        assertEquals(listOf("d1:/Users/me/code/crok", "d2:/srv"), groups.map { it.key })
+        val crok = groups[0]
+        assertTrue(crok.placed)
+        assertTrue(crok.deviceOnline)
+        assertEquals(1760500000123L, crok.lastActivityAt)
+        val row = crok.sessions.single()
+        assertEquals("d1:/Users/me/code/crok", row.projectKey)
+        assertEquals("crok", row.projectName)
+        assertEquals(HistoryState.NONE, row.historyState)
+        assertTrue(HistoryState.onComputerOnly(row.historyState))
+        assertEquals(1_700_000_000_000L, groups[1].lastActivityAt)
+        assertFalse(groups[1].deviceOnline)
+
+        // A row from a relay without projects still reads, with empty project fields; ready and null mean "here".
+        val old = RelayJson.decodeFromString(SessionRow.serializer(), """{"_id":"s2","cwd":"/x","historyState":null}""")
+        assertEquals("", old.projectKey)
+        assertNull(old.historyState)
+        assertFalse(HistoryState.onComputerOnly(old.historyState))
+        assertFalse(HistoryState.onComputerOnly(HistoryState.READY))
+        // The detail carries the same fields.
+        val detail = RelayJson.decodeFromString(SessionDetail.serializer(), """{"_id":"s1","projectName":"crok","historyState":"requested"}""")
+        assertEquals(HistoryState.REQUESTED, detail.historyState)
+        assertEquals("crok", detail.projectName)
     }
 
     @Test

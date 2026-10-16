@@ -9,39 +9,34 @@ import androidx.datastore.preferences.preferencesDataStore
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 
 enum class ThemeMode { System, Light, Dark }
 
-/** Per-app settings that are not secret: appearance and the Server override from the Welcome screen. */
+/** Per-app settings that are not secret. The relay is built in (`BuildConfig.RELAY_URL`), so it is not one of them. */
 data class AppSettings(
     val theme: ThemeMode = ThemeMode.System,
-    val serverOverride: String? = null,
 )
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "crok_settings")
 
 class SettingsStore(private val context: Context) {
     private val themeKey = stringPreferencesKey("theme")
-    private val serverKey = stringPreferencesKey("server")
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         AppSettings(
             theme = prefs[themeKey]?.let { raw -> ThemeMode.entries.firstOrNull { it.name == raw } } ?: ThemeMode.System,
-            serverOverride = prefs[serverKey]?.takeIf { it.isNotBlank() },
         )
     }
 
     suspend fun setTheme(mode: ThemeMode) {
         context.settingsDataStore.edit { it[themeKey] = mode.name }
-    }
-
-    suspend fun setServer(url: String?) {
-        context.settingsDataStore.edit { prefs ->
-            if (url.isNullOrBlank()) prefs.remove(serverKey) else prefs[serverKey] = url
-        }
     }
 }
 
@@ -54,24 +49,56 @@ class DraftStore(private val kv: KeyValueStore) {
     fun clear() = kv.clear()
 }
 
+/**
+ * The projects collapsed in the session list, by project key, remembered on this phone (the order itself lives on the
+ * relay and is shared; what is folded away is per device).
+ */
+class CollapsedProjectsStore(private val kv: KeyValueStore) {
+    private val serializer = ListSerializer(String.serializer())
+    private val _keys = MutableStateFlow(read())
+
+    val keys: StateFlow<Set<String>> = _keys.asStateFlow()
+
+    private fun read(): Set<String> =
+        kv.get(KEY)?.let { raw -> runCatching { RelayJson.decodeFromString(serializer, raw).toSet() }.getOrNull() }.orEmpty()
+
+    fun toggle(projectKey: String) = set(projectKey, projectKey !in _keys.value)
+
+    fun set(projectKey: String, collapsed: Boolean) {
+        val next = if (collapsed) _keys.value + projectKey else _keys.value - projectKey
+        if (next == _keys.value) return
+        _keys.value = next
+        kv.put(KEY, if (next.isEmpty()) null else RelayJson.encodeToString(serializer, next.sorted()))
+    }
+
+    fun clear() {
+        kv.clear()
+        _keys.value = emptySet()
+    }
+
+    private companion object {
+        const val KEY = "collapsed"
+    }
+}
+
 /** The last session list, so the app opens instantly on the cached list while it reconnects. One file per account. */
 class SessionListCache(private val dir: File) {
-    private val serializer = ListSerializer(SessionRow.serializer())
+    private val serializer = ListSerializer(SessionGroup.serializer())
 
-    private fun file(deviceId: String) = File(dir, "sessions-${deviceId.filter { it.isLetterOrDigit() }}.json")
+    private fun file(deviceId: String) = File(dir, "groups-${deviceId.filter { it.isLetterOrDigit() }}.json")
 
-    suspend fun load(deviceId: String): List<SessionRow>? = withContext(Dispatchers.IO) {
+    suspend fun load(deviceId: String): List<SessionGroup>? = withContext(Dispatchers.IO) {
         val file = file(deviceId)
         if (!file.exists()) return@withContext null
         runCatching { RelayJson.decodeFromString(serializer, file.readText()) }.getOrNull()
     }
 
-    suspend fun save(deviceId: String, rows: List<SessionRow>) = withContext(Dispatchers.IO) {
+    suspend fun save(deviceId: String, groups: List<SessionGroup>) = withContext(Dispatchers.IO) {
         runCatching {
             dir.mkdirs()
             val target = file(deviceId)
             val temp = File(dir, target.name + ".tmp")
-            temp.writeText(RelayJson.encodeToString(serializer, rows))
+            temp.writeText(RelayJson.encodeToString(serializer, groups))
             temp.renameTo(target)
         }
         Unit

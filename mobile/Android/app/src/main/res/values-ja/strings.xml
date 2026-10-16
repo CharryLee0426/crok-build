@@ -17,12 +17,7 @@
     <string name="welcome_body">コンピュータで動いている crok のセッションを追いかけ、ストリーミング中の返信を読み、プロンプトを送り、ターンを止められます。</string>
     <string name="welcome_continue">GitHub または Google で続ける</string>
     <string name="welcome_note">サインインはウェブで行います。このスマホはアカウントに個別にリンクされ、ほかのどのデバイスからでもサインアウトできます。</string>
-    <string name="welcome_server">サーバー</string>
-    <string name="welcome_server_help">コンピュータが使うリレー：~/.crok/config.toml の [remote] url。</string>
-    <string name="welcome_server_show">別のサーバーを使う</string>
     <string name="welcome_demo">デモを試す</string>
-    <string name="signin_error_no_server">先にサーバーのアドレスを入力してください。</string>
-    <string name="signin_error_bad_server">サーバーのアドレスではないようです。https:// で始まる必要があります。</string>
     <string name="signin_error_denied">サインインが拒否されました。</string>
     <string name="signin_error_expired">コードの有効期限が切れました。もう一度始めて新しいコードを取得してください。</string>
     <string name="signin_error_revoked">このスマホは別のデバイスからサインアウトされました。</string>
@@ -70,12 +65,30 @@
     <plurals name="sessions_unread">
         <item quantity="other">未読の返信 %d 件</item>
     </plurals>
+    <plurals name="sessions_count">
+        <item quantity="other">%d 件のセッション</item>
+    </plurals>
+    <plurals name="sessions_show_more">
+        <item quantity="other">さらに %d 件を表示</item>
+    </plurals>
+    <string name="sessions_show_less">表示を減らす</string>
+    <string name="sessions_reorder">並べ替え</string>
+    <string name="sessions_reorder_hint">≡ をドラッグしてプロジェクトを移動します。プロジェクトをタップすると、その中のセッションを移動できます。ピン留めしたセッションは常に先頭です。</string>
+    <string name="sessions_sort_recent">最近のアクティビティ順に並べる</string>
+    <string name="sessions_sort_projects_recent">プロジェクトを最近のアクティビティ順に並べる</string>
+    <string name="action_move_up">上へ移動</string>
+    <string name="action_move_down">下へ移動</string>
+    <string name="action_collapse">折りたたむ</string>
+    <string name="action_expand">展開</string>
 
     <!-- Session -->
     <string name="session_status_working">作業中…</string>
     <string name="session_status_waiting">%1$s で承認待ち</string>
     <string name="session_status_idle">待機中 · %1$s</string>
     <string name="session_status_offline">オフライン · %1$s</string>
+    <string name="session_status_not_running">未実行 · %1$s</string>
+    <string name="session_history_loading">%1$s から読み込み中…</string>
+    <string name="session_history_offline">%1$s はオフラインです。そこで crok がまた動くと、このセッションの履歴が表示されます。</string>
     <string name="session_status_error">エラー · %1$s</string>
     <string name="session_info">セッション情報</string>
     <string name="plan_bar">プラン %1$d/%2$d</string>
@@ -93,6 +106,7 @@
     <string name="notice_refusal">モデルが続行を断りました。</string>
     <string name="composer_placeholder">%1$s の crok にメッセージ…</string>
     <string name="composer_offline">%1$s はオフラインです。このセッションを続けるには、そのコンピュータで crok を開いてください。</string>
+    <string name="composer_not_running">このセッションは %1$s の crok で開かれていません。続けるには、そこで開いてください。</string>
     <string name="composer_send">送信</string>
     <string name="composer_stop">停止</string>
     <string name="prompt_not_sent">未送信：%1$s</string>
@@ -226,4 +240,6 @@
     <string name="cd_expand">展開</string>
     <string name="cd_collapse">折りたたむ</string>
     <string name="cd_clear">クリア</string>
+    <string name="cd_more_options">その他のオプション</string>
+    <string name="cd_drag_to_reorder">ドラッグして並べ替え</string>
 </resources>

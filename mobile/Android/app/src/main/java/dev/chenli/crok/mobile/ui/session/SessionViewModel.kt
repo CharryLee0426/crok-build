@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.chenli.crok.mobile.data.DraftStore
+import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.PlanEntry
 import dev.chenli.crok.mobile.data.PromptCommand
 import dev.chenli.crok.mobile.data.RelayErrorCode
@@ -50,6 +51,10 @@ enum class SessionPhase { Working, Waiting, Idle, Offline, Error }
 data class SessionUiState(
     val title: String = "",
     val deviceName: String = "",
+    /** The computer is online (a crok runs there), whether or not it runs this session. */
+    val deviceOnline: Boolean = false,
+    /** `none` / `requested`: the transcript is still only on the computer (a session listed from its disk). */
+    val historyState: String? = null,
     val phase: SessionPhase = SessionPhase.Idle,
     val connection: ConnectionState = ConnectionState.Connected,
     val plan: List<PlanEntry> = emptyList(),
@@ -64,6 +69,9 @@ data class SessionUiState(
 ) {
     val canSend: Boolean get() = phase != SessionPhase.Offline && !gone
     val running: Boolean get() = phase == SessionPhase.Working
+
+    /** Nothing to show yet because the transcript is still on the computer: it loads while that is online. */
+    val historyOnComputer: Boolean get() = loaded && items.isEmpty() && HistoryState.onComputerOnly(historyState)
 
     companion object {
         fun phaseOf(status: String, online: Boolean): SessionPhase = when {
@@ -92,6 +100,8 @@ data class SessionUiState(
             return SessionUiState(
                 title = detail?.title ?: row?.title.orEmpty(),
                 deviceName = detail?.deviceName ?: row?.deviceName.orEmpty(),
+                deviceOnline = detail?.deviceOnline ?: row?.deviceOnline ?: false,
+                historyState = if (detail != null) detail.historyState else row?.historyState,
                 phase = phase,
                 connection = connection,
                 plan = plan,
@@ -159,9 +169,11 @@ class SessionViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionUiState())
 
     init {
-        // "I'm watching": on open and every 60 s while the screen is visible, so the computer streams finely.
+        // "I'm watching": on open and every 60 s while the screen is visible, so the computer streams finely. It also
+        // asks for a listed session's history, so it goes again at once when the computer comes back online.
+        val deviceOnline = detail.map { it?.getOrNull()?.deviceOnline == true }.distinctUntilChanged()
         viewModelScope.launch {
-            visible.collectLatest { shown ->
+            combine(visible, deviceOnline) { shown, _ -> shown }.collectLatest { shown ->
                 while (shown) {
                     runCatching { engine.sessions.watch(sessionDocId) }
                     delay(WATCH_INTERVAL_MS)

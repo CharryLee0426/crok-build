@@ -6,6 +6,7 @@ import android.os.Build
 import android.provider.Settings
 import dev.chenli.crok.mobile.auth.AuthStore
 import dev.chenli.crok.mobile.auth.DeviceInfo
+import dev.chenli.crok.mobile.data.CollapsedProjectsStore
 import dev.chenli.crok.mobile.data.DeviceAuthApiFactory
 import dev.chenli.crok.mobile.data.DraftStore
 import dev.chenli.crok.mobile.data.HttpDeviceAuthApi
@@ -30,11 +31,12 @@ class AppGraph(val context: Context) {
     val settingsStore = SettingsStore(context)
     val drafts = DraftStore(PrefsKeyValueStore(context, "crok_drafts"))
     val sessionCache = SessionListCache(File(context.filesDir, "session-cache"))
+    val collapsedProjects = CollapsedProjectsStore(PrefsKeyValueStore(context, "crok_list"))
     val network by lazy { NetworkMonitor(context, appScope) }
     val apiFactory: DeviceAuthApiFactory = HttpDeviceAuthApi.Factory
 
-    /** The relay compiled into this build (`-PcrokRelayUrl`); may be empty in release builds. */
-    val defaultRelayUrl: String = BuildConfig.RELAY_URL
+    /** The relay this build signs in to (`RELAY_URL` in app/build.gradle.kts; `-PcrokRelayUrl` for development). */
+    val relayUrl: String = BuildConfig.RELAY_URL
 
     /** How this phone shows up in the Devices list and on the approval page. */
     fun deviceInfo(): DeviceInfo {
@@ -62,5 +64,6 @@ class AppGraph(val context: Context) {
     fun clearAccountData() {
         drafts.clear()
         sessionCache.clear()
+        collapsedProjects.clear()
     }
 }

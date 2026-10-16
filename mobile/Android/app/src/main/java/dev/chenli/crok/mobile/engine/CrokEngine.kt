@@ -13,9 +13,12 @@ import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
 import dev.chenli.crok.mobile.data.RevokeOthersResult
 import dev.chenli.crok.mobile.data.SessionDetail
+import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.SessionListCache
 import dev.chenli.crok.mobile.data.SessionRow
 import dev.chenli.crok.mobile.data.relayCode
+import dev.chenli.crok.mobile.logic.OrderChange
+import dev.chenli.crok.mobile.logic.SessionOrder
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -48,13 +51,19 @@ import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.json.JsonElement
 
-/** The session list as the screens see it: cached rows first, then live ones. */
+/**
+ * The session list as the screens see it: projects with their sessions (`sessions:groups`), cached ones first, then
+ * live ones, with reorders not yet confirmed by the relay already applied.
+ */
 data class SessionListState(
-    val rows: List<SessionRow> = emptyList(),
+    val groups: List<SessionGroup> = emptyList(),
     /** True once the relay answered (not just the cache). */
     val live: Boolean = false,
     val error: RelayException? = null,
-)
+) {
+    /** Every session of the list, in list order. */
+    val rows: List<SessionRow> by lazy { groups.flatMap { it.sessions } }
+}
 
 /**
  * One signed-in account (Telegram's AccountInstance / iOS TelegramEngine): owns the relay connection and exposes typed
@@ -155,32 +164,128 @@ class CrokEngine(
     // ---- Facades ----
 
     inner class Sessions {
+        /** A reorder sent to the relay: shown at once, kept until the relay's list has caught up with it. */
+        private inner class PendingChange(val change: OrderChange) {
+            var settled = false
+        }
+
+        private val lock = Any()
+        private var base = SessionListState()
+        private val pending = ArrayList<PendingChange>()
         private val _active = MutableStateFlow(SessionListState())
 
-        /** The live list (not archived), cached on disk for an instant start. */
+        /** The live list (not archived), grouped by project and cached on disk for an instant start. */
         val active: StateFlow<SessionListState> = _active.asStateFlow()
+
+        private fun publishLocked() {
+            _active.value = if (pending.isEmpty()) base else base.copy(groups = SessionOrder.applyAll(base.groups, pending.map { it.change }))
+        }
+
+        /**
+         * Drops the confirmed reorders the relay's list already shows: the longest run of confirmed ones, from the
+         * oldest, whose combined effect leaves the list as it is (so a later change that undid an earlier one counts).
+         */
+        private fun dropReflectedLocked() {
+            if (!base.live) return
+            val confirmed = pending.takeWhile { it.settled }
+            for (count in confirmed.size downTo 1) {
+                val changes = confirmed.take(count).map { it.change }
+                if (SessionOrder.sameOrder(SessionOrder.applyAll(base.groups, changes), base.groups)) {
+                    repeat(count) { pending.removeAt(0) }
+                    return
+                }
+            }
+        }
 
         @OptIn(FlowPreview::class)
         internal fun start() {
             scope.launch {
                 cache?.load(account.deviceId)?.let { cached ->
-                    if (!_active.value.live) _active.value = SessionListState(rows = cached, live = false)
+                    synchronized(lock) {
+                        if (!base.live) {
+                            base = SessionListState(groups = cached, live = false)
+                            publishLocked()
+                        }
+                    }
                 }
-                live("sessions:list", emptyMap(), ListSerializer(SessionRow.serializer())).collect { result ->
-                    result.onSuccess { rows ->
-                        _active.value = SessionListState(rows = rows, live = true)
+                live("sessions:groups", emptyMap(), ListSerializer(SessionGroup.serializer())).collect { result ->
+                    result.onSuccess { groups ->
+                        synchronized(lock) {
+                            base = SessionListState(groups = groups, live = true)
+                            dropReflectedLocked()
+                            publishLocked()
+                        }
                         synced.value = true
                     }.onFailure { error ->
-                        _active.value = _active.value.copy(error = error as? RelayException)
+                        synchronized(lock) {
+                            base = base.copy(error = error as? RelayException)
+                            publishLocked()
+                        }
                     }
                 }
             }
             val diskCache = cache ?: return
             scope.launch {
                 _active.debounce(1_000).collect { state ->
-                    if (state.live) diskCache.save(account.deviceId, state.rows)
+                    if (state.live) diskCache.save(account.deviceId, state.groups)
                 }
             }
+        }
+
+        /**
+         * Applies [change] to the list at once (optimistic), then sends it. A failure takes it back and rethrows; on
+         * success it stays until the relay's list shows it (Convex answers a mutation after its subscriptions have the
+         * result, so usually at once), or for [SETTLE_TIMEOUT_MS] at most, should another device reorder meanwhile.
+         */
+        private suspend fun reorder(change: OrderChange, send: suspend () -> Unit) {
+            val entry = PendingChange(change)
+            synchronized(lock) {
+                pending += entry
+                publishLocked()
+            }
+            try {
+                send()
+            } catch (e: Throwable) {
+                synchronized(lock) {
+                    pending.remove(entry)
+                    publishLocked()
+                }
+                throw e
+            }
+            synchronized(lock) {
+                entry.settled = true
+                dropReflectedLocked()
+                publishLocked()
+            }
+            scope.launch {
+                delay(SETTLE_TIMEOUT_MS)
+                synchronized(lock) {
+                    if (pending.remove(entry)) publishLocked()
+                }
+            }
+        }
+
+        /** `sessions:reorderProjects`: [keys] are the projects of the current tab (all, or one computer's) in their new order. */
+        suspend fun reorderProjects(keys: List<String>) =
+            reorder(OrderChange.Projects(keys)) { callUnit("sessions:reorderProjects", mapOf("keys" to keys)) }
+
+        /** `sessions:reorderSessions`: some of one project's sessions in their new order (pinned ones still lead). */
+        suspend fun reorderSessions(projectKey: String, sessionDocIds: List<String>) =
+            reorder(OrderChange.Sessions(projectKey, sessionDocIds)) {
+                callUnit("sessions:reorderSessions", mapOf("projectKey" to projectKey, "sessionDocIds" to sessionDocIds))
+            }
+
+        /** "Sort projects by recent activity" (`sessions:resetOrder({})`): every project, on every computer. */
+        suspend fun sortProjectsByRecent() {
+            val keys = SessionOrder.projectsByRecent(_active.value.groups)
+            reorder(OrderChange.Projects(keys)) { callUnit("sessions:resetOrder", emptyMap()) }
+        }
+
+        /** "Sort by recent activity" on one project (`sessions:resetOrder({projectKey})`). */
+        suspend fun sortSessionsByRecent(projectKey: String) {
+            val group = _active.value.groups.firstOrNull { it.key == projectKey } ?: return
+            val ids = SessionOrder.sessionsByRecent(group.sessions)
+            reorder(OrderChange.Sessions(projectKey, ids)) { callUnit("sessions:resetOrder", mapOf("projectKey" to projectKey)) }
         }
 
         fun archived(): Flow<Result<List<SessionRow>>> =
@@ -261,6 +366,11 @@ class CrokEngine(
             call("deviceAuth:approve", mapOf("userCode" to userCode), ApproveResult.serializer())
 
         suspend fun deny(userCode: String) = callUnit("deviceAuth:deny", mapOf("userCode" to userCode))
+    }
+
+    companion object {
+        /** A confirmed reorder the list does not show yet is dropped after this long (someone else reordered). */
+        const val SETTLE_TIMEOUT_MS = 5_000L
     }
 }
 

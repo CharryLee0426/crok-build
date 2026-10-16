@@ -4,6 +4,7 @@ import dev.chenli.crok.mobile.auth.StoredCredentials
 import dev.chenli.crok.mobile.data.CommandStatus
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.EventKind
+import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.Me
 import dev.chenli.crok.mobile.data.MeDevice
 import dev.chenli.crok.mobile.data.PlanEntry
@@ -12,18 +13,22 @@ import dev.chenli.crok.mobile.data.PromptCommand
 import dev.chenli.crok.mobile.data.RelayEvent
 import dev.chenli.crok.mobile.data.RelayUser
 import dev.chenli.crok.mobile.data.SessionDetail
+import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.SessionRow
 import dev.chenli.crok.mobile.data.SessionStatus
 import dev.chenli.crok.mobile.data.SessionUsage
+import dev.chenli.crok.mobile.logic.SessionList
 
-/** A session in the demo relay: its detail plus the list-only fields. */
+/** A session in the demo relay: its detail plus the list-only fields and its hand-placed position. */
 data class DemoSession(
     val detail: SessionDetail,
     val preview: String?,
     val previewKind: String?,
     val unread: Int,
+    val position: Int? = null,
 ) {
     val id: String get() = detail.id
+    val projectKey: String get() = detail.projectKey
 
     fun row(): SessionRow = SessionRow(
         id = detail.id,
@@ -44,6 +49,10 @@ data class DemoSession(
         archived = detail.archived,
         unread = unread,
         plan = if (detail.plan.isEmpty()) null else PlanProgress(detail.plan.count { it.status == "completed" }, detail.plan.size),
+        projectKey = detail.projectKey,
+        projectPath = detail.projectPath,
+        projectName = detail.projectName,
+        historyState = detail.historyState,
     )
 }
 
@@ -72,12 +81,15 @@ data class DemoState(
     val sessions: List<DemoSession>,
     val events: Map<String, List<RelayEvent>>,
     val commands: List<DemoCommand>,
+    /** Hand-placed project positions by project key (none until someone reorders). */
+    val projectPositions: Map<String, Int> = emptyMap(),
     val revoked: Boolean = false,
 )
 
 /**
  * The demo account: three computers, a phone, and sessions in every state the screens draw (running with a plan,
- * waiting for approval, idle, offline, archived). Used by demo mode (`crokDemo=true`) and by the screenshot tests.
+ * waiting for approval, idle, offline, archived, listed from disk with the history still on the computer), in several
+ * projects on two computers. Used by demo mode (`crokDemo=true`) and by the screenshot tests.
  */
 object DemoData {
     const val PHONE_ID = "demo-phone"
@@ -87,6 +99,17 @@ object DemoData {
     const val LINUX_ID = "demo-linux"
     const val RUNNING_SESSION = "demo-s1"
     const val WAITING_SESSION = "demo-s2"
+
+    /** Listed from the MacBook's disk, never opened on the relay: opening it loads the history from the computer. */
+    const val CATALOG_SESSION = "demo-s8"
+
+    /** On the Linux box, which is offline: its history cannot load until crok runs there. */
+    const val OFFLINE_SESSION = "demo-s5"
+
+    const val MACBOOK_CROK_BUILD = "$MACBOOK_ID:/Users/chen/code/crok-build"
+    const val MACBOOK_CROK_SITE = "$MACBOOK_ID:/Users/chen/code/crok-site"
+    const val STUDIO_CROK_BUILD = "$STUDIO_ID:/Users/chen/code/crok-build"
+    const val LINUX_INGEST = "$LINUX_ID:/home/chen/services/ingest"
 
     private const val MIN = 60_000L
     private const val HOUR = 60 * MIN
@@ -125,7 +148,7 @@ object DemoData {
 
     fun devices(now: Long): List<Device> = listOf(
         Device(PHONE_ID, "phone", PHONE_NAME, "Android 16", "Crok Android 1.0 (1)", now - 20 * DAY, now - MIN, true, true, 0),
-        Device(MACBOOK_ID, "computer", "MacBook Pro", "macOS 26.1", "Crok Desktop 1.5.0", now - 40 * DAY, now - 2 * MIN, true, false, 2),
+        Device(MACBOOK_ID, "computer", "MacBook Pro", "macOS 26.1", "Crok Desktop 1.5.0", now - 40 * DAY, now - 2 * MIN, true, false, 3),
         Device(STUDIO_ID, "computer", "Studio", "macOS 26.0", "crok 1.0.45", now - 60 * DAY, now - 3 * MIN, true, false, 2),
         Device("demo-iphone", "phone", "iPhone", "iOS 26.0", "Crok iOS 1.0 (1)", now - 18 * DAY, now - 2 * HOUR, false, false, 0),
         Device(LINUX_ID, "computer", "Linux box", "Ubuntu 24.04", "crok 1.0.44", now - 90 * DAY, now - 3 * DAY, false, false, 0),
@@ -141,144 +164,173 @@ object DemoData {
         PlanEntry("Open a pull request", "pending"),
     )
 
-    fun sessions(now: Long): List<DemoSession> = listOf(
-        DemoSession(
-            SessionDetail(
-                id = RUNNING_SESSION,
-                sessionId = "0199e2e0-7a1c-7b4e-9f00-5c1d2e3f4a5b",
-                title = "Fix the flaky relay reconnect test",
-                cwd = "/Users/chen/code/crok-build",
-                model = "grok-code-fast-1",
-                effort = "medium",
-                gitBranch = "fix/relay-reconnect-flake",
-                status = SessionStatus.RUNNING,
-                online = true,
-                app = "desktop",
-                deviceId = MACBOOK_ID,
-                deviceName = "MacBook Pro",
-                devicePlatform = "macOS 26.1",
-                deviceOnline = true,
-                createdAt = now - DAY - 3 * HOUR,
-                lastActivityAt = now - MIN,
-                plan = runningPlan,
-                usage = SessionUsage(182_400, 9_830, 150_200, 2_100, 0.42, 61_500, 256_000),
-                eventSeq = 10,
-            ),
-            preview = "So far 12 of 20 runs passed, none failed.",
-            previewKind = EventKind.ASSISTANT,
-            unread = 2,
+    private data class Computer(val id: String, val name: String, val platform: String, val online: Boolean)
+
+    private val macbook = Computer(MACBOOK_ID, "MacBook Pro", "macOS 26.1", true)
+    private val studio = Computer(STUDIO_ID, "Studio", "macOS 26.0", true)
+    private val linux = Computer(LINUX_ID, "Linux box", "Ubuntu 24.04", false)
+
+    private fun session(
+        id: String,
+        title: String,
+        computer: Computer,
+        project: String,
+        cwd: String = project,
+        lastActivityAt: Long,
+        createdAt: Long = lastActivityAt - 2 * HOUR,
+        online: Boolean = computer.online,
+        status: String = SessionStatus.IDLE,
+        app: String = "tui",
+        model: String? = "grok-code-fast-1",
+        effort: String? = null,
+        gitBranch: String? = null,
+        plan: List<PlanEntry> = emptyList(),
+        usage: SessionUsage? = null,
+        pinned: Boolean = false,
+        archived: Boolean = false,
+        historyState: String? = null,
+        eventSeq: Long = 0,
+        preview: String?,
+        previewKind: String? = EventKind.ASSISTANT,
+        unread: Int = 0,
+    ) = DemoSession(
+        SessionDetail(
+            id = id,
+            sessionId = "0199e2e0-11aa-7c00-8d00-" + id.filter { it.isDigit() }.padStart(12, '0'),
+            title = title,
+            cwd = cwd,
+            model = model,
+            effort = effort,
+            gitBranch = gitBranch,
+            status = status,
+            online = online,
+            app = app,
+            deviceId = computer.id,
+            deviceName = computer.name,
+            devicePlatform = computer.platform,
+            deviceOnline = computer.online,
+            createdAt = createdAt,
+            lastActivityAt = lastActivityAt,
+            plan = plan,
+            usage = usage,
+            pinned = pinned,
+            archived = archived,
+            eventSeq = eventSeq,
+            projectKey = "${computer.id}:$project",
+            projectPath = project,
+            projectName = SessionList.folderName(project),
+            historyState = historyState,
         ),
-        DemoSession(
-            SessionDetail(
-                id = WAITING_SESSION,
-                sessionId = "0199e2e0-11aa-7c00-8d00-000000000002",
-                title = "Add dark mode to the settings page",
-                cwd = "/Users/chen/code/crok-site",
-                model = "claude-sonnet-4-5",
-                effort = "high",
-                gitBranch = "dark-settings",
-                status = SessionStatus.WAITING,
-                online = true,
-                app = "tui",
-                deviceId = MACBOOK_ID,
-                deviceName = "MacBook Pro",
-                devicePlatform = "macOS 26.1",
-                deviceOnline = true,
-                createdAt = now - 2 * HOUR,
-                lastActivityAt = now - 4 * MIN,
-                pinned = true,
-                usage = SessionUsage(40_100, 3_200, 31_000, null, 0.18, 22_000, 200_000),
-                eventSeq = 3,
-            ),
-            preview = "Run npm run build to check the new theme?",
-            previewKind = EventKind.ASSISTANT,
-            unread = 1,
-        ),
-        DemoSession(
-            SessionDetail(
-                id = "demo-s3",
-                sessionId = "0199e2e0-11aa-7c00-8d00-000000000003",
-                title = "Refactor relay pagination",
-                cwd = "/Users/chen/code/crok-build/relay",
-                model = "grok-code-fast-1",
-                status = SessionStatus.IDLE,
-                online = true,
-                app = "tui",
-                deviceId = STUDIO_ID,
-                deviceName = "Studio",
-                devicePlatform = "macOS 26.0",
-                deviceOnline = true,
-                createdAt = now - 5 * HOUR,
-                lastActivityAt = now - 35 * MIN,
-            ),
-            preview = "ship it",
-            previewKind = EventKind.USER,
-            unread = 0,
-        ),
-        DemoSession(
-            SessionDetail(
-                id = "demo-s4",
-                sessionId = "0199e2e0-11aa-7c00-8d00-000000000004",
-                title = "Write the 1.5 release notes",
-                cwd = "/Users/chen/code/crok-build",
-                model = "grok-4",
-                status = SessionStatus.IDLE,
-                online = true,
-                app = "desktop",
-                deviceId = STUDIO_ID,
-                deviceName = "Studio",
-                devicePlatform = "macOS 26.0",
-                deviceOnline = true,
-                createdAt = now - DAY - 6 * HOUR,
-                lastActivityAt = now - DAY - 2 * HOUR,
-            ),
-            preview = "The notes are in dist/v1.5.0/notes, in six languages.",
-            previewKind = EventKind.ASSISTANT,
-            unread = 1,
-        ),
-        DemoSession(
-            SessionDetail(
-                id = "demo-s5",
-                sessionId = "0199e2e0-11aa-7c00-8d00-000000000005",
-                title = "Investigate the memory spike in ingest",
-                cwd = "/home/chen/services/ingest",
-                model = "grok-code-fast-1",
-                status = SessionStatus.IDLE,
-                online = false,
-                app = "tui",
-                deviceId = LINUX_ID,
-                deviceName = "Linux box",
-                devicePlatform = "Ubuntu 24.04",
-                deviceOnline = false,
-                createdAt = now - 4 * DAY,
-                lastActivityAt = now - 3 * DAY,
-            ),
-            preview = "The leak is in the batch buffer: it never shrinks after a burst.",
-            previewKind = EventKind.ASSISTANT,
-            unread = 0,
-        ),
-        DemoSession(
-            SessionDetail(
-                id = "demo-s6",
-                sessionId = "0199e2e0-11aa-7c00-8d00-000000000006",
-                title = "Try Kotlin 2.4",
-                cwd = "/Users/chen/code/scratch",
-                status = SessionStatus.IDLE,
-                online = false,
-                app = "tui",
-                deviceId = STUDIO_ID,
-                deviceName = "Studio",
-                devicePlatform = "macOS 26.0",
-                deviceOnline = true,
-                createdAt = now - 13 * DAY,
-                lastActivityAt = now - 12 * DAY,
-                archived = true,
-            ),
-            preview = "Everything compiles; two deprecation warnings left.",
-            previewKind = EventKind.ASSISTANT,
-            unread = 0,
-        ),
+        preview = preview,
+        previewKind = previewKind,
+        unread = unread,
     )
+
+    fun sessions(now: Long): List<DemoSession> {
+        val crokBuild = "/Users/chen/code/crok-build"
+        val crokSite = "/Users/chen/code/crok-site"
+        return listOf(
+            session(
+                RUNNING_SESSION, "Fix the flaky relay reconnect test", macbook, crokBuild,
+                lastActivityAt = now - MIN, createdAt = now - DAY - 3 * HOUR,
+                status = SessionStatus.RUNNING, app = "desktop", effort = "medium", gitBranch = "fix/relay-reconnect-flake",
+                plan = runningPlan, usage = SessionUsage(182_400, 9_830, 150_200, 2_100, 0.42, 61_500, 256_000), eventSeq = 10,
+                preview = "So far 12 of 20 runs passed, none failed.", unread = 2,
+            ).let { it.copy(detail = it.detail.copy(sessionId = "0199e2e0-7a1c-7b4e-9f00-5c1d2e3f4a5b")) },
+            session(
+                WAITING_SESSION, "Add dark mode to the settings page", macbook, crokSite,
+                lastActivityAt = now - 4 * MIN, status = SessionStatus.WAITING, model = "claude-sonnet-4-5", effort = "high",
+                gitBranch = "dark-settings", usage = SessionUsage(40_100, 3_200, 31_000, null, 0.18, 22_000, 200_000),
+                pinned = true, eventSeq = 3, preview = "Run npm run build to check the new theme?", unread = 1,
+            ),
+            session(
+                "demo-s7", "Group the session list by project", macbook, crokBuild,
+                cwd = "$crokBuild/.claude/worktrees/session-groups", lastActivityAt = now - 25 * MIN, gitBranch = "session-groups",
+                preview = "Sections, collapsing and reordering are in. Screenshots next?", unread = 1,
+            ),
+            session(
+                CATALOG_SESSION, "Plan the 1.6 release", macbook, crokBuild,
+                lastActivityAt = now - 2 * DAY - 3 * HOUR, online = false, model = "grok-4", historyState = HistoryState.NONE,
+                preview = "Three milestones: remote control, projects, then notifications.",
+            ),
+            session(
+                "demo-s9", "Why is cargo test slow on CI?", macbook, crokBuild,
+                lastActivityAt = now - 3 * DAY - 5 * HOUR, online = false, historyState = HistoryState.NONE,
+                preview = "Most of the time goes to linking; sccache would help.",
+            ),
+            session(
+                "demo-s10", "Bump Kotlin to 2.4.21", macbook, crokBuild,
+                cwd = "$crokBuild/mobile/Android", lastActivityAt = now - 5 * DAY, online = false, historyState = HistoryState.NONE,
+                preview = "Done. Compose 1.12 waits for compileSdk 37.",
+            ),
+            session(
+                "demo-s11", "Translate the release notes", macbook, crokBuild,
+                lastActivityAt = now - 8 * DAY, online = false, historyState = HistoryState.NONE,
+                preview = "All five languages are in dist/v1.4.1/notes.", previewKind = EventKind.ASSISTANT,
+            ),
+            session(
+                "demo-s12", "Fix the broken docs links", macbook, crokSite,
+                lastActivityAt = now - 9 * DAY, online = false, historyState = HistoryState.NONE,
+                preview = "check the links again", previewKind = EventKind.USER,
+            ),
+            session(
+                "demo-s3", "Refactor relay pagination", studio, crokBuild,
+                cwd = "$crokBuild/relay", lastActivityAt = now - 35 * MIN, createdAt = now - 5 * HOUR,
+                preview = "ship it", previewKind = EventKind.USER,
+            ),
+            session(
+                "demo-s4", "Write the 1.5 release notes", studio, crokBuild,
+                lastActivityAt = now - DAY - 2 * HOUR, createdAt = now - DAY - 6 * HOUR, app = "desktop", model = "grok-4",
+                preview = "The notes are in dist/v1.5.0/notes, in six languages.", unread = 1,
+            ),
+            session(
+                OFFLINE_SESSION, "Investigate the memory spike in ingest", linux, "/home/chen/services/ingest",
+                lastActivityAt = now - 3 * DAY, createdAt = now - 4 * DAY, historyState = HistoryState.NONE,
+                preview = "The leak is in the batch buffer: it never shrinks after a burst.",
+            ),
+            session(
+                "demo-s6", "Try Kotlin 2.4", studio, "/Users/chen/code/scratch",
+                lastActivityAt = now - 12 * DAY, createdAt = now - 13 * DAY, online = false, model = null, archived = true,
+                preview = "Everything compiles; two deprecation warnings left.",
+            ),
+        )
+    }
+
+    /** The list as the relay's `sessions:groups` builds it (relay/convex/lib/projects.ts `buildGroups`). */
+    fun groups(state: DemoState): List<SessionGroup> {
+        val byKey = LinkedHashMap<String, MutableList<DemoSession>>()
+        state.sessions.filter { !it.detail.archived }
+            .sortedByDescending { it.detail.lastActivityAt }
+            .forEach { byKey.getOrPut(it.projectKey) { mutableListOf() } += it }
+        val sessionOrder = compareByDescending<DemoSession> { it.detail.pinned }
+            .then(byPlace({ it.position }, { it.detail.lastActivityAt }))
+        val groups = byKey.map { (key, sessions) ->
+            val first = sessions.first().detail
+            SessionGroup(
+                key = key,
+                deviceId = first.deviceId,
+                deviceName = first.deviceName,
+                deviceOnline = first.deviceOnline,
+                path = first.projectPath,
+                name = first.projectName,
+                placed = state.projectPositions[key] != null,
+                lastActivityAt = sessions.maxOf { it.detail.lastActivityAt },
+                sessions = sessions.sortedWith(sessionOrder).map { it.row() },
+            )
+        }
+        return groups.sortedWith(byPlace({ state.projectPositions[it.key] }, { it.lastActivityAt }))
+    }
+
+    /** Never placed first, most recent first; then placed ones by position. */
+    private fun <T> byPlace(position: (T) -> Int?, activity: (T) -> Long): Comparator<T> = Comparator { a, b ->
+        val pa = position(a)
+        val pb = position(b)
+        when {
+            (pa == null) != (pb == null) -> if (pa == null) -1 else 1
+            pa != null && pb != null && pa != pb -> pa.compareTo(pb)
+            else -> activity(b).compareTo(activity(a))
+        }
+    }
 
     private fun event(
         session: String,
@@ -348,6 +400,17 @@ object DemoData {
                 title = "Edit src/styles/settings.css", toolKind = "edit", status = "completed",
             ),
             event(s, 3, EventKind.ASSISTANT, "The theme follows `prefers-color-scheme` now. Run `npm run build` to check the new theme?", now - 4 * MIN),
+        )
+    }
+
+    /** What a computer pushes for a listed session someone opened: the last turn, read from its disk. */
+    fun historyFromDisk(session: DemoSession): List<RelayEvent> {
+        val s = session.id
+        val at = session.detail.lastActivityAt
+        return listOf(
+            event(s, 1, EventKind.USER, session.detail.title, at - 4 * MIN, origin = "local"),
+            event(s, 2, EventKind.ASSISTANT, session.preview ?: "Done.", at),
+            event(s, 3, EventKind.SYSTEM, "", at + 1_000, status = "end_turn"),
         )
     }
 }

@@ -85,12 +85,20 @@ class ScreenshotTest {
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/$name.png")
     }
 
-    private fun sessionsState(connection: ConnectionState = ConnectionState.Connected, filter: SessionFilter = SessionFilter.All): SessionsUiState {
-        val rows = DemoData.sessions(now)
-            .filter { !it.detail.archived }
-            .sortedWith(compareByDescending<dev.chenli.crok.mobile.demo.DemoSession> { it.detail.pinned }.thenByDescending { it.detail.lastActivityAt })
-            .map { it.row() }
-        return SessionsUiState.build(SessionListState(rows, live = true), null, filter, "", connection, now)
+    /** The demo list as `sessions:groups` sends it: projects on two online computers and an offline one. */
+    private fun sessionsState(
+        connection: ConnectionState = ConnectionState.Connected,
+        filter: SessionFilter = SessionFilter.All,
+        query: String = "",
+        collapsed: Set<String> = emptySet(),
+        reordering: Boolean = false,
+        reorderProject: String? = null,
+    ): SessionsUiState {
+        val groups = DemoData.groups(DemoData.state(now))
+        return SessionsUiState.build(
+            SessionListState(groups, live = true), null, filter, query, connection, now, collapsed,
+            reordering = reordering, reorderProject = reorderProject,
+        )
     }
 
     private fun runningSession(): SessionUiState {
@@ -107,9 +115,24 @@ class ScreenshotTest {
         )
     }
 
+    /** A session listed from its computer's disk, opened before its history arrived. */
+    private fun listedSession(id: String): SessionUiState {
+        val session = DemoData.sessions(now).first { it.id == id }
+        return SessionUiState.build(
+            row = session.row(),
+            detail = session.detail,
+            gone = false,
+            transcript = TranscriptState(emptyList(), loaded = true, historyComplete = true),
+            prompts = emptyList(),
+            optimistic = emptyList(),
+            connection = ConnectionState.Connected,
+            zone = zone,
+        )
+    }
+
     @Test
     fun welcome() = shoot("01-welcome") {
-        WelcomeScreen(WelcomeUiState(defaultServer = "", savedServer = null, error = null, busy = false, demoAllowed = true), {}, {})
+        WelcomeScreen(WelcomeUiState(error = null, busy = false, demoAllowed = true), {}, {})
     }
 
     @Test
@@ -261,5 +284,52 @@ class ScreenshotTest {
             onCancel = {},
             now = { now },
         )
+    }
+
+    // Projects, Reorder mode and sessions listed from a computer's disk.
+
+    /** The whole grouped list at once, on a tall screen. */
+    @Test
+    @Config(qualifiers = "+h1700dp")
+    fun sessionsGroupedTall() = shoot("18-sessions-grouped") {
+        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(collapsed = setOf(DemoData.LINUX_INGEST)), SessionsActions()) }
+    }
+
+    @Test
+    fun sessionsComputerTab() = shoot("19-sessions-computer-tab", dark = true) {
+        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(filter = SessionFilter.Computer(DemoData.STUDIO_ID)), SessionsActions()) }
+    }
+
+    @Test
+    fun sessionsReorderMode() = shoot("20-sessions-reorder") {
+        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(reordering = true), SessionsActions()) }
+    }
+
+    @Test
+    fun sessionsReorderOneProject() = shoot("20b-sessions-reorder-project") {
+        HomeScaffold(tab = 0, onTab = {}) {
+            SessionsContent(sessionsState(reordering = true, reorderProject = DemoData.MACBOOK_CROK_SITE), SessionsActions())
+        }
+    }
+
+    @Test
+    fun sessionsSearch() = shoot("21-sessions-search") {
+        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(query = "release"), SessionsActions()) }
+    }
+
+    @Test
+    fun listedSessionLoading() = shoot("22-session-history-loading") {
+        SessionContent(listedSession(DemoData.CATALOG_SESSION), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun listedSessionOffline() = shoot("23-session-history-offline", dark = true) {
+        SessionContent(listedSession(DemoData.OFFLINE_SESSION), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    @Config(qualifiers = "+de")
+    fun sessionsReorderGerman() = shoot("24-sessions-reorder-de", dark = true) {
+        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(reordering = true), SessionsActions()) }
     }
 }

@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
  * closed on sign-out — Telegram's AccountInstance lifecycle).
  */
 class AppViewModel(private val graph: AppGraph) : ViewModel() {
-    private val auth = AuthController(graph.authStore, graph.apiFactory, viewModelScope)
+    private val auth = AuthController(graph.authStore, graph.apiFactory, viewModelScope, graph.relayUrl)
 
     val authState: StateFlow<AuthState> = auth.state
     val effects: Flow<AuthEffect> = auth.effects
@@ -47,8 +47,6 @@ class AppViewModel(private val graph: AppGraph) : ViewModel() {
     private val _engine = MutableStateFlow<CrokEngine?>(null)
     val engine: StateFlow<CrokEngine?> = _engine.asStateFlow()
     private var tokenScope: CoroutineScope? = null
-
-    val defaultRelayUrl: String get() = graph.defaultRelayUrl
 
     init {
         auth.restore()
@@ -109,13 +107,8 @@ class AppViewModel(private val graph: AppGraph) : ViewModel() {
         tokenScope = null
     }
 
-    fun startSignIn(serverInput: String) {
-        viewModelScope.launch {
-            val normalized = ConvexHttpApi.normalizeServerUrl(serverInput)
-            graph.settingsStore.setServer(if (normalized == null || normalized == graph.defaultRelayUrl) null else normalized)
-        }
-        auth.startSignIn(serverInput, graph.deviceInfo())
-    }
+    /** Signs in to the relay built into the app ([AppGraph.relayUrl]). */
+    fun startSignIn() = auth.startSignIn(graph.deviceInfo())
 
     fun openAgain() = auth.openAgain()
 

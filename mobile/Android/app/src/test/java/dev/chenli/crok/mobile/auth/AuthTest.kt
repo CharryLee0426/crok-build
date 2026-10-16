@@ -63,6 +63,9 @@ private class FakeApi : DeviceAuthApi {
     }
 }
 
+/** The relay a test build has built in. */
+private const val RELAY = "https://relay.example"
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthControllerTest {
     private val kv = MemoryKeyValueStore()
@@ -71,7 +74,7 @@ class AuthControllerTest {
     private val factory = DeviceAuthApiFactory { api }
     private val device = DeviceInfo("Pixel 9", "Android 16", "Crok Android 1.0 (1)")
 
-    private fun TestScope.controller() = AuthController(store, factory, backgroundScope) { testScheduler.currentTime }
+    private fun TestScope.controller() = AuthController(store, factory, backgroundScope, RELAY) { testScheduler.currentTime }
 
     private val approved = PollResult(
         status = PollResult.APPROVED,
@@ -87,7 +90,7 @@ class AuthControllerTest {
         val auth = controller()
         auth.restore()
         assertEquals(AuthState.SignedOut(), auth.state.value)
-        auth.startSignIn("https://relay.example", device)
+        auth.startSignIn(device)
         runCurrent()
         val waiting = auth.state.value as AuthState.Waiting
         assertEquals("BCDF-GHJK", waiting.pending.userCode)
@@ -109,9 +112,9 @@ class AuthControllerTest {
     @Test
     fun aKilledAppResumesWaiting() = runTest {
         val firstProcess = CoroutineScope(StandardTestDispatcher(testScheduler) + Job())
-        val first = AuthController(store, factory, firstProcess) { testScheduler.currentTime }
+        val first = AuthController(store, factory, firstProcess, RELAY) { testScheduler.currentTime }
         first.restore()
-        first.startSignIn("https://relay.example", device)
+        first.startSignIn(device)
         runCurrent()
         assertTrue(first.state.value is AuthState.Waiting)
         firstProcess.cancel() // the process dies while waiting
@@ -132,7 +135,7 @@ class AuthControllerTest {
     @Test
     fun anExpiredPendingSignInIsDropped() = runTest {
         store.savePending(PendingSignIn("https://r", "crd_secret", "BCDF-GHJK", null, expiresAt = 5_000))
-        val auth = AuthController(store, factory, backgroundScope) { 6_000 }
+        val auth = AuthController(store, factory, backgroundScope, RELAY) { 6_000 }
         auth.restore()
         assertEquals(AuthState.SignedOut(SignInError.Expired), auth.state.value)
         assertNull(store.loadPending())
@@ -142,14 +145,14 @@ class AuthControllerTest {
     fun deniedAndExpiredEndTheWait() = runTest {
         val auth = controller()
         auth.restore()
-        auth.startSignIn("relay.example", device)
+        auth.startSignIn(device)
         runCurrent()
         api.polls += { PollResult(PollResult.DENIED) }
         advanceTimeBy(2_100)
         assertEquals(AuthState.SignedOut(SignInError.Denied), auth.state.value)
         assertNull(store.loadPending())
 
-        auth.startSignIn("relay.example", device)
+        auth.startSignIn(device)
         runCurrent()
         // Past the code's lifetime the phone stops polling by itself.
         advanceTimeBy(700_000)
@@ -160,7 +163,7 @@ class AuthControllerTest {
     fun networkTroubleKeepsWaiting() = runTest {
         val auth = controller()
         auth.restore()
-        auth.startSignIn("relay.example", device)
+        auth.startSignIn(device)
         runCurrent()
         api.polls += { throw RelayNetworkException("down") }
         advanceTimeBy(2_100)
@@ -174,7 +177,7 @@ class AuthControllerTest {
     fun pollNowSkipsTheWait() = runTest {
         val auth = controller()
         auth.restore()
-        auth.startSignIn("relay.example", device)
+        auth.startSignIn(device)
         runCurrent()
         api.polls += { approved }
         auth.pollNow()
@@ -183,13 +186,30 @@ class AuthControllerTest {
     }
 
     @Test
-    fun rejectsMissingOrBadServers() = runTest {
-        val auth = controller()
+    fun signsInToTheBuiltInRelayWithoutAskingForAServer() = runTest {
+        val urls = mutableListOf<String>()
+        val auth = AuthController(store, { url -> urls += url; api }, backgroundScope, "https://limitless-badger-727.convex.cloud/") {
+            testScheduler.currentTime
+        }
         auth.restore()
-        auth.startSignIn("  ", device)
-        assertEquals(AuthState.SignedOut(SignInError.NoServer), auth.state.value)
-        auth.startSignIn("ftp://nope", device)
-        assertEquals(AuthState.SignedOut(SignInError.BadServer), auth.state.value)
+        auth.startSignIn(device)
+        runCurrent()
+        val pending = (auth.state.value as AuthState.Waiting).pending
+        // Start and poll both go to the built-in relay, and the credentials remember it.
+        assertEquals("https://limitless-badger-727.convex.cloud", pending.serverUrl)
+        assertEquals(listOf("https://limitless-badger-727.convex.cloud"), urls.distinct())
+        api.polls += { approved }
+        advanceTimeBy(2_100)
+        assertEquals("https://limitless-badger-727.convex.cloud", (auth.state.value as AuthState.SignedIn).credentials.serverUrl)
+        assertEquals(1, api.started)
+    }
+
+    @Test
+    fun aBuildWithoutARelayCannotStart() = runTest {
+        val auth = AuthController(store, factory, backgroundScope, " ") { testScheduler.currentTime }
+        auth.restore()
+        auth.startSignIn(device)
+        assertTrue((auth.state.value as AuthState.SignedOut).error is SignInError.Other)
         assertEquals(0, api.started)
     }
 
@@ -197,7 +217,7 @@ class AuthControllerTest {
     fun cancelForgetsThePendingSignIn() = runTest {
         val auth = controller()
         auth.restore()
-        auth.startSignIn("relay.example", device)
+        auth.startSignIn(device)
         runCurrent()
         auth.cancel()
         assertEquals(AuthState.SignedOut(), auth.state.value)
@@ -244,7 +264,7 @@ class AuthControllerTest {
         assertEquals("dev-1", (auth.state.value as AuthState.SignedIn).credentials.deviceId)
 
         val fresh = AuthStore(MemoryKeyValueStore(), FakeBox(), BytesCodec.Jvm)
-        val signedOut = AuthController(fresh, factory, backgroundScope)
+        val signedOut = AuthController(fresh, factory, backgroundScope, RELAY)
         signedOut.restore()
         signedOut.enterDemo(StoredCredentials("demo", "demo-phone", "demo"))
         assertTrue((signedOut.state.value as AuthState.SignedIn).demo)

@@ -94,8 +94,6 @@ fun CrokRoot(appViewModel: AppViewModel, browserMissing: StateFlow<String?>) {
                 AuthState.Restoring -> Unit
                 is AuthState.SignedOut -> WelcomeScreen(
                     state = WelcomeUiState(
-                        defaultServer = appViewModel.defaultRelayUrl,
-                        savedServer = settings?.serverOverride,
                         error = state.error,
                         busy = state.busy,
                         demoAllowed = BuildConfig.DEMO_ALLOWED,
@@ -186,9 +184,10 @@ private fun HomeTabs(
     onLink: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val graph = (LocalContext.current.applicationContext as CrokApplication).graph
     HomeScaffold(tab, onTab = { tab = it }) {
         if (tab == 0) {
-            val viewModel = viewModel { SessionsViewModel(engine) }
+            val viewModel = viewModel { SessionsViewModel(engine, graph.collapsedProjects) }
             SessionsScreen(viewModel, onOpen = { onOpenSession(it.id) }, onLinkComputer = onLink)
         } else {
             val viewModel = viewModel { SettingsViewModel(engine) }

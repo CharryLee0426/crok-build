@@ -17,12 +17,7 @@
     <string name="welcome_body">Sigue las sesiones de crok que se ejecutan en tus ordenadores, lee las respuestas mientras llegan, envía una instrucción o detén un turno.</string>
     <string name="welcome_continue">Continuar con GitHub o Google</string>
     <string name="welcome_note">El inicio de sesión se hace en la web. Este teléfono tiene su propio vínculo con tu cuenta, y puedes cerrarle la sesión desde cualquier otro dispositivo.</string>
-    <string name="welcome_server">Servidor</string>
-    <string name="welcome_server_help">El relay que usan tus ordenadores: [remote] url en ~/.crok/config.toml.</string>
-    <string name="welcome_server_show">Usar otro servidor</string>
     <string name="welcome_demo">Probar la demo</string>
-    <string name="signin_error_no_server">Primero escribe la dirección del servidor.</string>
-    <string name="signin_error_bad_server">Eso no parece la dirección de un servidor. Debe empezar por https://.</string>
     <string name="signin_error_denied">Se denegó el inicio de sesión.</string>
     <string name="signin_error_expired">El código caducó. Empieza de nuevo para obtener otro.</string>
     <string name="signin_error_revoked">Se cerró la sesión de este teléfono desde otro dispositivo.</string>
@@ -72,12 +67,34 @@
         <item quantity="many">%d respuestas sin leer</item>
         <item quantity="other">%d respuestas sin leer</item>
     </plurals>
+    <plurals name="sessions_count">
+        <item quantity="one">%d sesión</item>
+        <item quantity="many">%d sesiones</item>
+        <item quantity="other">%d sesiones</item>
+    </plurals>
+    <plurals name="sessions_show_more">
+        <item quantity="one">Mostrar %d más</item>
+        <item quantity="many">Mostrar %d más</item>
+        <item quantity="other">Mostrar %d más</item>
+    </plurals>
+    <string name="sessions_show_less">Mostrar menos</string>
+    <string name="sessions_reorder">Reordenar</string>
+    <string name="sessions_reorder_hint">Arrastra ≡ para mover un proyecto. Toca un proyecto para mover sus sesiones; las fijadas se quedan arriba.</string>
+    <string name="sessions_sort_recent">Ordenar por actividad reciente</string>
+    <string name="sessions_sort_projects_recent">Ordenar proyectos por actividad reciente</string>
+    <string name="action_move_up">Subir</string>
+    <string name="action_move_down">Bajar</string>
+    <string name="action_collapse">Contraer</string>
+    <string name="action_expand">Expandir</string>
 
     <!-- Session -->
     <string name="session_status_working">trabajando…</string>
     <string name="session_status_waiting">esperando aprobación en %1$s</string>
     <string name="session_status_idle">inactiva · %1$s</string>
     <string name="session_status_offline">sin conexión · %1$s</string>
+    <string name="session_status_not_running">sin ejecutar · %1$s</string>
+    <string name="session_history_loading">Cargando desde %1$s…</string>
+    <string name="session_history_offline">%1$s no está conectado. El historial de esta sesión aparecerá cuando crok vuelva a ejecutarse allí.</string>
     <string name="session_status_error">error · %1$s</string>
     <string name="session_info">Información de la sesión</string>
     <string name="plan_bar">Plan %1$d/%2$d</string>
@@ -95,6 +112,7 @@
     <string name="notice_refusal">El modelo se negó a continuar.</string>
     <string name="composer_placeholder">Mensaje para crok en %1$s…</string>
     <string name="composer_offline">%1$s no está conectado. Abre crok allí para continuar esta sesión.</string>
+    <string name="composer_not_running">Esta sesión no está abierta en crok en %1$s. Ábrela allí para continuar.</string>
     <string name="composer_send">Enviar</string>
     <string name="composer_stop">Detener</string>
     <string name="prompt_not_sent">No enviado: %1$s</string>
@@ -240,4 +258,6 @@
     <string name="cd_expand">Mostrar más</string>
     <string name="cd_collapse">Mostrar menos</string>
     <string name="cd_clear">Borrar</string>
+    <string name="cd_more_options">Más opciones</string>
+    <string name="cd_drag_to_reorder">Arrastra para reordenar</string>
 </resources>

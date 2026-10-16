@@ -7,8 +7,10 @@ import dev.chenli.crok.mobile.data.CommandStatus
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.EventKind
 import dev.chenli.crok.mobile.data.EventPage
+import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.Me
 import dev.chenli.crok.mobile.data.SessionDetail
+import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.PendingLogin
 import dev.chenli.crok.mobile.data.RelayErrorCode
 import dev.chenli.crok.mobile.data.RelayEvent
@@ -17,6 +19,7 @@ import dev.chenli.crok.mobile.data.RelayJson
 import dev.chenli.crok.mobile.data.RevokeOthersResult
 import dev.chenli.crok.mobile.data.SessionStatus
 import dev.chenli.crok.mobile.engine.RelayTransport
+import dev.chenli.crok.mobile.logic.SessionOrder
 import dev.chenli.crok.mobile.logic.UserCode
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -83,6 +86,7 @@ class DemoTransport(
                     .map { it.row() }
                 RelayJson.encodeToJsonElement(ListSerializer(dev.chenli.crok.mobile.data.SessionRow.serializer()), rows)
             }
+            "sessions:groups" -> RelayJson.encodeToJsonElement(ListSerializer(SessionGroup.serializer()), DemoData.groups(s))
             "sessions:get" -> {
                 val session = s.sessions.firstOrNull { it.id == args["sessionDocId"] }
                     ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such session.")
@@ -140,7 +144,35 @@ class DemoTransport(
         val sessionDocId = args["sessionDocId"] as? String
         when (name) {
             "sessions:markRead" -> updateSession(sessionDocId) { it.copy(unread = 0) }
-            "sessions:watch" -> Unit
+            "sessions:watch" -> requestHistory(session(sessionDocId))
+            "sessions:reorderProjects" -> {
+                val keys = strings(args["keys"])
+                state.update { s ->
+                    val order = SessionOrder.reorderWithin(DemoData.groups(s).map { it.key }, keys)
+                    s.copy(projectPositions = order.withIndex().associate { (index, key) -> key to index })
+                }
+            }
+            "sessions:reorderSessions" -> {
+                val projectKey = args["projectKey"] as? String
+                val wanted = strings(args["sessionDocIds"])
+                state.update { s ->
+                    val group = DemoData.groups(s).firstOrNull { it.key == projectKey }
+                        ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such project.")
+                    val positions = SessionOrder.reorderWithin(group.sessions.map { it.id }, wanted)
+                        .withIndex().associate { (index, id) -> id to index }
+                    s.copy(sessions = s.sessions.map { session -> positions[session.id]?.let { session.copy(position = it) } ?: session })
+                }
+            }
+            "sessions:resetOrder" -> {
+                val projectKey = args["projectKey"] as? String
+                state.update { s ->
+                    if (projectKey == null) {
+                        s.copy(projectPositions = emptyMap())
+                    } else {
+                        s.copy(sessions = s.sessions.map { if (it.projectKey == projectKey) it.copy(position = null) else it })
+                    }
+                }
+            }
             "sessions:setPinned" -> updateSession(sessionDocId) { it.copy(detail = it.detail.copy(pinned = args["pinned"] == true)) }
             "sessions:setArchived" -> updateSession(sessionDocId) {
                 val archived = args["archived"] == true
@@ -247,6 +279,39 @@ class DemoTransport(
     }
 
     private fun ref(id: String) = RelayJson.encodeToJsonElement(CommandRef.serializer(), CommandRef(id))
+
+    private fun strings(value: Any?): List<String> = (value as? List<*>).orEmpty().filterIsInstance<String>()
+
+    /**
+     * `sessions:watch` on a session listed from disk: while its computer is online, "the computer" reads the transcript
+     * and pushes it (`historyState` none → requested → ready); while it is offline nothing happens.
+     */
+    private fun requestHistory(session: DemoSession) {
+        val detail = session.detail
+        if (detail.online || !HistoryState.onComputerOnly(detail.historyState) || !detail.deviceOnline) return
+        if (detail.historyState == HistoryState.REQUESTED) return
+        updateSession(session.id) { it.copy(detail = it.detail.copy(historyState = HistoryState.REQUESTED)) }
+        val deliver = {
+            state.update { s ->
+                val current = s.sessions.firstOrNull { it.id == session.id } ?: return@update s
+                val events = DemoData.historyFromDisk(current)
+                s.copy(
+                    events = s.events + (session.id to events),
+                    sessions = s.sessions.map {
+                        if (it.id == session.id) it.copy(detail = it.detail.copy(historyState = HistoryState.READY, eventSeq = events.size.toLong())) else it
+                    },
+                )
+            }
+        }
+        if (animate) {
+            scope.launch {
+                delay(1_800)
+                deliver()
+            }
+        } else {
+            deliver()
+        }
+    }
 
     private fun session(id: String?): DemoSession =
         state.value.sessions.firstOrNull { it.id == id } ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such session.")
