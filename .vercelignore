@@ -1,0 +1,15 @@
+# The crok-relay Vercel project builds relay/ (its Root Directory), so a CLI deploy runs from here, the repository
+# root, and uploads this folder as it is: the Vercel CLI does not read .gitignore. Upload relay/ alone, without its
+# secrets and local state (the files relay/.gitignore keeps out of git). Directory rules have no trailing slash so
+# that they match the folder itself, not only what is inside it.
+/*
+!/relay
+relay/**/.env
+relay/**/.env.*
+relay/**/.convex
+relay/**/.phone-sim*.json
+relay/**/.vercel
+relay/**/node_modules
+relay/**/.next
+relay/**/out
+relay/**/*.tsbuildinfo

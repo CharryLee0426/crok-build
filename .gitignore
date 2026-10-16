@@ -1,3 +1,5 @@
 /target
 **/*.rs.bk
 .DS_Store
+# `vercel link` at the repository root (the relay's CLI deploys run from here)
+/.vercel

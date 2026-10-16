@@ -52,16 +52,22 @@ A Clerk production instance needs your own domain (not `*.vercel.app`).
 
 ## 3. Web app on Vercel
 
-Import the repository on Vercel with **Root Directory** `relay`, or deploy from this folder with the CLI
-(`vercel link`, then `vercel deploy --prod`; `.vercelignore` keeps `.env*`, the device key and local state out of the
-upload). `vercel.json` runs `scripts/vercel-build.sh`:
+Import the repository on Vercel with **Root Directory** `relay` (Settings → Build and Deployment). Pushes then
+deploy on their own: the production branch (`main`) updates the site and every other branch, pull requests included,
+gets a preview. A project left at the root fails every Git build with `sh: scripts/vercel-build.sh: No such file or
+directory`. To deploy by hand, run the CLI from the **repository root**, not this folder (with Root Directory `relay`
+the CLI looks for `relay/relay` there): `vercel link --project <name>`, then `vercel deploy` or `vercel deploy --prod`.
+The root `.vercelignore` uploads `relay/` alone, without `.env*`, the device key and local state. `vercel.json` runs
+`scripts/vercel-build.sh`:
 
 - with `CONVEX_DEPLOY_KEY` set, it runs `npx convex deploy --cmd 'npm run build'`: the Convex functions go to that
   deployment and the site is built against it;
 - without one, it only builds the site against `NEXT_PUBLIC_CONVEX_URL` — for a site in front of a **dev**
   deployment, whose functions you push with `npx convex dev`.
 
-Environment variables on Vercel:
+Environment variables on Vercel, for **Production and Preview** (a preview build without them stops at the check in
+`scripts/vercel-build.sh`; a site in front of a dev deployment can give previews the same dev Convex deployment and
+dev Clerk instance):
 
 | variable | value |
 |---|---|

@@ -1,4 +1,5 @@
-# The Vercel CLI uploads this folder as it is and does not read .gitignore: keep secrets and local state out.
+# Keep secrets and local state out of an upload of this folder: Vercel does not read .gitignore. A CLI deploy of the
+# crok-relay project (Root Directory relay) runs from the repository root, whose .vercelignore lists the same files.
 .env
 .env.*
 .convex/
