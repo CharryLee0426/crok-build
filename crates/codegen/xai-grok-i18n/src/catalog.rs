@@ -1264,6 +1264,15 @@ static MESSAGES: &[Entry] = &[
         de: "Zum Öffnen des Dashboards den Hinweis zu den Nutzungsbedingungen beantworten",
     },
     Entry {
+        key: "Answered on another device",
+        en: "Answered on another device",
+        zh: "已在其他设备上回应",
+        ja: "別のデバイスで回答されました",
+        es: "Respondido en otro dispositivo",
+        fr: "Répondu sur un autre appareil",
+        de: "Auf einem anderen Gerät beantwortet",
+    },
+    Entry {
         key: "Answering…",
         en: "Answering…",
         zh: "回答中…",
@@ -22763,6 +22772,15 @@ static MESSAGES: &[Entry] = &[
         es: "o",
         fr: "ou",
         de: "oder",
+    },
+    Entry {
+        key: "other computer",
+        en: "other computer",
+        zh: "其他电脑",
+        ja: "別のコンピューター",
+        es: "otro ordenador",
+        fr: "autre ordinateur",
+        de: "anderer Computer",
     },
     Entry {
         key: "owner/repo, URL, or local path",

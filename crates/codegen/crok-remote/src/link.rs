@@ -21,7 +21,8 @@ use tokio::sync::{mpsc, oneshot};
 use crate::api::{Api, ApiError};
 use crate::credentials::{self, Credentials};
 use crate::types::{
-    CatalogEntry, CommandOutcome, EventInput, EventKind, HostApp, Inbox, SessionFields,
+    CatalogEntry, CommandOutcome, EventInput, EventKind, HostApp, Inbox, PendingInteraction,
+    SessionFields,
 };
 
 const HEARTBEAT: Duration = Duration::from_secs(30);
@@ -35,9 +36,21 @@ pub struct LinkConfig {
     pub credentials: Credentials,
     pub app: HostApp,
     pub app_version: String,
+    /// This process opens sessions nobody runs when a prompt arrives for one (`bridge:connect`'s `canAdopt`).
+    pub can_adopt: bool,
 }
 
-/// What the agent side asks the relay to do, in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallKind {
+    Query,
+    Mutation,
+}
+
+/// The value a relay function returned, or its error (`code` is the relay's error code, such as `OFFLINE`).
+pub type CallResult = Result<Value, ApiError>;
+
+/// What the agent side asks the relay to do. Mirror writes go out in order; calls and subscriptions (this computer
+/// viewing other computers' sessions) run beside them.
 #[derive(Debug)]
 pub enum ToRelay {
     UpsertSession {
@@ -79,6 +92,27 @@ pub enum ToRelay {
         events: Vec<EventInput>,
         preview: Option<(EventKind, String)>,
     },
+    /// The session's permission request waiting for an answer, or none.
+    SetPending {
+        session_id: String,
+        pending: Option<PendingInteraction>,
+    },
+    /// Any viewer function (`sessions:get`, `commands:sendPrompt`, …), answered on `reply`.
+    Call {
+        kind: CallKind,
+        path: String,
+        args: Value,
+        reply: oneshot::Sender<CallResult>,
+    },
+    /// Keeps a query's value coming as [`FromRelay::Query`] with this `id` until [`ToRelay::Unsubscribe`].
+    Subscribe {
+        id: u64,
+        path: String,
+        args: Value,
+    },
+    Unsubscribe {
+        id: u64,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +131,11 @@ pub enum FromRelay {
         event_seq: f64,
     },
     Inbox(Inbox),
+    /// A subscribed query's current value.
+    Query {
+        id: u64,
+        result: CallResult,
+    },
     /// The device was signed out from another device; the credentials file is gone.
     SignedOut,
 }
@@ -143,6 +182,11 @@ impl Link {
         let _ = self.tx.send(message);
     }
 
+    /// A sender for the same link, for callers that outlive a borrow of it (it stops working when the link stops).
+    pub fn sender(&self) -> mpsc::UnboundedSender<ToRelay> {
+        self.tx.clone()
+    }
+
     /// Closes the link; the returned receiver completes once the relay was told this host is offline (or gave up).
     pub fn stop(mut self) -> oneshot::Receiver<()> {
         if let Some(stop) = self.stop.take() {
@@ -182,6 +226,16 @@ pub fn to_args(value: Value) -> BTreeMap<String, convex::Value> {
         .collect()
 }
 
+/// Plain JSON → Convex arguments, nulls kept: viewer functions take explicit nulls (a first page's `cursor`).
+pub fn to_args_with_nulls(value: Value) -> BTreeMap<String, convex::Value> {
+    let Value::Object(map) = value else {
+        return BTreeMap::new();
+    };
+    map.into_iter()
+        .filter_map(|(key, value)| convex::Value::try_from(value).ok().map(|v| (key, v)))
+        .collect()
+}
+
 /// The error code a relay function threw (`REVOKED`, `NOT_FOUND`, …), if any.
 fn error_code(result: &FunctionResult) -> Option<String> {
     match result {
@@ -201,6 +255,29 @@ fn describe(result: &FunctionResult) -> String {
         FunctionResult::Value(_) => String::new(),
         FunctionResult::ErrorMessage(message) => message.clone(),
         FunctionResult::ConvexError(error) => error.message.clone(),
+    }
+}
+
+/// A function's result as plain JSON, or the relay's `{code, message}` error.
+fn call_result(result: anyhow::Result<FunctionResult>) -> CallResult {
+    match result {
+        Ok(FunctionResult::Value(value)) => Ok(value.export()),
+        Ok(FunctionResult::ConvexError(error)) => {
+            let data = error.data.clone().export();
+            Err(ApiError::Function {
+                code: data.get("code").and_then(Value::as_str).map(str::to_owned),
+                message: data
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| error.message.clone()),
+            })
+        }
+        Ok(FunctionResult::ErrorMessage(message)) => Err(ApiError::Function {
+            code: None,
+            message,
+        }),
+        Err(error) => Err(ApiError::Transport(error.to_string())),
     }
 }
 
@@ -317,6 +394,7 @@ async fn run(
         "app": config.app.as_str(),
         "appVersion": config.app_version,
         "pid": f64::from(std::process::id()),
+        "canAdopt": config.can_adopt,
     });
     let host_id = loop {
         match client
@@ -370,15 +448,57 @@ async fn run(
     let mut heartbeat = tokio::time::interval(HEARTBEAT);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     heartbeat.tick().await;
+    // Queries this process watches as a viewer (other computers' sessions), each on its own task.
+    let mut watches: HashMap<u64, tokio::task::JoinHandle<()>> = HashMap::new();
 
     loop {
         if tokens.revoked.load(Ordering::SeqCst) {
             writer.abort();
+            watches.values().for_each(|task| task.abort());
             return signed_out(&from_relay);
         }
         tokio::select! {
             _ = &mut stopped => break,
             message = to_relay.recv() => match message {
+                Some(ToRelay::Call { kind, path, args, reply }) => {
+                    let mut client = client.clone();
+                    tokio::spawn(async move {
+                        let args = to_args_with_nulls(args);
+                        let result = match kind {
+                            CallKind::Query => client.query(&path, args).await,
+                            CallKind::Mutation => client.mutation(&path, args).await,
+                        };
+                        let _ = reply.send(call_result(result));
+                    });
+                }
+                Some(ToRelay::Subscribe { id, path, args }) => {
+                    let mut client = client.clone();
+                    let from_relay = from_relay.clone();
+                    let task = tokio::spawn(async move {
+                        let mut subscription = match client.subscribe(&path, to_args_with_nulls(args)).await {
+                            Ok(subscription) => subscription,
+                            Err(error) => {
+                                let result = Err(ApiError::Transport(error.to_string()));
+                                let _ = from_relay.send(FromRelay::Query { id, result });
+                                return;
+                            }
+                        };
+                        while let Some(result) = subscription.next().await {
+                            let result = call_result(Ok(result));
+                            if from_relay.send(FromRelay::Query { id, result }).is_err() {
+                                break;
+                            }
+                        }
+                    });
+                    if let Some(old) = watches.insert(id, task) {
+                        old.abort();
+                    }
+                }
+                Some(ToRelay::Unsubscribe { id }) => {
+                    if let Some(task) = watches.remove(&id) {
+                        task.abort();
+                    }
+                }
                 Some(message) => { let _ = work_tx.send(message); }
                 None => break,
             },
@@ -420,6 +540,7 @@ async fn run(
         }
     }
     writer.abort();
+    watches.values().for_each(|task| task.abort());
     // A clean exit marks the host and its sessions offline at once instead of after the 90 s heartbeat timeout.
     let _ = tokio::time::timeout(
         Duration::from_secs(3),
@@ -558,6 +679,18 @@ async fn write_loop(
                     pushed
                 }
             }
+            ToRelay::SetPending {
+                session_id,
+                pending,
+            } => {
+                let args =
+                    json!({ "hostId": host_id, "sessionId": session_id, "pending": pending });
+                client.mutation("bridge:setPending", to_args(args)).await
+            }
+            // Handled by the run loop, beside the writes.
+            ToRelay::Call { .. } | ToRelay::Subscribe { .. } | ToRelay::Unsubscribe { .. } => {
+                continue;
+            }
         };
         match result {
             Ok(FunctionResult::Value(_)) => {}
@@ -644,5 +777,13 @@ mod tests {
         let c = args.get("c").unwrap().clone().export();
         assert_eq!(c, json!({"e": "x"}));
         assert!(args.contains_key("f"));
+    }
+
+    #[test]
+    fn viewer_args_keep_nulls() {
+        let args =
+            to_args_with_nulls(json!({"paginationOpts": {"numItems": 40.0, "cursor": null}}));
+        let opts = args.get("paginationOpts").unwrap().clone().export();
+        assert_eq!(opts, json!({"numItems": 40.0, "cursor": null}));
     }
 }

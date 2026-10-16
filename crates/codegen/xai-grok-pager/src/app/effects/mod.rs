@@ -715,6 +715,11 @@ pub(crate) fn execute(
                                 "allowRelax".into(),
                                 serde_json::Value::Bool(true),
                             );
+                            // Remote control adds the person's other computers' sessions (`source: relay`).
+                            obj.insert(
+                                "otherComputers".into(),
+                                serde_json::Value::Bool(true),
+                            );
                         }
                         if let Some(kinds) = &kind_filter {
                             obj.insert(

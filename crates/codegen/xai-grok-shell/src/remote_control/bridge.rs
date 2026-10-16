@@ -10,14 +10,17 @@ use agent_client_protocol::{self as acp, Agent as _};
 use crok_remote::credentials::{self, Credentials};
 use crok_remote::link::{FromRelay, Link, LinkConfig, LinkState, ToRelay};
 use crok_remote::types::{
-    CatalogEntry, CommandOutcome, CommandType, EventInput, EventKind, InboxCommand, SessionFields,
-    SessionStatus, SessionUsage, now_ms,
+    CatalogEntry, CommandOutcome, CommandType, EventInput, EventKind, InboxCommand,
+    PendingInteraction, PendingOption, SessionFields, SessionStatus, SessionUsage, now_ms,
 };
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::transcript::{Signal, Transcript, shorten};
-use super::{HostApp, Observed, Observer, REMOTE_PROMPT_METHOD, REMOTE_STATUS_METHOD};
+use super::{
+    HostApp, Observed, Observer, PERMISSION_RESOLVED_METHOD, PermissionAsk, REMOTE_PROMPT_METHOD,
+    REMOTE_STATUS_METHOD,
+};
 use crate::agent::MvpAgent;
 
 const TICK: Duration = Duration::from_millis(250);
@@ -34,6 +37,12 @@ const HISTORY_TURNS: usize = 20;
 /// How often a process offers to list this computer's sessions (in ticks: 10 min). The relay lets one per computer.
 const CATALOG_TICKS: u32 = 2_400;
 const TITLE_FALLBACK_MAX: usize = 80;
+/// A session opened here for a prompt from elsewhere is closed again after this long without a turn or a viewer.
+const ADOPTED_IDLE: Duration = Duration::from_secs(10 * 60);
+/// How often idle adopted sessions are looked for (in ticks: 5 s).
+const RELEASE_CHECK_TICKS: u32 = 20;
+const PENDING_TITLE_MAX: usize = 300;
+const PENDING_DETAIL_MAX: usize = 2_000;
 
 enum Internal {
     Fields {
@@ -68,6 +77,27 @@ enum Internal {
         events: Vec<EventInput>,
         preview: Option<(EventKind, String)>,
     },
+    /// A session opened for a prompt from elsewhere is loaded (or could not be).
+    Opened {
+        session_id: String,
+        error: Option<String>,
+    },
+    /// A permission request was answered (`by_remote`: from another device) or dropped by the agent.
+    PermissionSettled {
+        session_id: String,
+        id: String,
+        by_remote: bool,
+    },
+}
+
+/// A permission request offered to every device; the first answer wins.
+struct PendingPermission {
+    id: String,
+    tool_call_id: String,
+    /// Takes the option a device chose.
+    remote: Option<oneshot::Sender<String>>,
+    /// The front end shows it too (it must drop its prompt when another device answers).
+    visible: bool,
 }
 
 struct Mirror {
@@ -94,11 +124,22 @@ struct Mirror {
     last_flush: Instant,
     /// The newest preview line, published at a boundary or once the turn is over.
     latest_preview: Option<(EventKind, String)>,
+    /// Opened by the bridge for a prompt sent from elsewhere; the front end does not show it.
+    adopted: bool,
+    /// Still loading (adopted): its prompts wait.
+    opening: bool,
+    /// Since when an adopted session has had nothing to do.
+    idle_since: Option<Instant>,
+    permission: Option<PendingPermission>,
 }
 
 impl Mirror {
     fn new(cwd: String, prefix: &str) -> Mirror {
         Mirror {
+            adopted: false,
+            opening: false,
+            idle_since: None,
+            permission: None,
             cwd: cwd.clone(),
             loaded: false,
             had_prompt: false,
@@ -177,6 +218,8 @@ pub(crate) struct Bridge {
     project_of: HashMap<String, String>,
     /// A catalog offer or upload is under way.
     catalog_busy: bool,
+    /// Numbers permission requests, so an answer to an old one is told apart.
+    interactions: u64,
 }
 
 async fn recv_opt<T>(rx: &mut Option<mpsc::UnboundedReceiver<T>>) -> Option<Option<T>> {
@@ -263,6 +306,92 @@ fn info_result(
         },
         "context": { "used": totals.context_tokens, "window": totals.context_window },
     })
+}
+
+fn permission_response(outcome: Value) -> acp::RequestPermissionResponse {
+    serde_json::from_value(json!({ "outcome": outcome })).unwrap_or_else(|_| {
+        serde_json::from_value(json!({ "outcome": { "outcome": "cancelled" } }))
+            .expect("a cancelled permission response")
+    })
+}
+
+fn cancelled() -> acp::RequestPermissionResponse {
+    permission_response(json!({ "outcome": "cancelled" }))
+}
+
+fn selected(option_id: &str) -> acp::RequestPermissionResponse {
+    permission_response(json!({ "outcome": "selected", "optionId": option_id }))
+}
+
+/// What a permission request asks, for the relay: the tool call's title, kind and command or path, and the choices.
+fn pending_interaction(request: &acp::RequestPermissionRequest, number: u64) -> PendingInteraction {
+    let value = serde_json::to_value(request).unwrap_or(Value::Null);
+    let call = value.get("toolCall").cloned().unwrap_or(Value::Null);
+    let text_content = call
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            items.iter().find_map(|item| {
+                item.get("content")
+                    .and_then(|c| c.get("text"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        item.get("path")
+                            .and_then(Value::as_str)
+                            .map(|p| format!("Edit {p}"))
+                    })
+            })
+        });
+    let raw = call.get("rawInput");
+    let detail = raw
+        .and_then(|r| r.get("command").or_else(|| r.get("cmd")))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            raw.and_then(|r| r.get("path").or_else(|| r.get("file_path")))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .or(text_content);
+    let title = call
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or("Allow this?");
+    let options = value
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|options| {
+            options
+                .iter()
+                .filter_map(|o| {
+                    Some(PendingOption {
+                        option_id: o.get("optionId")?.as_str()?.to_string(),
+                        name: o
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        kind: o
+                            .get("kind")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    PendingInteraction {
+        id: format!("{}#{number}", request.tool_call.tool_call_id),
+        kind: "permission".into(),
+        title: shorten(title, PENDING_TITLE_MAX),
+        detail: detail.map(|d| shorten(&d, PENDING_DETAIL_MAX)),
+        tool_kind: call.get("kind").and_then(Value::as_str).map(str::to_owned),
+        options,
+        at: now_ms(),
+    }
 }
 
 fn status_from_activity(activity: &str) -> Option<SessionStatus> {
@@ -368,6 +497,7 @@ impl Bridge {
             activations: 0,
             project_of: HashMap::new(),
             catalog_busy: false,
+            interactions: 0,
         }
     }
 
@@ -409,6 +539,10 @@ impl Bridge {
                     if ticks.is_multiple_of(CATALOG_TICKS) {
                         self.offer_catalog();
                     }
+                    if ticks.is_multiple_of(RELEASE_CHECK_TICKS) {
+                        self.release_idle();
+                    }
+                    self.observer.viewer().tick();
                     self.flush();
                 }
             }
@@ -471,6 +605,7 @@ impl Bridge {
             credentials: credentials.clone(),
             app: self.app,
             app_version: xai_grok_version::full_version().to_string(),
+            can_adopt: true,
         };
         let (link, link_rx) = match Link::spawn(config) {
             Ok(pair) => pair,
@@ -480,6 +615,9 @@ impl Bridge {
             }
         };
         self.activations += 1;
+        self.observer
+            .viewer()
+            .set_link(Some(link.sender()), Some(credentials.device_id.clone()));
         self.credentials = Some(credentials);
         self.link = Some(link);
         self.link_rx = Some(link_rx);
@@ -557,15 +695,21 @@ impl Bridge {
         self.link = None;
         self.link_rx = None;
         self.observer.set_live(false);
+        self.observer.viewer().set_link(None, None);
         self.watched.clear();
         self.handled.clear();
-        for mirror in self.mirrors.values_mut() {
+        for (session_id, mirror) in &mut self.mirrors {
+            self.observer.set_shared(session_id, false);
             mirror.requested = false;
             mirror.registered = false;
             mirror.backfill_pending = false;
             mirror.sent = SessionFields::default();
             mirror.remote_running = None;
             mirror.queue.clear();
+            // Nobody can answer from elsewhere now: the front end's own answer (if it was asked) still counts.
+            if let Some(permission) = mirror.permission.as_mut() {
+                permission.remote = None;
+            }
             let _ = mirror.transcript.take_dirty();
         }
         if self.credentials.is_some() {
@@ -672,6 +816,9 @@ impl Bridge {
                     .entry(session_id.clone())
                     .or_insert_with(|| Mirror::new(cwd, &prefix));
                 mirror.loaded |= loaded;
+                // The person opened here a session the bridge was running for someone else: it is theirs now.
+                mirror.adopted = false;
+                mirror.idle_since = None;
                 if loaded && self.active() {
                     self.register(&session_id);
                     self.fetch_roster();
@@ -710,6 +857,7 @@ impl Bridge {
                 }
             }
             Observed::SessionClosed { session_id } => {
+                self.observer.set_shared(&session_id, false);
                 if let Some(mirror) = self.mirrors.remove(&session_id)
                     && mirror.requested
                 {
@@ -717,7 +865,100 @@ impl Bridge {
                 }
             }
             Observed::Outgoing { method, params } => self.on_outgoing(&method, &params),
+            Observed::Permission(ask) => self.on_permission(*ask),
         }
+    }
+
+    /// A permission request from a mirrored or adopted session: offered on the relay to every device, while the front
+    /// end (for a session it shows) asks on the computer too. The first answer goes to the agent.
+    fn on_permission(&mut self, ask: PermissionAsk) {
+        let PermissionAsk {
+            session_id,
+            request,
+            reply,
+            front_end,
+        } = ask;
+        let registered = self.mirrors.get(&session_id).is_some_and(|m| m.registered);
+        if !self.active() || !registered {
+            // Nobody else can answer: the front end decides, or (an adopted session) the request is turned down.
+            tokio::task::spawn_local(async move {
+                let answer = match front_end {
+                    Some(front_end) => front_end.await.unwrap_or_else(|_| Ok(cancelled())),
+                    None => Ok(cancelled()),
+                };
+                let _ = reply.send(answer);
+            });
+            return;
+        }
+        self.interactions += 1;
+        let pending = pending_interaction(&request, self.interactions);
+        let id = pending.id.clone();
+        let (remote_tx, remote_rx) = oneshot::channel::<String>();
+        if let Some(mirror) = self.mirrors.get_mut(&session_id) {
+            mirror.permission = Some(PendingPermission {
+                id: id.clone(),
+                tool_call_id: request.tool_call.tool_call_id.to_string(),
+                remote: Some(remote_tx),
+                visible: front_end.is_some(),
+            });
+            mirror.set_status(SessionStatus::Waiting);
+        }
+        self.send(ToRelay::SetPending {
+            session_id: session_id.clone(),
+            pending: Some(pending),
+        });
+        let tx = self.internal_tx.clone();
+        tokio::task::spawn_local(async move {
+            let mut reply = reply;
+            let mut front_end = front_end;
+            let mut remote = Some(remote_rx);
+            enum Heard {
+                FrontEnd(Option<xai_acp_lib::AcpResult<acp::RequestPermissionResponse>>),
+                Remote(Option<String>),
+                Gone,
+            }
+            let (answer, by_remote) = loop {
+                let heard = {
+                    let from_front_end = async {
+                        match front_end.as_mut() {
+                            Some(front_end) => front_end.await.ok(),
+                            None => std::future::pending().await,
+                        }
+                    };
+                    let from_remote = async {
+                        match remote.as_mut() {
+                            Some(remote) => remote.await.ok(),
+                            None => std::future::pending().await,
+                        }
+                    };
+                    tokio::select! {
+                        answer = from_front_end => Heard::FrontEnd(answer),
+                        option = from_remote => Heard::Remote(option),
+                        _ = reply.closed() => Heard::Gone,
+                    }
+                };
+                match heard {
+                    Heard::FrontEnd(Some(answer)) => break (Some(answer), false),
+                    // The front end let go without answering: only another device can.
+                    Heard::FrontEnd(None) => front_end = None,
+                    Heard::Remote(Some(option)) => break (Some(Ok(selected(&option))), true),
+                    // Signed out: only the front end can answer now.
+                    Heard::Remote(None) => remote = None,
+                    Heard::Gone => break (None, false),
+                }
+                if front_end.is_none() && remote.is_none() {
+                    break (Some(Ok(cancelled())), false);
+                }
+            };
+            if let Some(answer) = answer {
+                let _ = reply.send(answer);
+            }
+            let _ = tx.send(Internal::PermissionSettled {
+                session_id,
+                id,
+                by_remote,
+            });
+        });
     }
 
     fn on_outgoing(&mut self, method: &str, params: &Value) {
@@ -907,12 +1148,21 @@ impl Bridge {
         match message {
             FromRelay::State(LinkState::Connected) => self.report("connected"),
             FromRelay::State(LinkState::Connecting) => self.report("connecting"),
+            FromRelay::Query { id, result } => {
+                let viewer = self.observer.viewer().clone();
+                viewer.on_query(id, result.map_err(|e| e.to_string()));
+            }
             FromRelay::Registered { session_id, .. } => {
                 let Some(mirror) = self.mirrors.get_mut(&session_id) else {
                     return;
                 };
                 mirror.registered = true;
-                if mirror.backfill_pending {
+                let backfill = mirror.backfill_pending;
+                self.observer.set_shared(&session_id, true);
+                // An adopted session's prompt waited for its mirror; it starts before the backfill reads the
+                // transcript, so the backfill leaves it out.
+                self.run_next(&session_id);
+                if backfill {
                     self.backfill(&session_id);
                 }
             }
@@ -924,13 +1174,19 @@ impl Bridge {
                     self.watched
                         .insert(view.session_id, now + Duration::from_millis(ahead as u64));
                 }
+                if let Some(hosted) = inbox.hosted {
+                    self.release_taken(&hosted.into_iter().collect());
+                }
                 for command in inbox.commands {
                     if !self.handled.insert(command.id.clone()) {
                         continue;
                     }
                     // A transcript to read from disk needs no mirror here: any crok on this computer can serve it.
+                    // Nor does a prompt for a session nobody runs: whoever claims it opens the session.
                     let history = command.kind == CommandType::History;
+                    let adopt = command.adopt && !self.mirrors.contains_key(&command.session_id);
                     if !history
+                        && !adopt
                         && !self
                             .mirrors
                             .get(&command.session_id)
@@ -1040,6 +1296,36 @@ impl Bridge {
                     preview,
                 });
             }
+            Internal::Opened { session_id, error } => self.on_opened(session_id, error),
+            Internal::PermissionSettled {
+                session_id,
+                id,
+                by_remote,
+            } => {
+                let Some(mirror) = self.mirrors.get_mut(&session_id) else {
+                    return;
+                };
+                if mirror.permission.as_ref().map(|p| p.id.as_str()) != Some(id.as_str()) {
+                    return;
+                }
+                let Some(permission) = mirror.permission.take() else {
+                    return;
+                };
+                if mirror.turn_running {
+                    mirror.set_status(SessionStatus::Running);
+                }
+                self.send(ToRelay::SetPending {
+                    session_id: session_id.clone(),
+                    pending: None,
+                });
+                if by_remote && permission.visible {
+                    // Answered on another device: the front end drops the prompt it still shows.
+                    self.tell_front_end(
+                        PERMISSION_RESOLVED_METHOD,
+                        json!({ "sessionId": session_id, "toolCallId": permission.tool_call_id }),
+                    );
+                }
+            }
             Internal::PromptReturned {
                 session_id,
                 command_id,
@@ -1093,6 +1379,10 @@ impl Bridge {
             return;
         }
         let session_id = command.session_id.clone();
+        if command.adopt && !self.mirrors.contains_key(&session_id) {
+            self.adopt(command);
+            return;
+        }
         let Some(mirror) = self.mirrors.get_mut(&session_id) else {
             self.complete(
                 &command.id,
@@ -1104,11 +1394,36 @@ impl Bridge {
         };
         match command.kind {
             CommandType::Prompt => {
-                if mirror.turn_running || mirror.remote_running.is_some() {
-                    // Delivered and waiting: it runs when the current turn ends.
+                if mirror.turn_running
+                    || mirror.remote_running.is_some()
+                    || mirror.opening
+                    || !mirror.registered
+                {
+                    // Delivered and waiting: it runs when the current turn ends (or the session is open).
                     mirror.queue.push_back(command);
                 } else {
                     self.start_prompt(command);
+                }
+            }
+            CommandType::Answer => {
+                let answers_this = mirror
+                    .permission
+                    .as_ref()
+                    .is_some_and(|p| command.interaction_id.as_deref() == Some(p.id.as_str()));
+                let remote = answers_this
+                    .then(|| mirror.permission.as_mut().and_then(|p| p.remote.take()))
+                    .flatten();
+                match remote {
+                    Some(remote) => {
+                        let _ = remote.send(command.text.clone().unwrap_or_default());
+                        self.complete(&command.id, CommandOutcome::Done, None, None);
+                    }
+                    None => self.complete(
+                        &command.id,
+                        CommandOutcome::Failed,
+                        None,
+                        Some("That request was already answered.".into()),
+                    ),
                 }
             }
             CommandType::Cancel => {
@@ -1196,6 +1511,7 @@ impl Bridge {
         };
         let text = command.text.clone().unwrap_or_default();
         let prompt_id = format!("remote-{}", command.id);
+        mirror.idle_since = None;
         mirror.remote_running = Some(command.id.clone());
         mirror.turn_running = true;
         mirror.had_prompt = true;
@@ -1248,15 +1564,164 @@ impl Bridge {
 
     fn run_next(&mut self, session_id: &str) {
         let next = self.mirrors.get_mut(session_id).and_then(|m| {
-            if m.turn_running || m.remote_running.is_some() {
+            if m.turn_running || m.remote_running.is_some() || m.opening || !m.registered {
                 None
             } else {
-                m.queue.pop_front()
+                let next = m.queue.pop_front();
+                if next.is_none() && m.adopted && m.idle_since.is_none() {
+                    m.idle_since = Some(Instant::now());
+                }
+                next
             }
         });
         if let Some(command) = next {
             self.start_prompt(command);
         }
+    }
+
+    /// Sends the front end an ext notification (it passes the tee like the agent's own).
+    fn tell_front_end(&self, method: &str, params: Value) {
+        if let Some(agent) = self.agent.upgrade() {
+            agent
+                .gateway
+                .forward_fire_and_forget(acp::ExtNotification::new(method, raw(&params)));
+        }
+    }
+
+    /// A prompt for a session nobody on this computer runs: open it here, hidden from the front end, then run the
+    /// prompt (the relay already made this process the session's runner when it handed over the command).
+    fn adopt(&mut self, command: InboxCommand) {
+        let Some(agent) = self.agent.upgrade() else {
+            return;
+        };
+        let session_id = command.session_id.clone();
+        let cwd = command.cwd.clone().unwrap_or_default();
+        let prefix = self.prefix();
+        let mut mirror = Mirror::new(cwd.clone(), &prefix);
+        mirror.adopted = true;
+        mirror.opening = true;
+        mirror.loaded = true;
+        mirror.had_prompt = true;
+        mirror.queue.push_back(command);
+        self.mirrors.insert(session_id.clone(), mirror);
+        self.observer.hide(&session_id);
+        let tx = self.internal_tx.clone();
+        tokio::task::spawn_local(async move {
+            let error = if cwd.is_empty() || !std::path::Path::new(&cwd).is_absolute() {
+                Some("The session's folder is unknown.".to_string())
+            } else {
+                let mut meta = acp::Meta::new();
+                meta.insert("noReplay".into(), Value::Bool(true));
+                let request =
+                    acp::LoadSessionRequest::new(session_id.clone(), std::path::PathBuf::from(cwd))
+                        .mcp_servers(Vec::new())
+                        .meta(meta);
+                agent
+                    .load_session(request)
+                    .await
+                    .err()
+                    .map(|e| e.message.to_string())
+            };
+            let _ = tx.send(Internal::Opened { session_id, error });
+        });
+    }
+
+    fn on_opened(&mut self, session_id: String, error: Option<String>) {
+        let Some(mirror) = self.mirrors.get_mut(&session_id) else {
+            return;
+        };
+        mirror.opening = false;
+        let Some(error) = error else {
+            tracing::info!(%session_id, "remote control: opened a session for a remote prompt");
+            self.register(&session_id);
+            self.fetch_roster();
+            self.run_next(&session_id);
+            return;
+        };
+        tracing::warn!(%session_id, %error, "remote control: cannot open a session for a remote prompt");
+        let waiting: Vec<String> = mirror.queue.drain(..).map(|c| c.id).collect();
+        self.mirrors.remove(&session_id);
+        self.observer.reveal(&session_id);
+        for id in waiting {
+            self.complete(
+                &id,
+                CommandOutcome::Failed,
+                None,
+                Some(format!("The computer could not open this session: {error}")),
+            );
+        }
+        // The relay made this process its runner when the prompt was claimed: give it back.
+        self.send(ToRelay::CloseSession { session_id });
+    }
+
+    /// Closes adopted sessions that have been idle a while (or at once while signed out).
+    fn release_idle(&mut self) {
+        let active = self.active();
+        let now = Instant::now();
+        let idle: Vec<String> = self
+            .mirrors
+            .iter()
+            .filter(|(id, m)| {
+                m.adopted
+                    && !m.opening
+                    && !m.turn_running
+                    && m.remote_running.is_none()
+                    && m.queue.is_empty()
+                    && m.permission.is_none()
+                    && self.watched.get(*id).is_none_or(|until| *until <= now)
+                    && (!active || m.idle_since.is_some_and(|t| t.elapsed() >= ADOPTED_IDLE))
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in idle {
+            self.release(&id, true);
+        }
+    }
+
+    /// Adopted sessions another crok on this computer took over (the relay no longer has them here): close them here
+    /// once they are idle, so two processes do not write one session.
+    fn release_taken(&mut self, hosted: &HashSet<String>) {
+        let taken: Vec<String> = self
+            .mirrors
+            .iter()
+            .filter(|(id, m)| {
+                m.adopted
+                    && m.registered
+                    && !m.opening
+                    && !m.turn_running
+                    && m.remote_running.is_none()
+                    && !hosted.contains(*id)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in taken {
+            self.release(&id, false);
+        }
+    }
+
+    fn release(&mut self, session_id: &str, tell_relay: bool) {
+        let Some(mirror) = self.mirrors.remove(session_id) else {
+            return;
+        };
+        tracing::info!(%session_id, "remote control: closing a session opened for a remote prompt");
+        self.observer.set_shared(session_id, false);
+        if tell_relay && mirror.requested {
+            self.send(ToRelay::CloseSession {
+                session_id: session_id.to_string(),
+            });
+        }
+        let Some(agent) = self.agent.upgrade() else {
+            self.observer.reveal(session_id);
+            return;
+        };
+        let observer = self.observer.clone();
+        let id = session_id.to_string();
+        tokio::task::spawn_local(async move {
+            let _ = agent
+                .close_session(acp::CloseSessionRequest::new(id.clone()))
+                .await;
+            observer.reveal(&id);
+        });
     }
 
     fn refresh_usage(&self, session_id: &str) {

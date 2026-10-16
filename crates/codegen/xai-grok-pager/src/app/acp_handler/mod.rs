@@ -664,6 +664,9 @@ fn handle_ext_notification(notif: &acp::ExtNotification, app: &mut AppView) -> b
         "x.ai/mcp/servers_updated" => handle_mcp_servers_updated(notif, app),
         xai_grok_shell::remote_control::REMOTE_STATUS_METHOD => handle_remote_status(notif),
         xai_grok_shell::remote_control::REMOTE_PROMPT_METHOD => handle_remote_prompt(notif, app),
+        xai_grok_shell::remote_control::PERMISSION_RESOLVED_METHOD => {
+            permissions::handle_permission_resolved(notif, app)
+        }
         _ => false,
     }
 }

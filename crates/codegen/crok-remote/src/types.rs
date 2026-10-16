@@ -207,9 +207,11 @@ pub enum CommandType {
     Info,
     /// Read a session no crok runs from disk, for a viewer who opened it.
     History,
+    /// A choice (`text`) for the session's pending permission request (`interaction_id`).
+    Answer,
 }
 
-/// A command from a phone or the web, as `bridge:inbox` lists it.
+/// A command from a phone, the web or another computer, as `bridge:inbox` lists it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InboxCommand {
@@ -224,6 +226,12 @@ pub struct InboxCommand {
     pub kind: CommandType,
     #[serde(default)]
     pub text: Option<String>,
+    /// For [`CommandType::Answer`]: the pending request it answers.
+    #[serde(default)]
+    pub interaction_id: Option<String>,
+    /// A prompt for a session nobody runs: whoever claims it opens the session first.
+    #[serde(default)]
+    pub adopt: bool,
     pub from_label: String,
     /// `web` for a browser, `phone` (or `computer`) for a linked device.
     #[serde(default)]
@@ -244,7 +252,36 @@ pub struct InboxView {
 pub struct Inbox {
     pub commands: Vec<InboxCommand>,
     pub views: Vec<InboxView>,
+    /// The sessions the relay has this process running (`None` from a relay that does not say).
+    #[serde(default)]
+    pub hosted: Option<Vec<String>>,
     pub server_time: f64,
+}
+
+/// One choice of a permission request (`allow_once`, `allow_always`, `reject_once`, `reject_always`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingOption {
+    pub option_id: String,
+    pub name: String,
+    pub kind: String,
+}
+
+/// A permission request waiting for an answer from any of the person's devices (`bridge:setPending`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingInteraction {
+    pub id: String,
+    /// Always `permission` for now.
+    pub kind: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_kind: Option<String>,
+    pub options: Vec<PendingOption>,
+    /// Unix milliseconds.
+    pub at: f64,
 }
 
 /// A command's outcome.

@@ -1,5 +1,5 @@
-//! Remote control: mirrors this process's sessions to the relay and runs commands from phones and the web
-//! (`relay/DESIGN.md` §4).
+//! Remote control: mirrors this process's sessions to the relay, runs commands from phones, the web and the person's
+//! other computers, and opens those other computers' sessions here (`relay/DESIGN.md` §4).
 //!
 //! A host (the TUI's agent thread, or a `crok agent stdio` process for Crok Desktop) wires it in three places, all
 //! on the agent's `LocalSet`:
@@ -15,32 +15,56 @@
 //!
 //! Nothing goes over the network until the computer is signed in (`crok remote login`); the bridge notices a sign-in
 //! or sign-out made elsewhere within a few seconds.
+//!
+//! Three kinds of session pass through here:
+//!
+//! - the front end's own sessions, mirrored to the relay; their permission requests can be answered on the computer
+//!   or from any other device, whichever comes first;
+//! - sessions the bridge opened itself to run a prompt sent from elsewhere for a session no crok was running
+//!   ("adopted"): the front end never hears of them, and the bridge answers their requests through the relay;
+//! - sessions of the person's other computers (`relay:<id>`), which [`viewer`] serves to the front end in place of the
+//!   agent.
 
 mod bridge;
 mod catalog;
 pub(crate) mod transcript;
+pub(crate) mod viewer;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use agent_client_protocol as acp;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
-use xai_acp_lib::AcpClientMessage;
+use xai_acp_lib::{AcpArgs, AcpClientMessage, AcpResult};
 
 pub use crok_remote::HostApp;
+pub use viewer::{
+    PERMISSION_RESOLVED_METHOD, RELAY_PREFIX, REMOTE_SESSIONS_CHANGED_METHOD,
+    REMOTE_SESSIONS_METHOD,
+};
 
 use crate::agent::MvpAgent;
+use viewer::Viewer;
 
 /// Ext notification to the front end before a remote prompt runs: `{sessionId, promptId, text, from, fromKind}`
-/// (`fromKind`: `phone` or `web`). Crok Desktop
+/// (`fromKind`: `phone`, `web` or `computer`). Crok Desktop
 /// shows the prompt from it; the TUI already gets it through its user-message echo and shows a toast.
 pub const REMOTE_PROMPT_METHOD: &str = "x.ai/remote/prompt";
 /// Ext notification of the bridge's state: `{state: "off" | "connecting" | "connected", account?, device?}`.
 pub const REMOTE_STATUS_METHOD: &str = "x.ai/remote/status";
 
+/// A permission request the bridge decides with the relay. `front_end` is the front end's own answer when it was asked
+/// too (a visible session); an adopted session has nobody here to ask.
+pub(crate) struct PermissionAsk {
+    pub(crate) session_id: String,
+    pub(crate) request: acp::RequestPermissionRequest,
+    pub(crate) reply: oneshot::Sender<AcpResult<acp::RequestPermissionResponse>>,
+    pub(crate) front_end: Option<oneshot::Receiver<AcpResult<acp::RequestPermissionResponse>>>,
+}
+
 /// What the bridge sees of the agent and its front end.
-#[derive(Debug)]
 pub(crate) enum Observed {
     /// A notification the agent sent its front end (session updates, roster changes).
     Outgoing {
@@ -62,12 +86,18 @@ pub(crate) enum Observed {
     SessionClosed {
         session_id: String,
     },
+    Permission(Box<PermissionAsk>),
 }
 
 struct ObserverInner {
     tx: mpsc::UnboundedSender<Observed>,
     /// Copy session updates only while signed in: serializing every chunk costs CPU for nothing otherwise.
     live: Cell<bool>,
+    /// Sessions the bridge runs for prompts sent from elsewhere: kept from the front end.
+    hidden: RefCell<HashSet<String>>,
+    /// Sessions the relay mirrors: their permission requests are offered to every device.
+    shared: RefCell<HashSet<String>>,
+    viewer: Rc<Viewer>,
 }
 
 #[derive(Clone)]
@@ -84,6 +114,41 @@ impl Observer {
 
     fn live(&self) -> bool {
         self.0.live.get()
+    }
+
+    pub(crate) fn hide(&self, session_id: &str) {
+        self.0.hidden.borrow_mut().insert(session_id.to_string());
+    }
+
+    /// The front end opened a session the bridge was running hidden: it sees it from now on.
+    pub(crate) fn reveal(&self, session_id: &str) -> bool {
+        self.0.hidden.borrow_mut().remove(session_id)
+    }
+
+    fn is_hidden(&self, session_id: &str) -> bool {
+        let hidden = self.0.hidden.borrow();
+        !hidden.is_empty() && hidden.contains(session_id)
+    }
+
+    fn any_hidden(&self) -> bool {
+        !self.0.hidden.borrow().is_empty()
+    }
+
+    pub(crate) fn set_shared(&self, session_id: &str, shared: bool) {
+        let mut set = self.0.shared.borrow_mut();
+        if shared {
+            set.insert(session_id.to_string());
+        } else {
+            set.remove(session_id);
+        }
+    }
+
+    fn is_shared(&self, session_id: &str) -> bool {
+        self.0.shared.borrow().contains(session_id)
+    }
+
+    pub(crate) fn viewer(&self) -> &Rc<Viewer> {
+        &self.0.viewer
     }
 }
 
@@ -106,13 +171,17 @@ impl RemoteControl {
             observer: Observer(Rc::new(ObserverInner {
                 tx,
                 live: Cell::new(false),
+                hidden: RefCell::new(HashSet::new()),
+                shared: RefCell::new(HashSet::new()),
+                viewer: Viewer::new(),
             })),
             rx,
         })
     }
 
-    /// Puts the bridge between the agent and its front end's receiver: every message passes through unchanged and
-    /// session notifications are copied to the bridge. Must run on the agent's `LocalSet`.
+    /// Puts the bridge between the agent and its front end's receiver: messages pass through, session notifications
+    /// are copied to the bridge, and an adopted session's messages stay with the bridge. Must run on the agent's
+    /// `LocalSet`.
     pub fn tee(
         &self,
         from_agent: mpsc::UnboundedReceiver<AcpClientMessage>,
@@ -132,6 +201,9 @@ impl RemoteControl {
         tokio::task::spawn_local(async move {
             while let Some(message) = from_agent.recv().await {
                 copy_notification(&observer, &message);
+                let Some(message) = route(&observer, message) else {
+                    continue;
+                };
                 if to_front_end.send(message).is_err() {
                     break;
                 }
@@ -139,7 +211,8 @@ impl RemoteControl {
         });
     }
 
-    /// The agent the front end's connection should call, so the bridge sees sessions opened and prompts sent.
+    /// The agent the front end's connection should call, so the bridge sees sessions opened and prompts sent, and
+    /// other computers' sessions are served here.
     pub fn observe<A: acp::Agent>(&self, agent: A) -> ObservedAgent<A> {
         ObservedAgent {
             inner: agent,
@@ -150,6 +223,7 @@ impl RemoteControl {
     /// Starts the bridge on the current `LocalSet`.
     pub fn start(self, agent: &Rc<MvpAgent>) -> RemoteHandle {
         let (stop_tx, stop_rx) = oneshot::channel();
+        self.observer.viewer().set_gateway(agent.gateway.clone());
         let bridge = bridge::Bridge::new(Rc::downgrade(agent), self.app, self.observer, self.rx);
         tokio::task::spawn_local(bridge.run(stop_rx));
         RemoteHandle {
@@ -219,6 +293,74 @@ fn copy_notification(observer: &Observer, message: &AcpClientMessage) {
     }
 }
 
+/// The `sessionId` an ext message's params name, if any.
+fn params_session(params: &serde_json::value::RawValue) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Session {
+        #[serde(rename = "sessionId")]
+        session_id: Option<String>,
+    }
+    serde_json::from_str::<Session>(params.get())
+        .ok()
+        .and_then(|s| s.session_id)
+}
+
+/// Decides where a message from the agent goes: to the front end (`Some`), or to the bridge only (`None`).
+fn route(observer: &Observer, message: AcpClientMessage) -> Option<AcpClientMessage> {
+    match message {
+        AcpClientMessage::RequestPermission(args) => {
+            let session_id = args.request.session_id.to_string();
+            if observer.is_hidden(&session_id) {
+                observer.send(Observed::Permission(Box::new(PermissionAsk {
+                    session_id,
+                    request: args.request,
+                    reply: args.response_tx,
+                    front_end: None,
+                })));
+                return None;
+            }
+            if observer.live() && observer.is_shared(&session_id) {
+                let (front_tx, front_rx) = oneshot::channel();
+                let request = args.request.clone();
+                observer.send(Observed::Permission(Box::new(PermissionAsk {
+                    session_id,
+                    request: args.request,
+                    reply: args.response_tx,
+                    front_end: Some(front_rx),
+                })));
+                return Some(AcpClientMessage::RequestPermission(AcpArgs {
+                    request,
+                    response_tx: front_tx,
+                }));
+            }
+            Some(AcpClientMessage::RequestPermission(args))
+        }
+        AcpClientMessage::SessionNotification(args)
+            if observer.is_hidden(&args.request.session_id.0) =>
+        {
+            None
+        }
+        AcpClientMessage::ExtNotification(args)
+            if observer.any_hidden()
+                && params_session(&args.request.params).is_some_and(|s| observer.is_hidden(&s)) =>
+        {
+            None
+        }
+        AcpClientMessage::ExtMethod(args)
+            if observer.any_hidden()
+                && params_session(&args.request.params).is_some_and(|s| observer.is_hidden(&s)) =>
+        {
+            // A question or plan approval in a session nobody looks at here: refused, the turn carries on without it.
+            let _ = args.response_tx.send(Err(acp::Error::new(
+                -32603,
+                "This session runs for a prompt sent from another device; it cannot ask questions here.".to_string(),
+            )));
+            None
+        }
+        other => Some(other),
+    }
+}
+
 /// The text of a prompt, for the transcript: text blocks joined, other blocks named.
 fn prompt_text(blocks: &[acp::ContentBlock]) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -234,7 +376,54 @@ fn prompt_text(blocks: &[acp::ContentBlock]) -> String {
     parts.join("\n")
 }
 
-/// An agent whose front end the bridge watches: like `RequestLog`, every call passes through untouched.
+fn ext_response(value: &Value) -> acp::Result<acp::ExtResponse> {
+    serde_json::value::to_raw_value(value)
+        .map(|raw| acp::ExtResponse::new(raw.into()))
+        .map_err(|e| acp::Error::internal_error().data(e.to_string()))
+}
+
+fn not_here(what: &str) -> acp::Error {
+    acp::Error::new(
+        -32603,
+        format!("{what} is not available for a session on another computer."),
+    )
+}
+
+/// Whether a picker row of another computer matches a search: every word in its title, folder or computer name.
+fn row_matches(row: &Value, query: &str) -> bool {
+    let haystack = ["summary", "cwd", "hostname"]
+        .iter()
+        .filter_map(|key| row.get(*key).and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    query.split_whitespace().all(|word| haystack.contains(word))
+}
+
+/// Adds the person's other computers' sessions to a `x.ai/session/list` result (rows with `source: relay`).
+fn append_rows(response: acp::ExtResponse, rows: Vec<Value>) -> acp::ExtResponse {
+    if rows.is_empty() {
+        return response;
+    }
+    let Ok(mut value) = serde_json::from_str::<Value>(response.0.get()) else {
+        return response;
+    };
+    let sessions = if value.get("sessions").is_some() {
+        value.get_mut("sessions")
+    } else {
+        value
+            .get_mut("result")
+            .and_then(|result| result.get_mut("sessions"))
+    };
+    match sessions.and_then(Value::as_array_mut) {
+        Some(sessions) => sessions.extend(rows),
+        None => return response,
+    }
+    ext_response(&value).unwrap_or(response)
+}
+
+/// An agent whose front end the bridge watches: like `RequestLog`, every call passes through untouched, except calls
+/// for sessions of other computers, which the viewer answers.
 pub struct ObservedAgent<A> {
     inner: A,
     observer: Option<Observer>,
@@ -252,6 +441,23 @@ impl<A> ObservedAgent<A> {
     fn tell(&self, observed: Observed) {
         if let Some(observer) = &self.observer {
             observer.send(observed);
+        }
+    }
+
+    fn viewer(&self) -> acp::Result<&Rc<Viewer>> {
+        self.observer.as_ref().map(Observer::viewer).ok_or_else(|| {
+            acp::Error::new(
+                -32603,
+                "Sessions on other computers need remote control, which is off in this process."
+                    .to_string(),
+            )
+        })
+    }
+
+    /// The front end opens a session the bridge runs hidden: show it from now on.
+    fn reveal(&self, session_id: &str) {
+        if let Some(observer) = &self.observer {
+            observer.reveal(session_id);
         }
     }
 }
@@ -295,6 +501,10 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         args: acp::LoadSessionRequest,
     ) -> acp::Result<acp::LoadSessionResponse> {
         let session_id = args.session_id.to_string();
+        if viewer::is_relay_session(&session_id) {
+            return self.viewer()?.load(&session_id).await;
+        }
+        self.reveal(&session_id);
         let cwd = args.cwd.to_string_lossy().to_string();
         let response = self.inner.load_session(args).await?;
         self.tell(Observed::SessionOpened {
@@ -312,8 +522,13 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
             .and_then(|m| m.get("promptId"))
             .and_then(Value::as_str)
             .map(str::to_owned);
+        let session_id = args.session_id.to_string();
+        if viewer::is_relay_session(&session_id) {
+            let text = prompt_text(&args.prompt);
+            return self.viewer()?.prompt(&session_id, prompt_id, text).await;
+        }
         self.tell(Observed::PromptSent {
-            session_id: args.session_id.to_string(),
+            session_id,
             prompt_id,
             text: prompt_text(&args.prompt),
         });
@@ -321,6 +536,9 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
     }
 
     async fn cancel(&self, args: acp::CancelNotification) -> acp::Result<()> {
+        if viewer::is_relay_session(&args.session_id.0) {
+            return self.viewer()?.cancel(&args.session_id.0).await;
+        }
         self.inner.cancel(args).await
     }
 
@@ -328,6 +546,9 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         &self,
         args: acp::SetSessionModeRequest,
     ) -> acp::Result<acp::SetSessionModeResponse> {
+        if viewer::is_relay_session(&args.session_id.0) {
+            return Err(not_here("Changing the mode"));
+        }
         self.inner.set_session_mode(args).await
     }
 
@@ -335,6 +556,9 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         &self,
         args: acp::SetSessionModelRequest,
     ) -> acp::Result<acp::SetSessionModelResponse> {
+        if viewer::is_relay_session(&args.session_id.0) {
+            return Err(not_here("Changing the model"));
+        }
         self.inner.set_session_model(args).await
     }
 
@@ -342,6 +566,9 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         &self,
         args: acp::SetSessionConfigOptionRequest,
     ) -> acp::Result<acp::SetSessionConfigOptionResponse> {
+        if viewer::is_relay_session(&args.session_id.0) {
+            return Err(not_here("Changing session settings"));
+        }
         self.inner.set_session_config_option(args).await
     }
 
@@ -356,6 +583,9 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         &self,
         args: acp::ForkSessionRequest,
     ) -> acp::Result<acp::ForkSessionResponse> {
+        if viewer::is_relay_session(&args.session_id.0) {
+            return Err(not_here("Forking"));
+        }
         self.inner.fork_session(args).await
     }
 
@@ -364,6 +594,12 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         args: acp::ResumeSessionRequest,
     ) -> acp::Result<acp::ResumeSessionResponse> {
         let session_id = args.session_id.to_string();
+        if viewer::is_relay_session(&session_id) {
+            self.viewer()?.load(&session_id).await?;
+            return serde_json::from_value(json!({}))
+                .map_err(|e| acp::Error::internal_error().data(e.to_string()));
+        }
+        self.reveal(&session_id);
         let cwd = args.cwd.to_string_lossy().to_string();
         let response = self.inner.resume_session(args).await?;
         self.tell(Observed::SessionOpened {
@@ -379,21 +615,56 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         args: acp::CloseSessionRequest,
     ) -> acp::Result<acp::CloseSessionResponse> {
         let session_id = args.session_id.to_string();
+        if viewer::is_relay_session(&session_id) {
+            self.viewer()?.close(&session_id);
+            return serde_json::from_value(json!({}))
+                .map_err(|e| acp::Error::internal_error().data(e.to_string()));
+        }
         let response = self.inner.close_session(args).await?;
         self.tell(Observed::SessionClosed { session_id });
         Ok(response)
     }
 
     async fn ext_method(&self, args: acp::ExtRequest) -> acp::Result<acp::ExtResponse> {
-        let closing = (args.method.trim_start_matches('_') == "x.ai/session/close")
-            .then(|| serde_json::from_str::<Value>(args.params.get()).ok())
-            .flatten()
-            .and_then(|params| {
-                params
-                    .get("sessionId")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            });
+        let method = args.method.trim_start_matches('_').to_string();
+        if method == REMOTE_SESSIONS_METHOD {
+            let params: Value = serde_json::from_str(args.params.get()).unwrap_or(Value::Null);
+            return ext_response(&self.viewer()?.sessions(&params).await);
+        }
+        let session = params_session(&args.params);
+        if let Some(session_id) = session.as_deref().filter(|s| viewer::is_relay_session(s)) {
+            let viewer = self.viewer()?;
+            return match method.as_str() {
+                "x.ai/session/info" => ext_response(&viewer.info(session_id).await?),
+                "x.ai/session/close" => {
+                    viewer.close(session_id);
+                    ext_response(&json!({}))
+                }
+                _ => Err(acp::Error::method_not_found()),
+            };
+        }
+        if method == "x.ai/session/list" {
+            // The TUI's session picker asks for the other computers' sessions too; a search keeps the matching ones.
+            let params: Value = serde_json::from_str(args.params.get()).unwrap_or(Value::Null);
+            let wanted = params.get("otherComputers").and_then(Value::as_bool) == Some(true)
+                || params.get("query").is_some_and(|_| self.observer.is_some());
+            let query = params
+                .get("query")
+                .and_then(Value::as_str)
+                .map(str::to_lowercase);
+            let response = self.inner.ext_method(args).await?;
+            if wanted && let Some(observer) = &self.observer {
+                let mut rows = observer.viewer().picker_rows().await;
+                if let Some(query) = query.filter(|q| !q.trim().is_empty()) {
+                    rows.retain(|row| row_matches(row, &query));
+                }
+                return Ok(append_rows(response, rows));
+            }
+            return Ok(response);
+        }
+        let closing = (method == "x.ai/session/close")
+            .then_some(session)
+            .flatten();
         let response = self.inner.ext_method(args).await?;
         if let Some(session_id) = closing {
             self.tell(Observed::SessionClosed { session_id });
@@ -402,6 +673,42 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
     }
 
     async fn ext_notification(&self, args: acp::ExtNotification) -> acp::Result<()> {
+        if params_session(&args.params).is_some_and(|s| viewer::is_relay_session(&s)) {
+            return Ok(());
+        }
         self.inner.ext_notification(args).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rows_join_the_session_list_in_either_envelope() {
+        let row = json!({ "sessionId": "relay:b", "source": "relay" });
+        let plain = ext_response(&json!({ "sessions": [{ "sessionId": "a" }] })).unwrap();
+        let joined: Value =
+            serde_json::from_str(append_rows(plain, vec![row.clone()]).0.get()).unwrap();
+        assert_eq!(joined["sessions"].as_array().unwrap().len(), 2);
+        let wrapped = ext_response(&json!({ "result": { "sessions": [] } })).unwrap();
+        let joined: Value = serde_json::from_str(append_rows(wrapped, vec![row]).0.get()).unwrap();
+        assert_eq!(joined["result"]["sessions"][0]["sessionId"], "relay:b");
+    }
+
+    #[test]
+    fn search_matches_every_word_of_a_row() {
+        let row = json!({ "summary": "Fix the login redirect", "cwd": "/w/webapp", "hostname": "Office PC" });
+        assert!(row_matches(&row, "login redirect"));
+        assert!(row_matches(&row, "office webapp"));
+        assert!(!row_matches(&row, "login billing"));
+    }
+
+    #[test]
+    fn ext_params_name_their_session() {
+        let raw = serde_json::value::to_raw_value(&json!({ "sessionId": "s1", "x": 1 })).unwrap();
+        assert_eq!(params_session(&raw).as_deref(), Some("s1"));
+        let raw = serde_json::value::to_raw_value(&json!({ "cwd": "/" })).unwrap();
+        assert_eq!(params_session(&raw), None);
     }
 }
