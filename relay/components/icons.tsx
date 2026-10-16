@@ -84,6 +84,33 @@ export const ArrowDownIcon = (p: IconProps) => (
     <path d="M12 5v14M6 13l6 6 6-6" />
   </Icon>
 );
+export const ArrowUpIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </Icon>
+);
+/** A project section's header. */
+export const FolderIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7.5Z" />
+  </Icon>
+);
+/** Six dots: a drag handle. */
+export const GripIcon = (p: IconProps) => (
+  <Icon {...p}>
+    {[8.5, 15.5].map((x) =>
+      [6, 12, 18].map((y) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.4" fill="currentColor" stroke="none" />),
+    )}
+  </Icon>
+);
+/** "Sort by recent activity": a clock turning back. */
+export const RecentIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" />
+    <path d="M4.5 4.5v3.2h3.2" />
+    <path d="M12 8v4l2.6 1.6" />
+  </Icon>
+);
 export const MoreIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx="5.5" cy="12" r="1.2" fill="currentColor" />

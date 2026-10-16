@@ -89,6 +89,11 @@ export function SessionView({ model, initialInfoOpen = false }: { model: Session
           onRetry={actions.retry}
           onDiscard={actions.discard}
           now={model.now}
+          history={
+            session.historyState === "none" || session.historyState === "requested"
+              ? { computer: session.deviceName, online: session.deviceOnline }
+              : null
+          }
         />
         <Composer
           key={session._id}

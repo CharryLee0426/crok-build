@@ -9,7 +9,7 @@ import type { CommandId, OutboxItem, PendingPrompt, SessionId, SessionInfoResult
 import { ErrorBoundary } from "../AccountGate";
 import { useI18n } from "../I18nProvider";
 import { ChatsIcon } from "../icons";
-import { useErrorText } from "../SessionList";
+import { useErrorText, useSessionActions } from "../SessionList";
 import { useToast } from "../Toast";
 import { ButtonLink, Loading, Notice, useNow } from "../ui";
 import { SessionView } from "./SessionView";
@@ -64,8 +64,8 @@ function LiveSession({ id }: { id: SessionId }) {
   const retryCommand = useMutation(api.commands.retry);
   const discardCommand = useMutation(api.commands.discard);
   const requestInfo = useMutation(api.commands.requestInfo);
-  const setPinned = useMutation(api.sessions.setPinned);
-  const setArchived = useMutation(api.sessions.setArchived);
+  // Pin and archive from the info panel move the row in the list at once, like the list's own menu.
+  const sessionActions = useSessionActions();
   const watch = useMutation(api.sessions.watch);
   const markRead = useMutation(api.sessions.markRead);
 
@@ -228,10 +228,8 @@ function LiveSession({ id }: { id: SessionId }) {
         }
       },
       requestInfo: doRequestInfo,
-      setPinned: (pinned) =>
-        void setPinned({ sessionDocId: id, pinned }).catch((error) => toast.show(errorText(error), "error")),
-      setArchived: (archived) =>
-        void setArchived({ sessionDocId: id, archived }).catch((error) => toast.show(errorText(error), "error")),
+      setPinned: (pinned) => sessionActions.setPinned(id, pinned),
+      setArchived: (archived) => sessionActions.setArchived(id, archived),
     },
   };
 

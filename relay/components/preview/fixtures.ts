@@ -7,6 +7,7 @@ import type {
   DeviceRow,
   PendingLogin,
   PendingPrompt,
+  ProjectGroup,
   PromptCommand,
   SessionDetail,
   SessionId,
@@ -21,17 +22,28 @@ type DeviceId = SessionRow["deviceId"];
 const mac = "dev_mac" as DeviceId;
 const studio = "dev_studio" as DeviceId;
 const box = "dev_box" as DeviceId;
+const DAY = 24 * HOUR;
 
-export function fakeSessions(now: number): SessionRow[] {
-  const row = (r: Partial<SessionRow> & Pick<SessionRow, "_id" | "title" | "cwd">): SessionRow => ({
+const COMPUTERS: Record<string, { name: string; online: boolean }> = {
+  [mac]: { name: "MacBook Pro", online: true },
+  [box]: { name: "dev-box", online: false },
+};
+
+type RowInput = Partial<SessionRow> & Pick<SessionRow, "_id" | "title" | "cwd"> & { project: string };
+
+/** A list row as the relay sends it; `project` is the project's path (its key and name follow from it). */
+function fakeRow(now: number, { project, ...r }: RowInput): SessionRow {
+  const deviceId = r.deviceId ?? mac;
+  const computer = COMPUTERS[deviceId];
+  return {
     sessionId: `0199e3b2-${r._id}`,
     model: "grok-code-fast-1",
     status: "idle",
-    online: true,
+    online: computer.online,
     app: "tui",
-    deviceId: mac,
-    deviceName: "MacBook Pro",
-    deviceOnline: true,
+    deviceId,
+    deviceName: computer.name,
+    deviceOnline: computer.online,
     preview: null,
     previewKind: null,
     lastActivityAt: now - 5 * MIN,
@@ -39,11 +51,27 @@ export function fakeSessions(now: number): SessionRow[] {
     archived: false,
     unread: 0,
     plan: null,
+    projectKey: `${deviceId}:${project}`,
+    projectPath: project,
+    projectName: project.split("/").pop() || project,
+    historyState: null,
     ...r,
-  });
-  return [
-    row({
+  };
+}
+
+/** Sessions only on the computer's disk (the catalog): offline until opened, transcript not fetched yet. */
+const CATALOG = { online: false, historyState: "none" as const, previewKind: "assistant" as const };
+
+/**
+ * `sessions:groups`: five projects on two computers, in the relay's order. crok-build has more than a section shows,
+ * sessions in folders of their own (a worktree, a subfolder), and sessions listed from disk; dev-box is offline.
+ */
+export function fakeGroups(now: number): ProjectGroup[] {
+  const crok = "/Users/me/code/crok-build";
+  const rows: SessionRow[] = [
+    fakeRow(now, {
       _id: "s_web" as SessionId,
+      project: "/Users/me/code/web-app",
       title: "Fix the flaky login test",
       cwd: "/Users/me/code/web-app",
       status: "running",
@@ -53,73 +81,169 @@ export function fakeSessions(now: number): SessionRow[] {
       lastActivityAt: now - 1 * MIN,
       plan: { done: 3, total: 5 },
     }),
-    row({
+    fakeRow(now, {
+      _id: "s_web_react" as SessionId,
+      project: "/Users/me/code/web-app",
+      title: "Upgrade to React 19.3",
+      cwd: "/Users/me/code/web-app",
+      ...CATALOG,
+      preview: "Bumped react and react-dom; two type errors are left in the editor.",
+      lastActivityAt: now - 6 * DAY,
+    }),
+    fakeRow(now, {
+      _id: "s_relay" as SessionId,
+      project: crok,
+      title: "Group the remote list by project",
+      cwd: `${crok}/.claude/worktrees/remote-relay`,
+      preview: "Also let people reorder the sessions",
+      previewKind: "user",
+      lastActivityAt: now - 8 * MIN,
+    }),
+    fakeRow(now, {
+      _id: "s_docs" as SessionId,
+      project: crok,
+      title: "Write the release notes for 1.5",
+      cwd: crok,
+      preview: "Translate them into the five other languages too",
+      previewKind: "user",
+      lastActivityAt: now - 3 * HOUR,
+      unread: 1,
+    }),
+    fakeRow(now, {
+      _id: "s_perf" as SessionId,
+      project: crok,
+      title: "Profile the slow transcript scroll",
+      cwd: `${crok}/desktop`,
+      app: "desktop",
+      status: "error",
+      preview: "Model request failed: 529 overloaded",
+      previewKind: "error",
+      lastActivityAt: now - 4 * DAY,
+    }),
+    fakeRow(now, {
+      _id: "s_cat_tui" as SessionId,
+      project: crok,
+      title: "Translate the TUI settings",
+      cwd: crok,
+      ...CATALOG,
+      preview: "All 2,630 strings are in the catalog now.",
+      lastActivityAt: now - 5 * DAY,
+    }),
+    fakeRow(now, {
+      _id: "s_cat_rust" as SessionId,
+      project: crok,
+      title: "Bump the Rust toolchain to 1.94",
+      cwd: crok,
+      ...CATALOG,
+      preview: "Clippy is clean; two new lints are allowed for now.",
+      lastActivityAt: now - 9 * DAY,
+    }),
+    fakeRow(now, {
+      _id: "s_cat_pty" as SessionId,
+      project: crok,
+      title: "Fix the flaky PTY test",
+      cwd: `${crok}/crates`,
+      ...CATALOG,
+      preview: "The pty is drained before waitpid now.",
+      lastActivityAt: now - 12 * DAY,
+    }),
+    fakeRow(now, {
+      _id: "s_cat_icons" as SessionId,
+      project: crok,
+      title: "Clean up the app icons",
+      cwd: crok,
+      online: false,
+      historyState: "ready",
+      preview: "Removed the unused 16 px variants.",
+      previewKind: "assistant",
+      lastActivityAt: now - 20 * DAY,
+    }),
+    fakeRow(now, {
       _id: "s_settings" as SessionId,
+      project: "/Users/me/code/settings-ui",
       title: "Add dark mode to Settings",
       cwd: "/Users/me/code/settings-ui",
       status: "waiting",
-      deviceId: studio,
-      deviceName: "Mac Studio",
       app: "desktop",
       preview: "Should the theme follow the system by default?",
       previewKind: "assistant",
       lastActivityAt: now - 14 * MIN,
       unread: 2,
     }),
-    row({
+    fakeRow(now, {
       _id: "s_billing" as SessionId,
+      project: "/home/me/billing-service",
       title: "Migrate the billing API to v2",
       cwd: "/home/me/billing-service",
       deviceId: box,
-      deviceName: "dev-box",
-      online: false,
-      deviceOnline: false,
       preview: "Updated 12 call sites and the webhook handler. Tests pass.",
       previewKind: "assistant",
       lastActivityAt: now - 26 * HOUR,
     }),
-    row({
-      _id: "s_docs" as SessionId,
-      title: "Write the release notes for 1.5",
-      cwd: "/Users/me/code/crok-build",
-      preview: "Translate them into the five other languages too",
-      previewKind: "user",
-      lastActivityAt: now - 3 * HOUR,
-      unread: 1,
-    }),
-    row({
-      _id: "s_perf" as SessionId,
-      title: "Profile the slow transcript scroll",
-      cwd: "/Users/me/code/crok-build/desktop",
-      deviceId: studio,
-      deviceName: "Mac Studio",
-      app: "desktop",
-      status: "error",
-      preview: "Model request failed: 529 overloaded",
-      previewKind: "error",
-      lastActivityAt: now - 4 * 24 * HOUR,
-    }),
-    row({
+    fakeRow(now, {
       _id: "s_infra" as SessionId,
+      project: "/home/me/infra",
       title: "Rotate the staging certificates",
       cwd: "/home/me/infra",
       deviceId: box,
-      deviceName: "dev-box",
-      online: false,
-      deviceOnline: false,
+      ...CATALOG,
       preview: "Done. Certificates renew on the 1st of each month now.",
+      lastActivityAt: now - 40 * DAY,
+    }),
+  ];
+  const groups: ProjectGroup[] = [];
+  for (const row of rows) {
+    let group = groups.find((g) => g.key === row.projectKey);
+    if (!group) {
+      group = {
+        key: row.projectKey,
+        deviceId: row.deviceId,
+        deviceName: row.deviceName,
+        deviceOnline: row.deviceOnline,
+        path: row.projectPath,
+        name: row.projectName,
+        placed: true,
+        lastActivityAt: row.lastActivityAt,
+        sessions: [],
+      };
+      groups.push(group);
+    }
+    group.lastActivityAt = Math.max(group.lastActivityAt, row.lastActivityAt);
+    group.sessions.push(row);
+  }
+  return groups;
+}
+
+/** `sessions:list({archived: true})`. */
+export function fakeArchived(now: number): SessionRow[] {
+  return [
+    fakeRow(now, {
+      _id: "s_arch_tok" as SessionId,
+      project: "/Users/me/code/crok-build",
+      title: "Try the new tokenizer",
+      cwd: "/Users/me/code/crok-build",
+      online: false,
+      archived: true,
+      preview: "It saves 4% on English and 11% on Chinese prompts.",
       previewKind: "assistant",
-      lastActivityAt: now - 40 * 24 * HOUR,
+      lastActivityAt: now - 15 * DAY,
+    }),
+    fakeRow(now, {
+      _id: "s_arch_deploy" as SessionId,
+      project: "/home/me/infra",
+      title: "Retire the old deploy script",
+      cwd: "/home/me/infra/scripts",
+      deviceId: box,
+      archived: true,
+      preview: "Removed deploy.sh; the pipeline uses the new action.",
+      previewKind: "assistant",
+      lastActivityAt: now - 52 * DAY,
     }),
   ];
 }
 
 export function fakeComputers(): Pick<DeviceRow, "_id" | "name" | "online">[] {
-  return [
-    { _id: mac, name: "MacBook Pro", online: true },
-    { _id: studio, name: "Mac Studio", online: true },
-    { _id: box, name: "dev-box", online: false },
-  ];
+  return Object.entries(COMPUTERS).map(([id, c]) => ({ _id: id as DeviceRow["_id"], name: c.name, online: c.online }));
 }
 
 export function fakeSession(now: number, overrides: Partial<SessionDetail> = {}): SessionDetail {
@@ -160,8 +284,44 @@ export function fakeSession(now: number, overrides: Partial<SessionDetail> = {})
     archived: false,
     unread: 0,
     eventSeq: 30,
+    projectKey: `${mac}:/Users/me/code/web-app`,
+    projectPath: "/Users/me/code/web-app",
+    projectName: "web-app",
+    historyState: null,
     ...overrides,
   };
+}
+
+/**
+ * A session only listed from the computer's disk, just opened: no transcript yet. On an online computer the relay has
+ * asked for it ("Loading from MacBook Pro…"); on an offline one it waits for crok to run there.
+ */
+export function fakeCatalogSession(now: number, computerOnline: boolean): SessionDetail {
+  const crok = "/Users/me/code/crok-build";
+  return fakeSession(now, {
+    _id: (computerOnline ? "s_cat_tui" : "s_infra") as SessionId,
+    title: computerOnline ? "Translate the TUI settings" : "Rotate the staging certificates",
+    cwd: computerOnline ? crok : "/home/me/infra",
+    effort: null,
+    gitBranch: computerOnline ? "main" : null,
+    status: "idle",
+    online: false,
+    app: "tui",
+    deviceId: computerOnline ? mac : box,
+    deviceName: computerOnline ? "MacBook Pro" : "dev-box",
+    devicePlatform: computerOnline ? "macOS 26.1 (arm64)" : "Linux 6.8 (x86_64)",
+    deviceOnline: computerOnline,
+    createdAt: now - (computerOnline ? 6 : 41) * DAY,
+    lastActivityAt: now - (computerOnline ? 5 : 40) * DAY,
+    plan: [],
+    usage: null,
+    pinned: false,
+    eventSeq: 0,
+    projectKey: computerOnline ? `${mac}:${crok}` : `${box}:/home/me/infra`,
+    projectPath: computerOnline ? crok : "/home/me/infra",
+    projectName: computerOnline ? "crok-build" : "infra",
+    historyState: computerOnline ? "requested" : "none",
+  });
 }
 
 const SESSION = "s_web" as SessionId;

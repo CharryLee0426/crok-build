@@ -182,6 +182,8 @@ export type MenuItem = {
   label: string;
   icon?: ReactNode;
   tone?: "danger";
+  /** Shown but not selectable (e.g. reordering while a search is active). */
+  disabled?: boolean;
   onSelect: () => void;
 };
 
@@ -235,13 +237,14 @@ export function ActionMenu({ label, items, className = "relative" }: { label: st
               key={item.label}
               role="menuitem"
               type="button"
+              disabled={item.disabled}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 setOpen(false);
                 item.onSelect();
               }}
-              className={`flex w-full items-center gap-3 px-3.5 py-2 text-left text-sm hover:bg-hover ${
+              className={`flex w-full items-center gap-3 whitespace-nowrap px-3.5 py-2 text-left text-sm hover:bg-hover disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent ${
                 item.tone === "danger" ? "text-danger" : "text-fg"
               }`}
             >

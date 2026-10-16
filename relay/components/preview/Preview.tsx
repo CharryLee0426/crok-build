@@ -15,21 +15,31 @@ import { Landing } from "@/components/Landing";
 import { LinkApprovalView, LinkEntry } from "@/components/LinkDevice";
 import type { LinkOutcome } from "@/components/LinkDevice";
 import { SessionsPaneView } from "@/components/SessionList";
-import type { Tab } from "@/components/SessionList";
+import type { OrderActions, SessionActions, Tab } from "@/components/SessionList";
 import { SessionView } from "@/components/session/SessionView";
 import type { InfoState, SessionModel } from "@/components/session/SessionView";
 import { LanguageSelect } from "@/components/chrome";
 import type { Lang } from "@/lib/i18n";
-import type { PendingLogin, SessionDetail } from "@/lib/types";
 import {
+  addSession,
+  applyProjectOrder,
+  applyResetOrder,
+  applySessionOrder,
+  patchSession,
+  removeSession,
+} from "@/lib/order";
+import type { PendingLogin, ProjectGroup, SessionDetail, SessionRow, TranscriptEvent } from "@/lib/types";
+import {
+  fakeArchived,
+  fakeCatalogSession,
   fakeCommands,
   fakeComputers,
   fakeDevices,
   fakeEvents,
+  fakeGroups,
   fakeLogin,
   fakePending,
   fakeSession,
-  fakeSessions,
 } from "./fixtures";
 
 export const SCREENS = [
@@ -40,6 +50,8 @@ export const SCREENS = [
   "session-info",
   "session-offline",
   "session-waiting",
+  "session-catalog",
+  "session-catalog-offline",
   "link",
   "link-request",
   "link-approved",
@@ -65,13 +77,36 @@ function Header() {
   return <AppHeader account={<FakeAccount />} />;
 }
 
+/** The list with fake data that still moves: pin, archive and reorder apply locally, with the relay's rules. */
 function Pane({ empty = false, activeId }: { empty?: boolean; activeId?: string }) {
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
-  const now = Date.now();
+  const [now] = useState(() => Date.now());
+  const [groups, setGroups] = useState<ProjectGroup[]>(() => (empty ? [] : fakeGroups(now)));
+  const [archived, setArchived] = useState<SessionRow[]>(() => (empty ? [] : fakeArchived(now)));
+  const actions: SessionActions = {
+    setPinned: (id, pinned) => {
+      setGroups((g) => patchSession(g, id, { pinned }));
+      setArchived((rows) => rows.map((r) => (r._id === id ? { ...r, pinned } : r)));
+    },
+    setArchived: (id, archive) => {
+      const row = [...groups.flatMap((g) => g.sessions), ...archived].find((r) => r._id === id);
+      if (!row) return;
+      const moved = { ...row, archived: archive, pinned: archive ? false : row.pinned };
+      setGroups((g) => (archive ? removeSession(g, id) : addSession(g, moved)));
+      setArchived((rows) => (archive ? [moved, ...rows] : rows.filter((r) => r._id !== id)));
+    },
+    stop: noop,
+  };
+  const order: OrderActions = {
+    reorderProjects: (keys) => setGroups((g) => applyProjectOrder(g, keys)),
+    reorderSessions: (key, ids) => setGroups((g) => applySessionOrder(g, key, ids)),
+    resetOrder: (key) => setGroups((g) => applyResetOrder(g, key)),
+  };
   return (
     <SessionsPaneView
-      sessions={empty ? [] : fakeSessions(now)}
+      groups={groups}
+      archived={archived}
       computers={empty ? [] : fakeComputers()}
       tab={tab}
       onTab={setTab}
@@ -79,20 +114,25 @@ function Pane({ empty = false, activeId }: { empty?: boolean; activeId?: string 
       onQuery={setQuery}
       activeId={activeId}
       now={now}
-      actions={{ setPinned: noop, setArchived: noop, stop: noop }}
+      actions={actions}
+      order={order}
       footer={<LanguageSelect />}
     />
   );
 }
 
-function sessionModel(session: SessionDetail, info: InfoState = { state: "idle", result: null }): SessionModel {
+function sessionModel(
+  session: SessionDetail,
+  info: InfoState = { state: "idle", result: null },
+  events?: TranscriptEvent[],
+): SessionModel {
   const now = Date.now();
   return {
     session,
-    events: fakeEvents(now),
+    events: events ?? fakeEvents(now),
     pagination: { canLoadMore: false, loadingMore: false, isDone: true, firstLoad: false, loadMore: noop },
-    commands: fakeCommands(now),
-    pending: session.online ? fakePending(now) : [],
+    commands: events ? [] : fakeCommands(now),
+    pending: session.online && !events ? fakePending(now) : [],
     info,
     stopping: false,
     now,
@@ -108,10 +148,20 @@ function sessionModel(session: SessionDetail, info: InfoState = { state: "idle",
   };
 }
 
-function SessionScreenPreview({ session, infoOpen, info }: { session: SessionDetail; infoOpen?: boolean; info?: InfoState }) {
+function SessionScreenPreview({
+  session,
+  infoOpen,
+  info,
+  events,
+}: {
+  session: SessionDetail;
+  infoOpen?: boolean;
+  info?: InfoState;
+  events?: TranscriptEvent[];
+}) {
   return (
     <ChatLayout header={<Header />} pane={<Pane activeId={session._id} />} inSession gate={false}>
-      <SessionView model={sessionModel(session, info)} initialInfoOpen={infoOpen} />
+      <SessionView model={sessionModel(session, info, events)} initialInfoOpen={infoOpen} />
     </ChatLayout>
   );
 }
@@ -171,6 +221,10 @@ function Screen({ name }: { name: string }) {
       );
     case "session-waiting":
       return <SessionScreenPreview session={fakeSession(now, { status: "waiting", plan: [] })} />;
+    case "session-catalog":
+      return <SessionScreenPreview session={fakeCatalogSession(now, true)} events={[]} />;
+    case "session-catalog-offline":
+      return <SessionScreenPreview session={fakeCatalogSession(now, false)} events={[]} />;
     case "link":
       return (
         <PageFrame header={<Header />} gate={false}>

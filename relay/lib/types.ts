@@ -4,6 +4,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 /** Row shapes straight from the relay's API (relay/convex), so the UI follows the contract when it changes. */
 export type SessionRow = FunctionReturnType<typeof api.sessions.list>[number];
+/** One project section of the main list (`sessions:groups`): its sessions are rows like `SessionRow`. */
+export type ProjectGroup = FunctionReturnType<typeof api.sessions.groups>[number];
 export type SessionDetail = FunctionReturnType<typeof api.sessions.get>;
 export type TranscriptEvent = FunctionReturnType<typeof api.sessions.events>["page"][number];
 export type PromptCommand = FunctionReturnType<typeof api.commands.forSession>[number];

@@ -14,6 +14,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ClockIcon,
+  ComputerIcon,
   DoubleCheckIcon,
   SpinnerIcon,
   ToolKindIcon,
@@ -85,7 +86,36 @@ export type TranscriptProps = {
   onRetry: (prompt: PendingPrompt) => void;
   onDiscard: (prompt: PendingPrompt) => void;
   now: number;
+  /**
+   * Set while the transcript is still only on the computer (a session listed from its disk, `historyState` none or
+   * requested): with no events yet, the transcript says it is loading from there, or that the computer is offline.
+   */
+  history?: { computer: string; online: boolean } | null;
 };
+
+/** In place of an empty transcript whose history the relay doesn't have yet. */
+function HistoryNotice({ computer, online }: { computer: string; online: boolean }) {
+  const { t } = useI18n();
+  if (online) {
+    return (
+      <div
+        role="status"
+        className="flex items-center gap-2 rounded-full bg-surface px-4 py-2 text-[13.5px] text-muted shadow-sm"
+      >
+        <SpinnerIcon size={15} className="text-accent-text" />
+        <span>{t("history_loading", { computer })}</span>
+      </div>
+    );
+  }
+  return (
+    <div role="status" className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface text-faint shadow-sm">
+        <ComputerIcon size={22} />
+      </span>
+      <p className="text-[13.5px] leading-relaxed text-muted">{t("history_offline", { computer })}</p>
+    </div>
+  );
+}
 
 /**
  * Bottom-anchored transcript. The scroller is `flex-col-reverse`, so it opens at the newest message and older pages
@@ -93,7 +123,8 @@ export type TranscriptProps = {
  * below, and a "jump to latest" button counts them.
  */
 export function Transcript(props: TranscriptProps) {
-  const { events, pending, commands, canLoadMore, loadingMore, isDone, firstLoad, loadMore, now } = props;
+  const { events, pending, commands, canLoadMore, loadingMore, isDone, firstLoad, loadMore, now, history } = props;
+  const awaitingHistory = history && events.length === 0 && !firstLoad ? history : null;
   const { t, lang } = useI18n();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -176,7 +207,7 @@ export function Transcript(props: TranscriptProps) {
               {firstLoad ? t("loading") : t("loading_older")}
             </div>
           ) : null}
-          {isDone && !firstLoad ? (
+          {isDone && !firstLoad && !awaitingHistory ? (
             <div className="py-4 text-center text-xs text-faint">
               {items.length ? t("transcript_start") : t("transcript_empty")}
             </div>
@@ -203,6 +234,11 @@ export function Transcript(props: TranscriptProps) {
           ))}
         </div>
       </div>
+      {awaitingHistory ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+          <HistoryNotice computer={awaitingHistory.computer} online={awaitingHistory.online} />
+        </div>
+      ) : null}
       {!atBottom ? (
         <button
           type="button"

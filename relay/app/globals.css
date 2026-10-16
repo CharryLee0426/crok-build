@@ -313,3 +313,11 @@
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
 }
+
+/* While a project or session is being dragged (components/useDragReorder.ts): a grabbing hand, no text selection. */
+html.reordering,
+html.reordering * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}

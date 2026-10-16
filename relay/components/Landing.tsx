@@ -20,7 +20,15 @@ function demoRows(t: (key: MessageKey) => string): { row: SessionRow; time: stri
     archived: false,
     plan: null,
     lastActivityAt: 0,
+    historyState: null,
   };
+  // A demo session's folder is its own project.
+  const place = (cwd: string) => ({
+    cwd,
+    projectKey: `demo-device:${cwd}`,
+    projectPath: cwd,
+    projectName: cwd.split("/").pop() ?? cwd,
+  });
   return [
     {
       time: "09:41",
@@ -28,7 +36,7 @@ function demoRows(t: (key: MessageKey) => string): { row: SessionRow; time: stri
         ...base,
         _id: "demo1" as SessionRow["_id"],
         title: t("demo_title_1"),
-        cwd: "/Users/me/code/web-app",
+        ...place("/Users/me/code/web-app"),
         status: "running",
         online: true,
         deviceName: "MacBook Pro",
@@ -44,7 +52,7 @@ function demoRows(t: (key: MessageKey) => string): { row: SessionRow; time: stri
         ...base,
         _id: "demo2" as SessionRow["_id"],
         title: t("demo_title_2"),
-        cwd: "/Users/me/code/settings-ui",
+        ...place("/Users/me/code/settings-ui"),
         status: "waiting",
         online: true,
         deviceName: "Mac Studio",
@@ -60,7 +68,7 @@ function demoRows(t: (key: MessageKey) => string): { row: SessionRow; time: stri
         ...base,
         _id: "demo3" as SessionRow["_id"],
         title: t("demo_title_3"),
-        cwd: "/home/me/billing-service",
+        ...place("/home/me/billing-service"),
         status: "idle",
         online: false,
         deviceName: "dev-box",
