@@ -735,39 +735,24 @@ mod imp {
         Ok(())
     }
 
-    /// Type with real key presses on a US layout; iOS autocorrect sees each word as it lands.
-    fn type_keys(text: &str) -> Result<(), String> {
-        for c in text.chars() {
-            let key = match c {
-                ' ' => Some(keys::Key {
-                    code: 49,
-                    shifted: false,
-                }),
-                '\n' => Some(keys::Key {
-                    code: keys::RETURN,
-                    shifted: false,
-                }),
-                other => keys::char_key(other),
-            };
-            let key = key.ok_or_else(|| format!("'{c}' cannot be typed as a key"))?;
-            let held: &[(u16, u64)] = if key.shifted {
-                &[(keys::SHIFT, SHIFT_MASK)]
-            } else {
-                &[]
-            };
-            press_with(key.code, held)?;
-            sleep(Duration::from_millis(30));
-        }
-        Ok(())
+    /// `pbcopy` or `pbpaste` speaking UTF-8. Both use the locale's encoding, and Crok often has
+    /// none: Crok Desktop opened from the Finder, and the leader it starts, which the TUI then
+    /// shares. Chinese or Japanese then lands as MacRoman mojibake ("你好" as "‰Ω†Â•Ω"), or not
+    /// at all under a Chinese or Japanese system encoding, and reading it back through the same
+    /// wrong encoding hides that.
+    pub fn pasteboard_tool(program: &str) -> std::process::Command {
+        let mut cmd = std::process::Command::new(program);
+        speak_utf8(&mut cmd);
+        cmd
     }
 
-    fn typable(text: &str) -> bool {
-        text.chars()
-            .all(|c| c == ' ' || c == '\n' || keys::char_key(c).is_some())
+    fn speak_utf8(cmd: &mut std::process::Command) -> &mut std::process::Command {
+        cmd.env("LANG", "en_US.UTF-8").env("LC_ALL", "en_US.UTF-8")
     }
 
     /// Type by pasting: the text goes on the Mac's clipboard and cmd+v sends it to the phone,
-    /// exactly as written, past autocorrect and keyboard layout. It stays on the clipboard
+    /// exactly as written in any language, past autocorrect and the phone's keyboard (a Pinyin
+    /// or Japanese keyboard would compose typed keys into candidates). It stays on the clipboard
     /// afterwards: the phone fetches it some unknown time after the paste, and putting back the
     /// earlier contents too soon would paste those (a password, a token) instead.
     pub fn paste(text: &str) -> Result<(), String> {
@@ -776,7 +761,7 @@ mod imp {
             return Ok(());
         }
         #[allow(clippy::disallowed_methods)] // waited on just below
-        let mut copy = std::process::Command::new("/usr/bin/pbcopy")
+        let mut copy = pasteboard_tool("/usr/bin/pbcopy")
             .stdin(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| format!("could not use the Mac's clipboard: {e}"))?;
@@ -787,7 +772,7 @@ mod imp {
         }
         copy.wait()
             .map_err(|e| format!("could not use the Mac's clipboard: {e}"))?;
-        let check = std::process::Command::new("/usr/bin/pbpaste")
+        let check = pasteboard_tool("/usr/bin/pbpaste")
             .output()
             .map_err(|e| format!("could not read the Mac's clipboard: {e}"))?;
         if check.stdout != text.as_bytes() {
@@ -802,14 +787,12 @@ mod imp {
         press_with(v.code, &[(keys::COMMAND, COMMAND_MASK)])
     }
 
-    /// Open an app through Spotlight: cmd+3, type the name, let results fill, then Return.
+    /// Open an app through Spotlight: cmd+3, paste the name, let results fill, then Return.
+    /// Pasted even when it is plain ASCII: typed keys go through the phone's keyboard, and a
+    /// Chinese or Japanese one leaves them as a composition that Return only commits.
     pub fn open_app(name: &str) -> Result<String, String> {
         shortcut("3", 900)?;
-        if typable(name) {
-            type_keys(name)?;
-        } else {
-            paste(name)?;
-        }
+        paste(name)?;
         sleep(Duration::from_millis(1200));
         press_with(keys::RETURN, &[])?;
         sleep(Duration::from_millis(1000));
@@ -960,10 +943,44 @@ mod imp {
             assert!(text.contains("LOCK"));
         }
 
+        /// `program` on the ruler pasteboard, from the environment of Crok Desktop opened from
+        /// the Finder on a Chinese Mac (no locale variables, a Chinese system text encoding,
+        /// where an unpinned pbcopy stores nothing), pinned to UTF-8 as [`pasteboard_tool`] does.
+        fn ruler(program: &str, input: Option<&str>) -> Option<Vec<u8>> {
+            use std::io::Write as _;
+            let mut cmd = std::process::Command::new(program);
+            for var in ["LANG", "LC_ALL", "LC_CTYPE"] {
+                cmd.env_remove(var);
+            }
+            cmd.env("__CF_USER_TEXT_ENCODING", "0x1F5:0x19:0x52");
+            speak_utf8(&mut cmd).args(["-pboard", "ruler"]);
+            if let Some(text) = input {
+                #[allow(clippy::disallowed_methods)] // waited on just below
+                let mut child = cmd.stdin(std::process::Stdio::piped()).spawn().ok()?;
+                child.stdin.take()?.write_all(text.as_bytes()).ok()?;
+                return child.wait().ok()?.success().then(Vec::new);
+            }
+            let out = cmd.output().ok()?;
+            out.status.success().then_some(out.stdout)
+        }
+
         #[test]
-        fn typable_text_is_plain_us_keys() {
-            assert!(typable("Notes app"));
-            assert!(!typable("微信"));
+        fn the_pasteboard_keeps_cjk_text_without_a_locale() {
+            // The ruler pasteboard, so the user's clipboard is left alone
+            let Some(before) = ruler("/usr/bin/pbpaste", None) else {
+                eprintln!("no pasteboard in this session; skipped");
+                return;
+            };
+            let text = "你好，世界 こんにちは 한국어 😀";
+            let written = ruler("/usr/bin/pbcopy", Some(text));
+            let read = ruler("/usr/bin/pbpaste", None);
+            ruler("/usr/bin/pbcopy", Some(&String::from_utf8_lossy(&before)));
+            assert!(written.is_some());
+            assert_eq!(
+                String::from_utf8_lossy(&read.unwrap_or_default()),
+                text,
+                "the pasteboard did not keep the text as UTF-8"
+            );
         }
     }
 }

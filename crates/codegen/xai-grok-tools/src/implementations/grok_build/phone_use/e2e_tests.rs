@@ -109,3 +109,35 @@ async fn connects_reads_and_looks() {
         }
     }
 }
+
+#[tokio::test]
+#[ignore = "types on a real phone: focus an empty text field first; PHONE_E2E_DEVICE=iphone|android"]
+async fn types_chinese_and_japanese() {
+    let device = match std::env::var("PHONE_E2E_DEVICE").as_deref() {
+        Ok("android") => PhoneDevice::Android,
+        _ => PhoneDevice::Iphone,
+    };
+    let text = std::env::var("PHONE_E2E_TEXT").unwrap_or_else(|_| "你好，世界 こんにちは".into());
+    let session = PhoneSession::default();
+    let mut typed = PhoneInput::new(PhoneAction::Type);
+    typed.text = Some(text.clone());
+    let mut screen = String::new();
+    for mut input in [
+        PhoneInput::new(PhoneAction::Connect),
+        typed,
+        PhoneInput::new(PhoneAction::ReadScreen),
+    ] {
+        input.device = Some(device);
+        let name = input.action.name();
+        let result = session.run(None, input).await;
+        println!("--- {name}\n{}", result.text);
+        assert!(!result.is_error, "{}", result.text);
+        screen = result.text;
+    }
+    // Android's tree reads the field exactly; recognition on the iPhone may split the line
+    let first = text.split_whitespace().next().unwrap_or(&text);
+    assert!(
+        screen.contains(first),
+        "read_screen does not show {first:?}"
+    );
+}

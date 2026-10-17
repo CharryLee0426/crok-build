@@ -294,7 +294,7 @@ const DESCRIPTION: &str = r#"Use the user's phone: an iPhone through the Mac's i
 - scroll {direction, amount?, coordinate?}: `direction` is the content to reveal: "down" shows what is further down a list. Use it to walk lists; aim it with `coordinate` at an inner list or a horizontal strip.
 - swipe {direction, amount?, coordinate?}: a flick where `direction` is the finger's motion: "up" for the next video, "left" for the next page or Home Screen page.
 - drag {start_coordinate, coordinate, duration?}: press, move, release.
-- type {text}: type into the focused field. Tap the field first and check with read_screen afterwards: text typed with no focused field goes nowhere. On the iPhone it pastes through the Mac's clipboard (exact text, no autocorrect); on Android it types ASCII only.
+- type {text}: type into the focused field. Tap the field first and check with read_screen afterwards: text typed with no focused field goes nowhere. Any language works (Chinese, Japanese, emoji…): it pastes the exact text through a clipboard, the Mac's for the iPhone and the phone's own on Android, so the phone's keyboard and autocorrect never touch it; newlines press Enter on Android.
 - key {text}: "enter", "delete" (backspace), "tab", "escape", arrow keys; Android also "back", "home", "volume_up"…; the iPhone also chords such as "cmd+a".
 - home, back (Android only; iOS has no Back button: tap the app's own back control), app_switcher.
 - open_app {text}: open an app by name (on Android also by package id). On the iPhone it goes through Spotlight; check with read_screen that it opened.
