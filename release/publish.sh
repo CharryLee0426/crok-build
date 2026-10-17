@@ -81,6 +81,11 @@ fi
 if ! security find-identity -v -p codesigning 2>/dev/null | grep -q 'Developer ID'; then
     printf 'No Developer ID identity: the app and image will be ad hoc signed (SIGN_IDENTITY unset).\n'
 fi
+# Without the Metal compiler the app is built without its liquid metal and light effects
+# (third_party/LibrariesDev/README.md); a local build may, a release must not.
+if [[ "$skip_build" == 0 ]] && ! /usr/bin/xcrun -sdk macosx metal --version >/dev/null 2>&1; then
+    fail "no Metal compiler: run xcodebuild -downloadComponent MetalToolchain"
+fi
 
 mkdir -p "$out"
 if [[ "$skip_build" == 0 ]]; then

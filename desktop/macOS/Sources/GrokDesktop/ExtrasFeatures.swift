@@ -127,6 +127,15 @@ final class ExtrasFeatureModel: ObservableObject {
     /// Waits for pending `config.toml` writes; for tests.
     func flushThemeWrites() { configWriter.sync {} }
 
+    /// Settings › Appearance › Metal finish. The accent, the reasoning sweep, and every metal
+    /// effect take it, so the window is rebuilt as for a theme.
+    func setMetalFinish(_ finish: MetalFinish) {
+        guard finish != MetalFinish.current else { return }
+        UserDefaults.standard.set(finish.rawValue, forKey: MetalFinish.key)
+        themeRevision += 1
+        store?.objectWillChange.send()
+    }
+
     private func show(_ theme: GrokTheme, appearance: String) {
         Theme.apply(theme)
         let defaults = themePreferences.defaults
@@ -425,6 +434,56 @@ struct AppearanceSettingsSection: View {
                 Text(L10n.t("transparency_reduced", "Windows stay solid while Reduce Transparency is on."))
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
+            Divider().padding(.vertical, 4)
+            MetalFinishSettings()
+        }
+    }
+}
+
+/// The metal of Crok Desktop's own look, and its Libraries.dev effects on or off (see `Atelier`).
+private struct MetalFinishSettings: View {
+    @ObservedObject private var language = L10n.state
+    @EnvironmentObject var extras: ExtrasFeatureModel
+    @AppStorage(MetalFinish.key) private var finishName = MetalFinish.defaultFinish.rawValue
+    @AppStorage(EffectsPreference.key) private var effects = true
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Label(L10n.t("metal_finish", "Metal finish"), systemImage: "circle.circle").font(.system(size: 13, weight: .medium))
+                    .frame(width: 130, alignment: .leading)
+                ForEach(MetalFinish.allCases) { finish in
+                    let selected = finish.rawValue == finishName
+                    Button { extras.setMetalFinish(finish) } label: {
+                        HStack(spacing: 7) {
+                            Circle().fill(Atelier.brushed(finish)).frame(width: 14, height: 14)
+                                .overlay(Circle().strokeBorder(Atelier.bevel(scheme), lineWidth: 0.75))
+                            Text(finish.displayName).font(.system(size: 12, weight: selected ? .semibold : .regular))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(selected ? Theme.hover : .clear, in: Capsule())
+                        .overlay(Capsule().strokeBorder(selected ? Theme.accent.opacity(0.7) : Theme.line, lineWidth: selected ? 1 : 0.5))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(finish.displayName)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+                Spacer(minLength: 0)
+            }
+            .disabled(!Theme.palette.usesSystemMaterials)
+            Toggle(isOn: $effects) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.t("effects_toggle", "Liquid metal and light effects")).font(.system(size: 13, weight: .medium))
+                    Text(EffectsPreference.shadersAvailable
+                         ? L10n.t("effects_detail", "The mark, the greeting, and the send button in liquid metal, a beam along the composer while a prompt waits for its answer, and a glow while you dictate.")
+                         : L10n.t("effects_unavailable", "This build of Crok Desktop was made without the effects' shaders, so it shows the plain look."))
+                        .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch).controlSize(.small)
+            .disabled(!EffectsPreference.shadersAvailable)
         }
     }
 }

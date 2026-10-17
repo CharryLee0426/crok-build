@@ -71,16 +71,21 @@ final class ComposerAttachmentStripTests: XCTestCase {
         return bitmap
     }
 
-    /// How many sampled points between two x positions (in points) are drawn in something other than the window's background.
-    private func inked(_ bitmap: NSBitmapImageRep, from minX: CGFloat, to maxX: CGFloat) throws -> Int {
+    /// How many sampled points between two x positions (in points) are drawn lighter than the window's background:
+    /// in this dark scene the chips are, while the composer card's shadow, which reaches past the card on purpose, is darker.
+    /// With `rows` and `reference` (points), only those rows count, against the colour at `reference` instead.
+    private func inked(_ bitmap: NSBitmapImageRep, from minX: CGFloat, to maxX: CGFloat,
+                       rows: ClosedRange<CGFloat>? = nil, reference: CGPoint? = nil) throws -> Int {
         let scale = CGFloat(bitmap.pixelsWide) / size.width
-        let background = try XCTUnwrap(bitmap.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
+        let point = reference.map { (x: Int($0.x * scale), y: Int($0.y * scale)) } ?? (x: 2, y: 2)
+        let background = try XCTUnwrap(bitmap.colorAt(x: point.x, y: point.y)?.usingColorSpace(.sRGB))
+        let lines = rows.map { Int($0.lowerBound * scale)..<Int($0.upperBound * scale) } ?? 0..<bitmap.pixelsHigh
         var count = 0
-        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
+        for y in stride(from: lines.lowerBound, to: lines.upperBound, by: 2) {
             for x in stride(from: Int(minX * scale), to: Int(maxX * scale), by: 2) {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                let difference = abs(color.redComponent - background.redComponent) + abs(color.greenComponent - background.greenComponent)
-                    + abs(color.blueComponent - background.blueComponent)
+                let difference = (color.redComponent - background.redComponent) + (color.greenComponent - background.greenComponent)
+                    + (color.blueComponent - background.blueComponent)
                 if difference > 0.04 { count += 1 }
             }
         }
@@ -178,9 +183,21 @@ final class ComposerAttachmentStripTests: XCTestCase {
         attachments.add(urls: try files(1..<2))
         settle(0.8)
 
-        // Two chips fit, so there is nothing to scroll: the first sits at the card's padding.
+        // Two chips fit, so there is nothing to scroll: the first sits at the card's padding. The padding
+        // shows the card's own surface, so it is compared with the card just above the strip.
         let bitmap = try picture("few")
-        XCTAssertEqual(try inked(bitmap, from: margin, to: margin + 15), 0, "the padding left of the first chip is empty")
-        XCTAssertGreaterThan(try inked(bitmap, from: margin + 16, to: margin + 60), 50, "the first chip starts after it")
+        let strip = try XCTUnwrap(stripFrame(), "the strip is laid out")
+        let rows = (strip.minY + 4)...(strip.maxY - 4)
+        let card = CGPoint(x: margin + 8, y: strip.minY - 6)
+        // From inside the card's 1 pt bevelled edge.
+        XCTAssertEqual(try inked(bitmap, from: margin + 2, to: margin + 15, rows: rows, reference: card), 0, "the padding left of the first chip is empty")
+        XCTAssertGreaterThan(try inked(bitmap, from: margin + 16, to: margin + 60, rows: rows, reference: card), 50, "the first chip starts after it")
+    }
+
+    /// Where the attachment strip is, in the host's (flipped) points, whether or not it scrolls: of the
+    /// composer's scroll views (the strip and the prompt's text), the one at the top of the card.
+    private func stripFrame() -> CGRect? {
+        func all(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(all) }
+        return all(host).map { $0.convert($0.bounds, to: host) }.min { $0.minY < $1.minY }
     }
 }

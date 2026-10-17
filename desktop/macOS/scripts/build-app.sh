@@ -55,6 +55,16 @@ binary_dir="$(swift build --package-path "$package_dir" --configuration release 
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 replace_executable "$binary_dir/GrokDesktop" "$app_dir/Contents/MacOS/GrokDesktop"
 
+# The Libraries.dev effects' Metal shaders, which SwiftPM does not compile. Without Xcode's Metal
+# Toolchain the app is built without them and draws its plain look (see LibrariesDevShaders).
+shader_status=0
+"$repository_dir/third_party/LibrariesDev/build-shaders.sh" "$app_dir/Contents/Resources/LibrariesDev.metallib" || shader_status=$?
+case "$shader_status" in
+    0) ;;
+    2) /bin/rm -f "$app_dir/Contents/Resources/LibrariesDev.metallib" ;;
+    *) printf 'Compiling the Libraries.dev shaders failed.\n' >&2; exit "$shader_status" ;;
+esac
+
 /bin/rm -f "$app_dir/Contents/Resources/grok" "$app_dir/Contents/Resources/bin/grok"
 replace_executable "$grok_source" "$app_dir/Contents/Resources/crok"
 /usr/bin/codesign --force --sign "${SIGN_IDENTITY:--}" "$app_dir/Contents/Resources/crok"

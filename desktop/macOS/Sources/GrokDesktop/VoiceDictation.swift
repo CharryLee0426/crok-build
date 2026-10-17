@@ -207,12 +207,24 @@ struct VoicePCMChunker {
 final class VoiceAudioCapture: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private var running = false
+    private let levelLock = NSLock()
+    private var lastLevel = 0.0
+
+    /// How loud the newest buffer was, 0…1 on a decibel scale: what the composer's voice glow
+    /// rises with. Read on the main thread every frame the glow draws.
+    var level: Double {
+        levelLock.lock(); defer { levelLock.unlock() }
+        return lastLevel
+    }
 
     func start(_ onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw ComposerCommandMessage("No microphone is available.") }
-        input.installTap(onBus: 0, bufferSize: 2_048, format: format) { buffer, _ in onBuffer(buffer) }
+        input.installTap(onBus: 0, bufferSize: 2_048, format: format) { [weak self] buffer, _ in
+            self?.measure(buffer)
+            onBuffer(buffer)
+        }
         engine.prepare()
         do { try engine.start() } catch { input.removeTap(onBus: 0); throw error }
         running = true
@@ -223,6 +235,19 @@ final class VoiceAudioCapture: @unchecked Sendable {
         running = false
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        levelLock.lock(); lastLevel = 0; levelLock.unlock()
+    }
+
+    /// The buffer's RMS, from -55 dBFS (silence) to -10 dBFS (a close, raised voice).
+    private func measure(_ buffer: AVAudioPCMBuffer) {
+        guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
+        let count = Int(buffer.frameLength)
+        var sum: Float = 0
+        for index in 0..<count { sum += samples[index] * samples[index] }
+        let rms = Double((sum / Float(count)).squareRoot())
+        let decibels = 20 * log10(max(rms, 1e-6))
+        let value = min(1, max(0, (decibels + 55) / 45))
+        levelLock.lock(); lastLevel = value; levelLock.unlock()
     }
 }
 
@@ -514,6 +539,12 @@ final class VoiceDictationController: ObservableObject {
     @Published private(set) var transcribing = false
 
     var isActive: Bool { phase != .idle }
+    /// The microphone's loudness while recording, 0…1, for the composer's voice glow. Not
+    /// published: the glow samples it each frame instead of redrawing the composer.
+    var level: Double {
+        guard phase == .recording else { return 0 }
+        return capture?.level ?? recognition?.level ?? 0
+    }
     /// OpenRouter transcribes each utterance after it ends, so stopping must wait for the last one
     /// rather than sending right away.
     var finalArrivesAfterStop: Bool { engine == .openRouter && phase != .idle }
@@ -780,6 +811,9 @@ private final class VoiceOnDeviceRecognition: @unchecked Sendable {
         self.language = language
         self.deliver = deliver
     }
+
+    /// The microphone's loudness (see `VoiceAudioCapture.level`).
+    var level: Double { capture.level }
 
     static func isAvailable(language: String) -> Bool {
         guard let recognizer = SFSpeechRecognizer(locale: locale(for: language)) else { return false }

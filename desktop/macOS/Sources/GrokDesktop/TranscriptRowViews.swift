@@ -165,6 +165,7 @@ final class TranscriptUserRow: TranscriptRowView {
     private var remoteCaption: TranscriptTextLabel?
 
     override func build() {
+        bubble.bevel = Theme.palette.usesSystemMaterials
         addSubview(bubble)
     }
 

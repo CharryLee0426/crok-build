@@ -93,12 +93,12 @@ final class ExtrasSnapshotTests: XCTestCase {
     }
 
     func testSettingsAppearanceSection() throws {
-        for (theme, dark) in [(GrokTheme.grokday, false), (.tokyonight, true)] {
+        for (theme, dark) in [(GrokTheme.grokday, false), (.tokyonight, true), (.auto, true), (.auto, false)] {
             Theme.apply(theme)
             let store = makeStore()
             store.features.extras.setTheme(theme)
             let view = AppearanceSettingsSection().settingsCard().padding(24).frame(width: 660).background(Theme.canvas).desktopEnvironment(store)
-            try write(view, "settings-appearance-\(dark ? "dark" : "light")", size: CGSize(width: 660, height: 330), dark: dark)
+            try write(view, "settings-appearance-\(theme.rawValue)-\(dark ? "dark" : "light")", size: CGSize(width: 660, height: 470), dark: dark)
         }
     }
 

@@ -12,32 +12,19 @@ import QuartzCore
 /// reasoning streamed.) Nothing animates once the block stops streaming. With Reduce Motion the
 /// colours stay still.
 enum ThinkingPalette {
-    /// Cool to warm and back, so the band's two ends meet the same colour as it reverses.
-    static let nsColors: [NSColor] = [
-        NSColor(srgbRed: 0.35, green: 0.55, blue: 1.00, alpha: 1),
-        NSColor(srgbRed: 0.62, green: 0.42, blue: 1.00, alpha: 1),
-        NSColor(srgbRed: 0.98, green: 0.40, blue: 0.72, alpha: 1),
-        NSColor(srgbRed: 1.00, green: 0.62, blue: 0.32, alpha: 1),
-        NSColor(srgbRed: 0.98, green: 0.40, blue: 0.72, alpha: 1),
-        NSColor(srgbRed: 0.62, green: 0.42, blue: 1.00, alpha: 1),
-        NSColor(srgbRed: 0.35, green: 0.55, blue: 1.00, alpha: 1),
-    ]
+    /// The metal finish's light (Settings › Appearance): dark to bright and back, so the band's two
+    /// ends meet the same colour as it reverses.
+    static var nsColors: [NSColor] { MetalFinish.current.sweepNS }
     static var gradient: LinearGradient {
         LinearGradient(colors: nsColors.map { Color(nsColor: $0) }, startPoint: .leading, endPoint: .trailing)
     }
 }
 
-/// A running tool call's colours: the same sweep as reasoning's, in blues, ending where it starts.
+/// A running tool call's colours: the same sweep as reasoning's, in steel, ending where it starts.
 enum ExecutingPalette {
-    static let nsColors: [NSColor] = [
-        NSColor(srgbRed: 0.20, green: 0.40, blue: 1.00, alpha: 1),
-        NSColor(srgbRed: 0.10, green: 0.62, blue: 1.00, alpha: 1),
-        NSColor(srgbRed: 0.28, green: 0.86, blue: 0.98, alpha: 1),
-        NSColor(srgbRed: 0.10, green: 0.62, blue: 1.00, alpha: 1),
-        NSColor(srgbRed: 0.20, green: 0.40, blue: 1.00, alpha: 1),
-    ]
+    static let nsColors: [NSColor] = [0x4F6F92, 0x8FB2D6, 0xE6F0FA, 0x8FB2D6, 0x4F6F92].map { Theme.rgb($0) }
     /// The spinner and the status beside it.
-    static let tint = Theme.adaptiveNS(0x2868E8, 0x5FA8FF)
+    static let tint = Theme.adaptiveNS(0x35628E, 0x9CBEDF)
 }
 
 /// The thin indeterminate bar: a short colourful segment that runs to one end, turns, and runs back.

@@ -74,9 +74,10 @@ final class WelcomeViewTests: XCTestCase {
         XCTAssertEqual(WelcomeGreeting.text(at: date(hour: 23), calendar: utc), "晚安")
     }
 
-    func testTheScriptFacesShipWithMacOS() {
-        XCTAssertNotNil(WelcomeHandwriting.greetingFaces.lazy.compactMap { NSFont(name: $0, size: 40) }.first)
-        XCTAssertNotNil(WelcomeHandwriting.secondaryFaces.lazy.compactMap { NSFont(name: $0, size: 20) }.first)
+    /// The greeting and starters are set in New York, the system serif, which every Mac has.
+    func testTheDisplayFaceShipsWithMacOS() {
+        let descriptor = NSFont.systemFont(ofSize: 40).fontDescriptor.withDesign(.serif)
+        XCTAssertNotNil(descriptor.flatMap { NSFont(descriptor: $0, size: 40) })
     }
 }
 
@@ -123,10 +124,10 @@ final class WelcomeViewSnapshotTests: XCTestCase {
     func testEveryGreetingAndStarter() throws {
         let view = VStack(spacing: 18) {
             ForEach(["Good morning", "Good afternoon", "Good evening", "Good night"], id: \.self) { text in
-                Text(text).font(WelcomeHandwriting.greeting(size: 34)).lineLimit(1).minimumScaleFactor(0.5)
+                MetalHeadline(text: text, size: 29)
             }
             ForEach(WelcomeStarter.all) { starter in
-                Label(starter.title, systemImage: starter.symbol).font(WelcomeHandwriting.secondary(size: 16)).foregroundStyle(Theme.muted)
+                Label(starter.title, systemImage: starter.symbol).font(Atelier.display(size: 14).italic()).foregroundStyle(Theme.muted)
             }
         }
         .padding(24).frame(width: 336).foregroundStyle(Theme.ink)

@@ -19,6 +19,14 @@ enum Theme {
     static func rgb(_ value: UInt32) -> NSColor {
         NSColor(srgbRed: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255, alpha: 1)
     }
+    /// The accent of the chosen metal finish, read each time it is drawn; a change of finish
+    /// rebuilds the window (`ExtrasFeatureModel.themeRevision`), so every view picks it up.
+    static let finishAccentNS = NSColor(name: nil) { appearance in
+        let accent = MetalFinish.current.accentNS
+        var resolved = accent
+        appearance.performAsCurrentDrawingAppearance { resolved = accent.usingColorSpace(.sRGB) ?? accent }
+        return resolved
+    }
 
     /// Written on the main thread only, when a theme is applied or previewed.
     private(set) static var palette = ThemePalette.auto
@@ -95,16 +103,18 @@ final class ThemePalette {
                   inlineCode: Theme.rgb(inlineCode), tableHeader: Theme.rgb(tableHeader), tableStripe: Theme.rgb(tableStripe))
     }
 
-    /// The desktop's own look, following the system appearance: glass, with translucent fills. Links
-    /// are the system's link blue, apart from the green accent.
+    /// The desktop's own look, following the system appearance: obsidian in dark, porcelain in
+    /// light, under glass with translucent fills, ink in warm platinum. The accent is the metal
+    /// finish's (Settings › Appearance, see `Atelier`); links are a quiet steel blue.
     static let auto = ThemePalette(
         theme: .auto, usesSystemMaterials: true,
-        canvas: Theme.adaptiveNS(0xFAFAFC, 0x1C1C1E), sidebar: Theme.tintNS(light: 0.05, dark: 0.07), sidebarBackground: Theme.adaptiveNS(0xF4F4F7, 0x1E1E21),
-        surface: Theme.adaptiveNS(0xFFFFFF, 0x2C2C30, alpha: 0.66),
-        input: Theme.tintNS(light: 0.04, dark: 0.06), hover: Theme.tintNS(light: 0.065, dark: 0.09), line: .separatorColor,
-        ink: .labelColor, muted: .secondaryLabelColor, accent: Theme.adaptiveNS(0x41634C, 0xA1BFA8), link: .linkColor, green: Theme.adaptiveNS(0x3B7751, 0x91C5A1),
-        red: Theme.adaptiveNS(0xB3261E, 0xF2877E), codeBackground: Theme.tintNS(light: 0.045, dark: 0.055), inlineCode: Theme.tintNS(light: 0.065, dark: 0.09),
-        tableHeader: Theme.tintNS(light: 0.05, dark: 0.065), tableStripe: Theme.tintNS(light: 0.02, dark: 0.025))
+        canvas: Theme.adaptiveNS(0xF6F4EF, 0x111214), sidebar: Theme.tintNS(light: 0.045, dark: 0.06), sidebarBackground: Theme.adaptiveNS(0xEDEAE3, 0x0B0C0E),
+        surface: Theme.adaptiveNS(0xFFFFFF, 0x1B1C20, alpha: 0.72),
+        input: Theme.tintNS(light: 0.035, dark: 0.05), hover: Theme.tintNS(light: 0.055, dark: 0.075), line: Theme.tintNS(light: 0.1, dark: 0.09),
+        ink: Theme.adaptiveNS(0x17171A, 0xEDEBE6), muted: Theme.adaptiveNS(0x6B6862, 0x8F8C86), accent: Theme.finishAccentNS,
+        link: Theme.adaptiveNS(0x2F5FB3, 0x93B4EA), green: Theme.adaptiveNS(0x2F7A52, 0x8FCFAA),
+        red: Theme.adaptiveNS(0xB3261E, 0xF2877E), codeBackground: Theme.tintNS(light: 0.04, dark: 0.045), inlineCode: Theme.tintNS(light: 0.06, dark: 0.08),
+        tableHeader: Theme.tintNS(light: 0.045, dark: 0.06), tableStripe: Theme.tintNS(light: 0.018, dark: 0.022))
 
     /// Crok Night: neutral grays with TokyoNight accents (groknight.rs).
     static let grokNight = ThemePalette(
@@ -151,13 +161,14 @@ final class ThemePalette {
 /// How much of the desktop shows through the windows: Settings › Appearance › Transparency.
 enum GlassPreference {
     static let key = "windowTransparency"
-    /// 0 paints solid colours; 1 is the clearest glass.
-    static let defaultLevel = 0.8
+    /// 0 paints solid colours; 1 is the clearest glass. The default keeps enough of the theme's
+    /// colour for obsidian and porcelain to read as themselves over any desktop picture.
+    static let defaultLevel = 0.45
 
     static var level: Double { UserDefaults.standard.object(forKey: key) as? Double ?? defaultLevel }
 
     /// How strongly a region's colour covers the blurred desktop, from 1 (solid) down.
-    /// The sidebar clears first and is bare glass from the default level up; the conversation
+    /// The sidebar clears first and is bare glass from 0.87 up; the conversation
     /// keeps enough colour to read comfortably; sheets stay the most solid.
     /// The terminal palettes keep more of their own colour so each stays recognisable.
     static func tintOpacity(for role: GlassBackdrop.Role, level: Double, systemLook: Bool) -> Double {
@@ -386,6 +397,12 @@ extension View {
         modifier(GlassSurface(shape: shape, interactive: interactive))
     }
 
+    /// A raised card in the desktop's own look: graphite or porcelain over the window's glass, a
+    /// machined edge, and a soft shadow (see `Atelier`). The terminal palettes keep their glass.
+    func atelierCard(cornerRadius: CGFloat) -> some View {
+        modifier(AtelierCard(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)))
+    }
+
     /// The window toolbar draws no background of its own, so the window's glass runs under it.
     func themedToolbarBackground() -> some View {
         toolbarBackground(.hidden, for: .windowToolbar)
@@ -405,6 +422,7 @@ extension View {
 private struct GlassSurface<S: InsettableShape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.appearsActive) private var appearsActive
+    @Environment(\.colorScheme) private var scheme
     var shape: S
     var interactive: Bool
 
@@ -422,6 +440,8 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
                 content.glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
                     // Glass in an inactive window loses its lit edge and blends into the window, so it takes the solid surface's edge.
                     .overlay { if !appearsActive { shape.strokeBorder(Theme.line, lineWidth: 1) } }
+                    // The desktop's own look machines the glass's edge (see `Atelier.bevel`).
+                    .overlay { if appearsActive && Theme.palette.usesSystemMaterials { shape.strokeBorder(Atelier.bevel(scheme, strength: 0.6), lineWidth: 0.75) } }
             } else {
                 materialSurface(content)
             }
@@ -431,9 +451,40 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
         }
     }
 
+    @ViewBuilder
     private func materialSurface(_ content: Content) -> some View {
-        content.background(Theme.palette.usesSystemMaterials ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(Theme.surface.opacity(0.85)), in: shape)
-            .overlay(shape.strokeBorder(Theme.line.opacity(0.6), lineWidth: 0.5))
+        if Theme.palette.usesSystemMaterials {
+            content.background(.thinMaterial, in: shape)
+                .overlay(shape.strokeBorder(Atelier.bevel(scheme), lineWidth: 0.75))
+        } else {
+            content.background(Theme.surface.opacity(0.85), in: shape)
+                .overlay(shape.strokeBorder(Theme.line.opacity(0.6), lineWidth: 0.5))
+        }
+    }
+}
+
+private struct AtelierCard<S: InsettableShape>: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var scheme
+    var shape: S
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if Theme.palette.usesSystemMaterials {
+            content
+                .background {
+                    ZStack {
+                        if !reduceTransparency { shape.fill(.ultraThinMaterial) }
+                        shape.fill(Theme.surface.opacity(reduceTransparency ? 1 : 0.92))
+                        // Light falls from above: the card's top is a shade brighter than its foot.
+                        shape.fill(LinearGradient(colors: [.white.opacity(scheme == .dark ? 0.035 : 0.5), .clear], startPoint: .top, endPoint: .center))
+                    }
+                    .shadow(color: Atelier.shadow(scheme), radius: 22, y: 10)
+                }
+                .overlay(shape.strokeBorder(Atelier.bevel(scheme), lineWidth: 1))
+        } else {
+            content.modifier(GlassSurface(shape: shape, interactive: false))
+        }
     }
 }
 
@@ -459,25 +510,50 @@ struct IconButton: View {
     }
 }
 
+/// The Crok mark. In the desktop's own look it is a still coin of the metal finish (a brushed
+/// ring, the face, the symbol in ink), like `MetalMedallion` without the live metal; the terminal
+/// palettes keep the ink tile.
 struct GrokMark: View {
     var size: CGFloat = 28
+    @AppStorage(MetalFinish.key) private var finishName = MetalFinish.defaultFinish.rawValue
+
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.29).fill(Theme.ink)
-            GrokSymbol().fill(Theme.canvas).frame(width: size * 0.76, height: size * 0.76)
-        }.frame(width: size, height: size).accessibilityLabel("Crok")
+        Group {
+            if Theme.palette.usesSystemMaterials {
+                let finish = MetalFinish(rawValue: finishName) ?? .defaultFinish
+                let ring = max(1.5, (size * 0.085).rounded())
+                ZStack {
+                    Circle().fill(LinearGradient(colors: finish.brushedHex.map { Color(nsColor: Theme.rgb($0)) }, startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Circle().fill(Color(nsColor: Theme.adaptiveNS(0xFBFAF7, 0x141518))).padding(ring)
+                    GrokSymbol().fill(Theme.ink).frame(width: size * 0.6, height: size * 0.6)
+                }
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: size * 0.29).fill(Theme.ink)
+                    GrokSymbol().fill(Theme.canvas).frame(width: size * 0.76, height: size * 0.76)
+                }
+            }
+        }
+        .frame(width: size, height: size).accessibilityLabel("Crok")
     }
 }
 
 struct SubtleButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var scheme
     @State private var hovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.padding(.horizontal, 13).padding(.vertical, 8)
             .background(configuration.isPressed || hovered ? Theme.hover : Theme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 0.5))
+            .overlay {
+                if Theme.palette.usesSystemMaterials {
+                    RoundedRectangle(cornerRadius: 9).strokeBorder(Atelier.bevel(scheme), lineWidth: 0.75)
+                } else {
+                    RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 0.5)
+                }
+            }
             .opacity(isEnabled ? 1 : 0.45)
             .onHover { hovered = $0 }
     }

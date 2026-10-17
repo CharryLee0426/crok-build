@@ -14,6 +14,8 @@ struct ContentView: View {
         // rebuild the window behind the theme picker without dismissing it.
         splitView
             .id(extras.themeRevision)
+            // Liquid metal bends toward the pointer (see `Atelier`).
+            .modifier(MetalPointerFollower())
             .frame(minWidth: store.minimalMode ? 560 : 920, minHeight: 650)
             // Test builds only; outside the rebuilt content so a theme change keeps its samples.
             .overlay { PerformanceMonitorOverlay() }

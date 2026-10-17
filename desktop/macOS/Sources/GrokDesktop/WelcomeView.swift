@@ -1,9 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// A new task's empty conversation: the mark, a greeting for the time of day in a script hand,
-/// starter prompts that roll up one after another, and the project the task will work in. Sizes
-/// follow the room the conversation has, from a narrow column beside the side panel to full screen.
+/// A new task's empty conversation: the mark in a ring of liquid metal, a greeting for the time of
+/// day set in the display serif with metal in its letters, starter prompts that roll up one after
+/// another, and the project the task will work in (see `Atelier`). Sizes follow the room the
+/// conversation has, from a narrow column beside the side panel to full screen.
 struct WelcomeView: View {
     @EnvironmentObject var store: AppStore
     @ObservedObject private var language = L10n.state
@@ -14,7 +15,7 @@ struct WelcomeView: View {
             VStack(spacing: 0) {
                 Spacer(minLength: 8)
                 if metrics.showsMark {
-                    GrokMark(size: metrics.markSize).padding(.bottom, metrics.markGap)
+                    MetalMedallion(size: metrics.markSize).padding(.bottom, metrics.markGap)
                 }
                 WelcomeGreeting(fontSize: metrics.greetingSize)
                 StarterTicker(starters: WelcomeStarter.all, fontSize: metrics.tickerSize, enabled: store.project != nil) { starter in
@@ -74,36 +75,14 @@ struct WelcomeMetrics: Equatable {
         tickerSize = Self.clamp(greeting * 0.36, to: Self.tickerRange).rounded()
         // A short window keeps the words and lets the mark go.
         showsMark = size.height >= 340
-        markSize = Self.clamp(greeting * 0.72, to: 32...47).rounded()
-        markGap = (greeting * 0.32).rounded()
+        markSize = Self.clamp(greeting * 1.05, to: 44...72).rounded()
+        markGap = (greeting * 0.36).rounded()
         tickerGap = (greeting * 0.1).rounded()
         projectGap = (greeting * 0.36).rounded()
     }
 
     private static func clamp(_ value: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
         min(range.upperBound, max(range.lowerBound, value.isFinite ? value : range.lowerBound))
-    }
-}
-
-/// The script faces of the welcome: a formal hand for the greeting and a lighter, more legible one
-/// under it. Both ship with macOS; a Mac without them gets an italic serif.
-enum WelcomeHandwriting {
-    static let greetingFaces = ["SnellRoundhand-Bold", "SnellRoundhand"]
-    static let secondaryFaces = ["Apple-Chancery", "SnellRoundhand"]
-
-    private static let greetingFace = installed(greetingFaces)
-    private static let secondaryFace = installed(secondaryFaces)
-
-    static func greeting(size: CGFloat) -> Font {
-        greetingFace.map { .custom($0, fixedSize: size) } ?? .system(size: size, weight: .semibold, design: .serif).italic()
-    }
-
-    static func secondary(size: CGFloat) -> Font {
-        secondaryFace.map { .custom($0, fixedSize: size) } ?? .system(size: size, design: .serif).italic()
-    }
-
-    private static func installed(_ names: [String]) -> String? {
-        names.first { NSFont(name: $0, size: 12) != nil }
     }
 }
 
@@ -126,15 +105,10 @@ struct WelcomeGreeting: View {
 
     var body: some View {
         TimelineView(.everyMinute) { context in
-            Text(Self.text(at: context.date))
-                .font(WelcomeHandwriting.greeting(size: fontSize))
-                .foregroundStyle(Theme.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-                // Script capitals and descenders reach past the line; this keeps them clear of their neighbours.
-                .padding(.horizontal, fontSize * 0.12)
+            // The serif sets larger than the script hand it replaced did, so it is drawn a size down.
+            MetalHeadline(text: Self.text(at: context.date), size: (fontSize * 0.86).rounded(), weight: .regular)
+                .padding(.horizontal, fontSize * 0.08)
                 .padding(.vertical, fontSize * 0.04)
-                .accessibilityAddTraits(.isHeader)
         }
         .opacity(shown ? 1 : 0)
         .offset(y: shown || reduceMotion ? 0 : fontSize * 0.12)
@@ -215,7 +189,7 @@ struct StarterTicker: View {
                     .font(.system(size: (fontSize * 0.62).rounded(), weight: .regular))
                     .foregroundStyle(Theme.accent)
                 Text(starter.title)
-                    .font(WelcomeHandwriting.secondary(size: fontSize))
+                    .font(Atelier.display(size: (fontSize * 0.9).rounded()).italic())
                     .foregroundStyle(hovered && enabled ? Theme.ink : Theme.muted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)

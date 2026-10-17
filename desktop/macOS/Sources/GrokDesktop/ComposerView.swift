@@ -158,7 +158,8 @@ struct ComposerView: View {
                     sendControls
                 }
             }.frame(height: 30)
-        }.padding(padding).glassSurface(cornerRadius: 24)
+        }.padding(padding).atelierCard(cornerRadius: 24)
+            .modifier(ComposerLight(voice: features.voice, working: awaitingFirstOutput, cornerRadius: 24))
             .overlay { if cardDropTargeted || editorDropTargeted { AttachmentDropOverlay(cornerRadius: 24) } }
             .onDrop(of: [.fileURL, .image], isTargeted: $cardDropTargeted) { providers in attachments.add(providers: providers) }
             .quickLookPreview($attachments.previewURL)
@@ -188,6 +189,14 @@ struct ComposerView: View {
         }
         return store.conversation == nil
             ? L10n.t("placeholder_new", "Ask Crok to build, fix, or explore anything…") : L10n.t("placeholder_continue", "Continue the conversation…")
+    }
+
+    /// From sending a prompt until the turn's first reasoning, tool call, or reply arrives: the
+    /// wait the composer's beam lights (border-beam's "active from submit until results arrive").
+    /// From then on the transcript itself moves, and the thinking orbs say the task works.
+    private var awaitingFirstOutput: Bool {
+        guard store.run.isRunning, let last = store.conversation?.messages.last else { return false }
+        return last.kind == .user
     }
 
     private var showSlashCommands: Bool {
@@ -476,7 +485,8 @@ struct ComposerView: View {
                 circleButton(symbol: "stop.fill", primary: true, help: "Stop task · ⌘.", label: "Stop task") { store.cancel() }
             }
         } else {
-            circleButton(symbol: "arrow.up", primary: true, enabled: canSend, help: "Send message", label: "Send message") {
+            // Idle, the send button is liquid metal; while the task works the composer's beam has the light (see `Atelier`).
+            MetalSendButton(symbol: "arrow.up", enabled: canSend, help: "Send message", label: "Send message") {
                 if canSend { submitDraft() }
             }
         }
@@ -491,6 +501,23 @@ struct ComposerView: View {
         }.buttonStyle(.plain).disabled(!enabled)
             .help(help)
             .accessibilityLabel(label)
+    }
+}
+
+/// The light on the composer's card: a beam along its edge while the task works, and the voice
+/// glow rising from its foot while dictating. Never both, so one effect has the card at a time.
+/// Observes dictation itself, so a phase change redraws only this.
+private struct ComposerLight: ViewModifier {
+    @ObservedObject var voice: VoiceDictationController
+    var working: Bool
+    var cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .workingBeam(working && !voice.isActive, cornerRadius: cornerRadius)
+            .dictationGlow(voice.phase == .recording, cornerRadius: cornerRadius) { [weak voice] in
+                MainActor.assumeIsolated { voice?.level ?? 0 }
+            }
     }
 }
 

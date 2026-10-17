@@ -151,6 +151,8 @@ final class TranscriptTextLabel: NSView {
 final class TranscriptFillView: NSView {
     var color: NSColor { didSet { needsDisplay = true } }
     var stroke: NSColor? { didSet { needsDisplay = true } }
+    /// A machined edge, lit at the top and shaded at the foot (see `Atelier.bevel`).
+    var bevel = false { didSet { needsDisplay = true } }
     var radius: CGFloat
 
     init(color: NSColor, radius: CGFloat) {
@@ -165,14 +167,36 @@ final class TranscriptFillView: NSView {
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if bevel { needsDisplay = true }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         color.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        if bevel { drawBevel() }
         guard let stroke else { return }
         stroke.setStroke()
         let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: max(0, radius - 0.5), yRadius: max(0, radius - 0.5))
         edge.lineWidth = 1
         edge.stroke()
+    }
+
+    private func drawBevel() {
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let colors: [NSColor] = dark
+            ? [NSColor(white: 1, alpha: 0.2), NSColor(white: 1, alpha: 0.06), NSColor(white: 1, alpha: 0.04), NSColor(white: 1, alpha: 0.1)]
+            : [NSColor(white: 1, alpha: 0.95), NSColor(white: 0, alpha: 0.06), NSColor(white: 0, alpha: 0.08), NSColor(white: 0, alpha: 0.15)]
+        guard let gradient = NSGradient(colors: colors, atLocations: [0, 0.38, 0.7, 1], colorSpace: .sRGB) else { return }
+        let ring = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
+        ring.append(NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: max(0, radius - 1), yRadius: max(0, radius - 1)).reversed)
+        ring.windingRule = .evenOdd
+        NSGraphicsContext.saveGraphicsState()
+        ring.addClip()
+        // The view is flipped, so -90° runs from its top (lit) to its foot.
+        gradient.draw(in: bounds, angle: -90)
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 
@@ -223,20 +247,41 @@ final class TranscriptMarkView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let size = min(bounds.width, bounds.height)
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        if Theme.palette.usesSystemMaterials {
+            drawCoin(size: size, in: context)
+            return
+        }
         Theme.palette.inkNS.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: size * 0.29, yRadius: size * 0.29).fill()
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
         let inner = size * 0.76
         let rect = CGRect(x: (bounds.width - inner) / 2, y: (bounds.height - inner) / 2, width: inner, height: inner)
         context.addPath(GrokSymbol().path(in: rect).cgPath)
         context.setFillColor(Theme.palette.canvasNS.cgColor)
         context.fillPath()
     }
+
+    /// The desktop's own look sets the mark in a small coin of the metal finish, like the welcome
+    /// page's medallion but still: a brushed ring, the face, and the symbol in ink.
+    private func drawCoin(size: CGFloat, in context: CGContext) {
+        let circle = CGRect(x: (bounds.width - size) / 2, y: (bounds.height - size) / 2, width: size, height: size)
+        // Light catching the ring across its diagonal.
+        NSGradient(colors: MetalFinish.current.brushedHex.map(Theme.rgb))?.draw(in: NSBezierPath(ovalIn: circle), angle: -55)
+        let ring = max(1.5, (size * 0.085).rounded())
+        Theme.adaptiveNS(0xFBFAF7, 0x141518).setFill()
+        NSBezierPath(ovalIn: circle.insetBy(dx: ring, dy: ring)).fill()
+        let inner = size * 0.6
+        let rect = CGRect(x: (bounds.width - inner) / 2, y: (bounds.height - inner) / 2, width: inner, height: inner)
+        context.addPath(GrokSymbol().path(in: rect).cgPath)
+        context.setFillColor(Theme.palette.inkNS.cgColor)
+        context.fillPath()
+    }
 }
 
-/// "Thinking" with its sparkle: muted, or in the thinking colours while the reasoning streams, when
+/// "Thinking" with its sparkle: muted, or in the metal's light while the reasoning streams, when
 /// the sparkle also turns. The text's gradient is still, as a moving one would redraw every frame;
-/// the sparkle turns in Core Animation (see `ThinkingEffects`).
+/// the sparkle turns in Core Animation (see `ThinkingEffects`). The thinking orb is the status
+/// line's, under the rows: one per window, and the block keeps its own light.
 final class TranscriptThinkingTitle: NSView {
     var isStreaming = false {
         didSet {
@@ -576,41 +621,52 @@ final class TranscriptHostedView: NSView {
     }
 }
 
-/// The line under the rows while a turn runs: a spinner and what the turn is doing.
+/// The line under the rows while a turn runs: a thinking orb, in the shape of what the turn is doing
+/// (see `AgentActivity`), and the words for it.
 final class TranscriptStatusView: NSView {
-    private let spinner = NSProgressIndicator()
+    /// Made while the line shows and dropped when it hides, so a still orb draws no frames.
+    private var orb: AgentOrbView?
     private let label = TranscriptParts.label(size: 14, color: Theme.palette.mutedNS)
+    private static let orbSize: CGFloat = 20
 
     var text = "" {
         didSet {
             guard text != oldValue else { return }
             label.text = text
+            orb?.activity = AgentActivity.phase(text)
             arrange()
         }
     }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        spinner.style = .spinning
-        spinner.controlSize = .mini
-        spinner.isIndeterminate = true
-        spinner.isDisplayedWhenStopped = true
-        spinner.sizeToFit()
-        addSubview(spinner)
         addSubview(label)
+        showOrb()
     }
 
     required init?(coder: NSCoder) { nil }
 
     override var isFlipped: Bool { true }
 
-    /// The spinner's and the text's height, with 5 pt above and below.
-    var height: CGFloat { ceil(max(spinner.frame.height, label.size().height)) + 10 }
+    /// The orb's and the text's height, with 5 pt above and below.
+    var height: CGFloat { ceil(max(Self.orbSize, label.size().height)) + 10 }
 
     override var isHidden: Bool {
         didSet {
             guard isHidden != oldValue else { return }
-            if isHidden { spinner.stopAnimation(nil) } else { spinner.startAnimation(nil) }
+            showOrb()
+        }
+    }
+
+    private func showOrb() {
+        if !isHidden, orb == nil {
+            let view = AgentOrbView(activity: AgentActivity.phase(text), size: Self.orbSize)
+            addSubview(view)
+            orb = view
+            arrange()
+        } else if isHidden, let view = orb {
+            view.removeFromSuperview()
+            orb = nil
         }
     }
 
@@ -621,8 +677,9 @@ final class TranscriptStatusView: NSView {
 
     private func arrange() {
         let size = label.size()
-        spinner.setFrameOrigin(NSPoint(x: 0, y: ((bounds.height - spinner.frame.height) / 2).rounded()))
-        label.frame = NSRect(x: spinner.frame.width + 9, y: ((bounds.height - size.height) / 2).rounded(),
-                             width: min(size.width, max(0, bounds.width - spinner.frame.width - 9)), height: size.height)
+        orb?.frame = NSRect(x: -2, y: ((bounds.height - Self.orbSize) / 2).rounded(), width: Self.orbSize, height: Self.orbSize)
+        let x = Self.orbSize + 6
+        label.frame = NSRect(x: x, y: ((bounds.height - size.height) / 2).rounded(),
+                             width: min(size.width, max(0, bounds.width - x)), height: size.height)
     }
 }

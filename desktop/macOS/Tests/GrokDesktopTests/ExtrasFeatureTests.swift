@@ -69,13 +69,28 @@ final class ExtrasFeatureTests: XCTestCase {
         XCTAssertEqual(hex(ThemePalette.grokNight.accentNS), "#BB9AF7")
         XCTAssertEqual(hex(ThemePalette.grokDay.canvasNS), "#EEEEEE")
         XCTAssertEqual(hex(ThemePalette.grokDay.accentNS), "#7D4BC6")
-        // Links take each theme's link_fg; the default look's are the system's link blue, not its green accent.
+        // Links take each theme's link_fg; the default look's are a steel blue, not its metal accent.
         XCTAssertEqual(hex(ThemePalette.grokNight.linkNS), "#7AA6DA")
         XCTAssertEqual(hex(ThemePalette.grokDay.linkNS), "#2F64D2")
         XCTAssertEqual(hex(ThemePalette.tokyoNight.linkNS), "#7AA2F7")
         XCTAssertEqual(hex(ThemePalette.rosePineMoon.linkNS), "#9CCFD8")
         XCTAssertEqual(hex(ThemePalette.oscuraMidnight.linkNS), "#7DCFDF")
-        XCTAssertEqual(ThemePalette.auto.linkNS, .linkColor)
+        func resolved(_ color: NSColor, dark: Bool) -> String {
+            var value = "?"
+            NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance { value = hex(color) }
+            return value
+        }
+        XCTAssertEqual(resolved(ThemePalette.auto.linkNS, dark: false), "#2F5FB3")
+        XCTAssertEqual(resolved(ThemePalette.auto.linkNS, dark: true), "#93B4EA")
+        // The default look's accent is the metal finish's, read as it draws.
+        let defaults = UserDefaults.standard
+        let saved = defaults.string(forKey: MetalFinish.key)
+        defer { if let saved { defaults.set(saved, forKey: MetalFinish.key) } else { defaults.removeObject(forKey: MetalFinish.key) } }
+        defaults.set(MetalFinish.champagne.rawValue, forKey: MetalFinish.key)
+        XCTAssertEqual(resolved(ThemePalette.auto.accentNS, dark: true), "#D8BE8C")
+        XCTAssertEqual(resolved(ThemePalette.auto.accentNS, dark: false), "#8A6A2F")
+        defaults.set(MetalFinish.platinum.rawValue, forKey: MetalFinish.key)
+        XCTAssertEqual(resolved(ThemePalette.auto.accentNS, dark: true), "#BCC6D0")
         for theme in GrokTheme.allCases { XCTAssertEqual(ThemePalette.palette(for: theme).theme, theme) }
         XCTAssertTrue(ThemePalette.auto.usesSystemMaterials)
         XCTAssertFalse(ThemePalette.tokyoNight.usesSystemMaterials)

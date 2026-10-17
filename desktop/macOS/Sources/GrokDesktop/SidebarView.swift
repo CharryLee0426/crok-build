@@ -18,9 +18,10 @@ struct SidebarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                GrokMark(size: 26)
-                Text("Crok").font(.system(size: 20, weight: .semibold))
-                Text("BUILD").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(1.4).foregroundStyle(Theme.muted)
+                if Theme.palette.usesSystemMaterials { MetalMedallion(size: 28) } else { GrokMark(size: 26) }
+                Text("Crok").font(Atelier.display(size: 21, weight: .semibold))
+                Text("BUILD").font(.system(size: 9.5, weight: .semibold)).tracking(2.2).foregroundStyle(Theme.accent)
+                    .padding(.top, 3)
                 Spacer()
             }
             .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 16)
@@ -77,7 +78,7 @@ struct SidebarView: View {
         }
         SidebarSectionHeader(title: L10n.t("projects", "Projects")) {
             if store.syncing {
-                ProgressView().controlSize(.mini).frame(width: 24, height: 24).help("Importing harness tasks…")
+                AgentOrb(activity: .connecting, size: 16).frame(width: 24, height: 24).help("Importing harness tasks…")
             } else {
                 IconButton(icon: "arrow.triangle.2.circlepath", help: "Import tasks from the harness for every project", size: 24) {
                     store.syncHistory(projects: store.state.projects)
@@ -313,7 +314,9 @@ private struct SidebarSectionHeader<Accessory: View>: View {
             }
             accessory()
         }
-        .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
+        // Engraved small capitals, as on a watch's dial (see `Atelier`).
+        .font(.system(size: Atelier.eyebrowSize, weight: .semibold)).tracking(Atelier.eyebrowTracking).textCase(.uppercase)
+        .foregroundStyle(Theme.muted)
         .padding(.leading, 8).padding(.top, 14).padding(.bottom, 2)
         .frame(minHeight: 28)
         .onHover { hovered = $0 }
@@ -362,7 +365,7 @@ private struct ProjectFolderRow: View, Equatable {
                     Text(project.name).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 4)
                     if !hovered && !isExpanded && runningCount > 0 {
-                        ProgressView().controlSize(.mini).help("\(runningCount) running")
+                        AgentOrb(activity: .working, size: 16).help("\(runningCount) running")
                     }
                 }.padding(.leading, 8).frame(maxWidth: .infinity, minHeight: 30, alignment: .leading).contentShape(Rectangle())
             }
@@ -470,6 +473,10 @@ private struct TaskSidebarRow: View, Equatable {
             }
         }
         .background(isSelected ? Theme.hover : isHovered ? Theme.hover.opacity(0.5) : .clear, in: RoundedRectangle(cornerRadius: 7))
+        // The selected task carries a slim bar of the metal's colour at its leading edge.
+        .overlay(alignment: .leading) {
+            if isSelected { Capsule().fill(Theme.accent).frame(width: 2.5, height: 14).padding(.leading, 1) }
+        }
         .onHover { isHovered = $0 }
         .contextMenu { taskActions }
         .accessibilityElement(children: .contain)
@@ -484,7 +491,7 @@ private struct TaskSidebarRow: View, Equatable {
         if needsApproval {
             Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(.orange).help("Needs your response")
         } else if isRunning || isConfiguring {
-            ProgressView().controlSize(.mini).help("Working…")
+            AgentOrb(activity: isConfiguring ? .connecting : .working, size: 16).help("Working…")
         } else {
             if isUnread { Circle().fill(Theme.accent).frame(width: 6, height: 6).help("New activity") }
             Text(RelativeTime.short(task.updatedAt, now: now)).font(.system(size: 11)).monospacedDigit()
@@ -538,7 +545,7 @@ private struct RemoteComputerRow: View {
                 Circle().fill(computer.online ? Theme.accent : Theme.muted.opacity(0.5)).frame(width: 6, height: 6)
                     .help(computer.online ? L10n.t("remote_computer_online", "online") : L10n.t("remote_computer_offline", "offline"))
                 Spacer(minLength: 4)
-                if !hovered && !isExpanded && runningCount > 0 { ProgressView().controlSize(.mini) }
+                if !hovered && !isExpanded && runningCount > 0 { AgentOrb(activity: .working, size: 16) }
             }
             .padding(.leading, 8).frame(maxWidth: .infinity, minHeight: 30, alignment: .leading).contentShape(Rectangle())
         }
@@ -570,7 +577,7 @@ private struct RemoteSessionRow: View {
                     if entry.needsInput {
                         Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(.orange)
                     } else if entry.isWorking {
-                        ProgressView().controlSize(.mini)
+                        AgentOrb(activity: .working, size: 16)
                     } else {
                         Text(RelativeTime.short(entry.lastActivityAt, now: now)).font(.system(size: 11)).monospacedDigit().foregroundStyle(Theme.muted)
                     }

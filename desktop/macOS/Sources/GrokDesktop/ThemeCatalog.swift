@@ -53,7 +53,7 @@ enum GrokTheme: String, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
-        case .auto: return L10n.t("theme_summary_auto", "Crok Desktop's own look, light or dark with your Mac. The terminal stays dark.")
+        case .auto: return L10n.t("theme_summary_auto", "Crok Desktop's own look: obsidian or porcelain with your Mac, finished in liquid metal. The terminal stays dark.")
         case .groknight: return L10n.t("theme_summary_groknight", "Neutral dark base with a magenta accent. The terminal's default.")
         case .grokday: return L10n.t("theme_summary_grokday", "Light theme with deepened accents for bright rooms.")
         case .tokyonight: return L10n.t("theme_summary_tokyonight", "Dark, blue-tinted backgrounds from the Tokyo Night palette.")

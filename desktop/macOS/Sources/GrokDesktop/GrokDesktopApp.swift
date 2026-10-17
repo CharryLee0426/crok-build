@@ -15,6 +15,9 @@ struct GrokDesktopApp: App {
         ExtrasFeatureModel.restoreSavedTheme()
         ConfigFileWatcher.apply(GrokConfig())
         ConfigFileWatcher.shared.start(apply: ConfigFileWatcher.apply)
+        // Finding the effects' shaders opens the Metal device and loads the library (about 0.1 s);
+        // done here off the main thread, the first view that asks finds the answer waiting.
+        Task.detached(priority: .userInitiated) { _ = EffectsPreference.shadersAvailable }
     }
 
     var body: some Scene {
