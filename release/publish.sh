@@ -59,6 +59,7 @@ tarball="crok-$version-$tarball_arch-apple-darwin.tar.gz"
 make_cmd=(make)
 if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then make_cmd+=("CARGO_TARGET_DIR=$CARGO_TARGET_DIR"); fi
 target_dir="${CARGO_TARGET_DIR:-target}"
+if [[ "$target_dir" != /* ]]; then target_dir="$repo/$target_dir"; fi
 harness="$target_dir/release/xai-grok-pager"
 
 say() { printf '\n==> %s\n' "$*"; }
@@ -118,9 +119,9 @@ if [[ "$skip_build" == 0 ]]; then
             sdkroot="$macos15_sdk"
         fi
         if [[ -n "$sdkroot" ]]; then
-            SDKROOT="$sdkroot" DESKTOP_REGISTER_APP=0 "${make_cmd[@]}" dmg-desktop CROK_BINARY="$repo/$harness"
+            SDKROOT="$sdkroot" DESKTOP_REGISTER_APP=0 "${make_cmd[@]}" dmg-desktop CROK_BINARY="$harness"
         else
-            DESKTOP_REGISTER_APP=0 "${make_cmd[@]}" dmg-desktop CROK_BINARY="$repo/$harness"
+            DESKTOP_REGISTER_APP=0 "${make_cmd[@]}" dmg-desktop CROK_BINARY="$harness"
         fi
         app="desktop/macOS/dist/Crok Desktop.app"
         linked_sdk="$(otool -l "$app/Contents/MacOS/GrokDesktop" | awk '/LC_BUILD_VERSION/ {f=1} f && /sdk/ {print $2; exit}')"
