@@ -4,6 +4,8 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import type { Viewer } from "./lib/auth";
 import { fail, ownCommand, requireSession, requireViewer, viewerLabel } from "./lib/auth";
+import { isStarting, modelsFor, supports } from "./lib/starting";
+import { configId } from "./schema";
 
 /**
  * What a phone or the web asks a computer to do. The computer's bridge sees new commands at once (its `inbox`
@@ -18,19 +20,32 @@ const MAX_PROMPT = 32_000;
  * Whether a command for the session has somewhere to go: the crok process running it, or, for a session nobody runs,
  * any crok on its computer that can open it (the first to claim the command opens the session there).
  */
-export async function reachable(ctx: QueryCtx, session: Doc<"sessions">): Promise<boolean> {
+export async function reachable(
+  ctx: QueryCtx,
+  session: Doc<"sessions">,
+  type: Doc<"commands">["type"] = "prompt",
+): Promise<boolean> {
   if (session.online) return true;
   const hosts = await ctx.db
     .query("hosts")
     .withIndex("by_device_online", (q) => q.eq("deviceId", session.deviceId).eq("online", true))
     .take(50);
-  return hosts.some((host) => host.canAdopt === true);
+  return hosts.some((host) => host.canAdopt === true && supports(host, type));
 }
 
-async function requireReachable(ctx: MutationCtx, session: Doc<"sessions">) {
-  if (await reachable(ctx, session)) return;
+async function requireReachable(ctx: MutationCtx, session: Doc<"sessions">, type: Doc<"commands">["type"] = "prompt") {
+  if (session.online && !supports((await ctx.db.get(session.hostId)) ?? {}, type)) {
+    fail("INVALID", "Update crok on that computer to do this from another device.");
+  }
+  if (await reachable(ctx, session, type)) return;
   const device = await ctx.db.get(session.deviceId);
-  fail("OFFLINE", `${device?.name ?? "Its computer"} is offline: start crok or Crok Desktop there.`);
+  const anyCrok = await reachable(ctx, session);
+  fail(
+    "OFFLINE",
+    anyCrok
+      ? `Update crok on ${device?.name ?? "that computer"} to do this from another device.`
+      : `${device?.name ?? "Its computer"} is offline: start crok or Crok Desktop there.`,
+  );
 }
 
 async function insertCommand(
@@ -38,9 +53,9 @@ async function insertCommand(
   viewer: Viewer,
   session: Doc<"sessions">,
   type: Doc<"commands">["type"],
-  extra: { text?: string; clientId?: string; interactionId?: string },
+  extra: { text?: string; clientId?: string; interactionId?: string; configId?: Doc<"commands">["configId"] },
 ): Promise<Id<"commands">> {
-  await requireReachable(ctx, session);
+  await requireReachable(ctx, session, type);
   const now = Date.now();
   return await ctx.db.insert("commands", {
     userId: viewer.user._id,
@@ -50,6 +65,7 @@ async function insertCommand(
     text: extra.text,
     clientId: extra.clientId,
     interactionId: extra.interactionId,
+    configId: extra.configId,
     status: "pending",
     fromDeviceId: viewer.device?._id,
     fromLabel: viewerLabel(viewer),
@@ -122,7 +138,9 @@ export const sendPrompt = mutation({
     const trimmed = text.trim();
     if (!trimmed) fail("INVALID", "The prompt is empty.");
     if (trimmed.length > MAX_PROMPT) fail("INVALID", `Prompts are limited to ${MAX_PROMPT} characters.`);
-    const commandId = await insertCommand(ctx, viewer, session, "prompt", { text: trimmed, clientId });
+    // A new session whose computer never opened it (it failed, or nobody claimed it): this prompt opens it.
+    const type = isStarting(session) && !session.online ? "create" : "prompt";
+    const commandId = await insertCommand(ctx, viewer, session, type, { text: trimmed, clientId });
     return { commandId };
   },
 });
@@ -144,7 +162,7 @@ export const stop = mutation({
         .take(50);
       const now = Date.now();
       for (const command of waiting) {
-        if (command.type === "prompt" && command.status === "pending") {
+        if ((command.type === "prompt" || command.type === "create") && command.status === "pending") {
           await ctx.db.patch(command._id, { status: "failed", error: "Stopped before it ran.", updatedAt: now });
         }
       }
@@ -166,6 +184,33 @@ export const requestInfo = mutation({
     const session = await requireSession(ctx, viewer, sessionDocId);
     if (!session.online) return { commandId: await insertSettled(ctx, viewer, session, "info", storedInfo(session)) };
     const commandId = await insertCommand(ctx, viewer, session, "info", {});
+    return { commandId };
+  },
+});
+
+/**
+ * Sets the session's model or thinking level, as if picked on its computer. A session nobody runs is opened there
+ * first. The command's `result` is `{model, effort}` once applied.
+ */
+export const setConfig = mutation({
+  args: { sessionDocId: v.string(), configId, value: v.string() },
+  handler: async (ctx, { sessionDocId, configId, value }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    const wanted = value.trim();
+    if (!wanted) fail("INVALID", "Choose a value.");
+    if (isStarting(session) && !session.online) fail("INVALID", "This session has not started on its computer yet.");
+    const models = await modelsFor(ctx, await ctx.db.get(session.deviceId));
+    if (models && models.length > 0) {
+      if (configId === "model" && !models.some((m) => m.id === wanted)) {
+        fail("INVALID", "That model is not available on this computer.");
+      }
+      const current = models.find((m) => m.id === session.model);
+      if (configId === "reasoning_effort" && current && !current.efforts.some((e) => e.id === wanted || e.value === wanted)) {
+        fail("INVALID", "That thinking level is not available for this model.");
+      }
+    }
+    const commandId = await insertCommand(ctx, viewer, session, "config", { text: wanted, configId });
     return { commandId };
   },
 });
@@ -212,9 +257,10 @@ export const forSession = query({
       .order("desc")
       .take(50);
     return commands
-      .filter((c) => c.type === "prompt")
+      .filter((c) => c.type === "prompt" || (c.type === "create" && c.text))
       .map((c) => ({
         _id: c._id,
+        type: c.type,
         clientId: c.clientId ?? null,
         text: c.text ?? "",
         status: c.status,
@@ -237,8 +283,12 @@ export const retry = mutation({
     if (!command) fail("NOT_FOUND", "No such prompt.");
     if (command.status !== "failed") return null;
     const session = await requireSession(ctx, viewer, command.sessionDocId);
-    await requireReachable(ctx, session);
-    await ctx.db.patch(command._id, { status: "pending", error: undefined, updatedAt: Date.now() });
+    // A prompt for a new session that never opened opens it; a `create` for one that opened since is a plain prompt.
+    const starting = isStarting(session) && !session.online;
+    const type =
+      command.type === "prompt" && starting ? "create" : command.type === "create" && !starting ? "prompt" : command.type;
+    await requireReachable(ctx, session, type);
+    await ctx.db.patch(command._id, { type, status: "pending", error: undefined, updatedAt: Date.now() });
     return null;
   },
 });

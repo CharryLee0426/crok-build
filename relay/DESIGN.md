@@ -1,6 +1,7 @@
 # Crok remote control — design
 
-Status: first implementation, 2026-10-15. Branch `worktree-remote-relay`.
+Status: first implementation, 2026-10-15 (branch `worktree-remote-relay`); new sessions from any device, slash commands
+in every composer, and the model and thinking level from anywhere, 2026-10-16 (branch `worktree-relay-commands`).
 
 Crok runs on your computers (the `crok` TUI and Crok Desktop). Remote control lets you follow and steer those sessions
 from a phone, a browser or another of your computers: see every session on every computer, read the transcript as it
@@ -92,11 +93,13 @@ the same tiny auth surface, and lets the person see and revoke every linked devi
 | `devices` | a linked computer or phone | `deviceAuth`, `devices`, `bridge` | `refreshTokenHash`, coarse `lastSeenAt`, `online`, `revokedAt` |
 | `deviceLogins` | a sign-in in progress | `deviceAuth` | `deviceCodeHash`, `userCode`, `status` pending → approved → consumed |
 | `hosts` | one running crok process | `bridge.connect/heartbeat` | heartbeat every 30 s touches only this row; `canAdopt`: it opens sessions nobody runs |
+| `modelLists` | the models a computer's crok can run, with their thinking levels | `bridge.setModels` | one per computer, the latest from any of its processes (§2, "Model and thinking level") |
 | `sessions` | a crok session on a computer: mirrored live, or listed from disk | `bridge.upsertSession`, `bridge.catalogBatch`, `bridge.setPending` | title, cwd, `projectPath`, model, status, `online`, preview, plan, usage, unread counters, `position`, `historyState`, `pending` (a permission request) |
 | `projects` | a folder sessions are grouped under, per computer | `bridge`, `sessions.reorderProjects` | `path`, `position` (hand-placed order) |
 | `catalogSyncs` | the last "list every session on disk" per computer | `bridge.beginCatalog/finishCatalog` | one crok process per computer does it, at most every 10 min |
 | `events` | one transcript item | `bridge.pushEvents` | `seq` order, `key` for in-place updates (streaming text, tool status) |
-| `commands` | a prompt / stop / info / answer / history request | viewers; `bridge.claim/complete` | `pending → delivered → done/failed`, `clientId` for idempotency; `interactionId` for an answer |
+| `commands` | a prompt / stop / info / answer / history / create / config request | viewers; `bridge.claim/complete` | `pending → delivered → done/failed`, `clientId` for idempotency; `interactionId` for an answer; `configId` for a config change |
+| `commandLists` | the slash commands a session (or, as a fallback, its computer) offers | `bridge.setCommands` | kept out of `sessions` so the list query does not re-send them |
 | `sessionViews` | "someone has this session open" | `sessions.watch` | the bridge streams finely only while one is live |
 
 Write-amplification rules (Convex re-runs a subscription whenever a document it read changes):
@@ -152,6 +155,57 @@ interactionId, optionId})`; the first answer counts (an answer for a request tha
 For a session the computer shows, the computer asks too, and whichever answer comes first goes to the agent; the other
 side drops its prompt (`x.ai/remote/permission_resolved {sessionId, toolCallId}` tells the TUI and Crok Desktop).
 
+### New sessions from any device
+
+Any device starts a session in any project of any computer that runs crok: `sessions:create({deviceId, path,
+text?, clientId})`. The relay adds the session at once — `sessionId: "pending:<clientId>"`, `starting: true` in rows
+and in `sessions:get`, `cwd` = `projectPath` = `path`, title from the prompt's first line (else "New session"), status
+`running` with a prompt and `idle` without — and a `create` command carrying the prompt. The caller opens the session
+right away (its own prompt shows optimistically, ticks from `commands:forSession`, which lists `create` commands with
+text like prompts).
+
+The inbox offers a `create` command to every crok of that computer with `canAdopt` (like a prompt for a session nobody
+runs). The first to claim it becomes the session's runner, opens a new crok session in `path` (`session/new`), hidden
+from its front end like an adopted session, and swaps the placeholder id for the real one (`bridge:bindSession`); from
+then on it is an ordinary adopted session: the prompt runs as `remote-<commandId>` and the command is `done` when the
+turn ends (at once, with `result.sessionId`, without a prompt). If the computer cannot open it, the command fails, the
+session gets status `error` and an error item, and a later prompt to it tries again (a prompt to an offline `pending:`
+session becomes a `create`). Catalog uploads never drop `pending:` sessions.
+
+`OFFLINE` when no crok there can open sessions; `INVALID` for a relative path.
+
+Older crok processes (before 2026-10-16) cannot parse the new command types: a host lists what it handles in
+`bridge:connect`'s `features` (`["create", "config"]`), and `create` / `config` commands go only to hosts that list
+them. With only older crok running on a computer, `sessions:create` and `commands:setConfig` fail with a message
+asking to update crok there, and `sessions:get`'s `models` stays null (older crok does not publish them). Any folder of that computer works, not
+only listed projects (the clients offer the projects; the TUI and Crok Desktop also the folder of an open session).
+
+### Model and thinking level
+
+Each crok process publishes what it can run (`bridge:setModels`, on sign-in and when its catalog changes) into its
+computer's `modelLists` row: `[{id, name, description?, efforts: [{id, name, value?, description?}], defaultEffort?}]`, the
+computer's own choices (its providers, its sign-ins). `sessions:get` returns them as `models` while the computer is
+online, else null (nothing to choose from while it is offline), next to the session's current `model` and `effort`. A
+model with an empty `efforts` has no thinking level. An effort's `id` is what `commands:setConfig` takes; its `value` is
+the level it stands for (`low`, `high`, …), which is what the session's `effort` holds: the current choice is the one
+whose `value ?? id` equals `effort`. `defaultEffort` is an `id`.
+
+`commands:setConfig({sessionDocId, configId: "model" | "reasoning_effort", value})` changes it, as if picked on the
+computer (`session/set_config_option`). For a session nobody runs, the first crok there to claim it opens it hidden
+(as for a prompt) and applies it. The command's `result` is `{model, effort}` after the change; the session row follows
+through the usual upsert. Values are checked against `models` when the relay has them (`INVALID`).
+
+### Slash commands
+
+A session's slash commands — crok's own (`compact`, `context`, `memory`, …), skills and workflows, as the agent
+advertises them (ACP `available_commands_update`) — are published per session (`bridge:setCommands`, only when they
+change) into `commandLists`, with a copy per computer as the fallback for sessions no crok runs. `sessions:commands`
+returns `{commands: [{name, description, hint?}], source: "session" | "computer" | "none"}`. Such a command is sent as an
+ordinary prompt (`/compact`, `/review-pr 42`); crok resolves it on the computer.
+
+Clients add their own commands in front of them, handled on the device: `/new [prompt]` (a session in the same
+project), `/model [name]`, `/think [level]`, `/stop`, `/info` (§5, "Commands in the composer").
+
 ## 3. API (the contract every client codes against)
 
 All errors are `ConvexError<{ code, message }>` with `code` one of `UNAUTHENTICATED`, `REVOKED` (sign the device out
@@ -192,14 +246,17 @@ callback.
 |---|---|---|
 | `sessions:groups` (query) | — | `[{key, deviceId, deviceName, deviceOnline, path, name, placed, lastActivityAt, sessions: [row]}]` — the main list: non-archived sessions grouped by project, both levels in list order (above) |
 | `sessions:list` (query) | `archived?: boolean` | `[row]` flat, pinned first, then newest (the Archived tab) |
-| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}}` |
+| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}, models: null\|[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]}` |
+| `sessions:create` (mutation) | `deviceId, path, text?, clientId` (UUID) | `{sessionDocId, commandId}` — a new session in `path` on that computer (§2, "New sessions from any device"); same `clientId` → same session; `OFFLINE`, `INVALID`, `NOT_FOUND` (not one of your computers), `FORBIDDEN` (a phone) |
+| `sessions:commands` (query) | `sessionDocId` | `{commands:[{name, description, hint?}], source: "session"\|"computer"\|"none"}` — the agent's slash commands, without the leading `/` |
 | `sessions:reorderProjects` (mutation) | `keys: string[]` | `null` — some project keys in their new order (all, or one computer's) |
 | `sessions:reorderSessions` (mutation) | `projectKey, sessionDocIds: string[]` | `null` — some of the project's sessions in their new order |
 | `sessions:resetOrder` (mutation) | `projectKey?` | `null` — with a key: that project's sessions back to newest first; without: the projects |
 
 A **row** is `{_id, sessionId, title, cwd, model, status, online, app, deviceId, deviceName, deviceOnline, preview,
 previewKind, lastActivityAt, pinned, archived, unread, plan: null|{done,total}, projectKey, projectPath, projectName,
-historyState: null|"none"|"requested"|"ready"}`. `historyState` `none`/`requested` with no events: the transcript is
+historyState: null|"none"|"requested"|"ready", starting}`; `starting` = made by `sessions:create` and not open on its
+computer yet. `historyState` `none`/`requested` with no events: the transcript is
 still only on the computer — show "Loading from <computer>…" while `deviceOnline`, else "<computer> is offline; this
 session's history shows once crok runs there".
 | `sessions:events` (paginated query) | `sessionDocId, paginationOpts:{numItems, cursor}` | `{page:[event], isDone, continueCursor}` newest first |
@@ -232,8 +289,9 @@ runs it now; it still takes prompts while `deviceOnline` (its computer opens it)
 | `commands:stop` (mutation) | `sessionDocId` | `{commandId}` (done at once for a session nobody runs) |
 | `commands:requestInfo` (mutation) | `sessionDocId` | `{commandId}`; the answer arrives in `commands:get(...).result` (at once, `stored: true`, for a session nobody runs) |
 | `commands:answer` (mutation) | `sessionDocId, interactionId, optionId` | `{commandId}`; throws `EXPIRED` when that request is no longer pending |
+| `commands:setConfig` (mutation) | `sessionDocId, configId: "model"\|"reasoning_effort", value` | `{commandId}`; `result` = `{model, effort}` once done; `INVALID` for a value not in `models`; `OFFLINE` |
 | `commands:get` (query) | `commandId` | the command row or `null` |
-| `commands:forSession` (query) | `sessionDocId` | recent prompts `[{_id, clientId, text, status, error, fromLabel, fromDeviceId, mine, createdAt, updatedAt}]`; `mine` = sent by this caller |
+| `commands:forSession` (query) | `sessionDocId` | recent prompts `[{_id, type, clientId, text, status, error, fromLabel, fromDeviceId, mine, createdAt, updatedAt}]` (`type` `prompt`, or `create` for the first prompt of a new session); `mine` = sent by this caller |
 | `commands:retry` / `discard` (mutation) | `commandId` | `null` |
 
 An info `result` is `{ model, effort, cwd, gitBranch, title, createdAt, usage: {inputTokens, outputTokens,
@@ -248,18 +306,21 @@ of sending (keyed by `clientId`) until the transcript holds the user event whose
 
 | function | args | returns |
 |---|---|---|
-| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?, canAdopt?` | `{hostId, deviceId, serverTime}` |
+| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?, canAdopt?, features?` | `{hostId, deviceId, serverTime}` — `features`: command types beyond the first relay's it handles (`create`, `config`) |
 | `bridge:heartbeat` | `hostId` | `{serverTime}` (every 30 s) |
 | `bridge:disconnect` | `hostId` | `null` |
 | `bridge:upsertSession` | `hostId, sessionId, fields:{title?, cwd?, model?, effort?, gitBranch?, status?, preview?, previewKind?, plan?, usage?, createdAt?, lastActivityAt?, projectPath?}` | `{sessionDocId, eventSeq, created}` |
 | `bridge:closeSession` | `hostId, sessionId` | `null` |
 | `bridge:pushEvents` | `hostId, sessionDocId, replace?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history) |
-| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer, a prompt for one (`adopt: true`) to every host with `canAdopt`; `hosted` = the sessions the relay has this host running |
+| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null) to every host with `canAdopt`; `hosted` = the sessions the relay has this host running |
 | `bridge:setPending` | `hostId, sessionId, pending?` | `null` — the session's permission request, or none (absent) once answered or gone |
 | `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another host did it lately, or is doing it) |
 | `bridge:catalogBatch` | `hostId, syncId, sessions:[{sessionId, title, cwd, projectPath, createdAt, lastActivityAt, model?, effort?, gitBranch?, preview?}]` (≤100) | `{added}` |
 | `bridge:finishCatalog` | `hostId, syncId, sessionIds: string[]` (all listed) | `{removed}` — offline sessions of this computer not listed are dropped |
-| `bridge:claimCommand` | `hostId, commandId` | `boolean` — claiming a prompt for a session nobody runs makes this host its runner |
+| `bridge:claimCommand` | `hostId, commandId` | `boolean` — claiming a prompt, config change or create for a session nobody runs makes this host its runner |
+| `bridge:bindSession` | `hostId, sessionDocId, sessionId` | `{sessionDocId, eventSeq}` — the crok session this host opened for a claimed `create` replaces the `pending:` id |
+| `bridge:setModels` | `hostId, models:[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]` (≤200) | `null` — written only when it changed |
+| `bridge:setCommands` | `hostId, sessionId, commands:[{name, description, hint?}]` (≤500) | `null` — the session's slash commands (and this computer's fallback copy) |
 | `bridge:completeCommand` | `hostId, commandId, status: done\|failed, result?, error?` | `null` |
 
 ## 4. The bridge (computer side)
@@ -302,6 +363,18 @@ transcript from `updates.jsonl` (`x.ai/session/updates`).
 Turn state survives sign-in at any time: the tee always passes on the once-per-turn `x.ai/session/prompt_complete`,
 and on sign-in the bridge reads each session's running prompt from the agent instead of trusting what it saw before.
 
+### Created sessions, config changes and slash commands
+
+- `create` (§2, "New sessions from any device"): `session/new` in the folder, hidden from the front end, then
+  `bridge:bindSession`, then the usual mirror and the prompt. The front end may still see the new session's first
+  notifications (the id is known only once `session/new` returns); front ends ignore updates for sessions they did not
+  open.
+- `config`: `session/set_config_option` on the agent (after opening the session hidden, for a session nobody ran).
+- Models: on sign-in, and after a config change or a roster change, the bridge lists `model_state` with each model's
+  thinking levels (`acp_config_options` for that model) and sends `bridge:setModels` when it differs from the last.
+- Slash commands: the tee copies `available_commands_update`; the bridge keeps each mirrored session's list (name,
+  description, input hint) and sends `bridge:setCommands` when it changed.
+
 ### Adopted sessions
 
 A prompt for a session nobody runs (`adopt: true`, §2) is claimed by whichever crok of the computer gets there first.
@@ -335,7 +408,14 @@ own:
 - `x.ai/remote/sessions` (`{watch: true}` keeps `x.ai/remote/sessions_changed` coming for ten minutes) lists the other
   computers' sessions (`sessions:groups` without this computer); `x.ai/session/list` adds them as rows with
   `source: relay` when asked (`otherComputers: true`, or any search).
-- Setting a model, mode or option, and forking, are refused for such a session; they belong to its computer.
+- The load response carries `models` and `configOptions` (`model`, `reasoning_effort`) built from `sessions:get`'s
+  `models`, `model` and `effort`, so the front end's model and thinking pickers list that computer's choices.
+  `session/set_model` and `session/set_config_option` become `commands:setConfig` and return once the computer applied
+  it (with the new `configOptions`); a change made elsewhere arrives as `x.ai/session_notification` `model_changed` and
+  a `config_option_update`.
+- `x.ai/remote/new_session {deviceId, path, text?}` starts a session there (`sessions:create`) and returns
+  `{sessionId: "relay:<id>"}` for the front end to open.
+- Setting a mode and forking are refused for such a session; they belong to its computer.
 
 Not covered yet: the leader (`[cli] use_leader = true`, where the TUI talks to a shared `crok agent leader`), `crok agent
 serve` and headless `crok -p` runs host no bridge, so their sessions are not mirrored.
@@ -366,6 +446,8 @@ the Android build) and the web app (`NEXT_PUBLIC_CONVEX_URL`). `--server` (hidde
 - TUI: `/resume` lists the other computers' sessions too ("Title · Computer", badge "other computer"); picking one opens
   it (§4, "Sessions on other computers"). A permission request answered on another device leaves the prompt queue with
   "Answered on another device".
+- TUI: `/remote new` picks a project on another computer (computer · project, online ones) and opens a new session
+  there; `/model` and the thinking level work in another computer's session with that computer's choices.
 
 ### Crok Desktop
 
@@ -377,6 +459,10 @@ the Android build) and the web app (`NEXT_PUBLIC_CONVEX_URL`). `--server` (hidde
 - The sidebar has an "Other computers" section (from the remote host): each computer with its sessions; clicking one
   opens it as a task (`relay:` session id, kept under a hidden project whose folder is the app's own) that the other
   computer runs. An approval answered on another device leaves the task.
+- Each project of another computer has **New task** (a "+" on hover, and in its context menu): a new task whose first
+  prompt starts the session on that computer in that folder (`x.ai/remote/new_session` through the remote host), then
+  it is an ordinary remote task.
+- The composer's model and thinking-level pickers work in a remote task, listing that computer's choices.
 
 ### The session list (web, iOS, Android alike)
 
@@ -400,6 +486,64 @@ the Android build) and the web app (`NEXT_PUBLIC_CONVEX_URL`). `--server` (hidde
 - Menus: a section's menu has **Move up**, **Move down**, **Sort by recent activity** (`resetOrder({projectKey})`);
   the list's menu has **Sort projects by recent activity** (`resetOrder({})`).
 - While searching, sections hold only matching rows (empty ones hide) and reordering is off.
+
+### New sessions (web, iOS, Android alike)
+
+- Each project section offers **New session** (a "+" in the header, and in the section menu); the list's toolbar has a
+  compose button that first asks for the project (projects of online computers, grouped by computer, recent first).
+- Both open a **new-session screen** shaped like a session (Telegram's new chat): header "New session" with the
+  project and computer underneath, an empty transcript saying where it will run ("Starts in <path> on <computer>"),
+  and the composer. Sending calls `sessions:create` and turns the screen into that session (same navigation entry),
+  with the prompt shown optimistically. `/new [prompt]` inside a session does the same for its project (with a prompt:
+  at once).
+- Rows with `starting` show "Starting…" as their preview.
+
+### Commands in the composer (web, iOS, Android alike; Telegram's bot UI)
+
+Built from Telegram's bot keyboard: the **Menu button** and the **command list** (iOS `ChatTextInputMenuButton`,
+`CommandMenuChatInputContextPanelNode`; And `BotCommandsMenuView`, `MentionsAdapter` with `/` hints) and **inline
+keyboards** under a bot message (iOS `ChatMessageInlineKeyboard…`; And `BotButtons`).
+
+- A Menu button (a blue pill: ☰ icon, "Menu" while the field is empty, collapsing to the icon when typing) sits at the
+  start of the composer. It opens the command list above the composer; so does typing `/` as the first character, then
+  filtering by prefix as the person types (`/mo` → `/model`).
+- The list: the device's own commands first, then the session's (`sessions:commands`), each row `/name` in bold and the
+  description, the input hint greyed after the name. Tap: a command that takes arguments (a hint, or `/new` `/model`
+  `/think`, which also work without) fills the field with `/name ` for the rest; others are sent at once.
+- The device's own commands (localized descriptions):
+  - `/new [prompt]` — Start a new session in this project
+  - `/model [name]` — Change the model (on this session's computer)
+  - `/think [level]` — Change the thinking level (hidden when the current model has none)
+  - `/stop` — Stop the running turn (only while running)
+  - `/info` — Session info
+- `/model` and `/think` without an argument answer with a local **bot card** in the transcript (not stored on the
+  relay): "Model for this session" and an inline keyboard, one button per choice (models one per row with the
+  description under the name; thinking levels two per row), the current one marked ✓. A tap calls
+  `commands:setConfig`; the button spins until the command is done, then the card says "Model: Grok 4 ✓" and its
+  keyboard folds away; a failure shows in the card with the error. With an argument they match by id or name (case
+  insensitive, unique prefix) and apply directly, answering with the same card in its done state. Without `models`
+  (computer offline) the card says the computer is offline.
+- Any other `/text` goes to the computer as a prompt: the session's commands (`/compact`) and unknown ones alike
+  (crok answers "unknown command" there).
+
+### Look
+
+- Accent: Telegram blue — light `#3390EC`, dark `#3E88F7` (links, buttons, switches, selection, unread badges, the Menu
+  pill, ticks); the person's own prompt bubbles: light `#E1EFFD` with ordinary text, dark `#2B5278` with white text.
+  Online dots stay green.
+- iOS: on iOS 26 the system bars are Liquid Glass; the composer bar, the scroll-to-bottom button and floating buttons
+  use `glassEffect` (on iOS 17–25, `.regularMaterial`).
+- Android: the same Liquid Glass look — top bar, tab strip, composer and floating buttons are glass over the content
+  scrolling beneath (backdrop blur, refraction at the edge, a light rim and highlight), rounded like iOS; on Android
+  12 and older, where there is no backdrop shader, a translucent frosted surface.
+
+### Staying connected (iOS, Android)
+
+A phone's socket dies when the app is suspended or the network changes. The app does not wait for the person to kill
+it: on returning to the foreground, on the network coming back, and whenever the connection has not synced for 20 s
+while the network is up, it refreshes the access token and, if the socket still does not sync within 10 s, replaces
+the Convex client (subscriptions start again on the new one; what is on screen stays meanwhile). `UNAUTHENTICATED`
+from a query also triggers a token refresh and a new client. The title shows "Connecting…"/"Updating…" meanwhile.
 
 ### Web app (`relay/app`, Vercel)
 
@@ -433,7 +577,7 @@ Built from Telegram's patterns (structure and UX only; Telegram's code is GPL an
 | Per-session composer draft | survives app kill | iOS `ChatInterfaceState.swift`; And `ChatActivity.saveDraft` |
 | QR login | Settings › Link a computer: scan the QR `crok remote login` prints, confirm | iOS `AuthTransfer.swift`, `QrCodeScanScreen.swift`; And `SessionsActivity.ScanQRCodeView` |
 | Active sessions | Settings › Devices: this device, computers, phones; online / last seen; sign out one; "Sign out all other devices" | iOS `RecentSessionsController.swift`, `RecentSessionScreen.swift`; And `SessionsActivity.java`, `SessionCell.java` |
-| Semantic theme tokens, live theme and language switch | Crok palette (sage accent `#41634C` / `#A1BFA8`, Crok Night `#141414`, Crok Day `#EEEEEE`), six languages | iOS `PresentationTheme.swift`, `PresentationData.swift`; And `Theme.java`, `LocaleController.java` |
+| Semantic theme tokens, live theme and language switch | Crok palette (Telegram blue accent `#3390EC` / `#3E88F7`, Crok Night `#141414`, Crok Day `#EEEEEE`), six languages | iOS `PresentationTheme.swift`, `PresentationData.swift`; And `Theme.java`, `LocaleController.java` |
 
 Screens: Sign-in → Sessions (tabs All / per computer / Archived, search) → Session (header, plan bar, transcript,
 composer) → Session info sheet; Settings (account, Devices, Link a computer, appearance, language, about, sign out).
@@ -467,6 +611,5 @@ command `npx convex deploy --cmd 'npm run build'`, then point crok and the apps 
   refuses questions for now).
 - Push notifications for "turn finished" and "needs approval" (APNs / FCM via a Convex action; per-session threads and
   Approve / Deny actions, as Telegram's notification service does).
-- Start a new session on a chosen computer and folder from the phone.
 - End-to-end encryption of transcripts with a key shared between the user's devices.
 - Attachments (images) in remote prompts.

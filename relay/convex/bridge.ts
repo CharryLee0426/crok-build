@@ -5,7 +5,17 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { fail, requireHost, requireViewer } from "./lib/auth";
 import { ensureProject, inferProjectPath } from "./lib/projects";
-import { eventKind, hostApp, pendingInteraction, planEntry, sessionStatus, sessionUsage } from "./schema";
+import { appendNotice, isStarting, supports } from "./lib/starting";
+import {
+  eventKind,
+  hostApp,
+  modelOption,
+  pendingInteraction,
+  planEntry,
+  sessionStatus,
+  sessionUsage,
+  slashCommand,
+} from "./schema";
 
 /**
  * The computer side. Every running crok process that is signed in (a TUI, or one Crok Desktop task) is a "host": it
@@ -22,6 +32,8 @@ const CATALOG_INTERVAL_MS = 10 * 60 * 1000;
 /** A catalog upload that has not finished in this long is abandoned; another process may start one. */
 const CATALOG_STALE_MS = 2 * 60 * 1000;
 const MAX_CATALOG_PER_CALL = 100;
+const MAX_MODELS = 200;
+const MAX_COMMANDS = 500;
 
 function capText(text: string): string {
   if (text.length <= MAX_EVENT_TEXT) return text;
@@ -46,6 +58,7 @@ export const connect = mutation({
     appVersion: v.string(),
     pid: v.optional(v.number()),
     canAdopt: v.optional(v.boolean()),
+    features: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -65,6 +78,7 @@ export const connect = mutation({
         appVersion: args.appVersion,
         pid: args.pid,
         canAdopt: args.canAdopt,
+        features: args.features,
       });
       await setHostSessionsOnline(ctx, hostId, true);
     } else {
@@ -76,6 +90,7 @@ export const connect = mutation({
         appVersion: args.appVersion.slice(0, 80),
         pid: args.pid,
         canAdopt: args.canAdopt,
+        features: args.features,
         startedAt: now,
         lastSeenAt: now,
         online: true,
@@ -390,9 +405,15 @@ export const pushEvents = mutation({
  */
 function forHost(command: Doc<"commands">, session: Doc<"sessions"> | null, host: Doc<"hosts">): boolean {
   if (!session) return false;
+  if (!supports(host, command.type)) return false;
   if (command.type === "history") return session.deviceId === host.deviceId && !session.online;
   if (session.online) return session.hostId === host._id;
-  return command.type === "prompt" && session.deviceId === host.deviceId && host.canAdopt === true;
+  return opensSession(command) && session.deviceId === host.deviceId && host.canAdopt === true;
+}
+
+/** Commands that, for a session nobody runs, make whichever crok of the computer claims them open it. */
+function opensSession(command: Doc<"commands">): boolean {
+  return command.type === "prompt" || command.type === "config" || command.type === "create";
 }
 
 /**
@@ -428,8 +449,10 @@ export const inbox = query({
         text: command.text ?? null,
         /** For `answer`: the pending request it answers. */
         interactionId: command.interactionId ?? null,
-        /** A prompt for a session nobody runs: the host that claims it opens the session first. */
-        adopt: command.type === "prompt" && !session.online,
+        /** For `config`: the setting it changes (`text` holds the value). */
+        configId: command.configId ?? null,
+        /** A prompt or config change for a session nobody runs: the host that claims it opens the session first. */
+        adopt: (command.type === "prompt" || command.type === "config") && !session.online,
         fromLabel: command.fromLabel,
         /** `web` for a browser, else the sending device's kind (`phone`, or `computer`). */
         fromKind: command.fromDeviceId ? (sender?.kind ?? "phone") : "web",
@@ -476,13 +499,14 @@ export const claimCommand = mutation({
     if (!session || !forHost(command, session, host)) return false;
     const now = Date.now();
     await ctx.db.patch(commandId, { status: "delivered", updatedAt: now });
-    if (command.type === "prompt" && !session.online) {
+    if (opensSession(command) && !session.online) {
+      const runs = command.type === "prompt" || (command.type === "create" && command.text !== undefined);
       await ctx.db.patch(session._id, {
         hostId,
         app: host.app,
         online: true,
         suspended: undefined,
-        status: "running",
+        ...(runs ? { status: "running" as const } : {}),
         ...(session.archived ? { archived: false } : {}),
       });
     }
@@ -510,6 +534,120 @@ export const completeCommand = mutation({
       updatedAt: Date.now(),
     });
     if (command.type === "history") await settleHistory(ctx, command.sessionDocId, status === "done");
+    if (command.type === "create" && status === "failed") await failCreate(ctx, command.sessionDocId, error);
+    return null;
+  },
+});
+
+/**
+ * A new session's computer could not open it (or never picked it up): it stays listed with the reason, offline, and
+ * the next prompt to it tries again.
+ */
+export async function failCreate(ctx: MutationCtx, sessionDocId: Id<"sessions">, error: string | undefined) {
+  const session = await ctx.db.get(sessionDocId);
+  if (!session || !isStarting(session)) return;
+  await ctx.db.patch(sessionDocId, { online: false, status: "error", suspended: undefined, pending: undefined });
+  await appendNotice(ctx, sessionDocId, "error", error?.slice(0, 2000) || "The computer could not start this session.");
+}
+
+/**
+ * The crok session this host opened for a claimed `create` takes the place of the relay's `pending:` id; from then on
+ * the session is mirrored like any other (`upsertSession` finds it by its new id).
+ */
+export const bindSession = mutation({
+  args: { hostId: v.id("hosts"), sessionDocId: v.id("sessions"), sessionId: v.string() },
+  handler: async (ctx, { hostId, sessionDocId, sessionId }) => {
+    const { viewer, host } = await requireHost(ctx, hostId);
+    const session = await ctx.db.get(sessionDocId);
+    if (!session || session.deviceId !== viewer.device._id) fail("NOT_FOUND", "No such session.");
+    if (!isStarting(session)) {
+      if (session.sessionId === sessionId) return { sessionDocId, eventSeq: session.eventSeq };
+      fail("INVALID", "This session is already open on its computer.");
+    }
+    if (session.hostId !== hostId || !session.online) fail("EXPIRED", "Another crok took this session over.");
+    const taken = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", sessionId))
+      .unique();
+    if (taken) fail("INVALID", "That session id is in use.");
+    await ctx.db.patch(sessionDocId, { sessionId, app: host.app });
+    return { sessionDocId, eventSeq: session.eventSeq };
+  },
+});
+
+/** The models this computer's crok can run, with their thinking levels; written only when the list changed. */
+export const setModels = mutation({
+  args: { hostId: v.id("hosts"), models: v.array(modelOption) },
+  handler: async (ctx, { hostId, models }) => {
+    const { viewer } = await requireHost(ctx, hostId);
+    if (models.length > MAX_MODELS) fail("INVALID", `At most ${MAX_MODELS} models.`);
+    const clipped = models.map((m) => ({
+      ...m,
+      name: m.name.slice(0, 120),
+      description: m.description?.slice(0, 300),
+      efforts: m.efforts.slice(0, 20).map((e) => ({ ...e, name: e.name.slice(0, 60), description: e.description?.slice(0, 200) })),
+    }));
+    const row = await ctx.db
+      .query("modelLists")
+      .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))
+      .first();
+    if (!row) {
+      await ctx.db.insert("modelLists", {
+        userId: viewer.user._id,
+        deviceId: viewer.device._id,
+        models: clipped,
+        updatedAt: Date.now(),
+      });
+    } else if (JSON.stringify(row.models) !== JSON.stringify(clipped)) {
+      await ctx.db.patch(row._id, { models: clipped, updatedAt: Date.now() });
+    }
+    return null;
+  },
+});
+
+/**
+ * The slash commands a session this host runs offers (and, as the fallback for sessions no crok runs, this computer's
+ * latest list); written only when they changed.
+ */
+export const setCommands = mutation({
+  args: { hostId: v.id("hosts"), sessionId: v.string(), commands: v.array(slashCommand) },
+  handler: async (ctx, { hostId, sessionId, commands }) => {
+    const { viewer } = await requireHost(ctx, hostId);
+    if (commands.length > MAX_COMMANDS) fail("INVALID", `At most ${MAX_COMMANDS} commands.`);
+    const clipped = commands.map((c) => ({
+      name: c.name.replace(/^\/+/, "").slice(0, 100),
+      description: c.description.slice(0, 300),
+      ...(c.hint ? { hint: c.hint.slice(0, 200) } : {}),
+    }));
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", sessionId))
+      .unique();
+    const now = Date.now();
+    const write = async (sessionDocId: Id<"sessions"> | undefined) => {
+      const row = sessionDocId
+        ? await ctx.db
+            .query("commandLists")
+            .withIndex("by_session", (q) => q.eq("sessionDocId", sessionDocId))
+            .first()
+        : await ctx.db
+            .query("commandLists")
+            .withIndex("by_device_session", (q) => q.eq("deviceId", viewer.device._id).eq("sessionDocId", undefined))
+            .first();
+      if (!row) {
+        await ctx.db.insert("commandLists", {
+          userId: viewer.user._id,
+          deviceId: viewer.device._id,
+          sessionDocId,
+          commands: clipped,
+          updatedAt: now,
+        });
+      } else if (JSON.stringify(row.commands) !== JSON.stringify(clipped)) {
+        await ctx.db.patch(row._id, { commands: clipped, updatedAt: now });
+      }
+    };
+    if (session && session.hostId === hostId) await write(session._id);
+    await write(undefined);
     return null;
   },
 });
@@ -672,7 +810,8 @@ export const finishCatalog = mutation({
     const used = new Set<string>();
     let removed = 0;
     for (const session of sessions) {
-      if (session.online || listed.has(session.sessionId)) {
+      // A new session made from another device is not on this computer's disk until it opens.
+      if (session.online || listed.has(session.sessionId) || isStarting(session)) {
         used.add(session.projectPath || session.cwd);
         continue;
       }

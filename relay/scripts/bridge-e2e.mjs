@@ -349,6 +349,87 @@ const sessionRow = await phone.query("sessions:get", { sessionDocId });
 check(sessionRow.usage?.outputTokens > 0, "usage is kept on the session too", sessionRow.usage);
 
 // 6. Stop a running turn.
+// 5b. What the computer can run, the session's slash commands, and changing the model from the phone.
+console.log("models, thinking level and slash commands");
+const withModels = await until("the computer's models are on the relay", async () => {
+  const detail = await phone.query("sessions:get", { sessionDocId });
+  return detail.models?.length ? detail : null;
+});
+check(
+  withModels?.models.some((m) => m.id === withModels.model),
+  "sessions:get lists the computer's models, the session's among them",
+  withModels && { model: withModels.model, models: withModels.models.map((m) => m.id) },
+);
+const slash = await until("the session's slash commands are on the relay", async () => {
+  const list = await phone.query("sessions:commands", { sessionDocId });
+  return list.source === "session" && list.commands.length ? list : null;
+});
+check(slash?.commands.some((c) => c.name === "compact"), "crok's own commands are listed", slash?.commands.map((c) => c.name));
+const currentModel = withModels?.model;
+const { commandId: modelCommandId } = await phone.mutation("commands:setConfig", {
+  sessionDocId,
+  configId: "model",
+  value: currentModel,
+});
+const modelSet = await until("the model change is applied", async () => {
+  const command = await phone.query("commands:get", { commandId: modelCommandId });
+  return command?.status === "done" || command?.status === "failed" ? command : null;
+});
+check(modelSet?.status === "done" && modelSet.result?.model === currentModel, "the computer applies the model", modelSet);
+const effortChoice = withModels?.models.find((m) => m.id === currentModel)?.efforts.find((e) => (e.value ?? e.id) !== withModels.effort);
+if (effortChoice) {
+  const { commandId: effortCommandId } = await phone.mutation("commands:setConfig", {
+    sessionDocId,
+    configId: "reasoning_effort",
+    value: effortChoice.id,
+  });
+  const effortSet = await until("the thinking level is applied", async () => {
+    const command = await phone.query("commands:get", { commandId: effortCommandId });
+    return command?.status === "done" || command?.status === "failed" ? command : null;
+  });
+  check(effortSet?.status === "done", "the computer applies the thinking level", effortSet);
+  const effortRow = await until("the session reports it", async () => {
+    const detail = await phone.query("sessions:get", { sessionDocId });
+    return detail.effort === (effortChoice.value ?? effortChoice.id) ? detail : null;
+  });
+  check(Boolean(effortRow), "the session's effort follows");
+} else {
+  console.log("  --  (the model has no other thinking level; skipped)");
+}
+
+// 5c. A new session in this project, started from the phone: a crok here opens it and runs the prompt.
+console.log("a new session from the phone");
+const computerDevice = (await phone.query("devices:list", {})).find((d) => d.name === "E2E Mac");
+const created = await phone.mutation("sessions:create", {
+  deviceId: computerDevice?._id,
+  path: PROJECT,
+  text: "hello from a new phone session",
+  clientId: crypto.randomUUID(),
+});
+const createdRow = await phone.query("sessions:get", { sessionDocId: created.sessionDocId });
+check(createdRow.starting && createdRow.title === "hello from a new phone session", "it is listed at once, starting", createdRow);
+const createdDone = await until("its first prompt finishes", async () => {
+  const command = await phone.query("commands:get", { commandId: created.commandId });
+  return command?.status === "done" || command?.status === "failed" ? command : null;
+}, 60_000);
+check(createdDone?.status === "done", "the computer started it and ran the prompt", createdDone);
+const createdNow = await phone.query("sessions:get", { sessionDocId: created.sessionDocId });
+check(!createdNow.starting && createdNow.online && /^[0-9a-f-]{36}$/.test(createdNow.sessionId), "it has crok's own id now", createdNow.sessionId);
+const createdReply = await until("its reply is mirrored", async () => {
+  const page = await phone.query("sessions:events", { sessionDocId: created.sessionDocId, paginationOpts: { numItems: 20, cursor: null } });
+  // A new session's first prompt reaches the model wrapped in its opening context, so the mock's echo differs.
+  return page.page.some((e) => e.kind === "assistant" && e.text.includes("Hi from mock")) ? page.page : null;
+});
+check(Boolean(createdReply), "the reply is in its transcript");
+check(
+  createdReply?.some((e) => e.kind === "user" && e.commandId === created.commandId),
+  "the prompt is in it as the phone's, matching its bubble",
+);
+check(
+  !notifications.some((n) => n.method === "session/update" && n.params?.sessionId === createdNow.sessionId && n.params?.update?.sessionUpdate === "agent_message_chunk"),
+  "the task's own front end does not show it",
+);
+
 console.log("stop");
 const { commandId: slowId } = await phone.mutation("commands:sendPrompt", {
   sessionDocId,
@@ -418,7 +499,19 @@ check(
   "it lists the other computer's sessions, not its own",
   listed?.computers.map((c) => c.deviceName),
 );
-await second.rpc("session/load", { sessionId: remoteId, cwd: PROJECT, mcpServers: [] });
+const remoteLoad = await second.rpc("session/load", { sessionId: remoteId, cwd: PROJECT, mcpServers: [] });
+check(
+  remoteLoad?.models?.availableModels?.length > 0 && remoteLoad.configOptions?.some((o) => o.id === "model"),
+  "opening it offers that computer's models",
+  remoteLoad && { models: remoteLoad.models, options: remoteLoad.configOptions?.map((o) => o.id) },
+);
+const remoteModel = remoteLoad?.models?.currentModelId;
+const remoteSet = await second.rpc("session/set_config_option", { sessionId: remoteId, configId: "model", value: remoteModel });
+check(
+  remoteSet?.configOptions?.find((o) => o.id === "model")?.currentValue === remoteModel,
+  "picking its model there is applied here",
+  remoteSet,
+);
 const replayed = second.notifications.filter((n) => n.method === "session/update" && n.params.sessionId === remoteId);
 check(
   replayed.some(
@@ -482,6 +575,21 @@ second.notify("session/cancel", { sessionId: remoteId });
 const slowThereDone = await slowThere;
 check(slowThereDone.stopReason === "cancelled", "Stop there stops the turn here", slowThereDone);
 await until("this session is idle again", async () => (await phone.query("sessions:get", { sessionDocId })).status === "idle");
+const remoteNew = await second.rpc("_x.ai/remote/new_session", {
+  deviceId: computerDevice?._id,
+  path: PROJECT,
+  text: "hello new from the other desk",
+});
+check(remoteNew?.sessionId?.startsWith("relay:"), "the second computer starts a session here", remoteNew);
+const remoteNewDoc = remoteNew?.sessionId?.slice("relay:".length);
+const remoteNewReply = await until("the new session runs here", async () => {
+  const page = await phone.query("sessions:events", { sessionDocId: remoteNewDoc, paginationOpts: { numItems: 20, cursor: null } });
+  return page.page.some((e) => e.kind === "user" && e.text === "hello new from the other desk") &&
+    page.page.some((e) => e.kind === "assistant" && e.text.includes("Hi from mock"))
+    ? page
+    : null;
+}, 60_000);
+check(Boolean(remoteNewReply), "its first prompt ran on this computer");
 second.agent.stdin.end();
 await Promise.race([second.exited, sleep(15_000)]);
 execFileSync(CROK, ["remote", "logout", "--json"], { env: env2, encoding: "utf8" });
@@ -503,6 +611,9 @@ check(!devices.some((d) => d.name === "E2E Mac"), "the computer is gone from the
 
 // Leave nothing behind but the test person: drop the sessions' copies and unlink the phone.
 await phone.mutation("sessions:remove", { sessionDocId });
+for (const doc of [created.sessionDocId, remoteNewDoc]) {
+  if (doc) await phone.mutation("sessions:remove", { sessionDocId: doc }).catch(() => {});
+}
 if (olderRow) await phone.mutation("sessions:remove", { sessionDocId: olderRow._id });
 await http.mutation("deviceAuth:logout", { refreshToken: phoneTokens.refreshToken });
 

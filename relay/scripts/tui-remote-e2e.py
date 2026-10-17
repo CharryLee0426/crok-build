@@ -163,6 +163,37 @@ check(whole, "the whole reply arrives", None if whole else re.findall(r"asked.{0
 check(any("claimed prompt" in line and "hello from the second desk" in line for line in fake_log),
       "the other computer ran it", fake_log[-8:])
 
+print("the model and thinking level of the other computer's session")
+pump(2)
+type_text("/model grok-4")
+end = time.time() + 30
+while time.time() < end and not any("config model = grok-4" in line for line in fake_log):
+    pump(0.3)
+check(any("config model = grok-4" in line for line in fake_log), "/model switches the model over there", fake_log[-6:])
+pump(2)
+type_text("/model grok-4 low")
+end = time.time() + 30
+while time.time() < end and not any("config reasoning_effort = low" in line for line in fake_log):
+    pump(0.3)
+check(any("config reasoning_effort = low" in line for line in fake_log), "and its thinking level, from that computer's list",
+      fake_log[-6:])
+config_toml = open(os.path.join(HOME, "config.toml"), encoding="utf8").read()
+check("grok-4" not in config_toml, "the other computer's model does not become this one's default")
+
+print("/remote new starts a session on the other computer")
+pump(2)
+mark = len(screen)
+type_text("/remote new")
+check(wait_for(r"webapp\W*·\W*Test\W*MacBook", 30, "it lists the other computer's projects", mark),
+      "/remote new lists the other computer's projects")
+pump(1)
+mark = len(screen)
+type_text("/remote new 1 hello from a new desk session")
+check(wait_for(r"hello\W*from\W*a\W*new\W*desk\W*session", 40, "the new session opens with its prompt", mark),
+      "it starts one there and opens it")
+check(wait_for(r"You\W*asked", 60, "the new session's reply streams back", mark), "and opens it with the reply streaming in")
+check(any("session started" in line for line in fake_log), "the other computer opened it", fake_log[-8:])
+
 print("quit")
 type_text("/quit")
 pump(4)

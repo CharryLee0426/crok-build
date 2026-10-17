@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
-import { markHostOffline, settleHistory } from "./bridge";
+import { failCreate, markHostOffline, settleHistory } from "./bridge";
 
 /** A host that has not heartbeated (every 30 s) for this long is offline: the process quit, crashed or lost network. */
 const HOST_STALE_MS = 90 * 1000;
@@ -34,6 +34,9 @@ export const sweep = internalMutation({
         updatedAt: now,
       });
       if (command.type === "history") await settleHistory(ctx, command.sessionDocId, false);
+      if (command.type === "create") {
+        await failCreate(ctx, command.sessionDocId, "The computer did not pick this up. Is crok still running there?");
+      }
     }
 
     const logins = await ctx.db
@@ -100,6 +103,11 @@ export const deleteSessionEvents = internalMutation({
         .withIndex("by_session", (q) => q.eq("sessionDocId", sessionDocId))
         .take(1000);
       for (const command of commands) await ctx.db.delete(command._id);
+      const lists = await ctx.db
+        .query("commandLists")
+        .withIndex("by_session", (q) => q.eq("sessionDocId", sessionDocId))
+        .collect();
+      for (const list of lists) await ctx.db.delete(list._id);
     }
     return null;
   },

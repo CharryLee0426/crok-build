@@ -16,11 +16,13 @@ import {
   reorderWithin,
   sessionProjectPath,
 } from "./lib/projects";
+import { STARTING_PREFIX, isAbsolutePath, isStarting, modelsFor, supports, titleFromPrompt } from "./lib/starting";
 
 /** How long a viewer counts as "watching" after its last `watch` call; clients call it every 60 s. */
 const VIEW_TTL_MS = 2 * 60 * 1000;
 /** Placing items by hand takes at most this many in one call. */
 const MAX_REORDER = 500;
+const MAX_PROMPT = 32_000;
 
 function planProgress(plan: Doc<"sessions">["plan"]) {
   if (!plan || plan.length === 0) return null;
@@ -54,6 +56,8 @@ function sessionRow(session: Doc<"sessions">, device: Doc<"devices">) {
     projectName: projectName(projectPath),
     /** `none` / `requested`: the transcript is still on the computer only; `ready` or null: it is here. */
     historyState: session.historyState ?? null,
+    /** Made by `sessions:create` and not open on its computer yet. */
+    starting: isStarting(session),
   };
 }
 
@@ -146,9 +150,108 @@ export const get = query({
       projectPath,
       projectName: projectName(projectPath),
       historyState: session.historyState ?? null,
+      starting: isStarting(session),
       /** A permission request waiting for an answer (`commands:answer`), or null. */
       pending: session.pending ?? null,
+      /** What its computer can run (`commands:setConfig` picks from these), or null while the computer is offline. */
+      models: await modelsFor(ctx, device),
     };
+  },
+});
+
+/**
+ * Starts a session in `path` on one of the person's computers, from any device: the relay lists it at once
+ * (`starting`), and the first crok there to claim the `create` command opens it and runs `text` as its first prompt.
+ * `clientId` (a UUID the caller makes) makes a resend a no-op.
+ */
+export const create = mutation({
+  args: { deviceId: v.string(), path: v.string(), text: v.optional(v.string()), clientId: v.string() },
+  handler: async (ctx, { deviceId, path, text, clientId }) => {
+    const viewer = await requireViewer(ctx);
+    const duplicate = await ctx.db
+      .query("commands")
+      .withIndex("by_client_id", (q) => q.eq("userId", viewer.user._id).eq("clientId", clientId))
+      .unique();
+    if (duplicate) return { sessionDocId: duplicate.sessionDocId, commandId: duplicate._id };
+    const id = ctx.db.normalizeId("devices", deviceId);
+    const device = id ? await ctx.db.get(id) : null;
+    if (!device || device.userId !== viewer.user._id || device.revokedAt !== undefined) {
+      fail("NOT_FOUND", "No such computer.");
+    }
+    if (device.kind !== "computer") fail("FORBIDDEN", "Sessions run on computers, not phones.");
+    const folder = path.trim();
+    if (!isAbsolutePath(folder)) fail("INVALID", "Choose a folder on the computer (a full path).");
+    const prompt = text?.trim() || undefined;
+    if (prompt && prompt.length > MAX_PROMPT) fail("INVALID", `Prompts are limited to ${MAX_PROMPT} characters.`);
+    const hosts = await ctx.db
+      .query("hosts")
+      .withIndex("by_device_online", (q) => q.eq("deviceId", device._id).eq("online", true))
+      .take(50);
+    const host = hosts.find((h) => h.canAdopt === true && supports(h, "create"));
+    if (!host) {
+      fail(
+        "OFFLINE",
+        hosts.some((h) => h.canAdopt === true)
+          ? `Update crok on ${device.name} to start sessions there from another device.`
+          : `${device.name} is offline: start crok or Crok Desktop there.`,
+      );
+    }
+    await ensureProject(ctx, viewer.user._id, device._id, folder);
+    const now = Date.now();
+    const sessionDocId = await ctx.db.insert("sessions", {
+      userId: viewer.user._id,
+      deviceId: device._id,
+      hostId: host._id,
+      sessionId: `${STARTING_PREFIX}${clientId}`,
+      app: host.app,
+      title: titleFromPrompt(prompt),
+      cwd: folder,
+      projectPath: folder,
+      status: prompt ? "running" : "idle",
+      online: false,
+      createdAt: now,
+      lastActivityAt: now,
+      eventSeq: 0,
+      assistantCount: 0,
+      readAssistantCount: 0,
+    });
+    const commandId = await ctx.db.insert("commands", {
+      userId: viewer.user._id,
+      deviceId: device._id,
+      sessionDocId,
+      type: "create",
+      text: prompt,
+      clientId,
+      status: "pending",
+      fromDeviceId: viewer.device?._id,
+      fromLabel: viewerLabel(viewer),
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { sessionDocId, commandId };
+  },
+});
+
+/**
+ * The session's slash commands as crok advertises them (built-ins, skills, workflows), else its computer's latest
+ * list, for the composer's command menu.
+ */
+export const commands = query({
+  args: { sessionDocId: v.string() },
+  handler: async (ctx, { sessionDocId }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    const own = await ctx.db
+      .query("commandLists")
+      .withIndex("by_session", (q) => q.eq("sessionDocId", session._id))
+      .first();
+    if (own) return { commands: own.commands, source: "session" as const };
+    const computer = await ctx.db
+      .query("commandLists")
+      .withIndex("by_device_session", (q) => q.eq("deviceId", session.deviceId).eq("sessionDocId", undefined))
+      .first();
+    if (computer) return { commands: computer.commands, source: "computer" as const };
+    return { commands: [], source: "none" as const };
   },
 });
 
@@ -344,6 +447,11 @@ export const remove = mutation({
     const session = await requireSession(ctx, viewer, sessionDocId);
     if (session.online) fail("INVALID", "Close the session on the computer first, or archive it.");
     await ctx.db.delete(session._id);
+    const lists = await ctx.db
+      .query("commandLists")
+      .withIndex("by_session", (q) => q.eq("sessionDocId", session._id))
+      .collect();
+    for (const list of lists) await ctx.db.delete(list._id);
     await ctx.scheduler.runAfter(0, internal.maintenance.deleteSessionEvents, {
       sessionDocId: session._id,
       throughSeq: Number.MAX_SAFE_INTEGER,
