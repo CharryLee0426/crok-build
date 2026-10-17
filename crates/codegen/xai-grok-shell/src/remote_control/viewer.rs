@@ -36,6 +36,8 @@ pub const REMOTE_SESSIONS_CHANGED_METHOD: &str = "x.ai/remote/sessions_changed";
 /// Ext notification `{sessionId, toolCallId}`: a permission request was answered on another device; a front end drops
 /// its own prompt for it.
 pub const PERMISSION_RESOLVED_METHOD: &str = "x.ai/remote/permission_resolved";
+/// Ext method `{deviceId, path, text?}` → `{sessionId: "relay:<id>"}`: starts a session in a folder of another computer.
+pub const REMOTE_NEW_SESSION_METHOD: &str = "x.ai/remote/new_session";
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 /// How much transcript a session starts with when opened here.
@@ -52,6 +54,9 @@ const LIST_FIRST_WAIT: Duration = Duration::from_secs(4);
 const SETTLE: Duration = Duration::from_millis(600);
 /// The longest a finished prompt waits for the session to show idle.
 const SETTLE_MAX: Duration = Duration::from_secs(3);
+/// How long a model or thinking-level change may take on the other computer (it may have to open the session first).
+const CONFIG_WAIT: Duration = Duration::from_secs(75);
+const CONFIG_POLL: Duration = Duration::from_millis(400);
 
 pub(crate) fn doc_id(session_id: &str) -> Option<&str> {
     session_id
@@ -228,7 +233,11 @@ impl Viewer {
         .map_err(|_| error("The relay connection closed."))?;
         match tokio::time::timeout(CALL_TIMEOUT, answer).await {
             Ok(Ok(Ok(value))) => Ok(value),
-            Ok(Ok(Err(failure))) => Err(error(failure.to_string())),
+            // The relay's code (`OFFLINE`, `INVALID`, …) rides along for front ends that word it themselves.
+            Ok(Ok(Err(failure))) => Err(match failure.code() {
+                Some(code) => error(failure.to_string()).data(json!({ "code": code })),
+                None => error(failure.to_string()),
+            }),
             Ok(Err(_)) => Err(error("The relay connection closed.")),
             Err(_) => Err(error("The relay did not answer in time.")),
         }
@@ -381,11 +390,185 @@ impl Viewer {
         for delivered in self.apply_events(&doc, &events, true) {
             let _ = tokio::time::timeout(CALL_TIMEOUT, delivered).await;
         }
+        // A turn already running there (a new session's first prompt, say) is adopted like one started elsewhere: the
+        // front end shows it running and hears `prompt_complete` when the session goes idle.
+        let running = self.views.borrow_mut().get_mut(&doc).and_then(|view| {
+            if view.status() == "idle" || view.status() == "error" {
+                return None;
+            }
+            let last_prompt = events
+                .iter()
+                .rev()
+                .find(|e| str_of(e, "kind") == Some("user"))
+                .and_then(|e| str_of(e, "commandId").or_else(|| str_of(e, "key")))
+                .unwrap_or("running");
+            let prompt_id = format!("remote-{last_prompt}");
+            view.turn_prompt = Some(prompt_id.clone());
+            view.turn_foreign = true;
+            Some(prompt_id)
+        });
         self.fire("sessions:watch", json!({ "sessionDocId": doc }));
         self.fire("sessions:markRead", json!({ "sessionDocId": doc }));
         self.subscribe_view(&doc);
-        serde_json::from_value(json!({}))
+        let choices = self
+            .views
+            .borrow()
+            .get(&doc)
+            .map(|view| Choices::of(&view.detail))
+            .unwrap_or_default();
+        let mut response = json!({
+            "models": choices.model_state(),
+            "configOptions": choices.config_options(),
+        });
+        if let Some(prompt_id) = running {
+            set(
+                &mut response,
+                "_meta",
+                json!({ "x.ai/runningPromptId": prompt_id }),
+            );
+        }
+        serde_json::from_value(response)
             .map_err(|failure| error(format!("cannot build the load response: {failure}")))
+    }
+
+    /// Changes the session's model (and, from the TUI's picker, its thinking level with it) on its computer.
+    pub(crate) async fn set_model(
+        &self,
+        acp_id: &str,
+        model: &str,
+        effort: Option<String>,
+    ) -> acp::Result<acp::SetSessionModelResponse> {
+        let doc = doc_id(acp_id)
+            .ok_or_else(|| error("Not a session of another computer."))?
+            .to_string();
+        let current = self.detail(&doc).await?;
+        if str_of(&current, "model") != Some(model) {
+            self.change(&doc, "model", model).await?;
+        }
+        if let Some(level) = effort {
+            let detail = self.detail(&doc).await?;
+            let choices = Choices::of(&detail);
+            if choices.effort.as_deref() != Some(level.as_str())
+                && let Some(id) = choices.effort_id(&level)
+            {
+                self.change(&doc, "reasoning_effort", &id).await?;
+            }
+        }
+        serde_json::from_value(json!({ "_meta": { "model": model } }))
+            .map_err(|failure| error(format!("cannot build the response: {failure}")))
+    }
+
+    /// `session/set_config_option` (`model`, `reasoning_effort`) for a session of another computer.
+    pub(crate) async fn set_config(
+        &self,
+        acp_id: &str,
+        config_id: &str,
+        value: &str,
+    ) -> acp::Result<acp::SetSessionConfigOptionResponse> {
+        let doc = doc_id(acp_id)
+            .ok_or_else(|| error("Not a session of another computer."))?
+            .to_string();
+        if config_id != "model" && config_id != "reasoning_effort" {
+            return Err(error(format!("unknown config option: {config_id}")));
+        }
+        self.change(&doc, config_id, value).await?;
+        let detail = self.detail(&doc).await?;
+        serde_json::from_value(json!({ "configOptions": Choices::of(&detail).config_options() }))
+            .map_err(|failure| error(format!("cannot build the response: {failure}")))
+    }
+
+    /// The session as the relay has it: the open view's copy, else a fresh read.
+    async fn detail(&self, doc: &str) -> acp::Result<Value> {
+        let held = self
+            .views
+            .borrow()
+            .get(doc)
+            .map(|view| view.detail.clone())
+            .filter(|detail| !detail.is_null());
+        match held {
+            Some(detail) => Ok(detail),
+            None => {
+                self.call(
+                    CallKind::Query,
+                    "sessions:get",
+                    json!({ "sessionDocId": doc }),
+                )
+                .await
+            }
+        }
+    }
+
+    /// Sends `commands:setConfig` and waits until the computer applied it; the open view takes the new value at once.
+    async fn change(&self, doc: &str, config_id: &str, value: &str) -> acp::Result<()> {
+        let sent = self
+            .call(
+                CallKind::Mutation,
+                "commands:setConfig",
+                json!({ "sessionDocId": doc, "configId": config_id, "value": value }),
+            )
+            .await?;
+        let command_id = str_of(&sent, "commandId")
+            .ok_or_else(|| error("The relay did not take the change."))?
+            .to_string();
+        let started = Instant::now();
+        loop {
+            tokio::time::sleep(CONFIG_POLL).await;
+            let command = self
+                .call(
+                    CallKind::Query,
+                    "commands:get",
+                    json!({ "commandId": command_id }),
+                )
+                .await?;
+            match str_of(&command, "status") {
+                Some("done") => {
+                    let result = command.get("result").cloned().unwrap_or(Value::Null);
+                    if let Some(view) = self.views.borrow_mut().get_mut(doc) {
+                        for key in ["model", "effort"] {
+                            if let Some(value) = result.get(key).filter(|v| v.is_string()) {
+                                set(&mut view.detail, key, value.clone());
+                            }
+                        }
+                    }
+                    return Ok(());
+                }
+                Some("failed") => {
+                    return Err(error(
+                        str_of(&command, "error")
+                            .unwrap_or("The other computer could not change it.")
+                            .to_string(),
+                    ));
+                }
+                _ if started.elapsed() >= CONFIG_WAIT => {
+                    return Err(error("The other computer did not answer in time."));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// `x.ai/remote/new_session`: starts a session in a folder of another computer and names it for the front end.
+    pub(crate) async fn new_session(&self, params: &Value) -> acp::Result<Value> {
+        let device = str_of(params, "deviceId").ok_or_else(|| error("Which computer?"))?;
+        let path = str_of(params, "path").ok_or_else(|| error("Which folder?"))?;
+        let mut args = json!({
+            "deviceId": device,
+            "path": path,
+            "clientId": uuid::Uuid::new_v4().to_string(),
+        });
+        // Optional arguments are left out, never sent as null.
+        if let Some(text) = str_of(params, "text").filter(|t| !t.trim().is_empty()) {
+            set(&mut args, "text", json!(text));
+        }
+        let created = self
+            .call(CallKind::Mutation, "sessions:create", args)
+            .await?;
+        let doc = str_of(&created, "sessionDocId")
+            .ok_or_else(|| error("The relay did not start the session."))?;
+        Ok(json!({
+            "sessionId": format!("{RELAY_PREFIX}{doc}"),
+            "commandId": created.get("commandId"),
+        }))
     }
 
     /// Sends a prompt to the computer running the session and waits for its turn to end there.
@@ -742,13 +925,25 @@ impl Viewer {
         let mut ask: Option<(String, Value)> = None;
         let mut resolved: Option<(String, String)> = None;
         let mut foreign_done: Option<(String, String)> = None;
+        let mut changed_choices: Option<(String, Choices)> = None;
         {
             let mut views = self.views.borrow_mut();
             let Some(view) = views.get_mut(doc) else {
                 return;
             };
             let was_running = view.status() != "idle";
+            let before = (
+                str_of(&view.detail, "model").map(str::to_owned),
+                str_of(&view.detail, "effort").map(str::to_owned),
+            );
             view.detail = detail;
+            let after = (
+                str_of(&view.detail, "model").map(str::to_owned),
+                str_of(&view.detail, "effort").map(str::to_owned),
+            );
+            if before != after && after.0.is_some() {
+                changed_choices = Some((view.acp_id.clone(), Choices::of(&view.detail)));
+            }
             let now_idle = view.status() == "idle" || view.status() == "error";
             if was_running
                 && now_idle
@@ -780,6 +975,26 @@ impl Viewer {
         }
         if let Some((acp_id, prompt)) = foreign_done {
             self.prompt_complete(&acp_id, &prompt, "end_turn");
+        }
+        if let Some((acp_id, choices)) = changed_choices {
+            // As the agent tells a front end about a model switch made elsewhere.
+            self.ext_notify(
+                "x.ai/session_notification",
+                json!({
+                    "sessionId": acp_id,
+                    "update": {
+                        "sessionUpdate": "model_changed",
+                        "model_id": choices.model,
+                        "reasoning_effort": choices.effort,
+                    },
+                }),
+            );
+            let _ = self.notify(
+                &acp_id,
+                json!({ "sessionUpdate": "config_option_update", "configOptions": choices.config_options() }),
+                None,
+                false,
+            );
         }
         if let Some((acp_id, tool_call)) = resolved {
             self.ext_notify(
@@ -1136,6 +1351,187 @@ impl Viewer {
     }
 }
 
+/// What a session of another computer offers to choose (`sessions:get`'s `models`, `model`, `effort`), in the agent's
+/// shapes: `models` for the TUI's picker, `configOptions` for Crok Desktop's.
+#[derive(Default)]
+struct Choices {
+    models: Vec<Value>,
+    model: Option<String>,
+    /// The level itself (`high`), as sessions report it.
+    effort: Option<String>,
+}
+
+impl Choices {
+    fn of(detail: &Value) -> Choices {
+        Choices {
+            models: detail
+                .get("models")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+            model: str_of(detail, "model")
+                .filter(|m| !m.is_empty())
+                .map(str::to_owned),
+            effort: str_of(detail, "effort")
+                .filter(|e| !e.is_empty())
+                .map(str::to_owned),
+        }
+    }
+
+    fn current(&self) -> Option<&Value> {
+        let model = self.model.as_deref()?;
+        self.models.iter().find(|m| str_of(m, "id") == Some(model))
+    }
+
+    fn efforts(&self) -> Vec<Value> {
+        self.current()
+            .and_then(|m| m.get("efforts"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// The option id of a thinking level of the current model, named by id, level or name.
+    fn effort_id(&self, wanted: &str) -> Option<String> {
+        self.efforts()
+            .iter()
+            .find(|e| {
+                [str_of(e, "value"), str_of(e, "id"), str_of(e, "name")]
+                    .into_iter()
+                    .flatten()
+                    .any(|name| name.eq_ignore_ascii_case(wanted))
+            })
+            .and_then(|e| str_of(e, "id"))
+            .map(str::to_owned)
+    }
+
+    /// The selected thinking level's option id: the session's level, else the model's default, else the first.
+    fn effort_selected(&self) -> Option<String> {
+        let efforts = self.efforts();
+        self.effort
+            .as_deref()
+            .and_then(|level| self.effort_id(level))
+            .or_else(|| {
+                self.current()
+                    .and_then(|m| str_of(m, "defaultEffort"))
+                    .map(str::to_owned)
+            })
+            .or_else(|| {
+                efforts
+                    .first()
+                    .and_then(|e| str_of(e, "id"))
+                    .map(str::to_owned)
+            })
+    }
+
+    fn model_state(&self) -> Value {
+        let mut available: Vec<Value> = self
+            .models
+            .iter()
+            .map(|model| {
+                let id = str_of(model, "id").unwrap_or_default();
+                let efforts: Vec<Value> = model
+                    .get("efforts")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .map(|e| {
+                        let effort_id = str_of(e, "id").unwrap_or_default();
+                        json!({
+                            "id": effort_id,
+                            "value": str_of(e, "value").unwrap_or(effort_id),
+                            "label": e.get("name"),
+                            "description": e.get("description"),
+                            "default": str_of(model, "defaultEffort") == Some(effort_id),
+                        })
+                    })
+                    .collect();
+                let mut meta = json!({
+                    "supportsReasoningEffort": !efforts.is_empty(),
+                    "reasoningEfforts": efforts,
+                });
+                if Some(id) == self.model.as_deref()
+                    && let Some(effort) = &self.effort
+                {
+                    set(&mut meta, "reasoningEffort", json!(effort));
+                }
+                json!({
+                    "modelId": id,
+                    "name": str_of(model, "name").unwrap_or(id),
+                    "description": model.get("description"),
+                    "_meta": meta,
+                })
+            })
+            .collect();
+        if available.is_empty()
+            && let Some(model) = &self.model
+        {
+            // Its computer is offline: nothing to choose from, but the picker still names the model.
+            available.push(json!({ "modelId": model, "name": model }));
+        }
+        json!({
+            "currentModelId": self.model.clone().unwrap_or_default(),
+            "availableModels": available,
+        })
+    }
+
+    fn config_options(&self) -> Vec<Value> {
+        let mut options = Vec::new();
+        if !self.models.is_empty() {
+            let values: Vec<acp::SessionConfigSelectOption> = self
+                .models
+                .iter()
+                .filter_map(|m| {
+                    let id = str_of(m, "id")?;
+                    Some(acp::SessionConfigSelectOption::new(
+                        id.to_string(),
+                        str_of(m, "name").unwrap_or(id).to_string(),
+                    ))
+                })
+                .collect();
+            options.push(
+                acp::SessionConfigOption::select(
+                    "model",
+                    "Model",
+                    self.model.clone().unwrap_or_default(),
+                    values,
+                )
+                .category(acp::SessionConfigOptionCategory::Model),
+            );
+        }
+        let efforts = self.efforts();
+        if let Some(selected) = self.effort_selected().filter(|_| !efforts.is_empty()) {
+            let values: Vec<acp::SessionConfigSelectOption> = efforts
+                .iter()
+                .filter_map(|e| {
+                    let id = str_of(e, "id")?;
+                    let mut value = acp::SessionConfigSelectOption::new(
+                        id.to_string(),
+                        str_of(e, "name").unwrap_or(id).to_string(),
+                    );
+                    if let Some(description) = str_of(e, "description") {
+                        value = value.description(description.to_string());
+                    }
+                    Some(value)
+                })
+                .collect();
+            options.push(
+                acp::SessionConfigOption::select(
+                    "reasoning_effort",
+                    "Reasoning Effort",
+                    selected,
+                    values,
+                )
+                .category(acp::SessionConfigOptionCategory::ThoughtLevel),
+            );
+        }
+        options
+            .iter()
+            .filter_map(|option| serde_json::to_value(option).ok())
+            .collect()
+    }
+}
+
 /// A list row of `sessions:groups` as a front end lists it.
 fn session_entry(row: &Value) -> Value {
     json!({
@@ -1213,6 +1609,62 @@ mod tests {
                 json!({ "sessionId": "relay:x", "update": update, "_meta": { "isReplay": true } });
             serde_json::from_value::<acp::SessionNotification>(notification).expect("parses");
         }
+    }
+
+    fn detail() -> Value {
+        json!({
+            "model": "grok-4",
+            "effort": "medium",
+            "models": [
+                { "id": "grok-4", "name": "Grok 4", "defaultEffort": "deep", "efforts": [
+                    { "id": "balanced", "name": "Balanced", "value": "medium" },
+                    { "id": "deep", "name": "Deep", "value": "xhigh" },
+                ]},
+                { "id": "mini", "name": "Mini", "efforts": [] },
+            ],
+        })
+    }
+
+    #[test]
+    fn another_computers_choices_take_the_agents_shapes() {
+        let choices = Choices::of(&detail());
+        let state = choices.model_state();
+        assert_eq!(state["currentModelId"], "grok-4");
+        let first = &state["availableModels"][0];
+        assert_eq!(first["_meta"]["supportsReasoningEffort"], true);
+        assert_eq!(first["_meta"]["reasoningEffort"], "medium");
+        assert_eq!(first["_meta"]["reasoningEfforts"][1]["default"], true);
+        assert_eq!(
+            state["availableModels"][1]["_meta"]["supportsReasoningEffort"],
+            false
+        );
+        serde_json::from_value::<acp::SessionModelState>(state).expect("a model state");
+        let options = choices.config_options();
+        assert_eq!(options[0]["id"], "model");
+        // The session reports the level; the picker selects its option id.
+        assert_eq!(options[1]["id"], "reasoning_effort");
+        assert_eq!(options[1]["currentValue"], "balanced");
+        for option in options {
+            serde_json::from_value::<acp::SessionConfigOption>(option).expect("a config option");
+        }
+    }
+
+    #[test]
+    fn levels_are_found_by_id_level_or_name() {
+        let choices = Choices::of(&detail());
+        assert_eq!(choices.effort_id("xhigh").as_deref(), Some("deep"));
+        assert_eq!(choices.effort_id("Balanced").as_deref(), Some("balanced"));
+        assert_eq!(choices.effort_id("max"), None);
+    }
+
+    #[test]
+    fn an_offline_computer_still_names_the_model() {
+        let choices = Choices::of(&json!({ "model": "grok-4", "models": null }));
+        assert_eq!(
+            choices.model_state()["availableModels"][0]["modelId"],
+            "grok-4"
+        );
+        assert!(choices.config_options().is_empty());
     }
 
     #[test]

@@ -1479,6 +1479,15 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                 start,
             }]
         }
+        TaskResult::RemoteSessionCreated {
+            agent_id: _,
+            session_id,
+            text,
+        } => {
+            // The view switches to the new session at once: a toast outlives the switch, a scrollback line would not.
+            app.show_toast(&text);
+            dispatch(Action::LoadSession(session_id, None, false), app)
+        }
         TaskResult::RemoteNotice {
             agent_id,
             text,

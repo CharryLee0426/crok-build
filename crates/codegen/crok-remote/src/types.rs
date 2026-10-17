@@ -209,6 +209,14 @@ pub enum CommandType {
     History,
     /// A choice (`text`) for the session's pending permission request (`interaction_id`).
     Answer,
+    /// Open a new session in the folder `cwd` for a relay row whose id is still `pending:…`, then run `text` (if any) as
+    /// its first prompt.
+    Create,
+    /// Set the session's model or thinking level (`config_id`, value in `text`).
+    Config,
+    /// A command type from a newer relay: left alone.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A command from a phone, the web or another computer, as `bridge:inbox` lists it.
@@ -229,6 +237,9 @@ pub struct InboxCommand {
     /// For [`CommandType::Answer`]: the pending request it answers.
     #[serde(default)]
     pub interaction_id: Option<String>,
+    /// For [`CommandType::Config`]: `model` or `reasoning_effort`.
+    #[serde(default)]
+    pub config_id: Option<String>,
     /// A prompt for a session nobody runs: whoever claims it opens the session first.
     #[serde(default)]
     pub adopt: bool,
@@ -282,6 +293,43 @@ pub struct PendingInteraction {
     pub options: Vec<PendingOption>,
     /// Unix milliseconds.
     pub at: f64,
+}
+
+/// One thinking level a model offers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffortOption {
+    /// What `session/set_config_option` (`reasoning_effort`) takes.
+    pub id: String,
+    pub name: String,
+    /// The level it stands for (`low`, `high`, …), as a session's effort is reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// A model this computer can run, with its thinking levels (`bridge:setModels`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelOption {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub efforts: Vec<EffortOption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<String>,
+}
+
+/// A slash command a session offers, without the leading `/` (`bridge:setCommands`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlashCommand {
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 /// A command's outcome.

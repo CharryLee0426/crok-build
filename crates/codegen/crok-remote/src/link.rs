@@ -21,8 +21,8 @@ use tokio::sync::{mpsc, oneshot};
 use crate::api::{Api, ApiError};
 use crate::credentials::{self, Credentials};
 use crate::types::{
-    CatalogEntry, CommandOutcome, EventInput, EventKind, HostApp, Inbox, PendingInteraction,
-    SessionFields,
+    CatalogEntry, CommandOutcome, EventInput, EventKind, HostApp, Inbox, ModelOption,
+    PendingInteraction, SessionFields, SlashCommand,
 };
 
 const HEARTBEAT: Duration = Duration::from_secs(30);
@@ -96,6 +96,22 @@ pub enum ToRelay {
     SetPending {
         session_id: String,
         pending: Option<PendingInteraction>,
+    },
+    /// The crok session opened for a claimed `create` command replaces the relay row's `pending:` id; the reply is the
+    /// relay's error message when it refused.
+    BindSession {
+        session_doc_id: String,
+        session_id: String,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
+    /// The models this process can run (the relay keeps the computer's latest list).
+    SetModels {
+        models: Vec<ModelOption>,
+    },
+    /// A mirrored session's slash commands.
+    SetCommands {
+        session_id: String,
+        commands: Vec<SlashCommand>,
     },
     /// Any viewer function (`sessions:get`, `commands:sendPrompt`, …), answered on `reply`.
     Call {
@@ -395,6 +411,8 @@ async fn run(
         "appVersion": config.app_version,
         "pid": f64::from(std::process::id()),
         "canAdopt": config.can_adopt,
+        // Command types this process handles beyond the first relay's.
+        "features": ["create", "config"],
     });
     let host_id = loop {
         match client
@@ -686,6 +704,40 @@ async fn write_loop(
                 let args =
                     json!({ "hostId": host_id, "sessionId": session_id, "pending": pending });
                 client.mutation("bridge:setPending", to_args(args)).await
+            }
+            ToRelay::BindSession {
+                session_doc_id,
+                session_id,
+                reply,
+            } => {
+                let args = json!({
+                    "hostId": host_id,
+                    "sessionDocId": session_doc_id,
+                    "sessionId": session_id,
+                });
+                let result = client.mutation("bridge:bindSession", to_args(args)).await;
+                let outcome = match &result {
+                    Ok(FunctionResult::Value(_)) => {
+                        doc_ids.insert(session_id, session_doc_id);
+                        Ok(())
+                    }
+                    Ok(other) => Err(describe(other)),
+                    Err(error) => Err(error.to_string()),
+                };
+                let _ = reply.send(outcome);
+                result
+            }
+            ToRelay::SetModels { models } => {
+                let args = json!({ "hostId": host_id, "models": models });
+                client.mutation("bridge:setModels", to_args(args)).await
+            }
+            ToRelay::SetCommands {
+                session_id,
+                commands,
+            } => {
+                let args =
+                    json!({ "hostId": host_id, "sessionId": session_id, "commands": commands });
+                client.mutation("bridge:setCommands", to_args(args)).await
             }
             // Handled by the run loop, beside the writes.
             ToRelay::Call { .. } | ToRelay::Subscribe { .. } | ToRelay::Unsubscribe { .. } => {

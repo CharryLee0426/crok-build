@@ -10,8 +10,9 @@ use agent_client_protocol::{self as acp, Agent as _};
 use crok_remote::credentials::{self, Credentials};
 use crok_remote::link::{FromRelay, Link, LinkConfig, LinkState, ToRelay};
 use crok_remote::types::{
-    CatalogEntry, CommandOutcome, CommandType, EventInput, EventKind, InboxCommand,
-    PendingInteraction, PendingOption, SessionFields, SessionStatus, SessionUsage, now_ms,
+    CatalogEntry, CommandOutcome, CommandType, EffortOption, EventInput, EventKind, InboxCommand,
+    ModelOption, PendingInteraction, PendingOption, SessionFields, SessionStatus, SessionUsage,
+    SlashCommand, now_ms,
 };
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
@@ -41,6 +42,8 @@ const TITLE_FALLBACK_MAX: usize = 80;
 const ADOPTED_IDLE: Duration = Duration::from_secs(10 * 60);
 /// How often idle adopted sessions are looked for (in ticks: 5 s).
 const RELEASE_CHECK_TICKS: u32 = 20;
+/// How often the models this process can run are compared with what the relay has (in ticks: 2 min).
+const MODELS_CHECK_TICKS: u32 = 480;
 const PENDING_TITLE_MAX: usize = 300;
 const PENDING_DETAIL_MAX: usize = 2_000;
 
@@ -81,6 +84,28 @@ enum Internal {
     Opened {
         session_id: String,
         error: Option<String>,
+    },
+    /// A session opened for a `create` command (its crok id), or why it could not be.
+    Created {
+        command: InboxCommand,
+        result: Result<String, String>,
+    },
+    /// The relay gave the new session its row (`error`: it refused).
+    Bound {
+        session_id: String,
+        command: InboxCommand,
+        error: Option<String>,
+    },
+    /// A config command ran: the session's model and thinking level now, or the error.
+    ConfigApplied {
+        session_id: String,
+        command_id: String,
+        result: Result<(Option<String>, Option<String>), String>,
+    },
+    /// A session's slash commands, read from the agent.
+    Commands {
+        session_id: String,
+        commands: Vec<SlashCommand>,
     },
     /// A permission request was answered (`by_remote`: from another device) or dropped by the agent.
     PermissionSettled {
@@ -131,6 +156,9 @@ struct Mirror {
     /// Since when an adopted session has had nothing to do.
     idle_since: Option<Instant>,
     permission: Option<PendingPermission>,
+    /// The session's slash commands as the agent advertises them, and what the relay has.
+    commands: Option<Vec<SlashCommand>>,
+    sent_commands: Option<Vec<SlashCommand>>,
 }
 
 impl Mirror {
@@ -140,6 +168,8 @@ impl Mirror {
             opening: false,
             idle_since: None,
             permission: None,
+            commands: None,
+            sent_commands: None,
             cwd: cwd.clone(),
             loaded: false,
             had_prompt: false,
@@ -220,6 +250,8 @@ pub(crate) struct Bridge {
     catalog_busy: bool,
     /// Numbers permission requests, so an answer to an old one is told apart.
     interactions: u64,
+    /// The models (with thinking levels) the relay has for this process.
+    sent_models: Option<Vec<ModelOption>>,
 }
 
 async fn recv_opt<T>(rx: &mut Option<mpsc::UnboundedReceiver<T>>) -> Option<Option<T>> {
@@ -394,6 +426,167 @@ fn pending_interaction(request: &acp::RequestPermissionRequest, number: u64) -> 
     }
 }
 
+/// A config option of `configOptions` by id (`model`, `reasoning_effort`).
+fn config_option<'a>(options: &'a [Value], id: &str) -> Option<&'a Value> {
+    options
+        .iter()
+        .find(|option| option.get("id").and_then(Value::as_str) == Some(id))
+}
+
+/// A model's thinking levels from its catalog meta (`supportsReasoningEffort`, `reasoningEfforts`), the way the TUI and
+/// Crok Desktop read them, and the default one's id.
+fn model_efforts(
+    meta: Option<&serde_json::Map<String, Value>>,
+) -> (Vec<EffortOption>, Option<String>) {
+    let supported = meta
+        .and_then(|m| m.get("supportsReasoningEffort"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    if !supported {
+        return (Vec::new(), None);
+    }
+    let mut default = None;
+    let mut efforts: Vec<EffortOption> = meta
+        .and_then(|m| m.get("reasoningEfforts"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let value = item
+                .get("value")
+                .and_then(Value::as_str)
+                .or_else(|| item.as_str())?
+                .to_string();
+            let id = item
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or(&value)
+                .to_string();
+            if item.get("default").and_then(Value::as_bool) == Some(true) {
+                default = Some(id.clone());
+            }
+            Some(EffortOption {
+                name: item
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .filter(|l| !l.is_empty())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| effort_label(&value)),
+                description: item
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .filter(|d| !d.is_empty())
+                    .map(str::to_owned),
+                value: Some(value),
+                id,
+            })
+        })
+        .collect();
+    if efforts.is_empty() {
+        // Supported without a list: the agent's built-in menu.
+        efforts = crate::agent::session_config::legacy_session_effort_options()
+            .into_iter()
+            .map(|option| EffortOption {
+                name: option.label,
+                description: option.description,
+                value: Some(option.value.as_ref().to_string()),
+                id: option.id,
+            })
+            .collect();
+    }
+    (efforts, default)
+}
+
+fn effort_label(value: &str) -> String {
+    match value {
+        "xhigh" => "Extra high".to_string(),
+        other => {
+            let mut chars = other.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().chain(chars).collect())
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// Every model this process can run, with the thinking levels each offers — what the session pickers show here.
+fn model_catalog(agent: &MvpAgent) -> Vec<ModelOption> {
+    agent
+        .model_state(None)
+        .available_models
+        .iter()
+        .map(|model| {
+            let id = model.model_id.0.to_string();
+            let (efforts, listed_default) = model_efforts(model.meta.as_ref());
+            let default_effort = listed_default.or_else(|| {
+                let level = agent
+                    .models_manager
+                    .model_default_reasoning_effort(&id)?
+                    .as_ref()
+                    .to_string();
+                efforts
+                    .iter()
+                    .find(|e| e.value.as_deref() == Some(level.as_str()))
+                    .map(|e| e.id.clone())
+            });
+            ModelOption {
+                name: if model.name.is_empty() {
+                    id.clone()
+                } else {
+                    model.name.clone()
+                },
+                description: model.description.clone().filter(|d| !d.is_empty()),
+                efforts,
+                default_effort,
+                id,
+            }
+        })
+        .collect()
+}
+
+/// The model and thinking level a `configOptions` list says are selected.
+fn selected_config(options: &[Value]) -> (Option<String>, Option<String>) {
+    let current = |id: &str| {
+        config_option(options, id)
+            .and_then(|option| option.get("currentValue"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    (current("model"), current("reasoning_effort"))
+}
+
+/// ACP `AvailableCommand`s as the relay lists them: name, description, input hint.
+fn slash_commands(commands: &[Value]) -> Vec<SlashCommand> {
+    commands
+        .iter()
+        .filter_map(|command| {
+            let name = command
+                .get("name")
+                .and_then(Value::as_str)?
+                .trim_start_matches('/')
+                .to_string();
+            if name.is_empty() {
+                return None;
+            }
+            Some(SlashCommand {
+                name,
+                description: command
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                hint: command
+                    .get("input")
+                    .and_then(|input| input.get("hint"))
+                    .and_then(Value::as_str)
+                    .filter(|hint| !hint.is_empty())
+                    .map(str::to_owned),
+            })
+        })
+        .collect()
+}
+
 fn status_from_activity(activity: &str) -> Option<SessionStatus> {
     match activity {
         "working" => Some(SessionStatus::Running),
@@ -498,6 +691,7 @@ impl Bridge {
             project_of: HashMap::new(),
             catalog_busy: false,
             interactions: 0,
+            sent_models: None,
         }
     }
 
@@ -541,6 +735,9 @@ impl Bridge {
                     }
                     if ticks.is_multiple_of(RELEASE_CHECK_TICKS) {
                         self.release_idle();
+                    }
+                    if ticks.is_multiple_of(MODELS_CHECK_TICKS) {
+                        self.refresh_models();
                     }
                     self.observer.viewer().tick();
                     self.flush();
@@ -668,6 +865,24 @@ impl Bridge {
         self.fetch_roster();
         self.catalog_busy = false;
         self.offer_catalog();
+        self.sent_models = None;
+        self.refresh_models();
+    }
+
+    /// Tells the relay which models this process can run, with their thinking levels, when that changed.
+    fn refresh_models(&mut self) {
+        if !self.active() {
+            return;
+        }
+        let Some(agent) = self.agent.upgrade() else {
+            return;
+        };
+        let models = model_catalog(&agent);
+        if models.is_empty() || self.sent_models.as_ref() == Some(&models) {
+            return;
+        }
+        self.sent_models = Some(models.clone());
+        self.send(ToRelay::SetModels { models });
     }
 
     /// Offers to list every session on this computer's disk; the relay lets one crok process per computer do it, at
@@ -704,6 +919,7 @@ impl Bridge {
             mirror.registered = false;
             mirror.backfill_pending = false;
             mirror.sent = SessionFields::default();
+            mirror.sent_commands = None;
             mirror.remote_running = None;
             mirror.queue.clear();
             // Nobody can answer from elsewhere now: the front end's own answer (if it was asked) still counts.
@@ -984,6 +1200,16 @@ impl Bridge {
             .and_then(|u| u.get("sessionUpdate"))
             .and_then(Value::as_str)
             .unwrap_or("");
+        if update_kind == "available_commands_update" {
+            let commands = params
+                .get("update")
+                .and_then(|u| u.get("availableCommands"))
+                .and_then(Value::as_array)
+                .map(|commands| slash_commands(commands))
+                .unwrap_or_default();
+            mirror.commands = Some(commands);
+            return;
+        }
         let activity = matches!(
             update_kind,
             "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update"
@@ -1158,7 +1384,11 @@ impl Bridge {
                 };
                 mirror.registered = true;
                 let backfill = mirror.backfill_pending;
+                let knows_commands = mirror.commands.is_some();
                 self.observer.set_shared(&session_id, true);
+                if !knows_commands {
+                    self.fetch_commands(&session_id);
+                }
                 // An adopted session's prompt waited for its mirror; it starts before the backfill reads the
                 // transcript, so the backfill leaves it out.
                 self.run_next(&session_id);
@@ -1178,13 +1408,17 @@ impl Bridge {
                     self.release_taken(&hosted.into_iter().collect());
                 }
                 for command in inbox.commands {
-                    if !self.handled.insert(command.id.clone()) {
+                    // A kind of command this crok does not know (a newer relay): another crok may.
+                    if command.kind == CommandType::Unknown
+                        || !self.handled.insert(command.id.clone())
+                    {
                         continue;
                     }
                     // A transcript to read from disk needs no mirror here: any crok on this computer can serve it.
                     // Nor does a prompt for a session nobody runs: whoever claims it opens the session.
                     let history = command.kind == CommandType::History;
-                    let adopt = command.adopt && !self.mirrors.contains_key(&command.session_id);
+                    let adopt = (command.adopt && !self.mirrors.contains_key(&command.session_id))
+                        || command.kind == CommandType::Create;
                     if !history
                         && !adopt
                         && !self
@@ -1297,6 +1531,27 @@ impl Bridge {
                 });
             }
             Internal::Opened { session_id, error } => self.on_opened(session_id, error),
+            Internal::Created { command, result } => self.on_created(command, result),
+            Internal::Bound {
+                session_id,
+                command,
+                error,
+            } => self.on_bound(session_id, command, error),
+            Internal::ConfigApplied {
+                session_id,
+                command_id,
+                result,
+            } => self.on_config_applied(session_id, command_id, result),
+            Internal::Commands {
+                session_id,
+                commands,
+            } => {
+                if let Some(mirror) = self.mirrors.get_mut(&session_id)
+                    && mirror.commands.is_none()
+                {
+                    mirror.commands = Some(commands);
+                }
+            }
             Internal::PermissionSettled {
                 session_id,
                 id,
@@ -1378,6 +1633,10 @@ impl Bridge {
             self.read_history(command);
             return;
         }
+        if command.kind == CommandType::Create {
+            self.create(command);
+            return;
+        }
         let session_id = command.session_id.clone();
         if command.adopt && !self.mirrors.contains_key(&session_id) {
             self.adopt(command);
@@ -1403,6 +1662,13 @@ impl Bridge {
                     mirror.queue.push_back(command);
                 } else {
                     self.start_prompt(command);
+                }
+            }
+            CommandType::Config => {
+                if mirror.opening || !mirror.registered {
+                    mirror.queue.push_back(command);
+                } else {
+                    self.apply_config(command);
                 }
             }
             CommandType::Answer => {
@@ -1470,8 +1736,222 @@ impl Bridge {
                     let _ = tx.send(Internal::Complete { command_id, result });
                 });
             }
-            CommandType::History => {}
+            CommandType::History | CommandType::Create | CommandType::Unknown => {}
         }
+    }
+
+    /// A new session asked for from another device: open it here, hidden from the front end, then give the relay its id.
+    fn create(&mut self, command: InboxCommand) {
+        let Some(agent) = self.agent.upgrade() else {
+            return;
+        };
+        let observer = self.observer.clone();
+        let tx = self.internal_tx.clone();
+        tokio::task::spawn_local(async move {
+            let cwd = command.cwd.clone().unwrap_or_default();
+            let folder = std::path::PathBuf::from(&cwd);
+            let result = if cwd.is_empty() || !folder.is_absolute() {
+                Err("The folder is unknown.".to_string())
+            } else if !folder.is_dir() {
+                Err(format!("{cwd} is not a folder on this computer."))
+            } else {
+                match agent.new_session(acp::NewSessionRequest::new(folder)).await {
+                    Ok(response) => {
+                        let session_id = response.session_id.to_string();
+                        observer.hide(&session_id);
+                        Ok(session_id)
+                    }
+                    Err(error) => Err(error.message.to_string()),
+                }
+            };
+            let _ = tx.send(Internal::Created { command, result });
+        });
+    }
+
+    fn on_created(&mut self, command: InboxCommand, result: Result<String, String>) {
+        let session_id = match result {
+            Ok(session_id) => session_id,
+            Err(error) => {
+                tracing::warn!(%error, "remote control: cannot start a session asked for from another device");
+                self.complete(
+                    &command.id,
+                    CommandOutcome::Failed,
+                    None,
+                    Some(format!(
+                        "The computer could not start this session: {error}"
+                    )),
+                );
+                return;
+            }
+        };
+        tracing::info!(%session_id, "remote control: started a session asked for from another device");
+        let prefix = self.prefix();
+        let mut mirror = Mirror::new(command.cwd.clone().unwrap_or_default(), &prefix);
+        mirror.adopted = true;
+        mirror.opening = true;
+        mirror.had_prompt = true;
+        self.mirrors.insert(session_id.clone(), mirror);
+        let (reply, bound) = oneshot::channel();
+        self.send(ToRelay::BindSession {
+            session_doc_id: command.session_doc_id.clone(),
+            session_id: session_id.clone(),
+            reply,
+        });
+        let tx = self.internal_tx.clone();
+        tokio::task::spawn_local(async move {
+            let error = match bound.await {
+                Ok(Ok(())) => None,
+                Ok(Err(error)) => Some(error),
+                Err(_) => Some("The relay connection closed.".to_string()),
+            };
+            let _ = tx.send(Internal::Bound {
+                session_id,
+                command,
+                error,
+            });
+        });
+    }
+
+    fn on_bound(&mut self, session_id: String, mut command: InboxCommand, error: Option<String>) {
+        if let Some(error) = error {
+            self.complete(&command.id, CommandOutcome::Failed, None, Some(error));
+            self.release(&session_id, false);
+            return;
+        }
+        let Some(mirror) = self.mirrors.get_mut(&session_id) else {
+            return;
+        };
+        mirror.opening = false;
+        // The command still names the relay's placeholder id.
+        command.session_id = session_id.clone();
+        if command
+            .text
+            .as_deref()
+            .is_some_and(|t| !t.trim().is_empty())
+        {
+            // Its first prompt runs once the mirror is registered.
+            mirror.set_status(SessionStatus::Running);
+            mirror.queue.push_back(command);
+        } else {
+            mirror.idle_since = Some(Instant::now());
+            self.complete(
+                &command.id,
+                CommandOutcome::Done,
+                Some(json!({ "sessionId": session_id })),
+                None,
+            );
+        }
+        self.register(&session_id);
+        self.fetch_roster();
+    }
+
+    /// Sets the session's model or thinking level, as the front end's pickers do.
+    fn apply_config(&mut self, command: InboxCommand) {
+        let Some(agent) = self.agent.upgrade() else {
+            return;
+        };
+        let session_id = command.session_id.clone();
+        if let Some(mirror) = self.mirrors.get_mut(&session_id) {
+            mirror.idle_since = None;
+        }
+        let request = json!({
+            "sessionId": session_id,
+            "configId": command.config_id.clone().unwrap_or_default(),
+            "value": command.text.clone().unwrap_or_default(),
+        });
+        let tx = self.internal_tx.clone();
+        tokio::task::spawn_local(async move {
+            let result = match serde_json::from_value::<acp::SetSessionConfigOptionRequest>(request)
+            {
+                Err(error) => Err(error.to_string()),
+                Ok(request) => match agent.set_session_config_option(request).await {
+                    Ok(response) => {
+                        let options: Vec<Value> = response
+                            .config_options
+                            .iter()
+                            .filter_map(|option| serde_json::to_value(option).ok())
+                            .collect();
+                        Ok(selected_config(&options))
+                    }
+                    Err(error) => Err(error.message.to_string()),
+                },
+            };
+            let _ = tx.send(Internal::ConfigApplied {
+                session_id,
+                command_id: command.id,
+                result,
+            });
+        });
+    }
+
+    fn on_config_applied(
+        &mut self,
+        session_id: String,
+        command_id: String,
+        result: Result<(Option<String>, Option<String>), String>,
+    ) {
+        match result {
+            Ok((model, effort)) => {
+                // The config option names the level by its option id; sessions report the level itself.
+                let effort = effort.map(|id| {
+                    self.sent_models
+                        .iter()
+                        .flatten()
+                        .filter(|m| model.as_deref().is_none_or(|current| m.id == current))
+                        .flat_map(|m| m.efforts.iter())
+                        .find(|e| e.id == id)
+                        .and_then(|e| e.value.clone())
+                        .unwrap_or(id)
+                });
+                if let Some(mirror) = self.mirrors.get_mut(&session_id) {
+                    if model.is_some() {
+                        mirror.desired.model = model.clone();
+                    }
+                    if effort.is_some() {
+                        mirror.desired.effort = effort.clone();
+                    }
+                }
+                self.complete(
+                    &command_id,
+                    CommandOutcome::Done,
+                    Some(json!({ "model": model, "effort": effort })),
+                    None,
+                );
+                self.refresh_models();
+                self.fetch_roster();
+            }
+            Err(error) => self.complete(&command_id, CommandOutcome::Failed, None, Some(error)),
+        }
+        self.run_next(&session_id);
+    }
+
+    /// The session's slash commands, for a mirror that has not seen the agent advertise them.
+    fn fetch_commands(&self, session_id: &str) {
+        let Some(agent) = self.agent.upgrade() else {
+            return;
+        };
+        let tx = self.internal_tx.clone();
+        let session_id = session_id.to_string();
+        tokio::task::spawn_local(async move {
+            let Some(response) = ext_json(
+                &agent,
+                "x.ai/commands/list",
+                json!({ "sessionId": session_id }),
+            )
+            .await
+            else {
+                return;
+            };
+            let commands = response
+                .get("commands")
+                .and_then(Value::as_array)
+                .map(|commands| slash_commands(commands))
+                .unwrap_or_default();
+            let _ = tx.send(Internal::Commands {
+                session_id,
+                commands,
+            });
+        });
     }
 
     /// Reads the last turns of a session no crok runs from disk, for a viewer who opened it.
@@ -1562,20 +2042,35 @@ impl Bridge {
         });
     }
 
+    /// Runs what waits for the session: config changes at once, the next prompt when no turn is running.
     fn run_next(&mut self, session_id: &str) {
-        let next = self.mirrors.get_mut(session_id).and_then(|m| {
-            if m.turn_running || m.remote_running.is_some() || m.opening || !m.registered {
-                None
-            } else {
-                let next = m.queue.pop_front();
-                if next.is_none() && m.adopted && m.idle_since.is_none() {
+        loop {
+            let Some(m) = self.mirrors.get_mut(session_id) else {
+                return;
+            };
+            if m.opening || !m.registered {
+                return;
+            }
+            let busy = m.turn_running || m.remote_running.is_some();
+            let config_first = m
+                .queue
+                .front()
+                .is_some_and(|c| c.kind == CommandType::Config);
+            if busy && !config_first {
+                return;
+            }
+            let Some(next) = m.queue.pop_front() else {
+                if !busy && m.adopted && m.idle_since.is_none() {
                     m.idle_since = Some(Instant::now());
                 }
-                next
+                return;
+            };
+            if next.kind == CommandType::Config {
+                self.apply_config(next);
+                continue;
             }
-        });
-        if let Some(command) = next {
-            self.start_prompt(command);
+            self.start_prompt(next);
+            return;
         }
     }
 
@@ -1827,6 +2322,13 @@ impl Bridge {
             if !mirror.turn_running {
                 mirror.publish_preview();
             }
+            if mirror.commands.is_some() && mirror.commands != mirror.sent_commands {
+                mirror.sent_commands = mirror.commands.clone();
+                out.push(ToRelay::SetCommands {
+                    session_id: session_id.clone(),
+                    commands: mirror.commands.clone().unwrap_or_default(),
+                });
+            }
             let mut changes = mirror.sent.changes_to(&mirror.desired);
             if changes.title.as_deref() == Some("") {
                 changes.title = None;
@@ -1842,5 +2344,70 @@ impl Bridge {
         for message in out {
             self.send(message);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn efforts_come_from_the_model_meta_with_ids_and_levels() {
+        let meta = json!({
+            "supportsReasoningEffort": true,
+            "reasoningEfforts": [
+                { "id": "balanced", "value": "medium", "label": "Balanced" },
+                { "id": "deep", "value": "xhigh", "label": "Deep", "description": "Slow", "default": true },
+            ],
+        });
+        let (efforts, default) = model_efforts(meta.as_object());
+        assert_eq!(efforts.len(), 2);
+        assert_eq!(efforts[0].id, "balanced");
+        assert_eq!(efforts[0].value.as_deref(), Some("medium"));
+        assert_eq!(efforts[1].description.as_deref(), Some("Slow"));
+        assert_eq!(default.as_deref(), Some("deep"));
+    }
+
+    #[test]
+    fn a_model_without_thinking_levels_offers_none_and_a_bare_flag_gets_the_built_in_menu() {
+        assert!(
+            model_efforts(json!({ "reasoningEfforts": [{ "value": "high" }] }).as_object())
+                .0
+                .is_empty()
+        );
+        let (built_in, _) = model_efforts(json!({ "supportsReasoningEffort": true }).as_object());
+        assert!(
+            built_in
+                .iter()
+                .any(|e| e.id == "high" && e.value.as_deref() == Some("high"))
+        );
+        assert_eq!(effort_label("xhigh"), "Extra high");
+        assert_eq!(effort_label("low"), "Low");
+    }
+
+    #[test]
+    fn slash_commands_keep_name_description_and_hint() {
+        let commands = slash_commands(&[
+            json!({ "name": "compact", "description": "Compress history" }),
+            json!({ "name": "/review-pr", "description": "Review", "input": { "hint": "<number>" } }),
+            json!({ "name": "", "description": "nameless" }),
+        ]);
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[1].name, "review-pr");
+        assert_eq!(commands[1].hint.as_deref(), Some("<number>"));
+        assert_eq!(commands[0].hint, None);
+    }
+
+    #[test]
+    fn the_selected_model_and_level_are_read_from_config_options() {
+        let options = vec![
+            json!({ "id": "model", "currentValue": "grok-4", "options": [] }),
+            json!({ "id": "reasoning_effort", "currentValue": "deep", "options": [] }),
+        ];
+        assert_eq!(
+            selected_config(&options),
+            (Some("grok-4".to_string()), Some("deep".to_string()))
+        );
+        assert_eq!(selected_config(&[]), (None, None));
     }
 }

@@ -3646,6 +3646,10 @@ pub(crate) fn execute(
         Effect::RemoteLogout { agent_id } => {
             tasks.spawn(crate::remote_cmd::logout(agent_id));
         }
+        Effect::RemoteNew { agent_id, args } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(crate::remote_cmd::new_session(agent_id, args, tx));
+        }
         Effect::ShowSessionInfo { agent_id, session_id, show_resolved_model, nonce } => {
             let is_api_key_auth = session_flags.is_api_key_auth;
             let api_key_env_set = xai_grok_shell::agent::auth_method::has_xai_api_key_env();

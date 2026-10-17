@@ -680,6 +680,9 @@ pub enum Action {
     RemoteLogin,
     /// `/remote logout`.
     RemoteLogout,
+    /// `/remote new [project] [prompt]`: list the projects of the person's other computers, or start a session in one
+    /// and open it.
+    RemoteNew(String),
     /// Show release notes in a modal.
     ShowReleaseNotes {
         title: String,
@@ -2010,6 +2013,8 @@ pub enum Effect {
     },
     /// `/remote logout`.
     RemoteLogout { agent_id: AgentId },
+    /// `/remote new`: list other computers' projects, or start a session in one.
+    RemoteNew { agent_id: AgentId, args: String },
     /// Fetch and display session info via x.ai/session/info.
     /// Auth lines are derived in the effect from SessionFlags and env (not Effect fields).
     ShowSessionInfo {
@@ -2927,6 +2932,12 @@ pub enum TaskResult {
         start: crok_remote::api::LoginStart,
         /// The sign-in page was opened in a browser.
         opened: bool,
+    },
+    /// `/remote new` started a session on another computer (`relay:<id>`): open it here.
+    RemoteSessionCreated {
+        agent_id: AgentId,
+        session_id: String,
+        text: String,
     },
     /// A `/remote` step finished: a line for the scrollback and, optionally, a toast.
     RemoteNotice {
