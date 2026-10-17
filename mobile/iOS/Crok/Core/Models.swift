@@ -98,12 +98,14 @@ struct SessionRow: Codable, Identifiable, Hashable, Sendable {
     var projectPath: String?
     var projectName: String?
     var historyState: HistoryState?
+    /// Made by `sessions:create` and not open on its computer yet ("Starting…"). Missing from older relays.
+    var starting: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case sessionId, title, cwd, model, status, online, app, deviceId, deviceName, deviceOnline, preview,
             previewKind, lastActivityAt, pinned, archived, unread, plan, projectKey, projectPath, projectName,
-            historyState
+            historyState, starting
     }
 
     init(
@@ -111,7 +113,7 @@ struct SessionRow: Codable, Identifiable, Hashable, Sendable {
         app: HostApp, deviceId: DocID, deviceName: String, deviceOnline: Bool, preview: String?, previewKind: EventKind?,
         lastActivityAt: Double, pinned: Bool, archived: Bool, unread: Double, plan: PlanProgress?,
         projectKey: String? = nil, projectPath: String? = nil, projectName: String? = nil,
-        historyState: HistoryState? = nil
+        historyState: HistoryState? = nil, starting: Bool? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -135,9 +137,11 @@ struct SessionRow: Codable, Identifiable, Hashable, Sendable {
         self.projectPath = projectPath
         self.projectName = projectName
         self.historyState = historyState
+        self.starting = starting
     }
 
     var unreadCount: Int { max(0, Int(unread.rounded())) }
+    var isStarting: Bool { starting ?? false }
     var lastActivity: Date { Date(milliseconds: lastActivityAt) }
     var folderName: String { PathText.lastComponent(cwd) }
     var isRunning: Bool { online && status == .running }
@@ -204,15 +208,23 @@ struct SessionDetail: Codable, Hashable, Sendable {
     /// A permission request the session waits on, which any of the person's devices may answer (`commands:answer`).
     /// Missing from older relays.
     var pending: PendingInteraction?
+    /// Made by `sessions:create` and not open on its computer yet. Missing from older relays.
+    var starting: Bool?
+    /// What the session's computer can run (`commands:setConfig` picks from these); nil while it is offline, and on
+    /// older relays.
+    var models: [ModelChoice]?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case sessionId, title, cwd, model, effort, gitBranch, status, online, app, deviceId, deviceName,
             devicePlatform, deviceOnline, createdAt, lastActivityAt, plan, usage, pinned, archived, unread, eventSeq,
-            projectKey, projectPath, projectName, historyState, pending
+            projectKey, projectPath, projectName, historyState, pending, starting, models
     }
 
     var unreadCount: Int { max(0, Int(unread.rounded())) }
+    var isStarting: Bool { starting ?? false }
+    /// The model the session runs, among its computer's choices.
+    var currentModel: ModelChoice? { models?.first(where: { $0.id == model }) }
     var folderName: String { PathText.lastComponent(cwd) }
     var isRunning: Bool { online && status == .running }
     var presence: SessionPresence { SessionPresence(online: online, deviceOnline: deviceOnline, status: status) }
@@ -325,6 +337,8 @@ struct EventsPage: Decodable, Sendable, Equatable {
 /// A prompt sent from a phone or the web (`commands:forSession`).
 struct PromptCommand: Codable, Identifiable, Hashable, Sendable {
     var id: DocID
+    /// `prompt`, or `create` for the first prompt of a session started from a device. Missing from older relays.
+    var type: String?
     var clientId: String?
     var text: String
     var status: CommandStatus
@@ -338,7 +352,24 @@ struct PromptCommand: Codable, Identifiable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case clientId, text, status, error, fromLabel, fromDeviceId, mine, createdAt, updatedAt
+        case type, clientId, text, status, error, fromLabel, fromDeviceId, mine, createdAt, updatedAt
+    }
+
+    init(
+        id: DocID, type: String? = nil, clientId: String?, text: String, status: CommandStatus, error: String?,
+        fromLabel: String, fromDeviceId: DocID? = nil, mine: Bool? = nil, createdAt: Double, updatedAt: Double
+    ) {
+        self.id = id
+        self.type = type
+        self.clientId = clientId
+        self.text = text
+        self.status = status
+        self.error = error
+        self.fromLabel = fromLabel
+        self.fromDeviceId = fromDeviceId
+        self.mine = mine
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 
     /// This device's own prompt: it gets status ticks and an optimistic bubble.
@@ -453,6 +484,122 @@ struct SessionInfoResult: Decodable, Hashable, Sendable {
         contextUsed = context?.used ?? usage.contextTokens
         contextWindow = context?.window ?? usage.contextWindow
     }
+}
+
+/// One thinking level of a model (`sessions:get` → `models[].efforts[]`). `id` is what `commands:setConfig` takes;
+/// `value` is the canonical level (`low`, `medium`, `high`, …) that the session's `effort` holds.
+struct EffortChoice: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var name: String
+    var description: String?
+    var value: String?
+
+    init(id: String, name: String, description: String? = nil, value: String? = nil) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.value = value
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? ""
+        let name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil
+        self.name = name?.isEmpty == false ? name! : id
+        description = (try? c.decodeIfPresent(String.self, forKey: .description)) ?? nil
+        value = (try? c.decodeIfPresent(String.self, forKey: .value)) ?? nil
+    }
+
+    /// The canonical level, compared with the session's `effort`.
+    var level: String { value ?? id }
+}
+
+/// One model a session's computer can run (`sessions:get` → `models`). An empty `efforts` has no thinking level.
+/// Decoded leniently, so an odd entry never hides the session.
+struct ModelChoice: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var name: String
+    var description: String?
+    var efforts: [EffortChoice]
+    var defaultEffort: String?
+
+    init(id: String, name: String, description: String? = nil, efforts: [EffortChoice] = [], defaultEffort: String? = nil) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.efforts = efforts
+        self.defaultEffort = defaultEffort
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? ""
+        let name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil
+        self.name = name?.isEmpty == false ? name! : id
+        description = (try? c.decodeIfPresent(String.self, forKey: .description)) ?? nil
+        efforts = ((try? c.decodeIfPresent([EffortChoice].self, forKey: .efforts)) ?? nil)?.filter { !$0.id.isEmpty } ?? []
+        defaultEffort = (try? c.decodeIfPresent(String.self, forKey: .defaultEffort)) ?? nil
+    }
+
+    /// The thinking level a session on this model runs at: the one whose level is `effort`.
+    func effort(matching effort: String?) -> EffortChoice? {
+        guard let effort else { return nil }
+        return efforts.first(where: { $0.level == effort }) ?? efforts.first(where: { $0.id == effort })
+    }
+}
+
+/// `commands:setConfig`'s `configId`.
+enum ConfigOption: String, Sendable, Equatable {
+    case model
+    case reasoningEffort = "reasoning_effort"
+}
+
+/// One of a session's slash commands (`sessions:commands`), without the leading `/`.
+struct SlashCommand: Codable, Hashable, Sendable {
+    var name: String
+    var description: String
+    var hint: String?
+
+    init(name: String, description: String, hint: String? = nil) {
+        self.name = name
+        self.description = description
+        self.hint = hint
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        description = (try? c.decodeIfPresent(String.self, forKey: .description)) ?? ""
+        let hint = (try? c.decodeIfPresent(String.self, forKey: .hint)) ?? nil
+        self.hint = hint?.isEmpty == true ? nil : hint
+    }
+}
+
+/// `sessions:commands`: `source` is `session` (the session's own list), `computer` (its computer's latest, for a
+/// session no crok runs) or `none`.
+struct SlashCommandList: Decodable, Sendable, Equatable {
+    var commands: [SlashCommand]
+    var source: String
+
+    init(commands: [SlashCommand], source: String) {
+        self.commands = commands
+        self.source = source
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commands = ((try? c.decodeIfPresent([SlashCommand].self, forKey: .commands)) ?? nil)?
+            .filter { !$0.name.isEmpty } ?? []
+        source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? "none"
+    }
+
+    private enum CodingKeys: String, CodingKey { case commands, source }
+}
+
+/// `sessions:create`.
+struct CreatedSession: Decodable, Sendable, Equatable {
+    var sessionDocId: DocID
+    var commandId: DocID
 }
 
 /// A row of `devices:list`.

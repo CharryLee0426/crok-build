@@ -64,7 +64,14 @@ struct SessionRowView: View {
 
     @ViewBuilder
     private var previewLine: some View {
-        if row.online && row.status == .running {
+        if row.isStarting && !computerOffline {
+            // Made from a device; a crok on the computer is opening it.
+            Text("Starting…")
+                .font(.subheadline)
+                .foregroundStyle(Theme.accent)
+                .lineLimit(1)
+                .accessibilityIdentifier("startingPreview")
+        } else if row.online && row.status == .running {
             WorkingIndicator()
         } else if row.online && row.status == .waiting {
             NeedsApprovalChip()

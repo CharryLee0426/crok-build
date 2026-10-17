@@ -4,6 +4,7 @@ import SwiftUI
 struct CrokApp: App {
     @State private var model: AppModel
     @AppStorage("crok.appearance") private var appearance = Appearance.system.rawValue
+    @Environment(\.scenePhase) private var scenePhase
     private let forcedAppearance: Appearance?
 
     init() {
@@ -33,6 +34,14 @@ struct CrokApp: App {
                 .environment(model)
                 .preferredColorScheme((forcedAppearance ?? Appearance(rawValue: appearance) ?? .system).colorScheme)
                 .tint(Theme.accent)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Back from the background: check the connection at once (relay/DESIGN.md §5 "Staying connected").
+            switch phase {
+            case .active: model.engine?.scenePhaseChanged(active: true)
+            case .background: model.engine?.scenePhaseChanged(active: false)
+            default: break
+            }
         }
     }
 }

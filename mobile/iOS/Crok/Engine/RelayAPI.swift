@@ -26,6 +26,11 @@ protocol SessionsAPI: Sendable {
     func setPinned(_ sessionDocId: DocID, _ pinned: Bool) async throws
     func setArchived(_ sessionDocId: DocID, _ archived: Bool) async throws
     func remove(_ sessionDocId: DocID) async throws
+    /// Starts a session in `path` on a computer (`sessions:create`); the relay lists it at once (`starting`) and a crok
+    /// there opens it and runs `text` as its first prompt. The same `clientId` returns the same session.
+    func create(deviceId: DocID, path: String, text: String?, clientId: String) async throws -> CreatedSession
+    /// The session's slash commands as its computer advertises them (`sessions:commands`).
+    func slashCommands(_ sessionDocId: DocID) -> RelayStream<SlashCommandList>
 }
 
 protocol CommandsAPI: Sendable {
@@ -36,6 +41,9 @@ protocol CommandsAPI: Sendable {
     /// Answers the session's pending permission request; `EXPIRED` once it is no longer pending (another device or the
     /// computer answered first).
     func answer(_ sessionDocId: DocID, interactionId: String, optionId: String) async throws -> DocID
+    /// Sets the session's model or thinking level on its computer; the command's `result` holds `{model, effort}`
+    /// once applied. `INVALID` for a value its computer does not offer.
+    func setConfig(_ sessionDocId: DocID, configId: ConfigOption, value: String) async throws -> DocID
     func get(_ commandId: DocID) -> RelayStream<CommandRecord?>
     func forSession(_ sessionDocId: DocID) -> RelayStream<[PromptCommand]>
     func retry(_ commandId: DocID) async throws
@@ -59,7 +67,11 @@ protocol AccountAPI: Sendable {
 /// What the backend reports about its link to the relay.
 enum ConnectionSignal: Sendable, Equatable {
     case network(available: Bool)
+    /// The network switched (Wi-Fi to cellular, another Wi-Fi) while staying available.
+    case pathChanged
     case socket(connected: Bool)
+    /// Query results arrived over the socket (not from a cache or a replay): the connection is live.
+    case synced
 }
 
 /// One signed-in account's link to the relay. `CrokEngine` owns exactly one and tears it down on sign-out.
@@ -75,6 +87,17 @@ protocol RelayBackend: AnyObject, Sendable {
     func start() async
     /// Signs the client out and stops every subscription.
     func shutdown() async
+    /// Fetches a fresh access token and hands it to the live client (a live socket answers with fresh results).
+    func refreshAuth() async throws
+    /// Drops the WebSocket client for a new one; live queries subscribe again on it and keep their values meanwhile,
+    /// and calls waiting on the old one are sent again on the new one.
+    func replaceClient() async
+}
+
+extension RelayBackend {
+    /// Backends without a socket (the demo relay, test doubles) have nothing to refresh or replace.
+    func refreshAuth() async throws {}
+    func replaceClient() async {}
 }
 
 /// The device sign-in calls, made over the HTTP API (no auth needed).

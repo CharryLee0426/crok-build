@@ -1,18 +1,27 @@
 import Foundation
 import Observation
 
+/// Something the engine can tell to try again at once (the connection came back).
+@MainActor
+protocol RetryableQuery: AnyObject {
+    func retryNow()
+}
+
 /// Holds the latest value of a relay query for SwiftUI. A ConvexMobile subscription ends at its first error, so this
-/// subscribes again with backoff; `REVOKED` signs the device out instead. A subscription that stays silent past
-/// `stallTimeout` is recreated (see QueryHub for how one can lose its first value).
+/// subscribes again with backoff (cut short when the engine reconnects); `REVOKED` signs the device out instead, and
+/// `UNAUTHENTICATED` asks the engine for a fresh token and client. A subscription whose first value does not arrive
+/// within `stallTimeout` is recreated (see QueryHub for how one can lose its first value). The value stays on screen
+/// through errors and reconnects.
 @MainActor
 @Observable
-final class LiveQuery<Value: Sendable> {
+final class LiveQuery<Value: Sendable>: RetryableQuery {
     private(set) var value: Value?
     private(set) var error: RelayError?
     /// True until the first value (or error) arrives.
     private(set) var isLoading = true
 
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var backoff: Task<Void, Never>?
     @ObservationIgnored private let make: @MainActor () -> RelayStream<Value>
     @ObservationIgnored private weak var engine: CrokEngine?
     @ObservationIgnored var onValue: (@MainActor (Value) -> Void)?
@@ -36,12 +45,20 @@ final class LiveQuery<Value: Sendable> {
 
     func start() {
         guard task == nil else { return }
+        engine?.register(self)
         task = Task { [weak self] in await self?.run() }
     }
 
     func stop() {
         task?.cancel()
         task = nil
+        backoff?.cancel()
+        backoff = nil
+    }
+
+    /// Ends a backoff wait now (the engine reconnected).
+    func retryNow() {
+        backoff?.cancel()
     }
 
     /// Replaces the value locally (an optimistic update); the next relay result overwrites it.
@@ -66,7 +83,6 @@ final class LiveQuery<Value: Sendable> {
                     value = next
                     error = nil
                     isLoading = false
-                    engine?.noteDataReceived()
                     onValue?(next)
                 }
                 attempt += 1
@@ -80,12 +96,17 @@ final class LiveQuery<Value: Sendable> {
                     engine?.handleRevoked()
                     return
                 }
+                if relayError.code == .unauthenticated { engine?.handleUnauthenticated() }
                 self.error = relayError
                 isLoading = false
                 attempt = received ? 1 : attempt + 1
             }
             if Task.isCancelled { return }
-            try? await Task.sleep(for: Backoff.delay(attempt: attempt))
+            let delay = Backoff.delay(attempt: attempt)
+            let wait = Task { _ = try? await Task.sleep(for: delay) }
+            backoff = wait
+            await wait.value
+            backoff = nil
         }
     }
 }

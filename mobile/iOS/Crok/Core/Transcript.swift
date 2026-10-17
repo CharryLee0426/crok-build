@@ -80,6 +80,8 @@ struct TranscriptItem: Identifiable, Equatable, Sendable {
         case thought(text: String)
         case tool(ToolCall)
         case notice(text: String, style: NoticeStyle)
+        /// The phone's own answer to `/model` or `/think` (never on the relay).
+        case botCard(BotCard)
     }
 
     /// Position inside a run of items by one author, for spacing and bubble corners (Telegram merges neighbours the
@@ -112,7 +114,7 @@ enum TranscriptBuilder {
     /// - Parameter hasOlder: older events exist that are not loaded; a delivered prompt older than the oldest loaded
     ///   event is then assumed to be in those older pages rather than shown as queued.
     static func build(
-        events: [TranscriptEvent], commands: [PromptCommand], local: [LocalPrompt], hasOlder: Bool,
+        events: [TranscriptEvent], commands: [PromptCommand], local: [LocalPrompt], hasOlder: Bool, cards: [BotCard] = [],
         calendar: Calendar = .current
     ) -> [TranscriptItem] {
         var seen = Set<DocID>()
@@ -187,6 +189,16 @@ enum TranscriptBuilder {
         items.removeAll { item in queued.contains(where: { $0.id == item.id }) }
         items.append(contentsOf: queued)
 
+        // Bot cards where they were asked for in time, before prompts still on their way.
+        for card in cards.sorted(by: { $0.createdAt < $1.createdAt }) {
+            let item = TranscriptItem(id: "card-\(card.id)", kind: .botCard(card), date: card.createdAt)
+            let index = items.lastIndex(where: { existing in
+                if case .user(let message) = existing.kind, message.isPending, message.tick != .failed { return false }
+                return existing.date <= card.createdAt
+            }).map { $0 + 1 } ?? 0
+            items.insert(item, at: min(index, items.count))
+        }
+
         return arrange(items, calendar: calendar)
     }
 
@@ -241,7 +253,7 @@ enum TranscriptBuilder {
         switch item.kind {
         case .user: .user
         case .assistant, .thought, .tool: .agent
-        case .notice, .day: .other
+        case .notice, .day, .botCard: .other
         }
     }
 

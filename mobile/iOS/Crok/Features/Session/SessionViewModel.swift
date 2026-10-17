@@ -30,7 +30,8 @@ final class TranscriptPage {
 }
 
 /// The session screen's state: header, plan, transcript (paged, bottom-anchored), prompt ticks, streaming reveal,
-/// composer draft, and the `watch` / `markRead` bookkeeping.
+/// composer draft and its slash commands (the Menu, `/model` and `/think` bot cards), and the `watch` / `markRead`
+/// bookkeeping.
 @MainActor
 @Observable
 final class SessionViewModel {
@@ -38,6 +39,14 @@ final class SessionViewModel {
     let engine: CrokEngine
     let detail: LiveQuery<SessionDetail>
     let commands: LiveQuery<[PromptCommand]>
+    /// The session's own slash commands (`sessions:commands`), after the phone's.
+    let slashCommands: LiveQuery<SlashCommandList>
+    /// `/model` and `/think` answers in the transcript, on this phone only.
+    private(set) var botCards: [BotCard] = []
+    /// The command list was opened with the Menu button (it also opens on its own for a typed `/`).
+    private(set) var menuOpen = false
+    /// The info sheet (the header, the ⓘ button, or `/info`).
+    var showsInfo = false
 
     private(set) var items: [TranscriptItem] = []
     private(set) var hasOlder = false
@@ -57,7 +66,11 @@ final class SessionViewModel {
     /// can keep the bottom in sight.
     private(set) var contentTick = 0
     var draft: String {
-        didSet { scheduleDraftSave() }
+        didSet {
+            scheduleDraftSave()
+            // Typing a message (not a command) closes the menu, as in Telegram.
+            if menuOpen && !draft.isEmpty && CommandMenu.typedName(in: draft) == nil { menuOpen = false }
+        }
     }
 
     @ObservationIgnored private(set) var pages: [TranscriptPage] = []
@@ -70,6 +83,10 @@ final class SessionViewModel {
     /// When the bottom of the transcript was last on screen; `.distantPast` once the person scrolls up.
     @ObservationIgnored private var bottomSeenAt = Date()
     @ObservationIgnored private var revealTicker: Task<Void, Never>?
+    /// The config commands bot cards wait on, by card id.
+    @ObservationIgnored private var configWatches: [String: LiveQuery<CommandRecord?>] = [:]
+    /// Opens a new session in this session's project (`/new`); the screen wires it to navigation.
+    @ObservationIgnored var onNewSession: ((NewSessionTarget, String?) -> Void)?
 
     /// Events per page; `-CrokPageSize 8` makes paging easy to try with the demo data.
     static var pageSize: Int {
@@ -84,6 +101,7 @@ final class SessionViewModel {
         let commandsAPI = engine.commands
         detail = LiveQuery(engine: engine) { sessions.get(sessionDocId) }
         commands = LiveQuery(engine: engine) { commandsAPI.forSession(sessionDocId) }
+        slashCommands = LiveQuery(engine: engine) { sessions.slashCommands(sessionDocId) }
         draft = engine.drafts.draft(for: sessionDocId)
     }
 
@@ -97,6 +115,7 @@ final class SessionViewModel {
             commands.onValue = { [weak self] _ in self?.rebuild() }
             detail.start()
             commands.start()
+            slashCommands.start()
             let first = makePage(cursor: nil)
             pages = [first]
             first.query.start()
@@ -126,6 +145,9 @@ final class SessionViewModel {
         revealTicker?.cancel()
         detail.stop()
         commands.stop()
+        slashCommands.stop()
+        for watch in configWatches.values { watch.stop() }
+        configWatches.removeAll()
         for page in pages { page.query.stop() }
     }
 
@@ -293,7 +315,7 @@ final class SessionViewModel {
     func rebuild() {
         let built = TranscriptBuilder.build(
             events: Array(events.values), commands: commands.value ?? [],
-            local: engine.localPrompts[sessionDocId] ?? [], hasOlder: hasOlder)
+            local: engine.localPrompts[sessionDocId] ?? [], hasOlder: hasOlder, cards: botCards)
         guard built != items else { return }
         items = built
         contentTick &+= 1
@@ -349,6 +371,11 @@ final class SessionViewModel {
         answeringRequestId != nil && answeringRequestId == pendingRequest?.id
     }
 
+    /// Made by `sessions:create` and not open on its computer yet.
+    var isStarting: Bool {
+        detail.value?.isStarting ?? engine.sessionRow(sessionDocId)?.isStarting ?? false
+    }
+
     var historyState: HistoryState? {
         detail.value?.historyState ?? engine.sessionRow(sessionDocId)?.historyState
     }
@@ -361,13 +388,210 @@ final class SessionViewModel {
 
     // MARK: Actions
 
+    /// Sends the draft: a phone command (`/new`, `/model`, `/think`, `/stop`, `/info`) is handled here; anything else,
+    /// the session's commands (`/compact`) and unknown ones alike, goes to the computer as a prompt.
     func send() {
         let text = draft
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, canSendPrompts else { return }
+        menuOpen = false
+        if let command = ComposerCommand.parse(text), let device = command.deviceCommand {
+            draft = ""
+            saveDraftNow()
+            run(device, argument: command.argument)
+            return
+        }
         engine.sendPrompt(text, to: sessionDocId)
         bottomSeenAt = Date()
         draft = ""
         saveDraftNow()
+        rebuild()
+    }
+
+    /// Send is enabled: the field has text (a command, or a prompt).
+    var canSendDraft: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    // MARK: Commands
+
+    /// The phone's commands this session allows: `/think` only when its model has thinking levels (or the relay
+    /// cannot say), `/stop` only while a turn runs.
+    private var allowedDeviceCommands: [DeviceCommand] {
+        let thinking: Bool? = detail.value?.models == nil ? nil : !(detail.value?.currentModel?.efforts.isEmpty ?? true)
+        return CommandMenu.deviceCommands(isRunning: isRunning, modelHasThinking: thinking)
+    }
+
+    /// The phone's commands this session allows, then the session's.
+    var availableCommands: [CommandMenuItem] {
+        CommandMenu.items(device: allowedDeviceCommands, session: slashCommands.value?.commands ?? [])
+    }
+
+    /// The command list above the composer: what matches a typed `/name`, else everything after Menu.
+    var commandMenuItems: [CommandMenuItem] {
+        guard canSendPrompts else { return [] }
+        if let typed = CommandMenu.typedName(in: draft) {
+            return CommandMenu.items(device: allowedDeviceCommands, session: slashCommands.value?.commands ?? [], filter: typed)
+        }
+        return menuOpen && draft.isEmpty ? availableCommands : []
+    }
+
+    /// The Menu pill: opens the list, or closes it (also one a typed `/` opened).
+    func toggleMenu() {
+        if commandMenuItems.isEmpty {
+            menuOpen = true
+        } else {
+            menuOpen = false
+            if CommandMenu.typedName(in: draft) != nil { draft = "" }
+        }
+    }
+
+    /// A row of the command list: one that takes arguments fills the field for the rest; others are sent at once.
+    func pick(_ item: CommandMenuItem) {
+        menuOpen = false
+        if item.takesArgument {
+            draft = "/\(item.name) "
+            return
+        }
+        draft = "/\(item.name)"
+        send()
+    }
+
+    private func run(_ command: DeviceCommand, argument: String) {
+        switch command {
+        case .new:
+            guard let target = newSessionTarget else { return }
+            onNewSession?(target, argument.isEmpty ? nil : argument)
+        case .model:
+            ask(.model, argument: argument)
+        case .think:
+            ask(.think, argument: argument)
+        case .stop:
+            Task { await stop() }
+        case .info:
+            showsInfo = true
+        }
+    }
+
+    /// Where `/new` starts a session: this session's project on its computer.
+    var newSessionTarget: NewSessionTarget? {
+        if let detail = detail.value {
+            return NewSessionTarget(
+                deviceId: detail.deviceId, deviceName: detail.deviceName, path: detail.projectPath ?? detail.cwd)
+        }
+        guard let row = engine.sessionRow(sessionDocId) else { return nil }
+        return NewSessionTarget(deviceId: row.deviceId, deviceName: row.deviceName, path: row.projectPath ?? row.cwd)
+    }
+
+    /// What a bot card offers now.
+    func choices(for card: BotCard) -> BotChoices {
+        BotChoices.make(card.kind, detail: detail.value, computerName: computerName, computerOnline: isComputerOnline)
+    }
+
+    /// `/model` or `/think`: without an argument a card with the choices; with one, the matching choice is applied at
+    /// once (the card shows it done), or the card says nothing matched.
+    private func ask(_ kind: BotCard.Kind, argument: String) {
+        var card = BotCard(kind: kind)
+        bottomSeenAt = Date()
+        if !argument.isEmpty, case .choices = choices(for: card) {
+            switch match(argument, kind) {
+            case .one(let id):
+                botCards.append(card)
+                apply(id, on: card.id)
+                rebuild()
+                return
+            case .none:
+                card.state = .choosing(note: kind == .model
+                    ? String(localized: "No model matches “\(argument)”.")
+                    : String(localized: "No thinking level matches “\(argument)”."))
+            case .ambiguous:
+                card.state = .choosing(note: String(localized: "“\(argument)” matches more than one. Pick one:"))
+            }
+        }
+        botCards.append(card)
+        rebuild()
+    }
+
+    private enum Matched { case one(String), none, ambiguous }
+
+    private func match(_ argument: String, _ kind: BotCard.Kind) -> Matched {
+        switch kind {
+        case .model:
+            switch ChoiceMatch.find(argument, in: detail.value?.models ?? [], keys: { [$0.id, $0.name] }) {
+            case .one(let model): return .one(model.id)
+            case .none: return .none
+            case .ambiguous: return .ambiguous
+            }
+        case .think:
+            let efforts = detail.value?.currentModel?.efforts ?? []
+            switch ChoiceMatch.find(argument, in: efforts, keys: { [$0.id, $0.level, $0.name] }) {
+            case .one(let effort): return .one(effort.id)
+            case .none: return .none
+            case .ambiguous: return .ambiguous
+            }
+        }
+    }
+
+    /// A tap on a card's button.
+    func choose(_ choice: BotChoice, on card: BotCard) {
+        guard !card.isApplying, !card.isDone else { return }
+        apply(choice.id, on: card.id)
+    }
+
+    /// `commands:setConfig`, then the card follows the command (`commands:get`) until it is done or failed.
+    private func apply(_ value: String, on cardId: String) {
+        guard let index = botCards.firstIndex(where: { $0.id == cardId }) else { return }
+        let kind = botCards[index].kind
+        updateCard(cardId) { $0.state = .applying(choiceId: value) }
+        let commands = engine.commands
+        let id = sessionDocId
+        let option: ConfigOption = kind == .model ? .model : .reasoningEffort
+        Task { [weak self] in
+            do {
+                let commandId = try await commands.setConfig(id, configId: option, value: value)
+                self?.watchConfig(commandId, cardId: cardId, kind: kind, value: value)
+            } catch {
+                guard let self else { return }
+                let relayError = (error as? RelayError) ?? RelayError(.server, error.localizedDescription)
+                if relayError.isRevoked { self.engine.handleRevoked() }
+                if relayError.code == .unauthenticated { self.engine.handleUnauthenticated() }
+                self.updateCard(cardId) { $0.state = .failed(message: relayError.message) }
+            }
+        }
+    }
+
+    private func watchConfig(_ commandId: DocID, cardId: String, kind: BotCard.Kind, value: String) {
+        let commands = engine.commands
+        let query = LiveQuery<CommandRecord?>(engine: engine) { commands.get(commandId) }
+        query.onValue = { [weak self] record in
+            guard let self, let record else { return }
+            switch record.status {
+            case .done:
+                let chosen = kind == .model ? (record.result?.model ?? value) : (record.result?.effort ?? value)
+                let label = BotChoices.name(of: chosen, kind, in: self.detail.value)
+                self.updateCard(cardId) { $0.state = .done(label: label) }
+                self.endWatch(cardId)
+            case .failed:
+                self.updateCard(cardId) {
+                    $0.state = .failed(message: record.error ?? String(localized: "The computer couldn't change it."))
+                }
+                self.endWatch(cardId)
+            default:
+                break
+            }
+        }
+        configWatches[cardId]?.stop()
+        configWatches[cardId] = query
+        query.start()
+    }
+
+    private func endWatch(_ cardId: String) {
+        configWatches[cardId]?.stop()
+        configWatches[cardId] = nil
+    }
+
+    private func updateCard(_ id: String, _ change: (inout BotCard) -> Void) {
+        guard let index = botCards.firstIndex(where: { $0.id == id }) else { return }
+        change(&botCards[index])
         rebuild()
     }
 

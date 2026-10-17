@@ -21,6 +21,8 @@ final class DemoWorld {
         var historyOnComputer: [TranscriptEvent] = []
         /// The pending request has an answer the computer has not taken yet; a second one is `EXPIRED`.
         var answered = false
+        /// For a session started from the phone (`sessions:create`): its client id, so a resend is the same session.
+        var createdClientId: String?
     }
 
     var sessions: [Session] = []
@@ -29,6 +31,8 @@ final class DemoWorld {
     var infoCommands: [DocID: CommandRecord] = [:]
     /// Hand-placed projects, by key.
     var projectPositions: [String: Double] = [:]
+    /// What each computer can run (`sessions:get` → `models`, while it is online).
+    var modelsByDevice: [DocID: [ModelChoice]] = [:]
     let currentDeviceId = "demo-phone"
     private var observers: [UUID: @MainActor () -> Void] = [:]
     private var nextId = 1000
@@ -77,8 +81,11 @@ final class DemoWorld {
             app: d.app, deviceId: d.deviceId, deviceName: device?.name ?? d.deviceName, deviceOnline: device?.online ?? false,
             preview: session.preview, previewKind: session.previewKind, lastActivityAt: d.lastActivityAt, pinned: d.pinned,
             archived: d.archived, unread: d.unread, plan: plan, projectKey: Self.projectKey(deviceId: d.deviceId, path: path),
-            projectPath: path, projectName: PathText.lastComponent(path), historyState: d.historyState)
+            projectPath: path, projectName: PathText.lastComponent(path), historyState: d.historyState,
+            starting: Self.isStarting(d))
     }
+
+    static func isStarting(_ detail: SessionDetail) -> Bool { detail.sessionId.hasPrefix("pending:") }
 
     /// `sessions:get`, with the computer's current state and the project fields.
     func detail(_ session: Session) -> SessionDetail {
@@ -90,6 +97,8 @@ final class DemoWorld {
         d.projectKey = Self.projectKey(deviceId: d.deviceId, path: path)
         d.projectPath = path
         d.projectName = PathText.lastComponent(path)
+        d.starting = Self.isStarting(d)
+        d.models = device?.online == true ? modelsByDevice[d.deviceId] : nil
         return d
     }
 
@@ -182,6 +191,15 @@ final class DemoWorld {
     /// its transcript read from disk if the relay did not have it yet.
     func adopt(_ s: Int) {
         guard !sessions[s].detail.online else { return }
+        if Self.isStarting(sessions[s].detail) {
+            // A session started from the phone: the crok that claimed it opened it and swaps in its real id.
+            sessions[s].detail.sessionId = "0199f\(nextId)-1b2c-7d3e-8f40-6a5b4c3d2e1f"
+            let model = modelsByDevice[sessions[s].detail.deviceId]?.first
+            sessions[s].detail.model = sessions[s].detail.model ?? model?.id
+            if sessions[s].detail.effort == nil, let model {
+                sessions[s].detail.effort = (model.efforts.first(where: { $0.id == model.defaultEffort }) ?? model.efforts.first)?.level
+            }
+        }
         if sessions[s].detail.historyState?.isOnComputerOnly == true {
             if sessions[s].events.isEmpty { sessions[s].events = sessions[s].historyOnComputer }
             sessions[s].detail.eventSeq = sessions[s].events.map(\.seq).max() ?? 0
@@ -330,6 +348,166 @@ final class DemoWorld {
             messages: stored ? nil : Double(sessions[s].events.count), sessionId: d.sessionId, stored: stored)
     }
 
+    // MARK: New sessions
+
+    /// `sessions:create`: the session is listed at once (`starting`), and a crok on the computer opens it a moment
+    /// later and runs the prompt.
+    func createSession(deviceId: DocID, path: String, text: String?, clientId: String) throws -> CreatedSession {
+        if let existing = sessions.first(where: { $0.createdClientId == clientId }) {
+            return CreatedSession(
+                sessionDocId: existing.detail.id, commandId: existing.commands.last?.id ?? existing.detail.id)
+        }
+        guard let device = devices.first(where: { $0.id == deviceId }) else {
+            throw RelayError(.notFound, "No such computer.")
+        }
+        guard device.kind == .computer else { throw RelayError(.forbidden, "Sessions run on computers, not phones.") }
+        let folder = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard folder.hasPrefix("/") else { throw RelayError(.invalid, "Choose a folder on the computer (a full path).") }
+        guard device.online else {
+            throw RelayError(.offline, "\(device.name) is offline: start crok or Crok Desktop there.")
+        }
+        let prompt = text?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let id = newId("session")
+        let commandId = newId("command")
+        let now = Date().milliseconds
+        let detail = SessionDetail(
+            id: id, sessionId: "pending:\(clientId)", title: Self.title(fromPrompt: prompt), cwd: folder, model: nil,
+            effort: nil, gitBranch: nil, status: prompt == nil ? .idle : .running, online: false,
+            app: device.client.hasPrefix("Crok Desktop") ? .desktop : .tui, deviceId: device.id, deviceName: device.name,
+            devicePlatform: device.platform, deviceOnline: true, createdAt: now, lastActivityAt: now, plan: [], usage: nil,
+            pinned: false, archived: false, unread: 0, eventSeq: 0)
+        var session = Session(
+            detail: detail, events: [], commands: [], preview: nil, previewKind: nil, projectPath: folder)
+        session.createdClientId = clientId
+        if let prompt {
+            session.commands = [
+                PromptCommand(
+                    id: commandId, type: "create", clientId: clientId, text: prompt, status: .pending, error: nil,
+                    fromLabel: "Charlie's iPhone", fromDeviceId: currentDeviceId, mine: true, createdAt: now,
+                    updatedAt: now)
+            ]
+        }
+        sessions.append(session)
+        if let prompt {
+            runPrompt(sessionId: id, commandId: commandId, text: prompt)
+        } else {
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(1200))
+                guard let self, let s = try? self.index(of: id) else { return }
+                self.adopt(s)
+                self.changed()
+            }
+        }
+        return CreatedSession(sessionDocId: id, commandId: commandId)
+    }
+
+    /// A new session's title until crok names it: its first prompt's first line.
+    static func title(fromPrompt text: String?) -> String {
+        guard let line = text?.split(separator: "\n").map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { !$0.isEmpty })
+        else { return "New session" }
+        return line.count > 80 ? String(line.prefix(79)) + "…" : line
+    }
+
+    // MARK: Model, thinking level, slash commands
+
+    /// `commands:setConfig`: checked against the computer's models, applied a moment later as if picked there.
+    func setConfig(sessionId: DocID, configId: ConfigOption, value: String) throws -> DocID {
+        let s = try index(of: sessionId)
+        let wanted = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wanted.isEmpty else { throw RelayError(.invalid, "Choose a value.") }
+        if Self.isStarting(sessions[s].detail) && !sessions[s].detail.online {
+            throw RelayError(.invalid, "This session has not started on its computer yet.")
+        }
+        guard isComputerOnline(s) else {
+            throw RelayError(.offline, "\(sessions[s].detail.deviceName) is offline: start crok or Crok Desktop there.")
+        }
+        let models = modelsByDevice[sessions[s].detail.deviceId] ?? []
+        switch configId {
+        case .model:
+            guard models.contains(where: { $0.id == wanted }) else {
+                throw RelayError(.invalid, "That model is not available on this computer.")
+            }
+        case .reasoningEffort:
+            if let current = models.first(where: { $0.id == sessions[s].detail.model }),
+                !current.efforts.contains(where: { $0.id == wanted })
+            {
+                throw RelayError(.invalid, "That thinking level is not available for this model.")
+            }
+        }
+        let id = newId("command")
+        infoCommands[id] = CommandRecord(id: id, type: "config", status: .pending)
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard let self, let s = try? self.index(of: sessionId) else { return }
+            self.adopt(s)
+            var detail = self.sessions[s].detail
+            switch configId {
+            case .model:
+                detail.model = wanted
+                let model = models.first(where: { $0.id == wanted })
+                if let model, !model.efforts.isEmpty {
+                    if model.effort(matching: detail.effort) == nil {
+                        let fallback = model.efforts.first(where: { $0.id == model.defaultEffort }) ?? model.efforts.first
+                        detail.effort = fallback?.level
+                    }
+                } else {
+                    detail.effort = nil
+                }
+            case .reasoningEffort:
+                let model = models.first(where: { $0.id == detail.model })
+                detail.effort = model?.efforts.first(where: { $0.id == wanted })?.level ?? wanted
+            }
+            self.sessions[s].detail = detail
+            self.infoCommands[id] = CommandRecord(
+                id: id, type: "config", status: .done, result: SessionInfoResult(model: detail.model, effort: detail.effort))
+            self.changed()
+        }
+        return id
+    }
+
+    /// `sessions:commands`: the session's own list while a crok runs it, else its computer's latest.
+    func slashCommands(for sessionId: DocID) throws -> SlashCommandList {
+        let s = try index(of: sessionId)
+        let detail = sessions[s].detail
+        if detail.online && !Self.isStarting(detail) { return SlashCommandList(commands: Self.slashCommands, source: "session") }
+        return SlashCommandList(commands: Self.slashCommands, source: "computer")
+    }
+
+    /// What crok advertises: its own commands, then skills and workflows (descriptions come from the computer).
+    static let slashCommands: [SlashCommand] = [
+        SlashCommand(name: "compact", description: "Summarize the conversation to free up context"),
+        SlashCommand(name: "context", description: "Show what fills the context window"),
+        SlashCommand(name: "memory", description: "Edit crok's memory files"),
+        SlashCommand(name: "init", description: "Write a CROK.md for this project"),
+        SlashCommand(name: "review-pr", description: "Review a pull request", hint: "<number>"),
+        SlashCommand(name: "release-notes", description: "Write release notes in six languages", hint: "<version>"),
+    ]
+
+    /// The models the MacBook offers (its providers and sign-ins). One reports thinking levels whose ids differ from
+    /// their canonical value, as some providers do.
+    static let macModels: [ModelChoice] = [
+        ModelChoice(
+            id: "grok-code-fast-1", name: "Grok Code Fast 1", description: "Fast and cheap for everyday coding",
+            efforts: [
+                EffortChoice(id: "low", name: "Low"), EffortChoice(id: "medium", name: "Medium"),
+                EffortChoice(id: "high", name: "High"),
+            ],
+            defaultEffort: "medium"),
+        ModelChoice(
+            id: "grok-4", name: "Grok 4", description: "xAI's most capable model",
+            efforts: [EffortChoice(id: "low", name: "Low"), EffortChoice(id: "high", name: "High")], defaultEffort: "high"),
+        ModelChoice(id: "grok-4-fast", name: "Grok 4 Fast", description: "Quick answers without extended thinking"),
+        ModelChoice(
+            id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", description: "Anthropic, with your API key",
+            efforts: [
+                EffortChoice(id: "thinking-low", name: "Low", value: "low"),
+                EffortChoice(id: "thinking-medium", name: "Medium", value: "medium"),
+                EffortChoice(id: "thinking-high", name: "High", value: "high"),
+                EffortChoice(id: "thinking-max", name: "Max", value: "xhigh"),
+            ],
+            defaultEffort: "thinking-medium"),
+    ]
+
     // MARK: Permission requests
 
     /// `commands:answer`: the first answer to the pending request wins; one for a request that is no longer pending is
@@ -406,4 +584,8 @@ final class DemoWorld {
         """
 
     static let deniedReply = "OK, I left the dependencies as they are. Tell me if you want only one of them updated."
+}
+
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

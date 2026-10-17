@@ -117,13 +117,13 @@ func renderIcon(_ mark: Mark, variant: Variant, size: Int) -> CGImage {
     let s = CGFloat(size)
     switch variant {
     case .light:
-        // Sage green, a touch lighter at the top, like light falling on a matte tile.
+        // Telegram blue (the app's accent, #3390EC), a touch lighter at the top, like light falling on a matte tile.
         let gradient = CGGradient(
-            colorsSpace: space, colors: [rgb(0x527A5E), rgb(0x3B5C45)] as CFArray, locations: [0, 1])!
+            colorsSpace: space, colors: [rgb(0x4FA4F4), rgb(0x2A80DE)] as CFArray, locations: [0, 1])!
         ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: s), end: CGPoint(x: 0, y: 0), options: [])
     case .dark:
         let gradient = CGGradient(
-            colorsSpace: space, colors: [rgb(0x1F2621), rgb(0x121412)] as CFArray, locations: [0, 1])!
+            colorsSpace: space, colors: [rgb(0x1D2330), rgb(0x111419)] as CFArray, locations: [0, 1])!
         ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: s), end: CGPoint(x: 0, y: 0), options: [])
     case .tinted:
         ctx.clear(full)
@@ -131,7 +131,7 @@ func renderIcon(_ mark: Mark, variant: Variant, size: Int) -> CGImage {
     let markColor: CGColor
     switch variant {
     case .light: markColor = rgb(0xFFFFFF)
-    case .dark: markColor = rgb(0xA1BFA8)
+    case .dark: markColor = rgb(0x3E88F7)
     case .tinted: markColor = rgb(0xFFFFFF)
     }
     // The head fills about 60% of the tile, nudged down a little so the ears balance the face.
