@@ -2,9 +2,11 @@
  * Fake relay data for the dev-only /preview gallery (never part of a production build: see next.config.ts).
  * Shapes are the real API types, so the preview breaks at compile time when the contract changes.
  */
+import type { BotCard } from "@/components/session/BotCommands";
 import type {
   CommandId,
   DeviceRow,
+  ModelChoice,
   PendingLogin,
   PendingPrompt,
   ProjectGroup,
@@ -12,6 +14,7 @@ import type {
   SessionDetail,
   SessionId,
   SessionRow,
+  SlashCommand,
   TranscriptEvent,
 } from "@/lib/types";
 
@@ -55,9 +58,62 @@ function fakeRow(now: number, { project, ...r }: RowInput): SessionRow {
     projectPath: project,
     projectName: project.split("/").pop() || project,
     historyState: null,
+    starting: false,
     ...r,
   };
 }
+
+/**
+ * What MacBook Pro's crok can run (`sessions:get(...).models`): models with and without thinking levels; Claude's levels
+ * have ids of their own and the canonical level as `value`.
+ */
+export const FAKE_MODELS: ModelChoice[] = [
+  {
+    id: "grok-code-fast-1",
+    name: "Grok Code Fast 1",
+    description: "Quick and inexpensive, for everyday coding",
+    efforts: [
+      { id: "low", name: "Low" },
+      { id: "medium", name: "Medium" },
+      { id: "high", name: "High" },
+    ],
+    defaultEffort: "medium",
+  },
+  {
+    id: "grok-4",
+    name: "Grok 4",
+    description: "The most capable Grok model",
+    efforts: [
+      { id: "low", name: "Low" },
+      { id: "medium", name: "Medium" },
+      { id: "high", name: "High" },
+      { id: "xhigh", name: "Extra high" },
+    ],
+    defaultEffort: "high",
+  },
+  {
+    id: "claude-sonnet-4-5",
+    name: "Claude Sonnet 4.5",
+    description: "Anthropic, with your API key",
+    efforts: [
+      { id: "budget-4k", name: "Low", value: "low" },
+      { id: "budget-16k", name: "Medium", value: "medium" },
+      { id: "budget-32k", name: "High", value: "high" },
+    ],
+    defaultEffort: "budget-16k",
+  },
+  { id: "deepseek-chat", name: "DeepSeek V3.2", description: "No thinking levels", efforts: [] },
+];
+
+/** `sessions:commands` for the web-app session: crok's own, a skill with an argument, a workflow. */
+export const FAKE_SLASH_COMMANDS: SlashCommand[] = [
+  { name: "compact", description: "Summarize the conversation to free up context" },
+  { name: "context", description: "Show what fills the context window" },
+  { name: "memory", description: "Edit crok's memory files" },
+  { name: "review-pr", description: "Review a pull request and leave comments", hint: "<number>" },
+  { name: "release-notes", description: "Draft release notes in six languages" },
+  { name: "model", description: "Shadowed by the device's own /model" },
+];
 
 /** Sessions only on the computer's disk (the catalog): offline until opened, transcript not fetched yet. */
 const CATALOG = { online: false, historyState: "none" as const, previewKind: "assistant" as const };
@@ -80,6 +136,17 @@ export function fakeGroups(now: number): ProjectGroup[] {
       previewKind: "tool",
       lastActivityAt: now - 1 * MIN,
       plan: { done: 3, total: 5 },
+    }),
+    fakeRow(now, {
+      _id: "s_new_health" as SessionId,
+      project: "/Users/me/code/web-app",
+      sessionId: "pending:5f0c9a7e-1d2b-4c3a-9e8f-7a6b5c4d3e2f",
+      title: "Add a /health endpoint with a DB check",
+      cwd: "/Users/me/code/web-app",
+      status: "running",
+      online: false,
+      starting: true,
+      lastActivityAt: now - 0.2 * MIN,
     }),
     fakeRow(now, {
       _id: "s_web_react" as SessionId,
@@ -288,7 +355,9 @@ export function fakeSession(now: number, overrides: Partial<SessionDetail> = {})
     projectPath: "/Users/me/code/web-app",
     projectName: "web-app",
     historyState: null,
+    starting: false,
     pending: null,
+    models: FAKE_MODELS,
     ...overrides,
   };
 }
@@ -323,6 +392,63 @@ export function fakeCatalogSession(now: number, computerOnline: boolean): Sessio
     projectName: computerOnline ? "crok-build" : "infra",
     historyState: computerOnline ? "requested" : "none",
   });
+}
+
+/** A session just started from the web (`sessions:create`): listed at once, not open on MacBook Pro yet. */
+export function fakeStartingSession(now: number): SessionDetail {
+  return fakeSession(now, {
+    _id: "s_new_health" as SessionId,
+    sessionId: "pending:5f0c9a7e-1d2b-4c3a-9e8f-7a6b5c4d3e2f",
+    title: "Add a /health endpoint with a DB check",
+    effort: null,
+    gitBranch: null,
+    status: "running",
+    online: false,
+    starting: true,
+    createdAt: now - 0.2 * MIN,
+    lastActivityAt: now - 0.2 * MIN,
+    plan: [],
+    usage: null,
+    pinned: false,
+    eventSeq: 0,
+  });
+}
+
+/** Its `create` command, as `commands:forSession` lists it (taken by the computer, the session opening). */
+export function fakeStartingCommands(now: number): PromptCommand[] {
+  return [
+    {
+      _id: "cmd_create" as CommandId,
+      type: "create",
+      clientId: "c_create",
+      text: "Add a /health endpoint that also checks the database connection, with a test.",
+      status: "delivered",
+      error: null,
+      fromLabel: "Web",
+      fromDeviceId: null,
+      mine: true,
+      createdAt: now - 0.2 * MIN,
+      updatedAt: now - 0.1 * MIN,
+    },
+  ];
+}
+
+/** `/model` and `/think` answers in every state: picking, applying, done, refused, and an argument that matched nothing. */
+export function fakeCards(now: number): BotCard[] {
+  return [
+    { id: "card-1", kind: "model", createdAt: now - 7 * MIN, state: "done", value: "grok-4" },
+    { id: "card-2", kind: "model", createdAt: now - 6 * MIN, state: "choosing", miss: { arg: "gpt", reason: "none" } },
+    {
+      id: "card-3",
+      kind: "model",
+      createdAt: now - 5 * MIN,
+      state: "failed",
+      value: "claude-sonnet-4-5",
+      error: "That model is not available on this computer.",
+    },
+    { id: "card-4", kind: "reasoning_effort", createdAt: now - 4 * MIN, state: "applying", value: "xhigh" },
+    { id: "card-5", kind: "model", createdAt: now - 3 * MIN, state: "choosing" },
+  ];
 }
 
 const SESSION = "s_web" as SessionId;
@@ -393,6 +519,7 @@ export function fakeCommands(now: number): PromptCommand[] {
   return [
     {
       _id: "cmd_3" as CommandId,
+      type: "prompt",
       clientId: "c3",
       text: "Then write the regression test and open a PR.",
       status: "failed",
@@ -405,6 +532,7 @@ export function fakeCommands(now: number): PromptCommand[] {
     },
     {
       _id: "cmd_2" as CommandId,
+      type: "prompt",
       clientId: "c2",
       text: "Also check the token refresh in the mobile client.",
       status: "delivered",
@@ -417,6 +545,7 @@ export function fakeCommands(now: number): PromptCommand[] {
     },
     {
       _id: "cmd_1" as CommandId,
+      type: "prompt",
       clientId: "c1",
       text: "Great, apply the fix and run the suite 20 times.",
       status: "done",

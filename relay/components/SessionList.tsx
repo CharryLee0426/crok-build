@@ -3,12 +3,14 @@
 import { useMutation, useQuery } from "convex/react";
 import type { OptimisticLocalStore } from "convex/browser";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { api } from "@/convex/_generated/api";
 import { readStorage, writeStorage } from "@/lib/browser";
 import { relayError } from "@/lib/errors";
 import { folderName, formatListTime, tildePath } from "@/lib/format";
+import { newSessionHref } from "@/lib/new-session";
 import {
   addSession,
   applyProjectOrder,
@@ -28,9 +30,12 @@ import {
   ArrowUpIcon,
   ChatsIcon,
   ChevronDownIcon,
+  ComposeIcon,
+  ComputerIcon,
   FolderIcon,
   GripIcon,
   PinIcon,
+  PlusIcon,
   RecentIcon,
   SearchIcon,
   StopIcon,
@@ -39,7 +44,7 @@ import {
   XIcon,
 } from "./icons";
 import { useToast } from "./Toast";
-import { ActionMenu, Code, ProjectAvatar, useNow } from "./ui";
+import { ActionMenu, Code, IconButton, ProjectAvatar, useNow } from "./ui";
 import type { MenuItem } from "./ui";
 import { useDragReorder } from "./useDragReorder";
 import type { DragScope } from "./useDragReorder";
@@ -61,6 +66,9 @@ export type OrderActions = {
 };
 
 export type Tab = "all" | "archived" | { deviceId: string };
+
+/** Where a new session starts: a folder of a computer (a project's path). */
+export type NewSessionTarget = { deviceId: string; path: string };
 
 /** A section shows this many sessions, then "Show N more". */
 const SECTION_ROWS = 5;
@@ -92,9 +100,11 @@ export function WorkingDots() {
 export function SessionPreview({
   row,
 }: {
-  row: Pick<SessionRow, "status" | "preview" | "previewKind" | "online" | "model">;
+  row: Pick<SessionRow, "status" | "preview" | "previewKind" | "online" | "model" | "starting">;
 }) {
   const { t } = useI18n();
+  // Made from a phone or the web, not open on its computer yet (unless that failed: the error shows instead).
+  if (row.starting && row.status !== "error") return <span className="text-accent-text">{t("starting")}</span>;
   if (row.status === "running" && row.online) {
     return (
       <span className="text-accent-text">
@@ -308,6 +318,7 @@ function ProjectSection({
   dragging,
   draggingSessionId,
   menu,
+  onNewSession,
   onHandlePointerDown,
   onHandleKeyDown,
   rowProps,
@@ -325,6 +336,8 @@ function ProjectSection({
   dragging: boolean;
   draggingSessionId: string | null;
   menu: MenuItem[];
+  /** "+": a new session in this project (explains instead while its computer is offline). */
+  onNewSession?: () => void;
   onHandlePointerDown?: (e: ReactPointerEvent<HTMLElement>) => void;
   onHandleKeyDown?: (e: ReactKeyboardEvent<HTMLElement>) => void;
   rowProps: (row: SessionRow, shown: SessionRow[]) => Omit<Parameters<typeof SessionRowView>[0], "row">;
@@ -375,7 +388,7 @@ function ProjectSection({
           {showComputer ? (
             <span className="flex min-w-0 shrink-[3] items-center gap-1.5 text-[12.5px] text-faint">
               <span
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${group.deviceOnline ? "bg-accent" : "bg-line-strong"}`}
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${group.deviceOnline ? "bg-online" : "bg-line-strong"}`}
                 aria-hidden="true"
               />
               <span className="truncate">{group.deviceName}</span>
@@ -393,6 +406,23 @@ function ProjectSection({
             />
           )}
         </button>
+        {onNewSession && !dragging ? (
+          <IconButton
+            label={t("new_session_in", { name: group.name })}
+            title={
+              group.deviceOnline
+                ? t("new_session_in", { name: group.name })
+                : t("new_session_offline", { computer: group.deviceName })
+            }
+            aria-disabled={!group.deviceOnline}
+            onClick={onNewSession}
+            className={`h-8 w-8 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/header:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 ${
+              group.deviceOnline ? "" : "text-faint hover:text-faint"
+            }`}
+          >
+            <PlusIcon size={18} />
+          </IconButton>
+        ) : null}
         {menu.length && !dragging ? (
           <ActionMenu
             label={t("project_options")}
@@ -441,6 +471,8 @@ export function SessionsPaneView({
   now,
   actions,
   order,
+  onNewSession,
+  initialPickerOpen = false,
   footer,
 }: {
   /** The main list (`sessions:groups`); undefined while loading. */
@@ -456,9 +488,24 @@ export function SessionsPaneView({
   now: number;
   actions?: SessionActions;
   order?: OrderActions;
+  /** Opens the new-session screen for a project (the "+", the section menu, the compose button's picker). */
+  onNewSession?: (target: NewSessionTarget) => void;
+  /** The dev preview: the compose button's project picker open from the start. */
+  initialPickerOpen?: boolean;
   footer?: ReactNode;
 }) {
   const { t, tx } = useI18n();
+  const toast = useToast();
+  const [pickerOpen, setPickerOpen] = useState(initialPickerOpen);
+  /** A new session needs a running crok on that computer: say so instead of opening a screen that can't send. */
+  const startIn = (group: Pick<ProjectGroup, "deviceId" | "deviceName" | "deviceOnline" | "path">) => {
+    if (!onNewSession) return;
+    if (!group.deviceOnline) {
+      toast.show(t("new_session_offline", { computer: group.deviceName }));
+      return;
+    }
+    onNewSession({ deviceId: group.deviceId, path: group.path });
+  };
   const needle = query.trim().toLowerCase();
   const searching = needle.length > 0;
   const onArchived = tab === "archived";
@@ -610,7 +657,10 @@ export function SessionsPaneView({
     body = (
       <div ref={contentRef} className="relative">
         {(sections ?? []).map((group, index) => {
-          const projectMenu: MenuItem[] = canReorder
+          const newSession: MenuItem[] = onNewSession
+            ? [{ label: t("new_session"), icon: <PlusIcon size={16} />, onSelect: () => startIn(group) }]
+            : [];
+          const moves: MenuItem[] = canReorder
             ? [
                 ...(index > 0
                   ? [{ label: t("move_up"), icon: <ArrowUpIcon size={16} />, onSelect: () => moveProject(group.key, -1) }]
@@ -625,6 +675,7 @@ export function SessionsPaneView({
                 },
               ]
             : [];
+          const projectMenu = [...newSession, ...moves];
           return (
             <ProjectSection
               key={group.key}
@@ -640,6 +691,7 @@ export function SessionsPaneView({
               dragging={draggingProject === group.key}
               draggingSessionId={draggingSession}
               menu={projectMenu}
+              onNewSession={onNewSession ? () => startIn(group) : undefined}
               onHandlePointerDown={
                 canReorder && keys.length > 1
                   ? (e) =>
@@ -722,8 +774,24 @@ export function SessionsPaneView({
             </button>
           ) : null}
         </label>
+        {onNewSession ? (
+          <IconButton label={t("new_session")} onClick={() => setPickerOpen(true)} disabled={!groups}>
+            <ComposeIcon size={19} />
+          </IconButton>
+        ) : null}
         {listMenu.length ? <ActionMenu label={t("list_options")} items={listMenu} /> : null}
       </div>
+      {onNewSession && groups ? (
+        <NewSessionPicker
+          open={pickerOpen}
+          groups={groups}
+          onPick={(group) => {
+            setPickerOpen(false);
+            startIn(group);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
       <div className="scroll-quiet mt-2 flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3" role="tablist">
         {tabs.map((entry) => {
           const selected = sameTab(entry.tab, tab);
@@ -739,7 +807,7 @@ export function SessionsPaneView({
               }`}
             >
               {entry.online !== undefined ? (
-                <span className={`h-1.5 w-1.5 rounded-full ${entry.online ? "bg-accent" : "bg-line-strong"}`} aria-hidden="true" />
+                <span className={`h-1.5 w-1.5 rounded-full ${entry.online ? "bg-online" : "bg-line-strong"}`} aria-hidden="true" />
               ) : null}
               {entry.label}
               {selected ? <span className="absolute inset-x-1.5 bottom-0 h-[3px] rounded-t-full bg-accent" /> : null}
@@ -752,6 +820,122 @@ export function SessionsPaneView({
       </div>
       {footer ? <div className="shrink-0 border-t border-line px-4 py-2">{footer}</div> : null}
     </div>
+  );
+}
+
+/**
+ * The compose button's first step: which project the new session starts in. Projects of online computers, grouped by
+ * computer, most recently active first; offline computers are named with why they can't take one.
+ */
+function NewSessionPicker({
+  open,
+  groups,
+  onPick,
+  onClose,
+}: {
+  open: boolean;
+  groups: ProjectGroup[];
+  onPick: (group: ProjectGroup) => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  const computers = useMemo(() => {
+    type Computer = { deviceId: string; name: string; online: boolean; latest: number; projects: ProjectGroup[] };
+    const byDevice = new Map<string, Computer>();
+    for (const group of groups) {
+      let entry = byDevice.get(group.deviceId);
+      if (!entry) {
+        entry = { deviceId: group.deviceId, name: group.deviceName, online: group.deviceOnline, latest: 0, projects: [] };
+        byDevice.set(group.deviceId, entry);
+      }
+      entry.latest = Math.max(entry.latest, group.lastActivityAt);
+      entry.projects.push(group);
+    }
+    const list = [...byDevice.values()].sort((a, b) => b.latest - a.latest);
+    for (const entry of list) entry.projects.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+    return list;
+  }, [groups]);
+  const online = computers.filter((c) => c.online);
+  const offline = computers.filter((c) => !c.online);
+
+  return (
+    <dialog
+      ref={ref}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      onClick={(e) => {
+        // A click on the backdrop (the dialog element itself, outside its content) closes it.
+        if (e.target === ref.current) onClose();
+      }}
+      aria-labelledby="new-session-picker-title"
+      className="m-auto max-h-[min(80dvh,40rem)] w-[min(92vw,26rem)] overflow-hidden rounded-2xl border border-line bg-surface p-0 text-fg shadow-card backdrop:bg-black/40"
+    >
+      <div className="flex max-h-[min(80dvh,40rem)] flex-col">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 pb-3 pt-4">
+          <div>
+            <h2 id="new-session-picker-title" className="text-base font-semibold">
+              {t("new_session")}
+            </h2>
+            <p className="mt-0.5 text-[13px] text-muted">{t("new_session_choose")}</p>
+          </div>
+          <IconButton label={t("close")} onClick={onClose} className="-mr-2 -mt-1">
+            <XIcon size={18} />
+          </IconButton>
+        </div>
+        <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto px-2 py-2">
+          {!computers.length ? (
+            <p className="px-3 py-6 text-center text-sm leading-relaxed text-muted">{t("new_session_no_projects")}</p>
+          ) : !online.length ? (
+            <p className="px-3 py-6 text-center text-sm leading-relaxed text-muted">{t("new_session_none_online")}</p>
+          ) : (
+            online.map((computer) => (
+              <section key={computer.deviceId} className="mb-1">
+                <h3 className="flex items-center gap-2 px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-faint">
+                  <ComputerIcon size={14} />
+                  <span className="truncate">{computer.name}</span>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-online" aria-hidden="true" />
+                </h3>
+                <ul>
+                  {computer.projects.map((group) => (
+                    <li key={group.key}>
+                      <button
+                        type="button"
+                        onClick={() => onPick(group)}
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-hover"
+                      >
+                        <ProjectAvatar cwd={group.path} title={group.name} size={36} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[14.5px] font-medium">{group.name}</span>
+                          <span className="block truncate text-[12.5px] text-muted">{tildePath(group.path)}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))
+          )}
+        </div>
+        {online.length && offline.length ? (
+          <div className="shrink-0 border-t border-line px-5 py-3 text-[12.5px] leading-relaxed text-muted">
+            <span className="font-medium text-fg">
+              {offline.map((c) => c.name).join(", ")} · {t("offline")}
+            </span>
+            <span className="block">{t("new_session_offline_hint")}</span>
+          </div>
+        ) : null}
+      </div>
+    </dialog>
   );
 }
 
@@ -884,6 +1068,7 @@ export function SessionsPane({ activeId }: { activeId?: string }) {
   const devices = useQuery(api.devices.list);
   const actions = useSessionActions();
   const order = useOrderActions();
+  const router = useRouter();
   const computers = useMemo(() => (devices ?? []).filter((d) => d.kind === "computer"), [devices]);
   // A computer tab whose device was signed out falls back to All.
   const effectiveTab = typeof tab === "object" && devices && !computers.some((c) => c._id === tab.deviceId) ? "all" : tab;
@@ -900,6 +1085,7 @@ export function SessionsPane({ activeId }: { activeId?: string }) {
       now={now}
       actions={actions}
       order={order}
+      onNewSession={({ deviceId, path }) => router.push(newSessionHref(deviceId, path))}
       footer={<LanguageSelect />}
     />
   );

@@ -7,6 +7,7 @@ import type { MessageKey } from "@/lib/i18n";
 import { renderMarkdown } from "@/lib/markdown";
 import type { PendingPrompt, PromptCommand, TranscriptEvent } from "@/lib/types";
 import { useI18n } from "../I18nProvider";
+import type { BotCard } from "./BotCommands";
 import {
   AlertIcon,
   ArrowDownIcon,
@@ -28,15 +29,26 @@ const LOAD_MORE_PX = 600;
 /** Runs of tool calls longer than this collapse to a summary plus the latest call. */
 const TOOL_RUN_COLLAPSE = 3;
 
-type Side = "user" | "agent" | "system";
-type Item = { type: "event"; event: TranscriptEvent } | { type: "pending"; prompt: PendingPrompt };
+/** `bot`: this browser's own command answers (`/model`, `/think`), never stored on the relay. */
+type Side = "user" | "agent" | "system" | "bot";
+type Item =
+  | { type: "event"; event: TranscriptEvent }
+  | { type: "pending"; prompt: PendingPrompt }
+  | { type: "card"; card: BotCard };
 
 function itemTime(item: Item): number {
-  return item.type === "event" ? item.event.at : item.prompt.createdAt;
+  if (item.type === "event") return item.event.at;
+  return item.type === "pending" ? item.prompt.createdAt : item.card.createdAt;
+}
+
+function itemKey(item: Item): string {
+  if (item.type === "event") return item.event._id;
+  return item.type === "pending" ? item.prompt.key : item.card.id;
 }
 
 function itemSide(item: Item): Side {
   if (item.type === "pending") return "user";
+  if (item.type === "card") return "bot";
   switch (item.event.kind) {
     case "user":
       return "user";
@@ -91,6 +103,11 @@ export type TranscriptProps = {
    * requested): with no events yet, the transcript says it is loading from there, or that the computer is offline.
    */
   history?: { computer: string; online: boolean } | null;
+  /** Bot cards (`/model`, `/think`), placed by time among the rest, and how to draw one. */
+  cards?: BotCard[];
+  renderCard?: (card: BotCard) => ReactNode;
+  /** Shown in the middle while there is nothing at all (the new-session screen's "Starts in …"). */
+  emptyNotice?: ReactNode;
 };
 
 /** In place of an empty transcript whose history the relay doesn't have yet. */
@@ -124,6 +141,7 @@ function HistoryNotice({ computer, online }: { computer: string; online: boolean
  */
 export function Transcript(props: TranscriptProps) {
   const { events, pending, commands, canLoadMore, loadingMore, isDone, firstLoad, loadMore, now, history } = props;
+  const cards = props.cards;
   const awaitingHistory = history && events.length === 0 && !firstLoad ? history : null;
   const { t, lang } = useI18n();
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -136,8 +154,14 @@ export function Transcript(props: TranscriptProps) {
     const chrono: Item[] = [];
     for (let i = events.length - 1; i >= 0; i--) chrono.push({ type: "event", event: events[i] });
     for (const prompt of pending) chrono.push({ type: "pending", prompt });
+    // Each card goes after everything that is not newer, without reordering the transcript itself.
+    for (const card of cards ?? []) {
+      let at = chrono.length;
+      while (at > 0 && itemTime(chrono[at - 1]) > card.createdAt) at--;
+      chrono.splice(at, 0, { type: "card", card });
+    }
     return chrono;
-  }, [events, pending]);
+  }, [events, pending, cards]);
   const days = useMemo(() => buildDays(items), [items]);
   const commandsById = useMemo(() => new Map((commands ?? []).map((c) => [c._id as string, c])), [commands]);
 
@@ -166,7 +190,8 @@ export function Transcript(props: TranscriptProps) {
   };
 
   // While scrolled up, keep the reader's place when the newest item grows or a new one arrives at the bottom.
-  const bottomKey = `${events[0]?._id ?? ""}:${events[0]?.text.length ?? 0}:${events[0]?.status ?? ""}:${pending.length}`;
+  const cardsKey = (cards ?? []).map((c) => c.state).join(",");
+  const bottomKey = `${events[0]?._id ?? ""}:${events[0]?.text.length ?? 0}:${events[0]?.status ?? ""}:${pending.length}:${cardsKey}`;
   const lastHeight = useRef(0);
   const lastBottomKey = useRef(bottomKey);
   useLayoutEffect(() => {
@@ -181,6 +206,14 @@ export function Transcript(props: TranscriptProps) {
     lastHeight.current = height;
     lastBottomKey.current = bottomKey;
   });
+
+  // A command's answer is for the person who just typed it: bring it into view.
+  const cardCount = cards?.length ?? 0;
+  const lastCardCount = useRef(cardCount);
+  useEffect(() => {
+    if (cardCount > lastCardCount.current) scrollerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    lastCardCount.current = cardCount;
+  }, [cardCount]);
 
   const newCount = atBottom
     ? 0
@@ -222,11 +255,12 @@ export function Transcript(props: TranscriptProps) {
               <div className="flex flex-col gap-3">
                 {day.groups.map((group) => (
                   <GroupView
-                    key={group.items[0].type === "event" ? group.items[0].event._id : group.items[0].prompt.key}
+                    key={itemKey(group.items[0])}
                     group={group}
                     commandsById={commandsById}
                     onRetry={props.onRetry}
                     onDiscard={props.onDiscard}
+                    renderCard={props.renderCard}
                   />
                 ))}
               </div>
@@ -234,6 +268,9 @@ export function Transcript(props: TranscriptProps) {
           ))}
         </div>
       </div>
+      {props.emptyNotice && items.length === 0 ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">{props.emptyNotice}</div>
+      ) : null}
       {awaitingHistory ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
           <HistoryNotice computer={awaitingHistory.computer} online={awaitingHistory.online} />
@@ -264,12 +301,28 @@ function GroupView({
   commandsById,
   onRetry,
   onDiscard,
+  renderCard,
 }: {
   group: Group;
   commandsById: Map<string, PromptCommand>;
   onRetry: (p: PendingPrompt) => void;
   onDiscard: (p: PendingPrompt) => void;
+  renderCard?: (card: BotCard) => ReactNode;
 }) {
+  if (group.side === "bot") {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        {group.items.map((item) =>
+          item.type === "card" ? (
+            <div key={item.card.id} className="flex w-full flex-col items-start">
+              {renderCard?.(item.card)}
+            </div>
+          ) : null,
+        )}
+        <TimeStamp at={itemTime(group.items[group.items.length - 1])} />
+      </div>
+    );
+  }
   if (group.side === "system") {
     return (
       <div className="flex flex-col items-center gap-1.5">
@@ -285,9 +338,9 @@ function GroupView({
         {group.items.map((item) =>
           item.type === "event" ? (
             <UserBubble key={item.event._id} event={item.event} command={commandsById.get(item.event.commandId ?? "")} />
-          ) : (
+          ) : item.type === "pending" ? (
             <PendingBubble key={item.prompt.key} prompt={item.prompt} onRetry={onRetry} onDiscard={onDiscard} />
-          ),
+          ) : null,
         )}
       </div>
     );
@@ -528,9 +581,9 @@ function UserBubble({ event, command }: { event: TranscriptEvent; command?: Prom
       {remote && label && label !== "Web" ? (
         <span className="mb-0.5 px-2 text-[11px] text-faint">{t("from_label", { label })}</span>
       ) : null}
-      <div className="rounded-2xl rounded-tr-md bg-bubble-user px-3.5 py-2 text-[15px] leading-relaxed text-fg">
+      <div className="rounded-2xl rounded-tr-md bg-bubble-user px-3.5 py-2 text-[15px] leading-relaxed text-bubble-user-fg">
         <span className="whitespace-pre-wrap break-words">{event.text}</span>
-        <span className="float-right ml-3 mt-1.5 flex translate-y-0.5 items-center gap-1 text-[11px] text-accent-text/80 tabular-nums">
+        <span className="float-right ml-3 mt-1.5 flex translate-y-0.5 items-center gap-1 text-[11px] text-bubble-user-meta tabular-nums">
           {formatClock(event.at, lang)}
           {tick ? <Ticks tick={tick} /> : null}
         </span>
@@ -555,12 +608,12 @@ function PendingBubble({
       <div className="flex items-center gap-2">
         {failed ? <AlertIcon size={20} className="shrink-0 text-danger" aria-label={t("tick_failed")} /> : null}
         <div
-          className={`rounded-2xl rounded-tr-md bg-bubble-user px-3.5 py-2 text-[15px] leading-relaxed text-fg ${
+          className={`rounded-2xl rounded-tr-md bg-bubble-user px-3.5 py-2 text-[15px] leading-relaxed text-bubble-user-fg ${
             failed ? "opacity-80" : ""
           }`}
         >
           <span className="whitespace-pre-wrap break-words">{prompt.text}</span>
-          <span className="float-right ml-3 mt-1.5 flex translate-y-0.5 items-center gap-1 text-[11px] text-accent-text/80 tabular-nums">
+          <span className="float-right ml-3 mt-1.5 flex translate-y-0.5 items-center gap-1 text-[11px] text-bubble-user-meta tabular-nums">
             {formatClock(prompt.createdAt, lang)}
             <Ticks tick={prompt.tick} />
           </span>

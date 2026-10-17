@@ -4,7 +4,8 @@ import { isLang } from "@/lib/i18n";
 
 /**
  * Dev-only (`*.dev.tsx` is a page extension only under `next dev`, see next.config.ts): the signed-in screens with
- * fake data, for screenshots. `?theme=dark|light` forces the scheme, `?lang=` the language.
+ * fake data, for screenshots. `?theme=dark|light` forces the scheme, `?lang=` the language, `?device=&path=` the
+ * new-session screen's project.
  */
 export default async function PreviewPage({
   params,
@@ -18,6 +19,8 @@ export default async function PreviewPage({
   const query = await searchParams;
   const theme = query.theme === "dark" || query.theme === "light" ? query.theme : null;
   const lang = isLang(query.lang) ? query.lang : null;
+  const device = typeof query.device === "string" ? query.device : null;
+  const path = typeof query.path === "string" ? query.path : null;
   return (
     <>
       {theme ? (
@@ -26,7 +29,11 @@ export default async function PreviewPage({
           dangerouslySetInnerHTML={{ __html: `document.documentElement.dataset.theme=${JSON.stringify(theme)};` }}
         />
       ) : null}
-      <Preview screen={screen?.join("/") ?? "index"} lang={lang} />
+      <Preview
+        screen={screen?.join("/") ?? "index"}
+        lang={lang}
+        target={device && path ? { deviceId: device, path } : undefined}
+      />
     </>
   );
 }

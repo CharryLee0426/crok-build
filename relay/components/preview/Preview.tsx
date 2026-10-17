@@ -5,6 +5,7 @@
  * for screenshots in light and dark (`?theme=dark`) and any language (`?lang=ja`). Not part of production builds.
  */
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { AppHeader } from "@/components/chrome";
@@ -16,6 +17,9 @@ import { LinkApprovalView, LinkEntry } from "@/components/LinkDevice";
 import type { LinkOutcome } from "@/components/LinkDevice";
 import { SessionsPaneView } from "@/components/SessionList";
 import type { OrderActions, SessionActions, Tab } from "@/components/SessionList";
+import { useBotCards } from "@/components/session/BotCommands";
+import type { BotCard } from "@/components/session/BotCommands";
+import { NewSessionView } from "@/components/session/NewSession";
 import { SessionView } from "@/components/session/SessionView";
 import type { InfoState, SessionModel } from "@/components/session/SessionView";
 import { LanguageSelect } from "@/components/chrome";
@@ -28,9 +32,19 @@ import {
   patchSession,
   removeSession,
 } from "@/lib/order";
-import type { PendingLogin, ProjectGroup, SessionDetail, SessionRow, TranscriptEvent } from "@/lib/types";
+import type {
+  CommandId,
+  PendingLogin,
+  PendingPrompt,
+  ProjectGroup,
+  PromptCommand,
+  SessionDetail,
+  SessionRow,
+  TranscriptEvent,
+} from "@/lib/types";
 import {
   fakeArchived,
+  fakeCards,
   fakeCatalogSession,
   fakeCommands,
   fakeComputers,
@@ -40,6 +54,9 @@ import {
   fakeLogin,
   fakePending,
   fakeSession,
+  fakeStartingCommands,
+  fakeStartingSession,
+  FAKE_SLASH_COMMANDS,
 } from "./fixtures";
 
 export const SCREENS = [
@@ -53,6 +70,15 @@ export const SCREENS = [
   "session-permission",
   "session-catalog",
   "session-catalog-offline",
+  "session-commands",
+  "session-commands-filter",
+  "session-cards",
+  "session-starting",
+  "new-session",
+  "new-session-sent",
+  "new-session-failed",
+  "new-session-offline",
+  "new-session-picker",
   "link",
   "link-request",
   "link-approved",
@@ -79,7 +105,8 @@ function Header() {
 }
 
 /** The list with fake data that still moves: pin, archive and reorder apply locally, with the relay's rules. */
-function Pane({ empty = false, activeId }: { empty?: boolean; activeId?: string }) {
+function Pane({ empty = false, activeId, pickerOpen }: { empty?: boolean; activeId?: string; pickerOpen?: boolean }) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [now] = useState(() => Date.now());
@@ -117,23 +144,75 @@ function Pane({ empty = false, activeId }: { empty?: boolean; activeId?: string 
       now={now}
       actions={actions}
       order={order}
+      onNewSession={({ deviceId, path }) =>
+        router.push(`/preview/new-session?device=${encodeURIComponent(deviceId)}&path=${encodeURIComponent(path)}`)
+      }
+      initialPickerOpen={pickerOpen}
       footer={<LanguageSelect />}
     />
   );
 }
 
-function sessionModel(
-  session: SessionDetail,
-  info: InfoState = { state: "idle", result: null },
-  events?: TranscriptEvent[],
-): SessionModel {
-  const now = Date.now();
-  return {
+/**
+ * A session screen on fixtures. The composer's commands work: `/model` and `/think` cards apply after a short fake
+ * delay (and the session follows), `/new` opens the new-session preview, `/info` the panel.
+ */
+function SessionScreenPreview({
+  session: initialSession,
+  infoOpen,
+  info = { state: "idle", result: null },
+  events,
+  commands,
+  pending,
+  cards: initialCards,
+  draft,
+}: {
+  session: SessionDetail;
+  infoOpen?: boolean;
+  info?: InfoState;
+  events?: TranscriptEvent[];
+  commands?: PromptCommand[];
+  pending?: PendingPrompt[];
+  cards?: BotCard[];
+  draft?: string;
+}) {
+  const router = useRouter();
+  const [now] = useState(() => Date.now());
+  const [session, setSession] = useState(initialSession);
+  const cards = useBotCards({
+    session,
+    apply: async () => `cmd_fake_${Date.now()}` as CommandId,
+    errorText: () => "",
+    initial: initialCards,
+  });
+  // The fake computer applies each change after a moment.
+  useEffect(() => {
+    const timers = cards.cards
+      .filter((card) => card.state === "applying" && card.commandId)
+      .map((card) =>
+        window.setTimeout(() => {
+          cards.settle(card.id, "done");
+          const value = card.value ?? null;
+          setSession((s) => {
+            if (card.kind === "model") return { ...s, model: value, effort: null };
+            const effort = s.models?.find((m) => m.id === s.model)?.efforts.find((e) => e.id === value);
+            return { ...s, effort: effort?.value ?? value };
+          });
+        }, 1400),
+      );
+    return () => timers.forEach((id) => window.clearTimeout(id));
+    // Re-armed whenever a card changes state; settled cards drop out.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards.cards]);
+
+  const model: SessionModel = {
     session,
     events: events ?? fakeEvents(now),
     pagination: { canLoadMore: false, loadingMore: false, isDone: true, firstLoad: false, loadMore: noop },
-    commands: events ? [] : fakeCommands(now),
-    pending: session.online && !events ? fakePending(now) : [],
+    commands: commands ?? (events ? [] : fakeCommands(now)),
+    pending: pending ?? (session.online && !events ? fakePending(now) : []),
+    slashCommands: FAKE_SLASH_COMMANDS,
+    cards: cards.cards,
     info,
     stopping: false,
     answering: null,
@@ -147,24 +226,62 @@ function sessionModel(
       requestInfo: noop,
       setPinned: noop,
       setArchived: noop,
+      newSession: () =>
+        router.push(
+          `/preview/new-session?device=${encodeURIComponent(session.deviceId)}&path=${encodeURIComponent(session.projectPath)}`,
+        ),
+      openCard: cards.open,
+      chooseInCard: cards.choose,
     },
   };
-}
-
-function SessionScreenPreview({
-  session,
-  infoOpen,
-  info,
-  events,
-}: {
-  session: SessionDetail;
-  infoOpen?: boolean;
-  info?: InfoState;
-  events?: TranscriptEvent[];
-}) {
   return (
     <ChatLayout header={<Header />} pane={<Pane activeId={session._id} />} inSession gate={false}>
-      <SessionView model={sessionModel(session, info, events)} initialInfoOpen={infoOpen} />
+      <SessionView model={model} initialInfoOpen={infoOpen} initialDraft={draft} />
+    </ChatLayout>
+  );
+}
+
+/** The new-session screen on fixtures: sending shows the prompt, then (after a moment) the starting session. */
+function NewSessionPreview({
+  target,
+  state = "empty",
+}: {
+  target?: { deviceId: string; path: string };
+  state?: "empty" | "sent" | "failed";
+}) {
+  const router = useRouter();
+  const [now] = useState(() => Date.now());
+  const groups = fakeGroups(now);
+  const group = (target && groups.find((g) => g.deviceId === target.deviceId && g.path === target.path)) ?? groups[0];
+  const text = "Add a /health endpoint that also checks the database connection, with a test.";
+  const [prompt, setPrompt] = useState<PendingPrompt | null>(() =>
+    state === "empty"
+      ? null
+      : {
+          key: "c_new",
+          text,
+          createdAt: now,
+          tick: state === "failed" ? "failed" : "sending",
+          error: state === "failed" ? "No crok on MacBook Pro can start sessions right now. Start crok or Crok Desktop there." : null,
+          clientId: "c_new",
+        },
+  );
+  return (
+    <ChatLayout header={<Header />} pane={<Pane />} inSession gate={false}>
+      <NewSessionView
+        deviceId={group.deviceId}
+        path={group.path}
+        computer={group.deviceName}
+        online={group.deviceOnline}
+        prompt={prompt}
+        now={now}
+        onSend={(value) => {
+          setPrompt({ key: "c_new", text: value, createdAt: Date.now(), tick: "sending", clientId: "c_new" });
+          window.setTimeout(() => router.replace("/preview/session-starting"), 1500);
+        }}
+        onRetry={(p) => setPrompt({ ...p, tick: "sending", error: null })}
+        onDiscard={() => setPrompt(null)}
+      />
     </ChatLayout>
   );
 }
@@ -186,7 +303,7 @@ function LinkPreview({ login, outcome, app = false }: { login: PendingLogin | nu
   );
 }
 
-function Screen({ name }: { name: string }) {
+function Screen({ name, target }: { name: string; target?: { deviceId: string; path: string } }) {
   const now = Date.now();
   switch (name) {
     case "landing":
@@ -250,6 +367,49 @@ function Screen({ name }: { name: string }) {
       return <SessionScreenPreview session={fakeCatalogSession(now, true)} events={[]} />;
     case "session-catalog-offline":
       return <SessionScreenPreview session={fakeCatalogSession(now, false)} events={[]} />;
+    case "session-commands":
+      return <SessionScreenPreview session={fakeSession(now)} draft="/" />;
+    case "session-commands-filter":
+      return <SessionScreenPreview session={fakeSession(now)} draft="/re" />;
+    case "session-cards":
+      return (
+        <SessionScreenPreview
+          session={fakeSession(now, { model: "grok-4", effort: "high", status: "idle", plan: [] })}
+          pending={[]}
+          commands={[]}
+          cards={fakeCards(now)}
+        />
+      );
+    case "session-starting":
+      return (
+        <SessionScreenPreview
+          session={fakeStartingSession(now)}
+          events={[]}
+          commands={fakeStartingCommands(now)}
+          pending={fakeStartingCommands(now).map((c) => ({
+            key: c.clientId ?? c._id,
+            text: c.text,
+            createdAt: c.createdAt,
+            tick: "delivered" as const,
+            commandId: c._id,
+            clientId: c.clientId,
+          }))}
+        />
+      );
+    case "new-session":
+      return <NewSessionPreview target={target} />;
+    case "new-session-sent":
+      return <NewSessionPreview target={target} state="sent" />;
+    case "new-session-failed":
+      return <NewSessionPreview target={target} state="failed" />;
+    case "new-session-offline":
+      return <NewSessionPreview target={{ deviceId: "dev_box", path: "/home/me/billing-service" }} />;
+    case "new-session-picker":
+      return (
+        <ChatLayout header={<Header />} pane={<Pane pickerOpen />} inSession={false} gate={false}>
+          <ChooseSession />
+        </ChatLayout>
+      );
     case "link":
       return (
         <PageFrame header={<Header />} gate={false}>
@@ -306,12 +466,23 @@ function Index() {
   );
 }
 
-/** Renders after mount only: fixtures use the current time, which would differ between server and client. */
-export function Preview({ screen, lang }: { screen: string; lang: Lang | null }) {
+/**
+ * Renders after mount only: fixtures use the current time, which would differ between server and client. `target` is
+ * the new-session preview's project (`?device=…&path=…`, as the list's "+" passes it).
+ */
+export function Preview({
+  screen,
+  lang,
+  target,
+}: {
+  screen: string;
+  lang: Lang | null;
+  target?: { deviceId: string; path: string };
+}) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
-  const content: ReactNode = <Screen name={screen} />;
+  const content: ReactNode = <Screen key={screen} name={screen} target={target} />;
   if (!lang) return content;
   return (
     <I18nProvider initialLang={lang} initialChoice={lang} fixed>

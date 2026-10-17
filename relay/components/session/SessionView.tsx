@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { readStorage, writeStorage } from "@/lib/browser";
 import {
@@ -14,15 +14,24 @@ import {
   tildePath,
 } from "@/lib/format";
 import type { MessageKey } from "@/lib/i18n";
-import type { PendingPrompt, PromptCommand, SessionDetail, SessionInfoResult, TranscriptEvent } from "@/lib/types";
+import type {
+  PendingPrompt,
+  PromptCommand,
+  SessionDetail,
+  SessionInfoResult,
+  SlashCommand,
+  TranscriptEvent,
+} from "@/lib/types";
 import { useI18n } from "../I18nProvider";
 import {
   ArchiveIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
+  ChevronRightIcon,
   CopyIcon,
   InfoIcon,
+  MenuIcon,
   PinIcon,
   SendIcon,
   SpinnerIcon,
@@ -33,6 +42,16 @@ import {
 } from "../icons";
 import { WorkingDots } from "../SessionList";
 import { IconButton, ProjectAvatar } from "../ui";
+import {
+  BotCardView,
+  cardChoices,
+  choiceName,
+  CommandPanel,
+  composerCommands,
+  currentValue,
+  parseSlash,
+} from "./BotCommands";
+import type { BotCard, ComposerCommand, ConfigKind, LocalCommand } from "./BotCommands";
 import { Transcript } from "./Transcript";
 
 export type InfoState = {
@@ -47,6 +66,10 @@ export type SessionModel = {
   pagination: { canLoadMore: boolean; loadingMore: boolean; isDone: boolean; firstLoad: boolean; loadMore: () => void };
   commands: PromptCommand[] | undefined;
   pending: PendingPrompt[];
+  /** The agent's slash commands (`sessions:commands`), after the device's own in the composer's list. */
+  slashCommands: SlashCommand[] | undefined;
+  /** This browser's `/model` and `/think` answers. */
+  cards: BotCard[];
   info: InfoState;
   stopping: boolean;
   /** The pending request this viewer just answered, until the computer takes the answer. */
@@ -62,13 +85,29 @@ export type SessionModel = {
     requestInfo: () => void;
     setPinned: (pinned: boolean) => void;
     setArchived: (archived: boolean) => void;
+    /** `/new [prompt]`: a session in this one's project (with a prompt it starts at once). */
+    newSession: (text?: string) => void;
+    /** `/model` or `/think`, with or without an argument: a bot card. */
+    openCard: (kind: ConfigKind, arg?: string) => void;
+    /** A tap on a bot card's button. */
+    chooseInCard: (cardId: string, value: string) => void;
   };
 };
 
 const APP_KEYS: Record<string, MessageKey> = { tui: "app_tui", desktop: "app_desktop", cli: "app_cli" };
 
-export function SessionView({ model, initialInfoOpen = false }: { model: SessionModel; initialInfoOpen?: boolean }) {
+export function SessionView({
+  model,
+  initialInfoOpen = false,
+  initialDraft,
+}: {
+  model: SessionModel;
+  initialInfoOpen?: boolean;
+  /** The dev preview's composer text (the command list opens for `/`). */
+  initialDraft?: string;
+}) {
   const { session, actions } = model;
+  const { t } = useI18n();
   const [infoOpen, setInfoOpen] = useState(initialInfoOpen);
 
   const openInfo = () => {
@@ -76,10 +115,52 @@ export function SessionView({ model, initialInfoOpen = false }: { model: Session
     actions.requestInfo();
   };
 
+  const commands = useMemo(() => composerCommands(t, session, model.slashCommands), [t, session, model.slashCommands]);
+
+  /** The device's own commands run here; any other text, `/compact` or `/whatever` too, goes to the computer. */
+  const submit = (text: string) => {
+    const slash = parseSlash(text);
+    const local = slash && commands.find((c) => c.local && c.name === slash.name);
+    if (!slash || !local) {
+      actions.send(text);
+      return;
+    }
+    const arg = slash.arg || undefined;
+    switch (local.name as LocalCommand) {
+      case "new":
+        actions.newSession(arg);
+        break;
+      case "model":
+        actions.openCard("model", arg);
+        break;
+      case "think":
+        actions.openCard("reasoning_effort", arg);
+        break;
+      case "stop":
+        actions.stop();
+        break;
+      case "info":
+        openInfo();
+        break;
+    }
+  };
+
+  /** From the header or the info panel: the same card `/model` and `/think` give. */
+  const pickConfig = (kind: ConfigKind) => {
+    if (typeof window !== "undefined" && !window.matchMedia("(min-width: 1024px)").matches) setInfoOpen(false);
+    actions.openCard(kind);
+  };
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1">
       <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
-        <SessionHeader session={session} now={model.now} onInfo={() => (infoOpen ? setInfoOpen(false) : openInfo())} infoOpen={infoOpen} />
+        <SessionHeader
+          session={session}
+          now={model.now}
+          onInfo={() => (infoOpen ? setInfoOpen(false) : openInfo())}
+          infoOpen={infoOpen}
+          onPickModel={session.starting ? undefined : () => pickConfig("model")}
+        />
         <PlanBar plan={session.plan} />
         <Transcript
           events={model.events}
@@ -98,6 +179,10 @@ export function SessionView({ model, initialInfoOpen = false }: { model: Session
               ? { computer: session.deviceName, online: session.deviceOnline }
               : null
           }
+          cards={model.cards}
+          renderCard={(card) => (
+            <BotCardView card={card} session={session} onChoose={(value) => actions.chooseInCard(card.id, value)} />
+          )}
         />
         {session.pending && session.online ? (
           <PermissionCard
@@ -109,13 +194,15 @@ export function SessionView({ model, initialInfoOpen = false }: { model: Session
         ) : null}
         <Composer
           key={session._id}
-          sessionKey={session._id}
+          draftKey={`crok-draft:${session._id}`}
+          initialText={initialDraft}
           online={session.deviceOnline}
           running={session.status === "running"}
           waiting={session.status === "waiting" && !session.pending}
           computer={session.deviceName}
           stopping={model.stopping}
-          onSend={actions.send}
+          commands={commands}
+          onSend={submit}
           onStop={actions.stop}
         />
       </section>
@@ -126,6 +213,7 @@ export function SessionView({ model, initialInfoOpen = false }: { model: Session
           onClose={() => setInfoOpen(false)}
           onPin={() => actions.setPinned(!session.pinned)}
           onArchive={() => actions.setArchived(!session.archived)}
+          onPickConfig={session.starting ? undefined : pickConfig}
         />
       ) : null}
     </div>
@@ -137,17 +225,27 @@ function SessionHeader({
   now,
   onInfo,
   infoOpen,
+  onPickModel,
 }: {
   session: SessionDetail;
   now: number;
   onInfo: () => void;
   infoOpen: boolean;
+  /** Opens the model card; unset while the session has not opened on its computer. */
+  onPickModel?: () => void;
 }) {
   const { t, lang } = useI18n();
   let status: ReactNode;
   // A session nobody runs is still reachable while its computer is online: a prompt opens it there.
   if (!session.deviceOnline) {
     status = <span className="text-faint">{t("status_offline", { time: formatRelative(session.lastActivityAt, lang, now) })}</span>;
+  } else if (session.starting && session.status !== "error") {
+    status = (
+      <span className="text-accent-text">
+        {t("status_starting")}
+        <WorkingDots />
+      </span>
+    );
   } else if (!session.online) {
     status = <span className="text-accent-text">{t("status_online")}</span>;
   } else if (session.status === "running") {
@@ -187,6 +285,7 @@ function SessionHeader({
           </span>
         </span>
       </button>
+      {onPickModel && session.model ? <ModelChip session={session} onClick={onPickModel} /> : null}
       <IconButton
         label={t("session_info")}
         onClick={onInfo}
@@ -196,6 +295,25 @@ function SessionHeader({
         <InfoIcon size={20} />
       </IconButton>
     </header>
+  );
+}
+
+/** The model and thinking level in use, on wide screens; a click opens the model card (phones: the info panel). */
+function ModelChip({ session, onClick }: { session: SessionDetail; onClick: () => void }) {
+  const { t } = useI18n();
+  const model = choiceName(t, session, "model", currentValue(session, "model"));
+  const effort = choiceName(t, session, "reasoning_effort", currentValue(session, "reasoning_effort"));
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={t("change_model")}
+      className="hidden h-8 max-w-[16rem] shrink items-center gap-1 rounded-full border border-line px-3 text-[12.5px] text-muted transition-colors hover:border-accent hover:text-accent-text md:flex"
+    >
+      <span className="truncate font-medium text-fg">{model}</span>
+      {effort ? <span className="shrink-0">· {effort}</span> : null}
+      <ChevronDownIcon size={14} className="shrink-0" />
+    </button>
   );
 }
 
@@ -318,40 +436,69 @@ export function PermissionCard({
   );
 }
 
-/** Enter sends, Shift+Enter breaks the line (on touch screens Enter breaks the line and the button sends). */
-function Composer({
-  sessionKey,
+/**
+ * Enter sends, Shift+Enter breaks the line (on touch screens Enter breaks the line and the button sends). With
+ * `commands`, a Menu button leads the field (Telegram's bot menu: "☰ Menu" while empty, the icon alone once typing) and
+ * the command list opens above it, from that button or from `/` typed first; ↑/↓ move, Enter or a click picks (a
+ * command that takes arguments fills `/name `, the others are sent), Tab completes, Esc closes.
+ */
+export function Composer({
+  draftKey,
+  initialText,
   online,
   running,
-  waiting,
+  waiting = false,
   computer,
-  stopping,
+  stopping = false,
+  commands,
+  placeholder,
+  offlineText,
+  autoFocus = false,
   onSend,
   onStop,
 }: {
-  sessionKey: string;
+  /** localStorage key of the unsent text. */
+  draftKey: string;
+  /** Fixed starting text instead of the stored draft (the dev preview). */
+  initialText?: string;
   online: boolean;
   running: boolean;
-  waiting: boolean;
+  waiting?: boolean;
   computer: string;
-  stopping: boolean;
+  stopping?: boolean;
+  commands?: ComposerCommand[];
+  placeholder?: string;
+  offlineText?: string;
+  /** Focus the field on open (the new-session screen, like a new chat). */
+  autoFocus?: boolean;
   onSend: (text: string) => void;
-  onStop: () => void;
+  onStop?: () => void;
 }) {
   const { t } = useI18n();
-  const draftKey = `crok-draft:${sessionKey}`;
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText ?? "");
   const ref = useRef<HTMLTextAreaElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const coarse = useCoarsePointer();
+  const listId = useId();
+  const [menuOpen, setMenuOpen] = useState(false);
+  /** The text at which the list was dismissed (Esc, a click elsewhere): it stays shut until the text changes. */
+  const [dismissedAt, setDismissedAt] = useState<string | null>(null);
+  const [active, setActive] = useState(0);
+  const remember = initialText === undefined;
 
   useEffect(() => {
-    setText(readStorage(draftKey) ?? "");
-  }, [draftKey]);
+    if (!remember) return;
+    const draft = readStorage(draftKey) ?? "";
+    setText(draft);
+    // A restored `/…` draft doesn't pop the list open; typing does.
+    setDismissedAt(draft.startsWith("/") ? draft : null);
+  }, [draftKey, remember]);
 
   useEffect(() => {
+    if (!remember) return;
     const id = window.setTimeout(() => writeStorage(draftKey, text ? text : null), 300);
     return () => window.clearTimeout(id);
-  }, [draftKey, text]);
+  }, [draftKey, text, remember]);
 
   useEffect(() => {
     const el = ref.current;
@@ -360,28 +507,72 @@ function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   }, [text]);
 
+  // `/` first and no space yet: the list filters by what follows. The Menu button shows it whatever the text.
+  const typed = commands && text.startsWith("/") && !/\s/.test(text) ? text.slice(1).toLowerCase() : null;
+  const shown = useMemo(
+    () => (!commands ? [] : typed === null ? commands : commands.filter((c) => c.name.toLowerCase().startsWith(typed))),
+    [commands, typed],
+  );
+  const listOpen = shown.length > 0 && (menuOpen || (typed !== null && dismissedAt !== text));
+  const highlighted = Math.min(active, Math.max(0, shown.length - 1));
+
+  useEffect(() => {
+    setActive(0);
+  }, [typed, menuOpen]);
+
+  useEffect(() => {
+    if (!listOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current?.contains(e.target as Node)) return;
+      setMenuOpen(false);
+      setDismissedAt(text);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [listOpen, text]);
+
   if (!online) {
     return (
       <div className="shrink-0 border-t border-line bg-surface px-4 py-3">
         <p className="mx-auto max-w-3xl text-center text-[13px] leading-relaxed text-muted">
-          {t("composer_offline", { computer })}
+          {offlineText ?? t("composer_offline", { computer })}
         </p>
       </div>
     );
   }
 
+  const clear = () => {
+    setText("");
+    if (remember) writeStorage(draftKey, null);
+  };
+
   const submit = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
     onSend(trimmed);
-    setText("");
-    writeStorage(draftKey, null);
+    clear();
+    setMenuOpen(false);
     ref.current?.focus();
+  };
+
+  const pick = (command: ComposerCommand) => {
+    setMenuOpen(false);
+    ref.current?.focus();
+    if (command.takesArgs) {
+      setText(`/${command.name} `);
+      return;
+    }
+    onSend(`/${command.name}`);
+    // Typed `/st…`: the command replaces it. Picked from the menu over other text: that text stays.
+    if (typed !== null) clear();
   };
 
   return (
     <div className="shrink-0 border-t border-line bg-surface px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 sm:px-4">
-      <div className="mx-auto max-w-3xl">
+      <div ref={rootRef} className="relative mx-auto max-w-3xl">
+        {listOpen ? (
+          <CommandPanel id={listId} commands={shown} active={highlighted} onHover={setActive} onPick={pick} />
+        ) : null}
         {waiting ? (
           <div className="mb-2 flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[13px] text-warning">
             <WarningIcon size={16} className="mt-px shrink-0" />
@@ -395,22 +586,87 @@ function Composer({
           }}
           className="flex items-end gap-2"
         >
-          <textarea
-            ref={ref}
-            value={text}
-            rows={1}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" || e.shiftKey || e.altKey || coarse) return;
-              if (e.nativeEvent.isComposing || e.keyCode === 229) return; // IME candidate confirmation
-              e.preventDefault();
-              submit();
-            }}
-            placeholder={running ? t("composer_placeholder_running") : t("composer_placeholder")}
-            aria-label={t("composer_label")}
-            className="scroll-quiet max-h-[220px] min-h-11 flex-1 resize-none rounded-[22px] border border-line bg-canvas px-4 py-2.5 text-[15px] leading-6 text-fg placeholder:text-faint focus:border-accent focus:outline-none"
-          />
-          {running ? (
+          <div className="flex min-h-11 min-w-0 flex-1 items-end rounded-[22px] border border-line bg-canvas transition-colors focus-within:border-accent">
+            {commands ? (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (listOpen && menuOpen) setMenuOpen(false);
+                  else {
+                    setMenuOpen(true);
+                    setDismissedAt(null);
+                  }
+                  ref.current?.focus();
+                }}
+                aria-label={t("menu")}
+                title={t("commands_label")}
+                aria-haspopup="listbox"
+                aria-expanded={listOpen}
+                aria-controls={listOpen ? listId : undefined}
+                className={`mb-[5px] ml-[5px] flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-accent text-[14px] font-medium text-accent-fg transition-[background-color,width,padding] hover:bg-accent-hover ${
+                  text ? "w-8 px-0" : "pl-2.5 pr-3.5"
+                }`}
+              >
+                <MenuIcon size={17} />
+                {text ? null : <span>{t("menu")}</span>}
+              </button>
+            ) : null}
+            <textarea
+              ref={ref}
+              value={text}
+              rows={1}
+              autoFocus={autoFocus}
+              onChange={(e) => {
+                setText(e.target.value);
+                if (dismissedAt !== null && e.target.value !== dismissedAt) setDismissedAt(null);
+              }}
+              onKeyDown={(e) => {
+                const composing = e.nativeEvent.isComposing || e.keyCode === 229; // IME candidate confirmation
+                if (listOpen && !composing) {
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const step = e.key === "ArrowDown" ? 1 : -1;
+                    setActive((highlighted + step + shown.length) % shown.length);
+                    return;
+                  }
+                  if (e.key === "Tab" && !e.shiftKey) {
+                    e.preventDefault();
+                    setText(`/${shown[highlighted].name} `);
+                    setMenuOpen(false);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    // Closes the list only, not the info panel behind it.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    setDismissedAt(text);
+                    return;
+                  }
+                  if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
+                    e.preventDefault();
+                    pick(shown[highlighted]);
+                    return;
+                  }
+                }
+                if (e.key !== "Enter" || e.shiftKey || e.altKey || coarse || composing) return;
+                e.preventDefault();
+                submit();
+              }}
+              placeholder={placeholder ?? (running ? t("composer_placeholder_running") : t("composer_placeholder"))}
+              aria-label={t("composer_label")}
+              role={commands ? "combobox" : undefined}
+              aria-autocomplete={commands ? "list" : undefined}
+              aria-expanded={commands ? listOpen : undefined}
+              aria-controls={listOpen ? listId : undefined}
+              aria-activedescendant={listOpen ? `${listId}-${highlighted}` : undefined}
+              className={`scroll-quiet max-h-[220px] min-h-11 min-w-0 flex-1 resize-none bg-transparent py-2.5 pr-4 text-[15px] leading-6 text-fg placeholder:text-faint focus:outline-none ${
+                commands ? "pl-2.5" : "pl-4"
+              }`}
+            />
+          </div>
+          {running && onStop ? (
             <button
               type="button"
               onClick={onStop}
@@ -440,12 +696,37 @@ function Composer({
   );
 }
 
-function InfoRow({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
+function InfoRow({
+  label,
+  children,
+  mono,
+  onClick,
+  actionLabel,
+}: {
+  label: string;
+  children: ReactNode;
+  mono?: boolean;
+  /** Makes the value a button (the model and thinking level open their picker card). */
+  onClick?: () => void;
+  actionLabel?: string;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-4 py-2">
       <dt className="shrink-0 text-[13px] text-muted">{label}</dt>
       <dd className={`min-w-0 text-right text-[13.5px] text-fg ${mono ? "break-all font-mono text-[12.5px]" : "break-words"}`}>
-        {children}
+        {onClick ? (
+          <button
+            type="button"
+            onClick={onClick}
+            title={actionLabel}
+            className="-mr-1 rounded-md text-right font-medium text-accent-text hover:underline"
+          >
+            {children}
+            <ChevronRightIcon size={14} className="ml-0.5 inline-block align-[-2px]" />
+          </button>
+        ) : (
+          children
+        )}
       </dd>
     </div>
   );
@@ -480,12 +761,15 @@ export function InfoPanel({
   onClose,
   onPin,
   onArchive,
+  onPickConfig,
 }: {
   session: SessionDetail;
   info: InfoState;
   onClose: () => void;
   onPin: () => void;
   onArchive: () => void;
+  /** The model and thinking level open their picker card; unset before the session opened on its computer. */
+  onPickConfig?: (kind: ConfigKind) => void;
 }) {
   const { t, lang } = useI18n();
   // Fresh numbers, or (a session nobody runs) the ones the relay kept.
@@ -498,8 +782,13 @@ export function InfoPanel({
   const used = r?.context?.used ?? session.usage?.contextTokens;
   const window_ = r?.context?.window ?? session.usage?.contextWindow;
   const ratio = used !== undefined && window_ ? Math.min(1, used / window_) : null;
-  const effortKey = effort ? (`effort_${effort}` as MessageKey) : null;
-  const effortLabel = effortKey && effortKey in EFFORT_KEYS ? t(effortKey) : effort;
+  // The computer's own names when it shared its models (the session names them by id).
+  const named = { ...session, model, effort };
+  const modelLabel = choiceName(t, named, "model", currentValue(named, "model"));
+  const effortLabel = choiceName(t, named, "reasoning_effort", currentValue(named, "reasoning_effort"));
+  // Offered when the model has levels to pick from (or the computer hasn't said which it has).
+  const efforts = session.models ? cardChoices(named, "reasoning_effort") : null;
+  const canPickEffort = Boolean(onPickConfig) && session.deviceOnline && (efforts === null || efforts.length > 0);
   const appKey = APP_KEYS[session.app];
   const createdAt = r?.createdAt ?? session.createdAt;
 
@@ -546,8 +835,22 @@ export function InfoPanel({
         </div>
 
         <dl className="mx-4 divide-y divide-line rounded-xl border border-line px-3">
-          <InfoRow label={t("info_model")}>{model ?? "—"}</InfoRow>
-          {effortLabel ? <InfoRow label={t("info_effort")}>{effortLabel}</InfoRow> : null}
+          <InfoRow
+            label={t("info_model")}
+            onClick={onPickConfig && session.deviceOnline ? () => onPickConfig("model") : undefined}
+            actionLabel={t("change_model")}
+          >
+            {modelLabel ?? "—"}
+          </InfoRow>
+          {effortLabel || canPickEffort ? (
+            <InfoRow
+              label={t("info_effort")}
+              onClick={canPickEffort ? () => onPickConfig?.("reasoning_effort") : undefined}
+              actionLabel={t("change_effort")}
+            >
+              {effortLabel ?? "—"}
+            </InfoRow>
+          ) : null}
           <InfoRow label={t("info_folder")} mono>
             {tildePath(cwd)}
           </InfoRow>
@@ -640,14 +943,3 @@ export function InfoPanel({
     </>
   );
 }
-
-const EFFORT_KEYS: Record<string, true> = {
-  effort_none: true,
-  effort_minimal: true,
-  effort_low: true,
-  effort_medium: true,
-  effort_high: true,
-  effort_xhigh: true,
-  effort_max: true,
-  effort_default: true,
-};

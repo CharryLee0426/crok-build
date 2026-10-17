@@ -21,6 +21,7 @@ function demoRows(t: (key: MessageKey) => string): { row: SessionRow; time: stri
     plan: null,
     lastActivityAt: 0,
     historyState: null,
+    starting: false,
   };
   // A demo session's folder is its own project.
   const place = (cwd: string) => ({

@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
 /*
- * Crok palette as semantic tokens. Light is Crok Day, dark is Crok Night; the sage accent is the desktop app's.
+ * Crok palette as semantic tokens. Light is Crok Day, dark is Crok Night; the accent is Telegram's blue (#3390EC by day,
+ * #3E88F7 by night), like the phone apps. `accent-text` is a shade that stays readable as small text on the canvas and
+ * the soft tint; the person's own bubbles have their own pair (`bubble-user`, `bubble-user-fg`). Online dots stay green.
  * Components only use these tokens (bg-canvas, text-muted, border-line, bg-accent, …), never raw colours, so one
  * switch below flips the whole app. `data-theme` on <html> forces a scheme (used by the dev preview).
  */
@@ -16,12 +18,15 @@
   --faint: #8c8c8c;
   --line: #dcdcdc;
   --line-strong: #c4c4c4;
-  --accent: #41634c;
-  --accent-hover: #36533f;
+  --accent: #3390ec;
+  --accent-hover: #2a7fd6;
   --accent-fg: #ffffff;
-  --accent-soft: #dce7df;
-  --accent-text: #3a5a44;
-  --bubble-user: #dbe7de;
+  --accent-soft: #e3effd;
+  --accent-text: #1f78d1;
+  --bubble-user: #e1effd;
+  --bubble-user-fg: #161616;
+  --bubble-user-meta: #2a7fd0;
+  --online: #4cc91f;
   --danger: #b3261e;
   --danger-soft: #f6e0de;
   --warning: #8a5a00;
@@ -44,12 +49,15 @@
     --faint: #737373;
     --line: #2d2d2d;
     --line-strong: #3d3d3d;
-    --accent: #a1bfa8;
-    --accent-hover: #b5cfbb;
-    --accent-fg: #132018;
-    --accent-soft: #253229;
-    --accent-text: #a1bfa8;
-    --bubble-user: #26342a;
+    --accent: #3e88f7;
+    --accent-hover: #5596f8;
+    --accent-fg: #ffffff;
+    --accent-soft: #1e2f45;
+    --accent-text: #5a9cf8;
+    --bubble-user: #2b5278;
+    --bubble-user-fg: #ffffff;
+    --bubble-user-meta: #9cc1e8;
+    --online: #4cc91f;
     --danger: #f2a39b;
     --danger-soft: #3b2321;
     --warning: #e3bd6f;
@@ -72,12 +80,15 @@
   --faint: #737373;
   --line: #2d2d2d;
   --line-strong: #3d3d3d;
-  --accent: #a1bfa8;
-  --accent-hover: #b5cfbb;
-  --accent-fg: #132018;
-  --accent-soft: #253229;
-  --accent-text: #a1bfa8;
-  --bubble-user: #26342a;
+  --accent: #3e88f7;
+  --accent-hover: #5596f8;
+  --accent-fg: #ffffff;
+  --accent-soft: #1e2f45;
+  --accent-text: #5a9cf8;
+  --bubble-user: #2b5278;
+  --bubble-user-fg: #ffffff;
+  --bubble-user-meta: #9cc1e8;
+  --online: #4cc91f;
   --danger: #f2a39b;
   --danger-soft: #3b2321;
   --warning: #e3bd6f;
@@ -104,6 +115,9 @@
   --color-accent-soft: var(--accent-soft);
   --color-accent-text: var(--accent-text);
   --color-bubble-user: var(--bubble-user);
+  --color-bubble-user-fg: var(--bubble-user-fg);
+  --color-bubble-user-meta: var(--bubble-user-meta);
+  --color-online: var(--online);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-warning: var(--warning);

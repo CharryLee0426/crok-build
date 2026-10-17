@@ -111,6 +111,25 @@ export const RecentIcon = (p: IconProps) => (
     <path d="M12 8v4l2.6 1.6" />
   </Icon>
 );
+/** "New session" in a project section. */
+export const PlusIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 5.5v13M5.5 12h13" />
+  </Icon>
+);
+/** The list toolbar's compose button (Telegram's "new message"): a pencil on a square. */
+export const ComposeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M11 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V13" />
+    <path d="M17.6 3.9a2 2 0 0 1 2.8 2.8L12.5 14.6 9 15.5l.9-3.5 7.7-8.1Z" />
+  </Icon>
+);
+/** ☰: the composer's Menu button (Telegram's bot menu). */
+export const MenuIcon = (p: IconProps) => (
+  <Icon {...p} strokeWidth={2}>
+    <path d="M5 7h14M5 12h14M5 17h14" />
+  </Icon>
+);
 export const MoreIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx="5.5" cy="12" r="1.2" fill="currentColor" />

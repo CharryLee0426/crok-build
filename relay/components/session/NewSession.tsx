@@ -1,0 +1,219 @@
+"use client";
+
+import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "@/convex/_generated/api";
+import { newClientId } from "@/lib/browser";
+import { relayError } from "@/lib/errors";
+import { folderName, tildePath } from "@/lib/format";
+import { handOverPrompt, takeQueuedPrompt } from "@/lib/new-session";
+import type { OutboxItem, PendingPrompt } from "@/lib/types";
+import { useI18n } from "../I18nProvider";
+import { ChevronLeftIcon, ComputerIcon, FolderIcon } from "../icons";
+import { useErrorText } from "../SessionList";
+import { ButtonLink, Loading, Notice, ProjectAvatar, useNow } from "../ui";
+import { Composer } from "./SessionView";
+import { Transcript } from "./Transcript";
+
+const noop = () => {};
+
+/** Telegram's empty new chat: where the session will run, in the middle of the empty transcript. */
+function StartsIn({ path, computer }: { path: string; computer: string }) {
+  const { t, tx } = useI18n();
+  return (
+    <div className="flex max-w-sm flex-col items-center gap-3 rounded-2xl bg-surface px-6 py-5 text-center shadow-sm">
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-soft text-accent-text">
+        <FolderIcon size={22} />
+      </span>
+      <p className="text-[14px] leading-relaxed text-fg">
+        {tx("new_session_starts_in", {
+          path: <span className="break-all font-mono text-[13px]">{tildePath(path)}</span>,
+          computer: <span className="font-semibold">{computer}</span>,
+        })}
+      </p>
+      <p className="text-[13px] leading-relaxed text-muted">{t("new_session_lead")}</p>
+    </div>
+  );
+}
+
+/**
+ * The new-session screen, shaped like a session (DESIGN.md §5): header "New session" with project and computer, an
+ * empty transcript saying where it will run, the composer. The first prompt shows at once while the relay adds the
+ * session; then the screen becomes that session. Pure: the live screen and the dev preview hand in the data.
+ */
+export function NewSessionView({
+  deviceId,
+  path,
+  computer,
+  online,
+  prompt,
+  now,
+  initialDraft,
+  onSend,
+  onRetry,
+  onDiscard,
+}: {
+  deviceId: string;
+  path: string;
+  computer: string;
+  online: boolean;
+  /** The first prompt while `sessions:create` runs, or after it failed. */
+  prompt: PendingPrompt | null;
+  now: number;
+  initialDraft?: string;
+  onSend: (text: string) => void;
+  onRetry: (prompt: PendingPrompt) => void;
+  onDiscard: (prompt: PendingPrompt) => void;
+}) {
+  const { t } = useI18n();
+  const name = folderName(path);
+  return (
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-2 sm:px-3">
+        <Link
+          href="/"
+          aria-label={t("back")}
+          title={t("back")}
+          className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-fg lg:hidden"
+        >
+          <ChevronLeftIcon size={22} />
+        </Link>
+        <div className="flex min-w-0 flex-1 items-center gap-3 px-1.5 py-1">
+          <ProjectAvatar cwd={path} title={name} dim={!online} size={38} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] font-semibold leading-tight">{t("new_session")}</span>
+            <span className="block truncate text-[13px] leading-tight text-faint" title={tildePath(path)}>
+              {name} · {computer}
+              {online ? null : <span> · {t("offline")}</span>}
+            </span>
+          </span>
+        </div>
+      </header>
+      <Transcript
+        events={[]}
+        pending={prompt ? [prompt] : []}
+        commands={[]}
+        canLoadMore={false}
+        loadingMore={false}
+        isDone={false}
+        firstLoad={false}
+        loadMore={noop}
+        onRetry={onRetry}
+        onDiscard={onDiscard}
+        now={now}
+        emptyNotice={<StartsIn path={path} computer={computer} />}
+      />
+      <Composer
+        key={`${deviceId}\n${path}`}
+        draftKey={`crok-draft:new:${deviceId}:${path}`}
+        initialText={initialDraft}
+        online={online}
+        running={false}
+        computer={computer}
+        placeholder={t("new_session_placeholder")}
+        offlineText={t("new_session_offline", { computer })}
+        autoFocus
+        onSend={onSend}
+      />
+    </section>
+  );
+}
+
+/** `/new?device=…&path=…`, live: `sessions:create` on send, then the session's own screen in this history entry. */
+export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: string }) {
+  const { t } = useI18n();
+  const router = useRouter();
+  const errorText = useErrorText();
+  const now = useNow(30_000);
+  const devices = useQuery(api.devices.list);
+  const create = useMutation(api.sessions.create);
+  const [outbox, setOutbox] = useState<OutboxItem | null>(null);
+  const device = devices?.find((d) => d._id === deviceId && d.kind === "computer");
+  const computer = device?.name ?? "";
+
+  const createErrorText = useCallback(
+    (error: unknown) => {
+      // The relay's own words for these: they say what is missing there (no crok running, or one too old to start
+      // sessions, "update crok").
+      const { code, message } = relayError(error);
+      if (code === "OFFLINE") {
+        return message || t("new_session_err_offline", { computer: computer || t("info_computer") });
+      }
+      if (code === "INVALID") return message || t("new_session_err_invalid");
+      if (code === "NOT_FOUND" || code === "FORBIDDEN") return t("new_session_not_found");
+      return errorText(error);
+    },
+    [t, computer, errorText],
+  );
+
+  const send = useCallback(
+    (text: string, clientId = newClientId()) => {
+      const item: OutboxItem = { clientId, text, createdAt: Date.now() };
+      setOutbox(item);
+      create({ deviceId, path, text, clientId }).then(
+        ({ sessionDocId }) => {
+          handOverPrompt(sessionDocId, item);
+          router.replace(`/sessions/${sessionDocId}`);
+        },
+        (error) => setOutbox((o) => (o?.clientId === clientId ? { ...o, error: createErrorText(error) } : o)),
+      );
+    },
+    [create, deviceId, path, router, createErrorText],
+  );
+
+  // `/new <prompt>` in a session: its prompt waits here and goes out at once.
+  useEffect(() => {
+    const queued = takeQueuedPrompt(deviceId, path);
+    if (queued) send(queued.text, queued.clientId);
+  }, [deviceId, path, send]);
+
+  const validPath = path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+  if (devices === undefined) return <Loading />;
+  if (!device || !validPath) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-canvas">
+        <Notice
+          icon={<ComputerIcon size={32} />}
+          title={t("new_session_not_found_title")}
+          action={
+            <ButtonLink href="/" tone="primary">
+              {t("back_to_sessions")}
+            </ButtonLink>
+          }
+        >
+          {t("new_session_not_found")}
+        </Notice>
+      </div>
+    );
+  }
+
+  const prompt: PendingPrompt | null = outbox
+    ? {
+        key: outbox.clientId,
+        text: outbox.text,
+        createdAt: outbox.createdAt,
+        tick: outbox.error ? "failed" : "sending",
+        error: outbox.error,
+        clientId: outbox.clientId,
+      }
+    : null;
+
+  return (
+    <NewSessionView
+      deviceId={deviceId}
+      path={path}
+      computer={computer}
+      online={device.online}
+      prompt={prompt}
+      now={now}
+      // One session per screen: a second prompt while the first is on its way would start another.
+      onSend={(text) => {
+        if (!outbox || outbox.error) send(text);
+      }}
+      onRetry={(p) => send(p.text, p.clientId ?? undefined)}
+      onDiscard={() => setOutbox(null)}
+    />
+  );
+}
