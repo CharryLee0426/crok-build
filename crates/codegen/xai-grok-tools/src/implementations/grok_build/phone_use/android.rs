@@ -144,6 +144,55 @@ fn key_code(name: &str) -> Option<String> {
     Some(format!("KEYCODE_{code}"))
 }
 
+/// One step of typing: a run of text pasted whole, or a key for a newline or tab.
+#[derive(Debug, PartialEq)]
+enum TextStep {
+    Run(String),
+    Key(&'static str),
+}
+
+/// `text` as typing steps, runs cut at [`PASTE_CHUNK`] bytes on character boundaries; `\r\n`
+/// is one Enter.
+fn text_steps(text: &str) -> Vec<TextStep> {
+    let mut steps = Vec::new();
+    let mut run = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        let key = match c {
+            '\t' => Some("KEYCODE_TAB"),
+            '\r' if chars.peek() == Some(&'\n') => continue,
+            '\n' | '\r' => Some("KEYCODE_ENTER"),
+            _ => None,
+        };
+        if let Some(key) = key {
+            if !run.is_empty() {
+                steps.push(TextStep::Run(std::mem::take(&mut run)));
+            }
+            steps.push(TextStep::Key(key));
+            continue;
+        }
+        run.push(c);
+        if run.len() >= PASTE_CHUNK {
+            steps.push(TextStep::Run(std::mem::take(&mut run)));
+        }
+    }
+    if !run.is_empty() {
+        steps.push(TextStep::Run(run));
+    }
+    steps
+}
+
+/// Why the text helper did not run, from what it (or `app_process`) printed.
+fn helper_failure(out: &str) -> String {
+    let said = out
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("crok-phone-text: failed: "))
+        .or_else(|| out.lines().map(str::trim).find(|line| !line.is_empty()))
+        .unwrap_or("it printed nothing");
+    let said: String = said.chars().take(300).collect();
+    format!("the text helper did not run ({said}).")
+}
+
 /// The Android side of the phone session.
 #[derive(Debug, Default)]
 pub struct AndroidState {
@@ -157,7 +206,22 @@ pub struct AndroidState {
     motionevents: Option<bool>,
     tree_busy_until: Option<Instant>,
     gate_at: Option<Instant>,
+    /// The phone the text helper was pushed to in this session.
+    text_helper: Option<String>,
 }
+
+/// The text helper: a dex that `app_process` runs as the shell user, so nothing is installed. It
+/// puts text on the phone's clipboard, and the paste key drops it into the focused field in any
+/// language and past the keyboard: `input text` sends ASCII only, as key presses that a Chinese
+/// or Japanese keyboard composes into candidates. Built from `android_text/PhoneText.java` by
+/// `android_text/build.sh`.
+const TEXT_HELPER: &[u8] = include_bytes!("android_text/phone-text.dex");
+const TEXT_HELPER_PATH: &str = "/data/local/tmp/crok-phone-text.dex";
+const TEXT_HELPER_CLASS: &str = "dev.chenli.crok.PhoneText";
+/// What the helper prints once the clipboard holds the text.
+const TEXT_HELPER_OK: &str = "crok-phone-text: ok";
+/// UTF-8 bytes per paste, so one command stays far below the limits of older adb.
+const PASTE_CHUNK: usize = 1000;
 
 /// Why no phone could be used, worded for the user.
 fn not_reachable(rows: &[Attached]) -> String {
@@ -296,6 +360,7 @@ impl AndroidState {
         self.motionevents = None;
         self.gate_at = None;
         self.tree_busy_until = None;
+        self.text_helper = None;
     }
 
     /// Run `adb -s <phone> args…`; when the phone is gone, find a phone once more and retry.
@@ -653,48 +718,77 @@ impl AndroidState {
         .map(drop)
     }
 
-    /// Type ASCII text: `input text` takes one token, so spaces travel as `%s` and newlines and
-    /// tabs as key presses.
+    /// Type text in any language: the runs between newlines and tabs are pasted through the
+    /// phone's clipboard (`TEXT_HELPER`), and newlines and tabs are key presses.
     pub async fn type_text(&mut self, text: &str) -> Result<(), String> {
-        if let Some(c) = text
-            .chars()
-            .find(|c| !(c.is_ascii_graphic() || matches!(c, ' ' | '\n' | '\t' | '\r')))
-        {
-            return Err(format!(
-                "adb can type only plain ASCII text on Android, and the text has '{c}'. Type it in parts that are ASCII, or ask the user to type that part."
-            ));
-        }
         self.gate().await?;
-        let mut run = String::new();
-        for c in text.chars() {
-            match c {
-                '\n' | '\r' | '\t' => {
-                    self.flush_text(&mut run).await?;
-                    let key = if c == '\t' {
-                        "KEYCODE_TAB"
-                    } else {
-                        "KEYCODE_ENTER"
-                    };
+        for step in text_steps(text) {
+            match step {
+                TextStep::Run(run) => self.type_run(&run).await?,
+                TextStep::Key(key) => {
                     self.shell(&format!("input keyevent {key}")).await?;
                 }
-                _ => run.push(c),
-            }
-            if run.len() >= 200 {
-                self.flush_text(&mut run).await?;
             }
         }
-        self.flush_text(&mut run).await
+        Ok(())
     }
 
-    async fn flush_text(&mut self, run: &mut String) -> Result<(), String> {
-        if run.is_empty() {
+    /// Paste one run; when the helper cannot run, ASCII is still typed by `input text`.
+    async fn type_run(&mut self, text: &str) -> Result<(), String> {
+        match self.paste(text).await {
+            Ok(()) => Ok(()),
+            Err(why) if text.chars().all(|c| c.is_ascii_graphic() || c == ' ') => {
+                tracing::info!(%why, "the phone text helper did not run; typing ASCII keys");
+                self.shell(&format!(
+                    "input text {}",
+                    adb::shell_quote(&text.replace(' ', "%s"))
+                ))
+                .await
+                .map(drop)
+            }
+            Err(why) => Err(format!(
+                "Could not type on the Android phone: {why} Without it adb types only ASCII, so ask the user to type the rest."
+            )),
+        }
+    }
+
+    /// Put `text` on the phone's clipboard with the helper and press the paste key.
+    async fn paste(&mut self, text: &str) -> Result<(), String> {
+        use base64::Engine as _;
+        self.push_text_helper().await?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(text);
+        // `|| true`: a failure is read from what the helper printed, not adb's exit status
+        let out = self
+            .shell(&format!(
+                "CLASSPATH={TEXT_HELPER_PATH} app_process / {TEXT_HELPER_CLASS} {encoded} 2>&1 || true"
+            ))
+            .await?;
+        if !out.contains(TEXT_HELPER_OK) {
+            // Pushed again next time, in case the file went away
+            self.text_helper = None;
+            return Err(helper_failure(&out));
+        }
+        self.shell("input keyevent KEYCODE_PASTE").await.map(drop)
+    }
+
+    /// Copy the helper to the phone, once per phone and session.
+    async fn push_text_helper(&mut self) -> Result<(), String> {
+        use std::io::Write as _;
+        let serial = self.resolve().await?;
+        if self.text_helper.as_deref() == Some(serial.as_str()) {
             return Ok(());
         }
-        let token = run.replace(' ', "%s");
-        run.clear();
-        self.shell(&format!("input text {}", adb::shell_quote(&token)))
-            .await
-            .map(drop)
+        let mut file = tempfile::Builder::new()
+            .prefix("crok-phone-text-")
+            .suffix(".dex")
+            .tempfile()
+            .map_err(|e| format!("could not stage the text helper: {e}"))?;
+        file.write_all(TEXT_HELPER)
+            .map_err(|e| format!("could not stage the text helper: {e}"))?;
+        let local = file.path().to_string_lossy().into_owned();
+        self.exec(&["push", &local, TEXT_HELPER_PATH], SLOW).await?;
+        self.text_helper = Some(serial);
+        Ok(())
     }
 
     pub async fn key(&mut self, name: &str) -> Result<String, String> {
@@ -1037,6 +1131,84 @@ mod tests {
             Some((1080.0, 2400.0))
         );
         assert_eq!(parse_wm_size("error"), None);
+    }
+
+    #[test]
+    fn text_is_pasted_in_runs_between_newlines_and_tabs() {
+        assert_eq!(
+            text_steps("你好，世界\nこんにちは\tok 😀"),
+            vec![
+                TextStep::Run("你好，世界".into()),
+                TextStep::Key("KEYCODE_ENTER"),
+                TextStep::Run("こんにちは".into()),
+                TextStep::Key("KEYCODE_TAB"),
+                TextStep::Run("ok 😀".into()),
+            ]
+        );
+        assert_eq!(text_steps(""), vec![]);
+        assert_eq!(
+            text_steps("\n\r"),
+            vec![
+                TextStep::Key("KEYCODE_ENTER"),
+                TextStep::Key("KEYCODE_ENTER")
+            ]
+        );
+        assert_eq!(
+            text_steps("a\r\nb"),
+            vec![
+                TextStep::Run("a".into()),
+                TextStep::Key("KEYCODE_ENTER"),
+                TextStep::Run("b".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn long_runs_are_cut_on_character_boundaries() {
+        let text = "汉".repeat(PASTE_CHUNK);
+        let steps = text_steps(&text);
+        let mut joined = String::new();
+        for step in &steps {
+            let TextStep::Run(run) = step else {
+                panic!("a key in {steps:?}");
+            };
+            assert!(run.len() < PASTE_CHUNK + 4, "{} bytes", run.len());
+            joined.push_str(run);
+        }
+        assert!(steps.len() > 1);
+        assert_eq!(joined, text);
+    }
+
+    #[test]
+    fn the_helper_says_why_it_failed() {
+        assert_eq!(
+            helper_failure("crok-phone-text: failed: java.lang.SecurityException: no\n"),
+            "the text helper did not run (java.lang.SecurityException: no)."
+        );
+        assert_eq!(
+            helper_failure("\n/system/bin/sh: app_process: inaccessible or not found\n"),
+            "the text helper did not run (/system/bin/sh: app_process: inaccessible or not found)."
+        );
+        assert_eq!(
+            helper_failure(""),
+            "the text helper did not run (it printed nothing)."
+        );
+    }
+
+    #[test]
+    fn the_embedded_helper_is_a_dex_with_its_class() {
+        assert!(TEXT_HELPER.starts_with(b"dex\n0"));
+        let class = format!("L{};", TEXT_HELPER_CLASS.replace('.', "/"));
+        assert!(
+            TEXT_HELPER
+                .windows(class.len())
+                .any(|w| w == class.as_bytes())
+        );
+        assert!(
+            TEXT_HELPER
+                .windows(TEXT_HELPER_OK.len())
+                .any(|w| w == TEXT_HELPER_OK.as_bytes())
+        );
     }
 
     #[test]
