@@ -64,6 +64,53 @@ ssh-keygen -Y verify -f allowed -I release -n crok-release -s SHA256SUMS.txt.sig
 shasum -a 256 -c SHA256SUMS.txt
 ```
 
+## The code signing certificate
+
+macOS keeps Screen Recording, Accessibility, the microphone and its other privacy permissions
+for the code signature it gave them to, by that signature's designated requirement. An ad hoc
+signature's requirement is the one build's hash (`cdhash H"…"`), so through 1.5.1 every update,
+and every test build, lost them. [`codesign.sh`](codesign.sh) now signs everything with one
+self-signed certificate, "Crok Code Signing", and the requirement becomes
+
+```
+identifier "dev.chenli.crok.desktop" and certificate leaf = H"4d47861c871242056da13d30e3874a36be0aa14c"
+```
+
+which every later build signed by that certificate meets, so a permission given to one version
+holds for the next. `desktop/macOS/scripts/build-app.sh`, `make deploy`, `make build-test-tui`,
+`make build-test-desktop` and the tarball in `publish.sh` all sign through it. The identifiers
+keep release and test permissions apart:
+
+| Code | Identifier |
+|---|---|
+| Crok Desktop | `dev.chenli.crok.desktop` |
+| `crok` (in the app, the tarball, `make deploy`) | `dev.chenli.crok` |
+| Crok Desktop Test | `dev.chenli.crok.desktop.test` |
+| `crok-test` and the test app's `crok` | `dev.chenli.crok.test` |
+
+The identity is made on first use in `~/.crok-codesign` (`CROK_CODESIGN_DIR`): a keychain of its
+own, which is never added to the keychain search list, and the password that unlocks it. Its
+public certificate is [`crok-codesign.pem`](crok-codesign.pem). `publish.sh` checks before
+building that this Mac's identity is that certificate, and before signing the manifest that both
+apps, their `crok` and the tarball's `crok` are signed by it; otherwise it publishes nothing.
+
+Keep `~/.crok-codesign` private and backed up, like `~/.ssh/crok-release`: anyone with it can sign
+code that macOS treats as Crok Desktop, with Crok Desktop's permissions. To build releases on
+another Mac, copy the folder there (`ditto ~/.crok-codesign <the other Mac's home>/.crok-codesign`).
+Without it a Mac makes a certificate of its own, which is fine for local builds (they keep their
+permissions from build to build on that Mac) but not for a release. To change certificates on
+purpose, for example to a Developer ID one with `SIGN_IDENTITY`, replace `crok-codesign.pem`;
+users then allow the permissions once more.
+
+The TUI in a terminal is not involved: there macOS asks for the terminal app's permissions
+(Ghostty, Terminal, iTerm…), which a crok update never changes. The apps' own permissions are
+the ones that moved with each build.
+
+The first release signed by this certificate meets none of the old ad hoc grants. System
+Settings may then show Crok Desktop switched on while Crok says it is not allowed: remove it
+from the list with **−** and allow it again, once. `tccutil reset Accessibility
+dev.chenli.crok.desktop` and `tccutil reset ScreenCapture dev.chenli.crok.desktop` do the same.
+
 ## Publishing
 
 ```sh

@@ -25,6 +25,10 @@ TEST_DESKTOP_ICON = $(TEST_DESKTOP_DIR)/CrokDesktopTestIcon.icns
 # CROK_BINARY names an existing harness for the desktop build; GROK_BINARY still works.
 CROK_BINARY ?= $(GROK_BINARY)
 
+# Signs an installed crok with the certificate every build uses, so macOS keeps the permissions
+# it gave an earlier build (release/codesign.sh). Arguments: the identifier, the file.
+SIGN_TUI = if [ "$$(uname -s)" = Darwin ]; then "$(CURDIR)/release/codesign.sh" --identifier $(1) "$(2)"; fi
+
 # The default build and deploy commands only operate on the CLI/TUI.
 build:
 	$(CARGO) build -p xai-grok-pager-bin --release --target-dir "$(CARGO_TARGET_DIR)"
@@ -35,6 +39,7 @@ deploy: build
 		tmp_binary=$$(mktemp "$(BINDIR)/.crok.XXXXXX"); \
 		trap 'rm -f "$$tmp_binary"' EXIT; \
 		install -m 755 "$(TUI_BINARY)" "$$tmp_binary"; \
+		$(call SIGN_TUI,dev.chenli.crok,$$tmp_binary); \
 		mv -f "$$tmp_binary" "$(BINDIR)/crok"
 	@printf 'Installed TUI: %s/crok\n' "$(BINDIR)"
 
@@ -46,6 +51,7 @@ build-test-tui:
 		tmp_binary=$$(mktemp "$(TEST_TUI_BINARY).XXXXXX"); \
 		trap 'rm -f "$$tmp_binary"' EXIT; \
 		install -m 755 "$(TUI_BINARY)" "$$tmp_binary"; \
+		$(call SIGN_TUI,dev.chenli.crok.test,$$tmp_binary); \
 		mv -f "$$tmp_binary" "$(TEST_TUI_BINARY)"
 	@printf 'Built test TUI: %s\n' "$(TEST_TUI_BINARY)"
 	@printf 'Launch it with: PATH="%s/bin:$$PATH" crok-test\n' "$(CURDIR)"
@@ -78,6 +84,7 @@ build-test-desktop: build-test-tui
 	@mkdir -p "$(TEST_DESKTOP_DIR)"
 	DESKTOP_APP_NAME="Crok Desktop Test" \
 	DESKTOP_BUNDLE_ID="dev.chenli.crok.desktop.test" \
+	DESKTOP_HARNESS_ID="dev.chenli.crok.test" \
 	DESKTOP_APP_DIR="$(TEST_DESKTOP_APP)" \
 	DESKTOP_ICON_PATH="$(TEST_DESKTOP_ICON)" \
 	DESKTOP_ICON_PREVIEW_PATH="$(dir $(TEST_DESKTOP_ICON))Crok Desktop Test-icon.png" \

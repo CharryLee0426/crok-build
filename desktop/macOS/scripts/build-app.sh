@@ -6,6 +6,8 @@ package_dir="$(cd -- "$script_dir/.." && pwd)"
 repository_dir="$(cd -- "$package_dir/../.." && pwd)"
 app_name="${DESKTOP_APP_NAME:-Crok Desktop}"
 bundle_identifier="${DESKTOP_BUNDLE_ID:-dev.chenli.crok.desktop}"
+# The bundled crok's code signing identifier, the same as the standalone crok's.
+harness_identifier="${DESKTOP_HARNESS_ID:-dev.chenli.crok}"
 app_dir="${DESKTOP_APP_DIR:-$package_dir/dist/$app_name.app}"
 icon_path="${DESKTOP_ICON_PATH:-$package_dir/Resources/AppIcon.icns}"
 dark_icon_path="${DESKTOP_DARK_ICON_PATH:-${icon_path%.icns}Dark.icns}"
@@ -57,7 +59,7 @@ replace_executable "$binary_dir/GrokDesktop" "$app_dir/Contents/MacOS/GrokDeskto
 
 /bin/rm -f "$app_dir/Contents/Resources/grok" "$app_dir/Contents/Resources/bin/grok"
 replace_executable "$grok_source" "$app_dir/Contents/Resources/crok"
-/usr/bin/codesign --force --sign "${SIGN_IDENTITY:--}" "$app_dir/Contents/Resources/crok"
+"$repository_dir/release/codesign.sh" --identifier "$harness_identifier" "$app_dir/Contents/Resources/crok"
 printf 'Bundled harness: %s\n' "$grok_source"
 # The `crok` command: Settings links /usr/local/bin/crok to this launcher, which runs the bundled TUI.
 /bin/mkdir -p "$app_dir/Contents/Resources/bin"
@@ -116,9 +118,10 @@ fi
 /usr/bin/plutil -replace CFBundleShortVersionString -string "$version" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleVersion -string "$version" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -lint "$app_dir/Contents/Info.plist"
-# Ad hoc signing makes the local app bundle self-contained. Set SIGN_IDENTITY to
-# a Developer ID identity when producing a distributable (then notarize it).
-/usr/bin/codesign --force --deep --sign "${SIGN_IDENTITY:--}" "$app_dir"
+# Every build is signed by the same certificate, so macOS keeps the permissions (Screen Recording,
+# Accessibility, microphone) the user gave an earlier build or version. SIGN_IDENTITY picks another
+# identity, such as a Developer ID one for a distributable (then notarize it), or - for ad hoc.
+"$repository_dir/release/codesign.sh" --deep "$app_dir"
 # Refresh only this bundle's registration; do not restart Dock or clear caches.
 if [[ "$register_app" == 1 ]]; then
     /usr/bin/touch "$app_dir"
