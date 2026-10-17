@@ -55,6 +55,11 @@ impl Settings {
         Some(settings)
     }
 
+    /// The same configuration from the same place, whatever else changed in the file.
+    pub fn is_same(&self, other: &Self) -> bool {
+        self.source == other.source && self.vars == other.vars
+    }
+
     pub fn get(&self, key: &str) -> Option<&str> {
         self.vars
             .get(key)

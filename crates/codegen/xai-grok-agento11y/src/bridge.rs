@@ -1,23 +1,26 @@
 //! The bridge process and the thread that feeds it.
 //!
-//! The sampler hands each finished call to [`BridgeSink::record`], which only queues it. One
-//! writer thread owns the bridge: it starts `node agento11y-bridge.mjs` for the first call,
-//! writes one JSON line per call to its stdin, and closes that stdin after an idle spell, which
-//! makes the bridge flush and exit; the next call starts a new one. When crok exits, the pipe
-//! closes the same way. The bridge runs in its own session so it can finish that flush.
+//! The sampler hands each finished call to the reporter, which queues it with the settings it is
+//! for ([`Writer::send`]). One writer thread owns the bridge: it starts `node agento11y-bridge.mjs`
+//! for the first call, writes one JSON line per call to its stdin, and closes that stdin after an
+//! idle spell, which makes the bridge flush and exit; the next call starts a new one. A call for
+//! other settings (`agento11y.env` was edited) closes the bridge and starts one with the new
+//! settings. When crok exits, the pipe closes the same way. The bridge runs in its own session so
+//! it can finish that flush.
 
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::time::{Duration, Instant};
 
-use xai_grok_sampler::observe::{GenerationSink, ObservedCall};
+use xai_grok_sampler::observe::ObservedCall;
 
-use crate::settings::is_bridge_var;
+use crate::settings::{Settings, Source, is_bridge_var};
 
 /// The bundled bridge (see `bridge/build.mjs`): the agento11y SDK and OpenTelemetry in one file.
 const BRIDGE_JS: &str = include_str!("../bridge/dist/agento11y-bridge.mjs");
@@ -29,36 +32,99 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 /// A bridge that dies sooner than this after starting is not restarted until [`RESTART_BACKOFF`] has passed.
 const MIN_HEALTHY_LIFETIME: Duration = Duration::from_secs(10);
 const RESTART_BACKOFF: Duration = Duration::from_secs(60);
+/// Idle time after which the bridge is told to flush and exit; the next call starts a new one.
+const DEFAULT_IDLE: Duration = Duration::from_secs(300);
 
-/// Everything needed to start a bridge.
+/// What every bridge of this process shares, whatever the settings.
+pub(crate) struct Base {
+    pub home: PathBuf,
+    pub log_path: PathBuf,
+    /// crok's release version, sent as `AGENTO11Y_AGENT_VERSION` unless the settings name one.
+    pub agent_version: String,
+}
+
+/// Everything needed to start a bridge for one set of settings.
 pub(crate) struct Launch {
     pub runtime: PathBuf,
     pub script: PathBuf,
-    pub home: PathBuf,
-    pub log_path: PathBuf,
     /// Variables set on the bridge, on top of crok's environment.
     pub env: BTreeMap<String, String>,
     /// The configured `AGENTO11Y_TAGS`, which the bridge gets with a `surface` tag added.
     pub user_tags: String,
     /// Drop the inherited `AGENTO11Y_*` / `OTEL_*` variables first (the settings file is the whole configuration).
     pub replace_inherited: bool,
+    pub idle: Duration,
 }
 
-pub(crate) struct BridgeSink {
-    tx: SyncSender<ObservedCall>,
+impl Launch {
+    /// Finds the runtime and writes the script; the error says, for the bridge log, why it cannot start.
+    fn new(settings: &Settings, base: &Base) -> Result<Self, String> {
+        let explicit = settings
+            .get("CROK_AGENTO11Y_NODE")
+            .map(str::to_owned)
+            .or_else(|| std::env::var("CROK_AGENTO11Y_NODE").ok());
+        let runtime = crate::node::find_runtime(
+            explicit.as_deref(),
+            std::env::var_os("PATH").as_deref(),
+            xai_dirs::home_dir().as_deref(),
+        )
+        .ok_or("Agent Observability is on but no Node.js was found: install Node 20+ or set CROK_AGENTO11Y_NODE")?;
+        let script = write_script(&base.home)
+            .map_err(|err| format!("could not write the bridge script: {err}"))?;
+        Ok(Self {
+            runtime,
+            script,
+            env: bridge_env(settings, &base.agent_version),
+            user_tags: settings
+                .get("AGENTO11Y_TAGS")
+                .unwrap_or_default()
+                .to_owned(),
+            replace_inherited: matches!(settings.source, Source::File(_)),
+            idle: settings
+                .get("CROK_AGENTO11Y_IDLE_SECS")
+                .and_then(|secs| secs.parse().ok())
+                .map_or(DEFAULT_IDLE, Duration::from_secs),
+        })
+    }
+}
+
+/// The bridge's variables: the settings and crok's version. `AGENTO11Y_TAGS` is added when the
+/// bridge starts, with the surface known by then ([`client_tags`]).
+fn bridge_env(settings: &Settings, agent_version: &str) -> BTreeMap<String, String> {
+    let mut env = settings.vars.clone();
+    env.remove("AGENTO11Y_TAGS");
+    if settings.get("AGENTO11Y_AGENT_VERSION").is_none() && !agent_version.is_empty() {
+        env.insert(
+            "AGENTO11Y_AGENT_VERSION".to_owned(),
+            agent_version.to_owned(),
+        );
+    }
+    env
+}
+
+/// One call and the settings it is to be sent with.
+struct Job {
+    call: ObservedCall,
+    settings: Arc<Settings>,
+}
+
+/// The queue to the writer thread.
+pub(crate) struct Writer {
+    tx: SyncSender<Job>,
     dropped: AtomicU64,
 }
 
-impl GenerationSink for BridgeSink {
-    fn record(&self, call: ObservedCall) {
-        match self.tx.try_send(call) {
+impl Writer {
+    /// Queues one call; never waits.
+    pub(crate) fn send(&self, call: ObservedCall, settings: Arc<Settings>) {
+        match self.tx.try_send(Job { call, settings }) {
             Ok(()) | Err(TrySendError::Disconnected(_)) => {}
-            Err(TrySendError::Full(call)) => {
+            Err(TrySendError::Full(job)) => {
                 let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
                 if dropped == 1 || dropped.is_multiple_of(100) {
                     tracing::warn!(
                         dropped,
-                        generation = call.generation_id(),
+                        generation = job.call.generation_id(),
                         "agento11y bridge is behind; model-call records are being dropped"
                     );
                 }
@@ -67,13 +133,13 @@ impl GenerationSink for BridgeSink {
     }
 }
 
-/// Starts the writer thread and returns the sink that feeds it.
-pub(crate) fn start(launch: Launch, idle: Duration) -> io::Result<BridgeSink> {
+/// Starts the writer thread and returns the queue that feeds it. No bridge runs until a call comes.
+pub(crate) fn start(base: Base) -> io::Result<Writer> {
     let (tx, rx) = mpsc::sync_channel(QUEUE_CAPACITY);
     std::thread::Builder::new()
         .name("agento11y-bridge".to_owned())
-        .spawn(move || run_writer(rx, launch, idle))?;
-    Ok(BridgeSink {
+        .spawn(move || run_writer(rx, base))?;
+    Ok(Writer {
         tx,
         dropped: AtomicU64::new(0),
     })
@@ -85,27 +151,92 @@ struct Bridge {
     started: Instant,
 }
 
-fn run_writer(rx: Receiver<ObservedCall>, launch: Launch, idle: Duration) {
-    let mut bridge: Option<Bridge> = None;
-    let mut paused_until: Option<Instant> = None;
+/// One set of settings and the bridge that sends with them.
+struct Destination {
+    settings: Arc<Settings>,
+    /// `None` when the bridge cannot start with these settings; the reason is in the bridge log.
+    launch: Option<Launch>,
+    bridge: Option<Bridge>,
+    paused_until: Option<Instant>,
+}
+
+impl Destination {
+    fn new(settings: Arc<Settings>, base: &Base) -> Self {
+        let launch = Launch::new(&settings, base)
+            .inspect_err(|reason| {
+                log_line(&base.log_path, reason);
+                tracing::warn!("{reason}");
+            })
+            .ok();
+        if let Some(launch) = &launch {
+            tracing::info!(
+                "agento11y on: {}; bridge {} with {}",
+                settings.describe(),
+                launch.script.display(),
+                launch.runtime.display()
+            );
+        }
+        Self {
+            settings,
+            launch,
+            bridge: None,
+            paused_until: None,
+        }
+    }
+
+    fn idle(&self) -> Duration {
+        self.launch
+            .as_ref()
+            .map_or(DEFAULT_IDLE, |launch| launch.idle)
+    }
+
+    fn close_bridge(&mut self) {
+        if let Some(bridge) = self.bridge.take() {
+            close(bridge);
+        }
+    }
+}
+
+fn run_writer(rx: Receiver<Job>, base: Base) {
+    let mut current: Option<Destination> = None;
     loop {
+        let idle = current.as_ref().map_or(DEFAULT_IDLE, Destination::idle);
         match rx.recv_timeout(idle) {
-            Ok(call) => {
+            Ok(Job { call, settings }) => {
                 let mut line = call.to_json_line();
                 if line.is_empty() {
                     continue;
                 }
                 line.push('\n');
-                deliver(&mut bridge, &mut paused_until, &launch, line.as_bytes());
+                // A rewrite that changed nothing (setup.sh run again) keeps the running bridge
+                let destination = match current.take() {
+                    Some(same) if same.settings.is_same(&settings) => same,
+                    other => {
+                        if let Some(mut old) = other {
+                            old.close_bridge();
+                        }
+                        Destination::new(settings, &base)
+                    }
+                };
+                let destination = current.insert(destination);
+                if let Some(launch) = &destination.launch {
+                    deliver(
+                        &mut destination.bridge,
+                        &mut destination.paused_until,
+                        launch,
+                        &base,
+                        line.as_bytes(),
+                    );
+                }
             }
             Err(RecvTimeoutError::Timeout) => {
-                if let Some(idle_bridge) = bridge.take() {
-                    close(idle_bridge);
+                if let Some(destination) = current.as_mut() {
+                    destination.close_bridge();
                 }
             }
             Err(RecvTimeoutError::Disconnected) => {
-                if let Some(last) = bridge.take() {
-                    close(last);
+                if let Some(mut last) = current.take() {
+                    last.close_bridge();
                 }
                 return;
             }
@@ -118,6 +249,7 @@ fn deliver(
     bridge: &mut Option<Bridge>,
     paused_until: &mut Option<Instant>,
     launch: &Launch,
+    base: &Base,
     line: &[u8],
 ) {
     for _ in 0..2 {
@@ -125,7 +257,7 @@ fn deliver(
             if paused_until.is_some_and(|until| Instant::now() < until) {
                 return;
             }
-            match spawn(launch) {
+            match spawn(launch, base) {
                 Ok(started) => {
                     tracing::info!(pid = started.child.id(), "started the agento11y bridge");
                     *bridge = Some(started);
@@ -133,7 +265,7 @@ fn deliver(
                 }
                 Err(err) => {
                     log_line(
-                        &launch.log_path,
+                        &base.log_path,
                         &format!("crok could not start the bridge: {err}"),
                     );
                     tracing::warn!(%err, "could not start the agento11y bridge");
@@ -159,7 +291,7 @@ fn deliver(
                 }
                 if lived < MIN_HEALTHY_LIFETIME {
                     log_line(
-                        &launch.log_path,
+                        &base.log_path,
                         &format!(
                             "the bridge exited {}s after it started; crok waits {}s before starting another",
                             lived.as_secs(),
@@ -187,10 +319,10 @@ fn close(bridge: Bridge) {
         });
 }
 
-fn spawn(launch: &Launch) -> io::Result<Bridge> {
-    let log = open_log(&launch.log_path)?;
+fn spawn(launch: &Launch, base: &Base) -> io::Result<Bridge> {
+    let log = open_log(&base.log_path)?;
     log_line(
-        &launch.log_path,
+        &base.log_path,
         &format!(
             "crok {} starts the bridge with {}",
             std::process::id(),
@@ -199,7 +331,7 @@ fn spawn(launch: &Launch) -> io::Result<Bridge> {
     );
     let mut cmd = Command::new(&launch.runtime);
     cmd.arg(&launch.script)
-        .current_dir(&launch.home)
+        .current_dir(&base.home)
         .stdin(Stdio::piped())
         .stdout(log.try_clone()?)
         .stderr(log);

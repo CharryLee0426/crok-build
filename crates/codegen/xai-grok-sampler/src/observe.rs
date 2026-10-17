@@ -1,7 +1,8 @@
 //! Per-call observation for an external sink: one [`ObservedCall`] per model API request.
 //!
 //! crok's Grafana Agent Observability bridge (`xai-grok-agento11y`) installs the sink once per process with
-//! [`install_sink`]. Until then every hook here returns at the first check and allocates nothing.
+//! [`install_sink`]. Until then every hook here returns at the first check and allocates nothing; while the
+//! sink says it is not active ([`GenerationSink::is_active`]), requests are not snapshotted either.
 //!
 //! Calls are observed where a [`ConversationRequest`] meets its Layer-2 event stream:
 //! - the actor's per-attempt loop (`run_one_attempt`): main turns, sub-agent turns;
@@ -32,6 +33,12 @@ use crate::events::{SamplingErrorInfo, SamplingEvent};
 /// Receives every observed call. Called on the sampler's task: hand the call off and return.
 pub trait GenerationSink: Send + Sync {
     fn record(&self, call: ObservedCall);
+
+    /// Whether calls starting now are wanted; checked before each request is snapshotted, so it must be cheap.
+    /// A sink that can be switched on and off while crok runs answers here.
+    fn is_active(&self) -> bool {
+        true
+    }
 }
 
 static SINK: OnceLock<Arc<dyn GenerationSink>> = OnceLock::new();
@@ -50,6 +57,8 @@ pub fn install_sink(sink: Arc<dyn GenerationSink>, agent_name: &str) -> bool {
     SINK.set(sink).is_ok()
 }
 
+/// Whether a sink is installed, active or not. Sessions are registered while it is switched off, so a
+/// session that started then still has its title and parent once recording is switched on.
 pub fn is_enabled() -> bool {
     SINK.get().is_some()
 }
@@ -361,13 +370,13 @@ struct ResponseTap {
 }
 
 impl Observation {
-    /// Snapshots `request` when a sink is installed; call before `request` moves into the send.
+    /// Snapshots `request` when a sink is installed and active; call before `request` moves into the send.
     pub(crate) fn start(
         client: &SamplingClient,
         request: &ConversationRequest,
         path: CallPath,
     ) -> Option<Self> {
-        let sink = SINK.get()?.clone();
+        let sink = SINK.get().filter(|sink| sink.is_active())?.clone();
         let session_id = request.x_grok_session_id.clone();
         let conv_id = request.x_grok_conv_id.clone();
         let session = session_id

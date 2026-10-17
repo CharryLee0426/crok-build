@@ -17,9 +17,18 @@ use crate::types::RequestId;
 /// The process-wide sink every test in this file records into; tests tell their calls apart by session id.
 struct TestSink(Mutex<Vec<String>>);
 
+thread_local! {
+    /// Switches the shared sink off for one test's thread only, so tests running beside it still record.
+    static SWITCHED_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 impl GenerationSink for TestSink {
     fn record(&self, call: ObservedCall) {
         self.0.lock().unwrap().push(call.to_json_line());
+    }
+
+    fn is_active(&self) -> bool {
+        !SWITCHED_OFF.get()
     }
 }
 
@@ -302,6 +311,27 @@ async fn a_sub_agent_links_its_first_turn_to_the_parent_turn_that_spawned_it() {
     assert_eq!(
         child[0]["start"]["metadata"]["crok.parent_session_id"],
         "obs-parent"
+    );
+}
+
+#[test]
+fn a_switched_off_sink_gets_no_calls_but_sessions_are_still_registered() {
+    sink();
+    let client = anthropic_client();
+    let request = turn_request("obs-switched-off");
+    SWITCHED_OFF.set(true);
+    register_session("obs-switched-off", None, None);
+    set_session_title("obs-switched-off", "Kept for later");
+    let observation = Observation::start(&client, &request, CallPath::Turn);
+    SWITCHED_OFF.set(false);
+    assert!(observation.is_none(), "nothing is snapshotted while off");
+    assert!(records_for("obs-switched-off").is_empty());
+
+    // Switched back on, the next call carries the title registered while it was off
+    let observation = Observation::start(&client, &request, CallPath::Turn);
+    assert_eq!(
+        observation.map(|o| o.call.conversation_title),
+        Some(Some("Kept for later".to_owned()))
     );
 }
 

@@ -13832,8 +13832,11 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "tempfile",
+ "toml",
  "tracing",
  "xai-dirs",
+ "xai-grok-config",
+ "xai-grok-config-types",
  "xai-grok-sampler",
  "xai-tty-utils",
 ]
@@ -14495,6 +14498,7 @@ dependencies = [
  "xai-file-utils",
  "xai-grok-active-sessions",
  "xai-grok-agent",
+ "xai-grok-agento11y",
  "xai-grok-announcements",
  "xai-grok-cloud-config",
  "xai-grok-config",

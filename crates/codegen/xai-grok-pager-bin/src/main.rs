@@ -2127,7 +2127,8 @@ fn main() {
         disabled: xai_grok_shell::agent::config::is_error_reporting_disabled_sync(),
     });
     xai_grok_pager::docs::extract_user_guide_docs(&xai_grok_shell::util::grok_home::grok_home());
-    // Grafana Agent Observability, when ~/.crok/agento11y.env (or AGENTO11Y_*) configures it.
+    // Grafana Agent Observability: records while `[features] agent_observability` is on and
+    // ~/.crok/agento11y.env (or AGENTO11Y_*) sets a destination, both followed while crok runs.
     // `agent` subcommands relabel the surface; Crok Desktop names itself in ACP `initialize`.
     xai_grok_agento11y::install(xai_grok_agento11y::InstallOptions {
         agent_version: env!("CROK_RELEASE_VERSION"),

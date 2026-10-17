@@ -6,24 +6,27 @@
 //! metrics over OTLP. Both crok surfaces go through the same sampler: the TUI runs the agent in
 //! its own process, and Crok Desktop runs `crok agent stdio` per conversation.
 //!
-//! Off unless configured: put the `AGENTO11Y_*` and `OTEL_EXPORTER_OTLP_*` values in
-//! `~/.crok/agento11y.env` (mode 0600), or export them before starting crok. The bridge needs
-//! Node 20 or newer (or Bun); `CROK_AGENTO11Y_NODE` names one explicitly. It logs to
-//! `~/.crok/logs/agento11y.log`.
+//! Off until switched on: `[features] agent_observability` (Settings in the terminal and in Crok
+//! Desktop, or `CROK_AGENT_OBSERVABILITY`). The destination is the `AGENTO11Y_*` and
+//! `OTEL_EXPORTER_OTLP_*` values in `~/.crok/agento11y.env` (mode 0600), or exported before starting
+//! crok. Both files are followed while crok runs ([`switch`]), so the switch and a new destination
+//! apply to running sessions. The bridge needs Node 20 or newer (or Bun); `CROK_AGENTO11Y_NODE`
+//! names one explicitly. It logs to `~/.crok/logs/agento11y.log`.
 
 #![deny(clippy::indexing_slicing)]
 
 mod bridge;
 mod node;
 pub mod settings;
+mod switch;
 
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
-use settings::{Settings, Source};
-
-/// Idle time after which the bridge is told to flush and exit; the next call starts a new one.
-const DEFAULT_IDLE: Duration = Duration::from_secs(300);
+use settings::Settings;
+use switch::{Followed, Switch};
+use xai_grok_config_types::Feature;
+use xai_grok_sampler::observe::{GenerationSink, ObservedCall};
 
 pub struct InstallOptions<'a> {
     /// crok's release version, sent as `gen_ai.agent.version` (the Performance view groups by it).
@@ -32,83 +35,41 @@ pub struct InstallOptions<'a> {
     pub surface: &'a str,
 }
 
-/// Turns recording on when it is configured. Returns what was set up, for the caller's log;
-/// `None` when it is off or cannot run (the reason is in the bridge log).
+/// Installs the sink that records while the switch is on and a destination is set. Returns what
+/// applies now, for the caller's log; `None` when crok has no home to read the settings from.
 pub fn install(options: InstallOptions<'_>) -> Option<String> {
     let home = xai_dirs::user_grok_home()?;
-    let environment = std::env::vars_os()
-        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)));
-    let settings = Settings::load(&home, environment)?;
     let log_path = home.join("logs").join("agento11y.log");
-    if settings.loose_permissions {
-        bridge::log_line(
-            &log_path,
-            &format!(
-                "{} can be read by other users; it holds a token: chmod 600 it",
-                home.join(settings::ENV_FILE_NAME).display()
-            ),
-        );
-    }
-    let explicit = settings
-        .get("CROK_AGENTO11Y_NODE")
-        .map(str::to_owned)
-        .or_else(|| std::env::var("CROK_AGENTO11Y_NODE").ok());
-    let Some(runtime) = node::find_runtime(
-        explicit.as_deref(),
-        std::env::var_os("PATH").as_deref(),
-        xai_dirs::home_dir().as_deref(),
-    ) else {
-        bridge::log_line(
-            &log_path,
-            "Agent Observability is configured but no Node.js was found: install Node 20+ or set CROK_AGENTO11Y_NODE",
-        );
-        return None;
-    };
-    let script = match bridge::write_script(&home) {
-        Ok(script) => script,
-        Err(err) => {
-            bridge::log_line(
-                &log_path,
-                &format!("could not write the bridge script: {err}"),
-            );
-            return None;
-        }
-    };
-    xai_grok_sampler::observe::set_surface(options.surface);
-    let status = format!(
-        "agento11y on: {}; bridge {} with {}",
-        settings.describe(),
-        script.display(),
-        runtime.display()
-    );
-    let idle = settings
-        .get("CROK_AGENTO11Y_IDLE_SECS")
-        .and_then(|secs| secs.parse().ok())
-        .map_or(DEFAULT_IDLE, Duration::from_secs);
-    let agent_name = settings
-        .get("AGENTO11Y_AGENT_NAME")
-        .unwrap_or("crok")
-        .to_owned();
-    let launch = bridge::Launch {
-        env: bridge_env(&settings, options.agent_version),
-        user_tags: settings
-            .get("AGENTO11Y_TAGS")
-            .unwrap_or_default()
-            .to_owned(),
-        replace_inherited: matches!(settings.source, Source::File(_)),
-        runtime,
-        script,
-        home,
-        log_path,
-    };
-    let sink = match bridge::start(launch, idle) {
-        Ok(sink) => sink,
+    let writer = match bridge::start(bridge::Base {
+        home: home.clone(),
+        log_path: log_path.clone(),
+        agent_version: options.agent_version.to_owned(),
+    }) {
+        Ok(writer) => writer,
         Err(err) => {
             tracing::warn!(%err, "could not start the agento11y writer thread");
             return None;
         }
     };
-    xai_grok_sampler::observe::install_sink(Arc::new(sink), &agent_name);
+    let reporter = Reporter {
+        switch: Switch::new(
+            xai_grok_config::user_config_file(&home),
+            xai_grok_config::env_bool(Feature::AgentObservability.env()),
+        ),
+        destination: Followed::new(home.join(settings::ENV_FILE_NAME)),
+        inherited: inherited_vars(),
+        home,
+        log_path,
+        writer,
+    };
+    xai_grok_sampler::observe::set_surface(options.surface);
+    let status = reporter.describe();
+    // Named once: a destination set up later keeps the name this process started with.
+    let agent_name = reporter
+        .destination()
+        .and_then(|settings| settings.get("AGENTO11Y_AGENT_NAME").map(str::to_owned))
+        .unwrap_or_default();
+    xai_grok_sampler::observe::install_sink(Arc::new(reporter), &agent_name);
     tracing::info!("{status}");
     Some(status)
 }
@@ -118,19 +79,156 @@ pub fn set_surface(surface: &str) {
     xai_grok_sampler::observe::set_surface(surface);
 }
 
-/// The bridge's variables: the settings and crok's version. `AGENTO11Y_TAGS` is added when the
-/// bridge starts, with the surface known by then ([`bridge::client_tags`]).
-fn bridge_env(
-    settings: &Settings,
-    agent_version: &str,
-) -> std::collections::BTreeMap<String, String> {
-    let mut env = settings.vars.clone();
-    env.remove("AGENTO11Y_TAGS");
-    if settings.get("AGENTO11Y_AGENT_VERSION").is_none() && !agent_version.is_empty() {
-        env.insert(
-            "AGENTO11Y_AGENT_VERSION".to_owned(),
-            agent_version.to_owned(),
-        );
+/// Where reports go with the settings as they are now, for a settings screen: the Agent
+/// Observability endpoint's host. `None` when no destination is set up.
+pub fn destination_host() -> Option<String> {
+    let home = xai_dirs::user_grok_home()?;
+    let settings = Settings::load(&home, inherited_vars())?;
+    settings.get("AGENTO11Y_ENDPOINT").map(endpoint_host)
+}
+
+/// The destination's settings file, `~/.crok/agento11y.env`.
+pub fn settings_file() -> Option<PathBuf> {
+    Some(xai_dirs::user_grok_home()?.join(settings::ENV_FILE_NAME))
+}
+
+/// The process's sink.
+struct Reporter {
+    switch: Switch,
+    /// The settings in `agento11y.env`, else from `inherited`; `None` while nothing is configured.
+    destination: Followed<Option<Arc<Settings>>>,
+    /// The `AGENTO11Y_*` / `OTEL_*` variables crok started with.
+    inherited: Vec<(String, String)>,
+    home: PathBuf,
+    log_path: PathBuf,
+    writer: bridge::Writer,
+}
+
+impl Reporter {
+    fn destination(&self) -> Option<Arc<Settings>> {
+        self.destination.get(|path| {
+            let settings = Settings::load(&self.home, self.inherited.iter().cloned())?;
+            if settings.loose_permissions {
+                bridge::log_line(
+                    &self.log_path,
+                    &format!(
+                        "{} can be read by other users; it holds a token: chmod 600 it",
+                        path.display()
+                    ),
+                );
+            }
+            Some(Arc::new(settings))
+        })
     }
-    env
+
+    fn describe(&self) -> String {
+        let switch = if self.switch.is_on() { "on" } else { "off" };
+        match self.destination() {
+            Some(settings) => format!("agento11y switch {switch}; {}", settings.describe()),
+            None => format!(
+                "agento11y switch {switch}; no destination ({} is missing)",
+                self.destination.path().display()
+            ),
+        }
+    }
+}
+
+impl GenerationSink for Reporter {
+    fn is_active(&self) -> bool {
+        self.switch.is_on() && self.destination().is_some()
+    }
+
+    fn record(&self, call: ObservedCall) {
+        // Switched off while the call ran: nothing more is sent.
+        if !self.switch.is_on() {
+            return;
+        }
+        if let Some(settings) = self.destination() {
+            self.writer.send(call, settings);
+        }
+    }
+}
+
+fn inherited_vars() -> Vec<(String, String)> {
+    std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .filter(|(key, _)| settings::is_bridge_var(key))
+        .collect()
+}
+
+/// `https://user:pass@host:443/path` → `host:443`: what a settings screen shows, never a credential.
+fn endpoint_host(endpoint: &str) -> String {
+    let rest = endpoint
+        .split_once("://")
+        .map_or(endpoint, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host)
+        .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::switch::tests::write;
+
+    #[test]
+    fn records_only_while_switched_on_and_a_destination_is_set() {
+        let home = tempfile::tempdir().unwrap();
+        let config = home.path().join("config.toml");
+        let env_file = home.path().join(settings::ENV_FILE_NAME);
+        let log_path = home.path().join("logs").join("agento11y.log");
+        let reporter = Reporter {
+            switch: Switch::following_user_file(config.clone(), None),
+            destination: Followed::new(env_file.clone()),
+            inherited: Vec::new(),
+            home: home.path().to_owned(),
+            log_path: log_path.clone(),
+            writer: bridge::start(bridge::Base {
+                home: home.path().to_owned(),
+                log_path,
+                agent_version: "test".to_owned(),
+            })
+            .unwrap(),
+        };
+        assert!(!reporter.is_active(), "off by default");
+        write(&config, "[features]\nagent_observability = true\n");
+        assert!(!reporter.is_active(), "on, but no destination yet");
+        assert!(reporter.describe().contains("no destination"));
+        write(&env_file, "AGENTO11Y_ENDPOINT=https://agento11y.example\n");
+        assert!(
+            reporter.is_active(),
+            "a destination set up later applies without a restart"
+        );
+        assert!(
+            reporter
+                .describe()
+                .starts_with("agento11y switch on; settings from")
+        );
+        write(
+            &env_file,
+            "AGENTO11Y_ENDPOINT=https://agento11y.example\nAGENTO11Y_ENABLED=false\n",
+        );
+        assert!(
+            !reporter.is_active(),
+            "the file's own kill switch still counts"
+        );
+        write(&env_file, "AGENTO11Y_ENDPOINT=https://agento11y.example\n");
+        write(&config, "[features]\nagent_observability = false\n");
+        assert!(!reporter.is_active());
+    }
+
+    #[test]
+    fn the_host_is_shown_without_scheme_path_or_credentials() {
+        assert_eq!(
+            endpoint_host("https://agento11y-prod-us-west-0.grafana.net"),
+            "agento11y-prod-us-west-0.grafana.net"
+        );
+        assert_eq!(
+            endpoint_host("http://user:glc_x@localhost:8080/api/v1?x=1"),
+            "localhost:8080"
+        );
+        assert_eq!(endpoint_host("agento11y.example/path"), "agento11y.example");
+    }
 }
