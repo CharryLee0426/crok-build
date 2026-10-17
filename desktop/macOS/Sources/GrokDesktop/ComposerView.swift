@@ -60,6 +60,11 @@ struct ComposerView: View {
     }
 
     private var optionsDisabled: Bool { store.run.isRunning || store.run.isConfiguring }
+    /// A task of another computer before its session has started there: that computer's models come with the session.
+    private var remoteNotStarted: Bool { store.remoteStartTarget != nil }
+    private var remoteModelsHelp: String {
+        L10n.t("remote_models_after_start", "{computer}'s models can be chosen once the task has started there.", ["computer": store.remoteStartTarget?.computer ?? ""])
+    }
     /// Native commands run at once, even mid-turn; prompts and harness commands wait in the queue.
     private var turnPolicy: DesktopCommands.TurnPolicy {
         guard let command = SlashCommand.split(store.draft) else { return .queue }
@@ -291,8 +296,8 @@ struct ComposerView: View {
             if store.run.models.isEmpty { Task { await store.prepareSessionOptions() } }
         } label: {
             ComposerControlLabel(title: selectedModelName, symbol: "cpu")
-        }.buttonStyle(ComposerControlStyle(filled: true)).disabled(optionsDisabled || store.project == nil)
-            .help("Model: \(selectedModelName)").accessibilityLabel("Model: \(selectedModelName)")
+        }.buttonStyle(ComposerControlStyle(filled: true)).disabled(optionsDisabled || store.project == nil || remoteNotStarted)
+            .help(remoteNotStarted ? remoteModelsHelp : "Model: \(selectedModelName)").accessibilityLabel("Model: \(selectedModelName)")
             .popover(isPresented: $showModels, arrowEdge: .top) { modelPopover }
     }
 
@@ -310,7 +315,7 @@ struct ComposerView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L10n.t("conversation_settings", "Conversation settings")).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted).padding(12)
                     compactOptionRow(L10n.t("model", "Model"), value: selectedModelName, symbol: "cpu", panel: .models)
-                        .disabled(optionsDisabled)
+                        .disabled(optionsDisabled || remoteNotStarted)
                     compactOptionRow(L10n.t("thinking", "Thinking"), value: reasoningName, symbol: "brain", panel: .reasoning)
                         .disabled(optionsDisabled || store.run.reasoningOptions.isEmpty)
                     Divider().padding(.vertical, 5)
@@ -398,7 +403,8 @@ struct ComposerView: View {
             ComposerControlLabel(title: reasoningName, symbol: "brain")
         }.buttonStyle(ComposerControlStyle()).fixedSize(horizontal: true, vertical: false)
             .disabled(optionsDisabled || store.run.reasoningOptions.isEmpty)
-            .help(store.run.reasoningOptions.isEmpty ? "This model does not offer an adjustable thinking level." : "Choose how much the model thinks before answering.")
+            .help(remoteNotStarted ? remoteModelsHelp
+                  : store.run.reasoningOptions.isEmpty ? "This model does not offer an adjustable thinking level." : "Choose how much the model thinks before answering.")
             .accessibilityLabel("Thinking level: \(reasoningName)")
             .popover(isPresented: $showReasoning, arrowEdge: .top) {
                 optionPopover(L10n.t("thinking_level", "Thinking level"), options: store.run.reasoningOptions, selected: store.run.reasoningID,

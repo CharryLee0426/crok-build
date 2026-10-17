@@ -517,6 +517,318 @@ LoggingHarness().run()
         XCTAssertEqual(store.banner, L10n.t("remote_answered_elsewhere", "Answered on another device."))
     }
 
+    // MARK: New tasks on other computers
+
+    private let newTaskComputers: [String: Any] = [
+        "signedIn": true,
+        "computers": [
+            ["deviceId": "d2", "deviceName": "Office PC", "online": true,
+             "projects": [
+                ["key": "d2:/w/api", "name": "api", "path": "/w/api", "sessions": []],
+                ["key": "d2:w/relative", "name": "relative", "path": "w/relative", "sessions": []],
+             ]],
+            ["deviceId": "fixture-offline", "deviceName": "Fixture PC", "online": true,
+             "projects": [["key": "fo:/w/site", "name": "site", "path": "/w/site", "sessions": []]]],
+            ["deviceId": "d3", "deviceName": "Studio", "online": false,
+             "projects": [["key": "d3:/w/app", "name": "app", "path": "/w/app", "sessions": []]]],
+        ],
+    ]
+
+    /// This Mac's own models, which a task of another computer must neither list nor replace.
+    private let localModels = [ModelOption(id: "fixture-grok-build", name: "Grok Build (fixture)"), ModelOption(id: "other-gpt", name: "This Mac's GPT")]
+
+    /// The fixture's background "remote host", as the app keeps one while signed in, and the other computers it lists.
+    private func remoteHost(for store: AppStore, executable: URL) async throws -> ACPClient {
+        let host = ACPClient()
+        try FileManager.default.createDirectory(atPath: store.remoteProject.path, withIntermediateDirectories: true)
+        try host.start(executable: executable.path, cwd: store.remoteProject.path)
+        let initial = try await store.initialize(host)
+        try await store.authenticate(host, initial: initial)
+        store.remoteHost = host
+        store.remoteHostReady = true
+        store.noteRemoteComputers(newTaskComputers)
+        return host
+    }
+
+    private func useLocalModels(_ store: AppStore) {
+        store.state.modelCatalog = localModels
+        store.state.selectedModelID = "fixture-grok-build"
+        store.catalogRun.models = localModels
+        store.catalogRun.modelID = "fixture-grok-build"
+    }
+
+    func testANewTaskOnAnotherComputerStartsThereAndPicksThatComputersModels() async throws {
+        let fixture = try harness()
+        let store = fixture.store
+        defer { store.shutdown() }
+        useLocalModels(store)
+        let localProject = try XCTUnwrap(store.project)
+        _ = try await remoteHost(for: store, executable: directory.appendingPathComponent("fixture-crok"))
+        let computer = try XCTUnwrap(store.remoteComputers.first { $0.deviceID == "d2" })
+
+        store.draft = "A draft of this Mac's"
+        store.newRemoteTask(on: computer, in: computer.projects[0])
+        let target = RemoteNewTask(deviceID: "d2", computer: "Office PC", path: "/w/api")
+        XCTAssertNil(store.conversation)
+        XCTAssertEqual(store.project?.id, RemoteSessions.projectID)
+        XCTAssertEqual(store.remoteStartTarget, target)
+        XCTAssertEqual(store.draftLocation, .remoteNewTask(target))
+        XCTAssertEqual(store.draft, "", "each new task has its own draft")
+        XCTAssertTrue(store.run.models.isEmpty, "this Mac's models are not that computer's")
+        XCTAssertNil(store.ensureConversation(title: "Panel"), "a panel does not start a session of this Mac's for it")
+
+        store.draft = "Add a health check"
+        store.send()
+        let task = try XCTUnwrap(store.conversation)
+        XCTAssertEqual(task.remote, RemoteTaskInfo(computer: "Office PC", deviceID: "d2", cwd: "/w/api"))
+        XCTAssertEqual(task.projectID, RemoteSessions.projectID)
+        XCTAssertEqual(task.title, "Add a health check")
+        XCTAssertEqual(task.messages.map(\.text), ["Add a health check"], "the prompt shows at once")
+        XCTAssertNil(task.modelID, "not this Mac's default")
+        XCTAssertTrue(store.run.isRunning)
+        XCTAssertEqual(store.draft, "")
+
+        try await eventually(timeout: 10) { store.conversation?.messages.contains { $0.kind == .assistant } == true && !store.run.isRunning }
+        let messages = try XCTUnwrap(store.conversation?.messages)
+        XCTAssertEqual(messages.filter { $0.kind == .user }.map(\.text), ["Add a health check"], "once, though the viewer announced it")
+        XCTAssertNil(messages.first?.remoteFrom, "typed here: no caption")
+        XCTAssertEqual(messages.last?.kind, .assistant)
+        XCTAssertEqual(store.conversation?.sessionID?.hasPrefix("relay:fixture-new-"), true)
+        XCTAssertEqual(store.run.phase, "Ready")
+        XCTAssertTrue(store.remoteTurns.isEmpty)
+        XCTAssertTrue(store.remoteFirstPrompts.isEmpty)
+        let methods = fixture.methods
+        XCTAssertEqual(methods.filter { $0 == "_x.ai/remote/new_session" }.count, 1)
+        XCTAssertTrue(methods.contains("session/load"))
+        XCTAssertFalse(methods.contains("session/new"), "no session of this Mac's own")
+        XCTAssertFalse(methods.contains("session/prompt"), "the computer runs the first prompt itself")
+        XCTAssertFalse(methods.contains("session/set_config_option"), "the session keeps the model it has there")
+
+        // That computer's models, kept apart from this Mac's.
+        XCTAssertEqual(store.run.models.map(\.id), ["other-claude", "other-gpt", "other-plain"])
+        XCTAssertEqual(store.run.modelID, "other-claude")
+        XCTAssertEqual(store.run.reasoningOptions.map(\.id), ["low", "medium", "high", "max"])
+        XCTAssertEqual(store.run.reasoningID, "medium")
+        XCTAssertEqual(store.modelOption("other-gpt")?.name, "GPT-5 (Office PC)", "named from that computer's list")
+        XCTAssertEqual(store.state.remoteModelCatalogs["d2"]?.map(\.id), ["other-claude", "other-gpt", "other-plain"])
+        XCTAssertEqual(store.state.modelCatalog, localModels)
+        XCTAssertEqual(store.catalogRun.models, localModels)
+
+        // Changed on another device: the pickers follow.
+        store.draft = "Switch it fixture:model-elsewhere"
+        store.send()
+        try await eventually { store.run.modelID == "other-gpt" && !store.run.isRunning }
+        XCTAssertEqual(store.run.reasoningID, "high")
+        XCTAssertEqual(store.run.reasoningOptions.map(\.id), ["low", "high"])
+        XCTAssertEqual(store.conversation?.modelID, "other-gpt")
+
+        // Picked here: that computer applies it.
+        let plain = try XCTUnwrap(store.run.models.first { $0.id == "other-plain" })
+        store.setModel(plain)
+        try await eventually { store.run.modelID == "other-plain" && !store.run.isConfiguring && !store.run.isRunning }
+        XCTAssertTrue(store.run.reasoningOptions.isEmpty, "that model has no thinking level there")
+        let claude = try XCTUnwrap(store.run.models.first { $0.id == "other-claude" })
+        store.setModel(claude)
+        try await eventually { store.run.modelID == "other-claude" && !store.run.isConfiguring && !store.run.isRunning }
+        let most = try XCTUnwrap(store.run.reasoningOptions.first { $0.id == "max" })
+        store.setReasoning(most)
+        try await eventually { store.run.reasoningID == "max" && !store.run.isConfiguring && !store.run.isRunning }
+        XCTAssertNil(store.banner)
+        XCTAssertEqual(store.conversation?.modelID, "other-claude")
+        XCTAssertEqual(store.conversation?.reasoningID, "max")
+        XCTAssertEqual(fixture.methods.filter { $0 == "session/set_config_option" }.count, 3)
+        // This Mac's catalog and defaults are as they were.
+        XCTAssertEqual(store.state.selectedModelID, "fixture-grok-build")
+        XCTAssertEqual(store.state.modelCatalog, localModels)
+        XCTAssertEqual(store.catalogRun.models, localModels)
+        XCTAssertEqual(store.catalogRun.modelID, "fixture-grok-build")
+
+        // ⌘N beside it starts another task on that computer, in the same folder.
+        store.newTask()
+        XCTAssertEqual(store.remoteStartTarget, target)
+        XCTAssertTrue(store.run.models.isEmpty)
+        // Back in a project of this Mac's, its own models.
+        store.selectProject(localProject.id)
+        XCTAssertNil(store.remoteStartTarget)
+        XCTAssertEqual(store.run.models, localModels)
+        XCTAssertEqual(store.modelOption("other-gpt")?.name, "This Mac's GPT")
+    }
+
+    func testAComputerThatStartedTheTaskFirstShowsThePromptOnceAndFinishesFromTheList() async throws {
+        let fixture = try harness()
+        let store = fixture.store
+        defer { store.shutdown() }
+        _ = try await remoteHost(for: store, executable: directory.appendingPathComponent("fixture-crok"))
+        let computer = try XCTUnwrap(store.remoteComputers.first { $0.deviceID == "d2" })
+        store.newRemoteTask(on: computer, in: computer.projects[0])
+        store.draft = "Quick one fixture:quick"
+        store.send()
+        try await eventually(timeout: 10) { store.conversation?.messages.contains { $0.kind == .assistant } == true && store.operations.isEmpty }
+        let id = try XCTUnwrap(store.state.selectedConversationID)
+        XCTAssertEqual(store.conversation?.messages.filter { $0.kind == .user }.count, 1, "the history had it already")
+        XCTAssertNil(store.remoteFirstPrompts[id])
+        // Nothing announced the turn: it runs until the list shows the session at rest.
+        XCTAssertTrue(store.run.isRunning)
+        XCTAssertEqual(store.remoteTurns[id], RemoteSessions.startingTurn)
+        let session = try XCTUnwrap(store.conversation?.sessionID)
+        func list(_ status: String, preview: String?) -> [String: Any] {
+            var entry: [String: Any] = ["sessionId": session, "title": "Quick one", "cwd": "/w/api", "status": status, "lastActivityAt": 1_792_000_000_000.0]
+            entry["preview"] = preview
+            return ["computers": [["deviceId": "d2", "deviceName": "Office PC", "online": true,
+                                   "projects": [["key": "d2:/w/api", "name": "api", "path": "/w/api", "sessions": [entry]]]]]]
+        }
+        store.noteRemoteComputers(list("idle", preview: nil))
+        XCTAssertTrue(store.run.isRunning, "idle before any reply: the computer has only just taken it")
+        store.noteRemoteComputers(list("running", preview: nil))
+        XCTAssertTrue(store.run.isRunning)
+        store.noteRemoteComputers(list("idle", preview: "Started on the other computer"))
+        XCTAssertFalse(store.run.isRunning)
+        XCTAssertEqual(store.run.phase, "Ready")
+        XCTAssertTrue(store.remoteTurns.isEmpty)
+    }
+
+    func testANewTaskThatCannotStartSaysWhyAndCanBeSentAgain() async throws {
+        let fixture = try harness()
+        let store = fixture.store
+        defer { store.shutdown() }
+        L10n.setLanguage(.en)
+        defer { L10n.setLanguage(.auto) }
+        _ = try await remoteHost(for: store, executable: directory.appendingPathComponent("fixture-crok"))
+
+        // The relay finds the computer offline though the list said otherwise.
+        let stale = try XCTUnwrap(store.remoteComputers.first { $0.deviceID == "fixture-offline" })
+        store.newRemoteTask(on: stale, in: stale.projects[0])
+        store.draft = "Deploy the site"
+        store.send()
+        try await eventually { store.run.phase == "Needs attention" && !store.run.isRunning }
+        let offline = "Fixture PC is offline: start crok or Crok Desktop there."
+        XCTAssertEqual(store.banner, offline)
+        XCTAssertEqual(store.conversation?.messages.last?.text, offline)
+        XCTAssertNil(store.conversation?.sessionID, "no session started")
+        XCTAssertEqual(store.remoteStartTarget, RemoteNewTask(deviceID: "fixture-offline", computer: "Fixture PC", path: "/w/site"))
+        XCTAssertTrue(store.remoteTurns.isEmpty)
+        // Sent again from the task, it asks the relay again.
+        store.draft = "Deploy the site, please"
+        store.send()
+        try await eventually { fixture.methods.filter { $0 == "_x.ai/remote/new_session" }.count == 2 && !store.run.isRunning }
+        XCTAssertEqual(store.state.conversations.count, 1, "the same task")
+        XCTAssertFalse(fixture.methods.contains("session/new"))
+
+        // A folder that is not a full path: the relay's reason.
+        let office = try XCTUnwrap(store.remoteComputers.first { $0.deviceID == "d2" })
+        store.newRemoteTask(on: office, in: office.projects[1])
+        store.draft = "Look around"
+        store.send()
+        try await eventually { store.run.phase == "Needs attention" && !store.run.isRunning }
+        XCTAssertEqual(store.banner, "Could not start the task on Office PC: Choose a folder on the computer (a full path).")
+        XCTAssertEqual(store.state.conversations.count, 2)
+    }
+
+    func testANewTaskWaitsForAComputerThatIsOnlineAndForTheRemoteHost() throws {
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
+        defer { store.shutdown() }
+        L10n.setLanguage(.en)
+        defer { L10n.setLanguage(.auto) }
+        let local = Project(path: directory.path)
+        store.state = DesktopState(projects: [local], selectedProjectID: local.id)
+        store.noteRemoteComputers(newTaskComputers)
+        let studio = try XCTUnwrap(store.remoteComputers.first { $0.deviceID == "d3" })
+        store.newRemoteTask(on: studio, in: studio.projects[0])
+        XCTAssertEqual(store.banner, "Studio is offline: start crok or Crok Desktop there.")
+        XCTAssertEqual(store.state.selectedProjectID, local.id, "nothing opened for an offline computer")
+        XCTAssertNil(store.remoteNewTask)
+
+        // Without the remote host nothing can start; the draft stays.
+        let office = try XCTUnwrap(store.remoteComputers.first { $0.deviceID == "d2" })
+        store.newRemoteTask(on: office, in: office.projects[0])
+        store.draft = "Hello there"
+        store.send()
+        XCTAssertEqual(store.banner, L10n.t("remote_new_task_no_host", "Remote control is not connected on this Mac. Check Settings › Remote control, then send again."))
+        XCTAssertTrue(store.state.conversations.isEmpty)
+        XCTAssertEqual(store.draft, "Hello there")
+        // The computer goes offline while the new task is open.
+        var payload = newTaskComputers
+        var computers = try XCTUnwrap(payload["computers"] as? [[String: Any]])
+        computers[0]["online"] = false
+        payload["computers"] = computers
+        store.noteRemoteComputers(payload)
+        store.banner = nil
+        store.send()
+        XCTAssertEqual(store.banner, "Office PC is offline: start crok or Crok Desktop there.")
+        XCTAssertTrue(store.state.conversations.isEmpty)
+        XCTAssertEqual(store.draft, "Hello there")
+
+        // A launch never comes back to a new task of another computer: its folder is not kept.
+        store.flush()
+        let relaunched = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
+        defer { relaunched.shutdown() }
+        XCTAssertEqual(relaunched.state.selectedProjectID, local.id)
+    }
+
+    func testAnotherComputersModelsStayApartFromThisMacsCatalog() async throws {
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
+        defer { store.shutdown() }
+        let local = Project(path: directory.path)
+        var remoteTask = Conversation(projectID: RemoteSessions.projectID, title: "Fix the login redirect", sessionID: "relay:k1", modelID: "other-gpt", reasoningID: "high")
+        remoteTask.remote = RemoteTaskInfo(computer: "Office PC", deviceID: "d2", cwd: "/w/api")
+        let localTask = Conversation(projectID: local.id, title: "Mine", sessionID: "s1")
+        store.state = DesktopState(projects: [local], conversations: [remoteTask, localTask], selectedProjectID: RemoteSessions.projectID,
+                                   selectedConversationID: remoteTask.id)
+        useLocalModels(store)
+
+        // Before its session loads it lists nothing of this Mac's, and names its model from that computer's last list.
+        XCTAssertTrue(store.run.models.isEmpty)
+        XCTAssertNil(store.modelOption("other-gpt"), "this Mac's model of the same id does not name it")
+        let remoteModels: [String: Any] = ["currentModelId": "other-gpt", "availableModels": [
+            ["modelId": "other-claude", "name": "Claude Opus (Office PC)", "_meta": ["supportsReasoningEffort": true, "reasoningEfforts": ["low", "max"], "reasoningEffort": "low"]],
+            ["modelId": "other-gpt", "name": "GPT-5 (Office PC)", "_meta": ["supportsReasoningEffort": true, "reasoningEfforts": ["low", "high"], "reasoningEffort": "high"]],
+        ]]
+        store.applyModels(remoteModels, id: remoteTask.id)
+        XCTAssertEqual(store.runs[remoteTask.id]?.models.map(\.id), ["other-claude", "other-gpt"])
+        XCTAssertEqual(store.state.modelCatalog, localModels, "this Mac's catalog is not replaced")
+        XCTAssertEqual(store.catalogRun.models, localModels)
+        XCTAssertEqual(store.state.remoteModelCatalogs["d2"]?.map(\.id), ["other-claude", "other-gpt"])
+        store.runs.removeValue(forKey: remoteTask.id)
+        XCTAssertEqual(store.run.models.map(\.id), ["other-claude", "other-gpt"], "that computer's last list")
+        XCTAssertEqual(store.run.modelID, "other-gpt")
+        XCTAssertEqual(store.run.reasoningOptions.map(\.id), ["low", "high"])
+        XCTAssertEqual(store.modelOption("other-gpt")?.name, "GPT-5 (Office PC)")
+        store.applyModels(remoteModels, id: remoteTask.id)
+
+        // Changed on another device, in either shape of the notification.
+        XCTAssertTrue(store.receiveRemote("x.ai/session_notification", params: ["sessionId": "relay:k1", "update": [
+            "sessionUpdate": "model_changed", "model_id": "other-claude", "reasoning_effort": "max"]], id: remoteTask.id))
+        XCTAssertEqual(store.runs[remoteTask.id]?.modelID, "other-claude")
+        XCTAssertEqual(store.runs[remoteTask.id]?.reasoningID, "max")
+        XCTAssertEqual(store.runs[remoteTask.id]?.reasoningOptions.map(\.id), ["low", "max"])
+        XCTAssertTrue(store.receiveRemote("x.ai/session_notification", params: ["params": ["sessionId": "relay:k1", "update": [
+            "sessionUpdate": "model_changed", "model_id": "other-gpt"]]], id: remoteTask.id))
+        XCTAssertEqual(store.runs[remoteTask.id]?.modelID, "other-gpt")
+        XCTAssertEqual(store.runs[remoteTask.id]?.reasoningID, "high", "the model's own level when none is named")
+        XCTAssertEqual(store.state.selectedModelID, "fixture-grok-build")
+        // A task of this Mac's takes its model changes through its configuration, as before.
+        XCTAssertFalse(store.receiveRemote("x.ai/session_notification", params: ["sessionId": "s1", "update": [
+            "sessionUpdate": "model_changed", "model_id": "other-claude"]], id: localTask.id))
+        XCTAssertNil(store.runs[localTask.id])
+
+        // A task of another computer that has not started there never opens a session here.
+        var unstarted = Conversation(projectID: RemoteSessions.projectID, title: "Not yet")
+        unstarted.remote = RemoteTaskInfo(computer: "Office PC", deviceID: "d2", cwd: "/w/api")
+        store.state.conversations.append(unstarted)
+        store.selectConversation(unstarted)
+        XCTAssertEqual(store.remoteStartTarget, RemoteNewTask(deviceID: "d2", computer: "Office PC", path: "/w/api"))
+        L10n.setLanguage(.en)
+        defer { L10n.setLanguage(.auto) }
+        let operation = store.beginOperation(unstarted.id, phase: "Connecting")
+        do {
+            _ = try await store.connect(id: unstarted.id, project: store.remoteProject, operationID: operation)
+            XCTFail("connected a task that has no session there")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "This task has not started on Office PC yet. Send a prompt to start it.")
+        }
+        XCTAssertNil(store.clients[unstarted.id])
+    }
+
     // MARK: Languages
 
     func testRemoteControlReadsInEveryLanguage() {
@@ -603,5 +915,123 @@ LoggingHarness().run()
             try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
                 .write(to: output.appendingPathComponent("remote-prompt-row-\(suffix)-\(look).png"))
         }
+    }
+
+    /// PNGs of the sidebar's other computers with their folders, and of a new task on one of them, written when
+    /// CROK_DESKTOP_SNAPSHOT_DIR is set (CROK_DESKTOP_SNAPSHOT_LANGUAGE picks the language).
+    func testSnapshotOtherComputersAndANewTaskThere() throws {
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_DIR"] else { throw XCTSkip("Set CROK_DESKTOP_SNAPSHOT_DIR to render snapshots") }
+        let output = URL(fileURLWithPath: path)
+        let language = AppLanguage.parse(ProcessInfo.processInfo.environment["CROK_DESKTOP_SNAPSHOT_LANGUAGE"] ?? "en")
+        L10n.setLanguage(language)
+        defer { L10n.setLanguage(.auto) }
+        let suffix = language == .auto ? "en" : language.configValue
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
+        defer { store.shutdown() }
+        let local = Project(path: directory.appendingPathComponent("crok-build").path)
+        store.state = DesktopState(projects: [local], conversations: [Conversation(projectID: local.id, title: "Tidy the release notes")],
+                                   selectedProjectID: local.id)
+        let now = Date().timeIntervalSince1970 * 1000
+        func session(_ id: String, _ title: String, minutesAgo: Double, status: String = "idle") -> [String: Any] {
+            ["sessionId": "relay:\(id)", "title": title, "cwd": "/w", "status": status, "lastActivityAt": now - minutesAgo * 60_000]
+        }
+        store.noteRemoteComputers(["computers": [
+            ["deviceId": "d2", "deviceName": "Office PC", "online": true, "projects": [
+                ["key": "d2:/w/api", "name": "api", "path": "/Users/charlie/w/api", "sessions": [
+                    session("k1", "Fix the login redirect", minutesAgo: 1, status: "running"),
+                    session("k2", "Add a health check", minutesAgo: 50),
+                    session("k3", "Bump the SDK", minutesAgo: 600),
+                    session("k4", "Rename the env vars", minutesAgo: 3000),
+                ]],
+                ["key": "d2:/w/web", "name": "web", "path": "/Users/charlie/w/web", "sessions": [session("k5", "Dark mode for the docs", minutesAgo: 90)]],
+            ]],
+            ["deviceId": "d3", "deviceName": "Studio", "online": false, "projects": [
+                ["key": "d3:/w/app", "name": "app", "path": "/Users/charlie/w/app", "sessions": [session("k6", "Profile the importer", minutesAgo: 9000)]],
+            ]],
+        ]])
+        let office = try XCTUnwrap(store.remoteComputers.first)
+        store.newRemoteTask(on: office, in: office.projects[1])
+        for (look, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            try SnapshotRenderer.write(SidebarView().desktopEnvironment(store).frame(width: 280, height: 760), size: CGSize(width: 280, height: 760),
+                                       appearance: appearance, to: output.appendingPathComponent("remote-sidebar-\(suffix)-\(look).png"))
+            try SnapshotRenderer.write(ConversationView().desktopEnvironment(store).frame(width: 760, height: 620), size: CGSize(width: 760, height: 620),
+                                       appearance: appearance, to: output.appendingPathComponent("remote-new-task-\(suffix)-\(look).png"))
+        }
+    }
+
+    /// The main window for real, kept under the desktop where nobody sees it (see `TranscriptWindowTests`): a new
+    /// task on another computer, the same task once that computer has run its first prompt, and after its model
+    /// was changed on another device. Runs with CROK_DESKTOP_WINDOW_SHOTS=<folder>, which receives the pictures.
+    func testWindowShotsOfANewTaskOnAnotherComputer() throws {
+        guard let path = ProcessInfo.processInfo.environment["CROK_DESKTOP_WINDOW_SHOTS"] else {
+            throw XCTSkip("Set CROK_DESKTOP_WINDOW_SHOTS=<folder> to draw the main window for real, under the desktop")
+        }
+        typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { throw XCTSkip("This macOS cannot picture a window by its number") }
+        let capture = unsafeBitCast(symbol, to: Capture.self)
+        let folder = URL(fileURLWithPath: path)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        L10n.setLanguage(.en)
+        defer { L10n.setLanguage(.auto) }
+        func spin(until predicate: () -> Bool = { false }, timeout: TimeInterval) {
+            let end = Date().addingTimeInterval(timeout)
+            while Date() < end && !predicate() { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        }
+
+        let fixture = try harness()
+        let store = fixture.store
+        defer { store.shutdown() }
+        useLocalModels(store)
+        let host = ACPClient()
+        try FileManager.default.createDirectory(atPath: store.remoteProject.path, withIntermediateDirectories: true)
+        try host.start(executable: directory.appendingPathComponent("fixture-crok").path, cwd: store.remoteProject.path)
+        Task { @MainActor in
+            let initial = try await store.initialize(host)
+            try await store.authenticate(host, initial: initial)
+            store.remoteHost = host
+            store.remoteHostReady = true
+        }
+        spin(until: { store.remoteHostReady }, timeout: 10)
+        XCTAssertTrue(store.remoteHostReady)
+        let now = Date().timeIntervalSince1970 * 1000
+        store.noteRemoteComputers(["computers": [
+            ["deviceId": "d2", "deviceName": "Office PC", "online": true, "projects": [
+                ["key": "d2:/w/api", "name": "api", "path": "/w/api", "sessions": [
+                    ["sessionId": "relay:k1", "title": "Fix the login redirect", "cwd": "/w/api", "status": "idle", "lastActivityAt": now - 3_600_000],
+                ]],
+                ["key": "d2:/w/web", "name": "web", "path": "/w/web", "sessions": []],
+            ]],
+            ["deviceId": "d3", "deviceName": "Studio", "online": false, "projects": [
+                ["key": "d3:/w/app", "name": "app", "path": "/w/app", "sessions": []],
+            ]],
+        ]])
+
+        let window = NSWindow(contentRect: NSRect(x: 60, y: 60, width: 1_240, height: 780), styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.ignoresMouseEvents = true
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) - 1)
+        window.contentView = NSHostingView(rootView: ContentView().desktopEnvironment(store))
+        defer { window.orderOut(nil); window.contentView = nil }
+        window.orderFrontRegardless()
+        func picture(_ name: String) throws {
+            spin(timeout: 0.8)
+            let image = try XCTUnwrap(capture(.null, 1 << 3, UInt32(window.windowNumber), 1)?.takeRetainedValue(), "the window server pictured the window")
+            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent(name + ".png"))
+        }
+
+        let office = try XCTUnwrap(store.remoteComputers.first)
+        store.newRemoteTask(on: office, in: office.projects[0])
+        try picture("remote-window-1-new-task")
+        store.draft = "Add a health check to the API"
+        store.send()
+        spin(until: { store.conversation?.messages.contains { $0.kind == .assistant } == true && !store.run.isRunning }, timeout: 10)
+        XCTAssertEqual(store.run.modelID, "other-claude")
+        XCTAssertEqual(store.conversation?.messages.filter { $0.kind == .user }.count, 1)
+        try picture("remote-window-2-started")
+        store.draft = "Switch models fixture:model-elsewhere"
+        store.send()
+        spin(until: { store.run.modelID == "other-gpt" && !store.run.isRunning }, timeout: 10)
+        XCTAssertEqual(store.run.reasoningID, "high")
+        try picture("remote-window-3-changed-elsewhere")
     }
 }

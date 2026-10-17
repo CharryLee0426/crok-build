@@ -78,12 +78,42 @@ struct RemoteTaskInfo: Codable, Equatable, Sendable {
     var cwd: String
 }
 
+/// Where a new task on another computer starts: that computer and one of its folders.
+struct RemoteNewTask: Hashable, Sendable {
+    var deviceID: String
+    var computer: String
+    var path: String
+    var folderName: String { URL(fileURLWithPath: path).lastPathComponent }
+}
+
 enum RemoteSessions {
     static let prefix = "relay:"
     /// The project every task from another computer belongs to. It is never listed with the projects.
     static let projectID = UUID(uuidString: "5E1A7E00-0000-4000-8000-0000000000C1")!
+    /// A new task's first turn, until the viewer names the prompt the computer runs it under.
+    static let startingTurn = "remote-starting"
 
     static func isRemote(_ sessionID: String?) -> Bool { sessionID?.hasPrefix(prefix) == true }
+
+    static func offline(_ computer: String) -> String {
+        L10n.t("remote_new_task_offline", "{computer} is offline: start crok or Crok Desktop there.", ["computer": computer])
+    }
+
+    /// Whether the viewer's announced prompt is the one a new task sent (the relay trims it).
+    static func samePrompt(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.trimmingCharacters(in: .whitespacesAndNewlines) == rhs.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The banner for a session that did not start on `computer`. The relay's `OFFLINE` gets the app's
+    /// own words; anything else (`INVALID`: not a full path, a prompt too long) keeps the relay's reason.
+    static func startFailure(_ error: Error, computer: String) -> String {
+        if case ACPClientError.remote(_, let message, let data) = error {
+            let code = (data as? [String: Any]).flatMap { RemoteAccount.text($0["code"]) }
+            // The viewer passes the relay's message on; its code only when it keeps one.
+            if code == "OFFLINE" || message.hasSuffix("is offline: start crok or Crok Desktop there.") { return offline(computer) }
+        }
+        return L10n.t("remote_new_task_failed", "Could not start the task on {computer}: {error}", ["computer": computer, "error": error.localizedDescription])
+    }
 }
 
 extension AppStore {
@@ -121,6 +151,160 @@ extension AppStore {
         state.conversations.insert(task, at: 0)
         DesktopLog.info("remote.open_session", session: entry.sessionID, ["computer": computer.name])
         selectConversation(task)
+    }
+
+    // MARK: New tasks on other computers
+
+    /// The computer and folder the task on screen starts in when its first prompt is sent: a new task
+    /// opened from the sidebar, or a task whose start there failed and so has no session yet.
+    var remoteStartTarget: RemoteNewTask? {
+        if let task = conversation {
+            guard let remote = task.remote, task.sessionID == nil else { return nil }
+            return RemoteNewTask(deviceID: remote.deviceID, computer: remote.computer, path: remote.cwd)
+        }
+        return state.selectedProjectID == RemoteSessions.projectID ? remoteNewTask : nil
+    }
+
+    /// Sidebar › Other computers › a folder › New task: an empty task whose first prompt starts a
+    /// session on that computer, in that folder.
+    func newRemoteTask(on computer: RemoteComputer, in project: RemoteProjectGroup) {
+        guard computer.online else { banner = RemoteSessions.offline(computer.name); return }
+        drafts[draftLocation] = draft
+        remoteNewTask = RemoteNewTask(deviceID: computer.deviceID, computer: computer.name, path: project.path)
+        state.selectedProjectID = RemoteSessions.projectID; state.selectedConversationID = nil
+        draft = drafts[draftLocation] ?? ""; search = ""; showArchived = false; selectedFile = nil; diffText = ""
+        workspace = GitWorkspaceSnapshot(branch: "", changes: [])
+        save()
+    }
+
+    /// Sends a new task's first prompt to another computer: `x.ai/remote/new_session` through the
+    /// remote host starts the session there, then the task opens it like any session of another
+    /// computer. The prompt shows here at once; the computer runs it, and the viewer reports its turn
+    /// (`x.ai/remote/prompt`, then `x.ai/session/prompt_complete`).
+    func startRemoteTask(_ prompt: String, sending text: String, target: RemoteNewTask, attachments: [PromptAttachment],
+                         draftLocation location: DraftLocation, clearsDraft: Bool) {
+        guard attachments.isEmpty else {
+            banner = L10n.t("remote_new_task_no_attachments", "Attachments cannot be sent to another computer. Remove them and send again."); return
+        }
+        if let computer = remoteComputers.first(where: { $0.deviceID == target.deviceID }), !computer.online {
+            banner = RemoteSessions.offline(computer.name); return
+        }
+        guard remoteHost != nil, remoteHostReady else {
+            banner = L10n.t("remote_new_task_no_host", "Remote control is not connected on this Mac. Check Settings › Remote control, then send again."); return
+        }
+        var id = state.selectedConversationID
+        if id == nil {
+            try? FileManager.default.createDirectory(atPath: remoteProject.path, withIntermediateDirectories: true)
+            var task = Conversation(projectID: RemoteSessions.projectID, title: String(prompt.prefix(64)))
+            task.remote = RemoteTaskInfo(computer: target.computer, deviceID: target.deviceID, cwd: target.path)
+            state.conversations.insert(task, at: 0); id = task.id; state.selectedConversationID = task.id
+        }
+        guard let id else { return }
+        let optimistic = Message(kind: .user, text: prompt, createdAt: Date())
+        append(optimistic, to: id)
+        if clearsDraft {
+            drafts.removeValue(forKey: location); drafts.removeValue(forKey: .conversation(id))
+            draft = ""
+        }
+        banner = nil
+        DesktopLog.info("remote.new_task", ["computer": target.computer, "task": id.uuidString])
+        let operationID = beginOperation(id, phase: "Starting")
+        operations[id] = Task {
+            defer { finishOperation(id, operationID: operationID) }
+            do {
+                let session = try await requestRemoteSession(target, text: text)
+                try checkOperation(id, operationID: operationID)
+                guard let index = state.conversations.firstIndex(where: { $0.id == id }) else { throw CancellationError() }
+                state.conversations[index].sessionID = session
+                save()
+                DesktopLog.info("remote.new_session", session: session, ["computer": target.computer, "task": id.uuidString])
+                // The computer runs the prompt; until the viewer names that turn, the end of any turn ends it.
+                remoteFirstPrompts[id] = text
+                remoteTurns[id] = RemoteSessions.startingTurn
+                pendingPrompts[id] = optimistic
+                runs[id]?.phase = "Working"
+                _ = try await connect(id: id, project: remoteProject, operationID: operationID)
+                try checkOperation(id, operationID: operationID)
+            } catch {
+                guard operationIDs[id] == operationID else { return }
+                if remoteTurns[id] == RemoteSessions.startingTurn { remoteTurns.removeValue(forKey: id) }
+                remoteFirstPrompts.removeValue(forKey: id)
+                let stopped = error is CancellationError || cancellationRequested.contains(id)
+                runs[id]?.phase = stopped ? "Stopped" : "Needs attention"
+                if !stopped {
+                    let message = RemoteSessions.startFailure(error, computer: target.computer)
+                    var context = DesktopLog.context(for: error)
+                    context["task"] = id.uuidString; context["computer"] = target.computer
+                    DesktopLog.error("remote.new_session_failed", session: task(id)?.sessionID, context)
+                    if state.selectedConversationID == id { banner = message }
+                    append(Message(kind: .system, text: message, createdAt: Date()), to: id)
+                }
+                discardConnection(id)
+            }
+        }
+    }
+
+    /// `x.ai/remote/new_session {deviceId, path, text}` through the remote host: the relay adds the
+    /// session at once and a crok of that computer picks it up. The answer is its `relay:` id.
+    func requestRemoteSession(_ target: RemoteNewTask, text: String) async throws -> String {
+        guard let client = remoteHost, remoteHostReady else {
+            throw DesktopError.message(L10n.t("remote_new_task_no_host", "Remote control is not connected on this Mac. Check Settings › Remote control, then send again."))
+        }
+        let response = try await client.request("_x.ai/remote/new_session", params: ["deviceId": target.deviceID, "path": target.path, "text": text], timeout: 45)
+        let payload = try ExtensionResponse.unwrap(response)
+        guard let session = RemoteAccount.text(payload["sessionId"]), RemoteSessions.isRemote(session) else {
+            throw DesktopError.message(L10n.t("remote_new_task_no_session", "The relay did not say which session it started. Try again."))
+        }
+        return session
+    }
+
+    /// A new task's first turn whose prompt the viewer never announced, because the computer had
+    /// started it before the task opened the session (it came with the history), ends when the list
+    /// of other computers shows the session at rest.
+    func settleStartingTurns(_ computers: [RemoteComputer]) {
+        let starting = remoteTurns.filter { $0.value == RemoteSessions.startingTurn }.map(\.key)
+        guard !starting.isEmpty else { return }
+        let entries = Dictionary(computers.flatMap(\.sessions).map { ($0.sessionID, $0) }, uniquingKeysWith: { first, _ in first })
+        for id in starting {
+            guard let session = task(id)?.sessionID, let entry = entries[session] else { continue }
+            // A session the computer has just taken may show idle for a moment before its prompt runs.
+            if entry.status == "error" || (entry.status == "idle" && entry.preview != nil) {
+                finishRemoteTurn(promptID: nil, stopReason: nil, id: id)
+            }
+        }
+    }
+
+    // MARK: Models of other computers
+
+    /// The computer whose models the composer lists: the task on screen's, or the one a new task
+    /// there starts on. Nil for this Mac's own tasks.
+    var selectedRemoteDeviceID: String? {
+        if let task = conversation { return task.remote?.deviceID }
+        return state.selectedProjectID == RemoteSessions.projectID ? remoteNewTask?.deviceID : nil
+    }
+
+    /// Keeps the models a computer offers, so its tasks name and list them before their session
+    /// loads next time. This Mac's own catalog is `rememberModelCatalog`'s.
+    func rememberRemoteModels(_ models: [ModelOption], deviceID: String) {
+        guard !models.isEmpty, state.remoteModelCatalogs[deviceID] != models else { return }
+        state.remoteModelCatalogs[deviceID] = models
+        save()
+    }
+
+    /// `model_changed` in a session of another computer: its model or thinking level was changed
+    /// elsewhere (on that computer, a phone, the web). The `config_option_update` that comes with it
+    /// carries the new choices. Returns whether it was one.
+    func applyRemoteModelChange(_ update: [String: Any], id: UUID) -> Bool {
+        guard update["sessionUpdate"] as? String == "model_changed", task(id)?.remote != nil,
+              let model = RemoteAccount.text(update["model_id"] ?? update["modelId"]) else { return false }
+        var run = runs[id, default: RunState()]
+        let option = run.models.first { $0.id == model }
+        if run.modelID != model { run.reasoningOptions = option?.reasoningOptions ?? [] }
+        run.modelID = model
+        run.reasoningID = RemoteAccount.text(update["reasoning_effort"] ?? update["reasoningEffort"]) ?? option?.defaultReasoningID ?? ""
+        runs[id] = run
+        if loaded.contains(id) { persistSessionOptions(id) }
+        return true
     }
 
     // MARK: The remote host
@@ -232,6 +416,7 @@ extension AppStore {
     func noteRemoteComputers(_ payload: [String: Any]) {
         let computers = RemoteComputer.list(payload)
         if computers != remoteComputers { remoteComputers = computers }
+        settleStartingTurns(computers)
     }
 
     /// `x.ai/remote/permission_resolved`: another device answered a request a task still shows.

@@ -2,8 +2,9 @@ import Foundation
 
 // The strings for remote control: Settings › Remote control (signing this Mac in to the relay, the
 // code to approve, the switch that shares its tasks, the link's state), the caption under a prompt
-// a phone or the web sent, the composer's sign that the link is up, and `/remote`. Words the app
-// already uses (Sign Out, Cancel, Connected) come from the other tables.
+// a phone or the web sent, the composer's sign that the link is up, `/remote`, and the other computers
+// in the sidebar with the new tasks started there. Words the app already uses (Sign Out, Cancel,
+// Connected, New Task) come from the other tables.
 extension L10n {
     // MARK: English
 
@@ -53,6 +54,16 @@ extension L10n {
         "remote_no_sessions": "No sessions",
         "remote_open_session_help": "Open this session of {computer}",
         "remote_answered_elsewhere": "Answered on another device.",
+        "remote_new_task_offline": "{computer} is offline: start crok or Crok Desktop there.",
+        "remote_new_task_failed": "Could not start the task on {computer}: {error}",
+        "remote_new_task_no_attachments": "Attachments cannot be sent to another computer. Remove them and send again.",
+        "remote_new_task_no_host": "Remote control is not connected on this Mac. Check Settings › Remote control, then send again.",
+        "remote_new_task_no_session": "The relay did not say which session it started. Try again.",
+        "remote_task_not_started": "This task has not started on {computer} yet. Send a prompt to start it.",
+        "remote_new_task_help": "New task in {folder} on {computer}",
+        "remote_new_task_where": "Runs on {computer}, in {path}",
+        "remote_new_task_detail": "Your first prompt starts this task on {computer}.",
+        "remote_models_after_start": "{computer}'s models can be chosen once the task has started there.",
     ]
 
     // MARK: Simplified Chinese
@@ -103,6 +114,16 @@ extension L10n {
         "remote_no_sessions": "没有会话",
         "remote_open_session_help": "打开 {computer} 上的这个会话",
         "remote_answered_elsewhere": "已在其他设备上回应。",
+        "remote_new_task_offline": "{computer} 已离线：请在那台电脑上启动 crok 或 Crok Desktop。",
+        "remote_new_task_failed": "无法在 {computer} 上开始任务：{error}",
+        "remote_new_task_no_attachments": "无法将附件发送到另一台电脑。请移除附件后重新发送。",
+        "remote_new_task_no_host": "这台 Mac 上的远程控制未连接。请检查“设置” › “远程控制”，然后重新发送。",
+        "remote_new_task_no_session": "中继没有说明它开始了哪个会话。请重试。",
+        "remote_task_not_started": "此任务尚未在 {computer} 上开始。发送提示即可开始。",
+        "remote_new_task_help": "在 {computer} 的 {folder} 中新建任务",
+        "remote_new_task_where": "在 {computer} 上运行，位于 {path}",
+        "remote_new_task_detail": "你的第一个提示会在 {computer} 上开始此任务。",
+        "remote_models_after_start": "任务在 {computer} 上开始后，即可选择它的模型。",
     ]
 
     // MARK: Japanese
@@ -153,6 +174,16 @@ extension L10n {
         "remote_no_sessions": "セッションはありません",
         "remote_open_session_help": "{computer} のこのセッションを開く",
         "remote_answered_elsewhere": "別のデバイスで回答されました。",
+        "remote_new_task_offline": "{computer} はオフラインです。そのコンピューターで crok または Crok Desktop を起動してください。",
+        "remote_new_task_failed": "{computer} でタスクを開始できませんでした: {error}",
+        "remote_new_task_no_attachments": "添付ファイルはほかのコンピューターに送信できません。削除してからもう一度送信してください。",
+        "remote_new_task_no_host": "この Mac のリモートコントロールが接続されていません。「設定」›「リモートコントロール」を確認してから、もう一度送信してください。",
+        "remote_new_task_no_session": "リレーから、開始したセッションが返されませんでした。もう一度お試しください。",
+        "remote_task_not_started": "このタスクはまだ {computer} で開始されていません。プロンプトを送ると開始します。",
+        "remote_new_task_help": "{computer} の {folder} で新規タスク",
+        "remote_new_task_where": "{computer} の {path} で実行",
+        "remote_new_task_detail": "最初のプロンプトで、このタスクが {computer} で開始されます。",
+        "remote_models_after_start": "{computer} のモデルは、タスクがそこで開始されてから選択できます。",
     ]
 
     // MARK: Spanish
@@ -203,6 +234,16 @@ extension L10n {
         "remote_no_sessions": "Sin sesiones",
         "remote_open_session_help": "Abrir esta sesión de {computer}",
         "remote_answered_elsewhere": "Respondido en otro dispositivo.",
+        "remote_new_task_offline": "{computer} está sin conexión: inicia crok o Crok Desktop allí.",
+        "remote_new_task_failed": "No se pudo iniciar la tarea en {computer}: {error}",
+        "remote_new_task_no_attachments": "No se pueden enviar archivos adjuntos a otro ordenador. Quítalos y vuelve a enviar.",
+        "remote_new_task_no_host": "El control remoto no está conectado en este Mac. Revisa Ajustes › Control remoto y vuelve a enviar.",
+        "remote_new_task_no_session": "El relé no indicó qué sesión inició. Inténtalo de nuevo.",
+        "remote_task_not_started": "Esta tarea aún no se ha iniciado en {computer}. Envía un prompt para iniciarla.",
+        "remote_new_task_help": "Nueva tarea en {folder} de {computer}",
+        "remote_new_task_where": "Se ejecuta en {computer}, en {path}",
+        "remote_new_task_detail": "Tu primer prompt inicia esta tarea en {computer}.",
+        "remote_models_after_start": "Podrás elegir los modelos de {computer} cuando la tarea se haya iniciado allí.",
     ]
 
     // MARK: French
@@ -253,6 +294,16 @@ extension L10n {
         "remote_no_sessions": "Aucune session",
         "remote_open_session_help": "Ouvrir cette session de {computer}",
         "remote_answered_elsewhere": "Répondu sur un autre appareil.",
+        "remote_new_task_offline": "{computer} est hors ligne : lancez crok ou Crok Desktop sur cet ordinateur.",
+        "remote_new_task_failed": "Impossible de démarrer la tâche sur {computer} : {error}",
+        "remote_new_task_no_attachments": "Les pièces jointes ne peuvent pas être envoyées à un autre ordinateur. Retirez-les et renvoyez.",
+        "remote_new_task_no_host": "Le contrôle à distance n'est pas connecté sur ce Mac. Vérifiez Réglages › Contrôle à distance, puis renvoyez.",
+        "remote_new_task_no_session": "Le relais n'a pas indiqué quelle session il a démarrée. Réessayez.",
+        "remote_task_not_started": "Cette tâche n'a pas encore démarré sur {computer}. Envoyez une invite pour la démarrer.",
+        "remote_new_task_help": "Nouvelle tâche dans {folder} sur {computer}",
+        "remote_new_task_where": "S'exécute sur {computer}, dans {path}",
+        "remote_new_task_detail": "Votre première invite démarre cette tâche sur {computer}.",
+        "remote_models_after_start": "Les modèles de {computer} pourront être choisis une fois la tâche démarrée là-bas.",
     ]
 
     // MARK: German
@@ -303,5 +354,15 @@ extension L10n {
         "remote_no_sessions": "Keine Sitzungen",
         "remote_open_session_help": "Diese Sitzung von {computer} öffnen",
         "remote_answered_elsewhere": "Auf einem anderen Gerät beantwortet.",
+        "remote_new_task_offline": "{computer} ist offline: Starte dort crok oder Crok Desktop.",
+        "remote_new_task_failed": "Die Aufgabe konnte auf {computer} nicht gestartet werden: {error}",
+        "remote_new_task_no_attachments": "Anhänge können nicht an einen anderen Computer gesendet werden. Entferne sie und sende erneut.",
+        "remote_new_task_no_host": "Die Fernsteuerung ist auf diesem Mac nicht verbunden. Prüfe Einstellungen › Fernsteuerung und sende dann erneut.",
+        "remote_new_task_no_session": "Das Relay hat nicht mitgeteilt, welche Sitzung es gestartet hat. Versuche es erneut.",
+        "remote_task_not_started": "Diese Aufgabe wurde auf {computer} noch nicht gestartet. Sende eine Eingabe, um sie zu starten.",
+        "remote_new_task_help": "Neue Aufgabe in {folder} auf {computer}",
+        "remote_new_task_where": "Läuft auf {computer}, in {path}",
+        "remote_new_task_detail": "Deine erste Eingabe startet diese Aufgabe auf {computer}.",
+        "remote_models_after_start": "Die Modelle von {computer} kannst du wählen, sobald die Aufgabe dort gestartet ist.",
     ]
 }

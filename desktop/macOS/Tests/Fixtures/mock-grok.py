@@ -23,7 +23,9 @@ The ordinary scenario streams Markdown, a plan, and a simulated tool result, and
 names any image or resource-link attachments it received. `fixture:remote` then runs a
 prompt "from a phone" the way the remote-control bridge does (see `remote_turn`),
 CROK_FIXTURE_REMOTE_STATUS reports the bridge's link, and `remote login|logout|status`
-stands in for `crok remote` (see `remote_cli`). Side questions
+stands in for `crok remote` (see `remote_cli`). Sessions of another computer (`relay:` ids) are
+served the way the remote-control viewer serves them: `_x.ai/remote/new_session` starts one, its
+load lists that computer's models, and its first prompt runs there (see `load_relay_session`). Side questions
 (`_x.ai/btw`), the command catalog, MCPs, skills, and goals are also simulated over ACP.
 """
 
@@ -103,6 +105,10 @@ class MockHarness:
         self.subagents = {}
         self.replayed_turns = {}
         self.replayed_usage = {}
+        # Another computer's choices, for `relay:` sessions: its own models, apart from this Mac's.
+        self.relay_model_id = "other-claude"
+        self.relay_reasoning_id = "medium"
+        self.relay_started = set()
 
     def commands(self):
         commands = [
@@ -557,6 +563,110 @@ Final paragraph.
             ]},
         }
 
+    RELAY_MODELS = [
+        {"modelId": "other-claude", "name": "Claude Opus (Office PC)", "efforts": ["low", "medium", "high", "max"]},
+        {"modelId": "other-gpt", "name": "GPT-5 (Office PC)", "efforts": ["low", "high"]},
+        {"modelId": "other-plain", "name": "Plain (Office PC)", "efforts": []},
+    ]
+
+    def relay_models(self):
+        """What the viewer's load returns as `models` for another computer's session."""
+        def entry(model):
+            meta = {"supportsReasoningEffort": bool(model["efforts"])}
+            if model["efforts"]:
+                meta.update({"reasoningEfforts": model["efforts"], "reasoningEffort": self.relay_reasoning_id if model["modelId"] == self.relay_model_id else "medium"})
+            return {"modelId": model["modelId"], "name": model["name"], "_meta": meta}
+        return {"currentModelId": self.relay_model_id, "availableModels": [entry(model) for model in self.RELAY_MODELS]}
+
+    def relay_config_options(self):
+        current = next(model for model in self.RELAY_MODELS if model["modelId"] == self.relay_model_id)
+        options = [{"id": "model", "type": "select", "currentValue": self.relay_model_id, "options": [
+            {"value": model["modelId"], "name": model["name"]} for model in self.RELAY_MODELS]}]
+        if current["efforts"]:
+            options.append({"id": "reasoning_effort", "type": "select", "currentValue": self.relay_reasoning_id, "options": [
+                {"value": value, "name": value.title()} for value in current["efforts"]]})
+        return options
+
+    def remote_new_session(self, request_id, params):
+        """`_x.ai/remote/new_session`: the relay adds the session at once; its id carries the prompt here, so the
+        harness that later loads it (another process) knows what that computer is running."""
+        text = (params.get("text") or "").strip()
+        if params.get("deviceId") == "fixture-offline":
+            self.error(request_id, -32603, "Fixture PC is offline: start crok or Crok Desktop there.")
+            return
+        if not os.path.isabs(params.get("path", "")):
+            self.error(request_id, -32603, "Choose a folder on the computer (a full path).")
+            return
+        encoded = base64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
+        self.result(request_id, {"sessionId": "relay:fixture-new-" + encoded})
+
+    @staticmethod
+    def relay_first_prompt(session_id):
+        encoded = session_id[len("relay:fixture-new-"):] if session_id.startswith("relay:fixture-new-") else ""
+        if not encoded:
+            return None
+        return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode()
+
+    def load_relay_session(self, request_id, params):
+        """`session/load` of another computer's session. A new session's first prompt runs there: it is announced
+        with `_x.ai/remote/prompt` (`fromKind` computer, no user-message echo), streams, and ends with
+        `_x.ai/session/prompt_complete`. With `fixture:quick` that computer started it before the load, so the
+        prompt and the reply come with the history and nothing announces the turn."""
+        session_id = params["sessionId"]
+        self.sessions.setdefault(session_id, {"sessionId": session_id, "cwd": params.get("cwd", ""), "title": "Remote task (fixture)", "updatedAt": "2026-10-16T12:00:00Z"})
+        first = self.relay_first_prompt(session_id)
+        answer = "Started on the other computer: this reply is **fixture** data."
+        if first and "fixture:quick" in first and session_id not in self.relay_started:
+            self.relay_started.add(session_id)
+            with self.state_lock:
+                self.history.setdefault(session_id, []).extend([
+                    {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": first}},
+                    {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": answer}},
+                ])
+        for update in list(self.history.get(session_id, [])):
+            self.emit({"method": "session/update", "params": {"sessionId": session_id, "update": update, "_meta": {"isReplay": True}}})
+        self.result(request_id, {"sessionId": session_id, "models": self.relay_models(), "configOptions": self.relay_config_options()})
+        if first and session_id not in self.relay_started:
+            self.relay_started.add(session_id)
+            threading.Thread(target=self.relay_first_turn, args=(session_id, first, answer), daemon=True).start()
+
+    def relay_first_turn(self, session_id, text, answer):
+        time.sleep(0.3)
+        prompt_id = "remote-fixture-create"
+        self.emit({"method": "_x.ai/remote/prompt", "params": {"sessionId": session_id, "promptId": prompt_id, "text": text, "from": "Fixture Mac", "fromKind": "computer"}})
+        with self.state_lock:
+            self.history.setdefault(session_id, []).append({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}})
+        if "fixture:remote-wait" in text:
+            time.sleep(30)
+        for offset in range(0, len(answer), 20):
+            time.sleep(0.02)
+            self.update(session_id, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": answer[offset:offset + 20]}})
+        self.emit({"method": "_x.ai/session/prompt_complete", "params": {"sessionId": session_id, "promptId": prompt_id, "stopReason": "end_turn"}})
+
+    def set_relay_config(self, request_id, params):
+        """`session/set_config_option` of another computer's session: that computer applies it and the new choices
+        come back."""
+        config_id, value = params.get("configId"), params.get("value")
+        option = next((item for item in self.relay_config_options() if item["id"] == config_id), None)
+        if option is None or value not in [choice["value"] for choice in option["options"]]:
+            self.error(request_id, -32602, "Unsupported setting on the other computer.")
+            return
+        if config_id == "model":
+            self.relay_model_id = value
+            efforts = next(model for model in self.RELAY_MODELS if model["modelId"] == value)["efforts"]
+            if self.relay_reasoning_id not in efforts:
+                self.relay_reasoning_id = efforts[0] if efforts else ""
+        else:
+            self.relay_reasoning_id = value
+        self.result(request_id, {"configOptions": self.relay_config_options()})
+
+    def relay_model_elsewhere(self, session_id):
+        """Another device changes the session's model: `model_changed`, then the new choices."""
+        self.relay_model_id, self.relay_reasoning_id = "other-gpt", "high"
+        self.emit({"method": "_x.ai/session_notification", "params": {"sessionId": session_id, "update": {
+            "sessionUpdate": "model_changed", "model_id": self.relay_model_id, "reasoning_effort": self.relay_reasoning_id}}})
+        self.update(session_id, {"sessionUpdate": "config_option_update", "configOptions": self.relay_config_options()}, remember=False)
+
     def ask(self, session_id, method, params, stop):
         with self.state_lock:
             self.reverse_sequence += 1
@@ -621,6 +731,10 @@ Final paragraph.
                 return
             if "fixture:error" in prompt:
                 self.error(request_id, -32000, "Offline fixture: a recoverable harness error.")
+                return
+            if "fixture:model-elsewhere" in prompt and session_id.startswith("relay:"):
+                self.relay_model_elsewhere(session_id)
+                finish("end_turn")
                 return
             # Like the harness, echo each prompt block so session/load replays attachments.
             for block in blocks:
@@ -794,6 +908,12 @@ Final paragraph.
                 stop.set()
         elif not self.authenticated:
             self.error(request_id, -32000, "Authenticate the offline fixture first.")
+        elif method == "_x.ai/remote/new_session":
+            self.remote_new_session(request_id, params)
+        elif method == "session/load" and str(params.get("sessionId", "")).startswith("relay:"):
+            self.load_relay_session(request_id, params)
+        elif method == "session/set_config_option" and str(params.get("sessionId", "")).startswith("relay:"):
+            self.set_relay_config(request_id, params)
         elif method == "_x.ai/models/list":
             self.result(request_id, {"result": self.models()})
         elif method == "_x.ai/commands/list":
