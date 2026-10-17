@@ -15,10 +15,13 @@ Apple silicon. On first launch, connect a model provider in **Settings › Accou
 sign in to OpenRouter or OpenAI Codex, or add a Claude API, DeepSeek or GLM Coding Plan API key.
 xAI accounts are not supported; Grok models are available through OpenRouter.
 
-The disk image is ad hoc signed and not notarized, so macOS blocks the first launch
-with a message that it cannot verify the app. Open **System Settings › Privacy &
-Security**, click **Open Anyway** beside the Crok Desktop message, and confirm.
-macOS remembers the choice.
+The app is signed with the project's own certificate, not an Apple Developer ID,
+and is not notarized, so macOS blocks the first launch with a message that it
+cannot verify the app. Open **System Settings › Privacy & Security**, click
+**Open Anyway** beside the Crok Desktop message, and confirm. macOS remembers the
+choice. Every version is signed with the same certificate, so the permissions you
+give Crok Desktop (Screen Recording and Accessibility for computer and phone use,
+the microphone for dictation) carry over to the next version.
 
 To use Crok Build in a terminal, turn on **Settings › Command line › `crok` command
 in Terminal**. It links `/usr/local/bin/crok` to the app's copy of the TUI, so
@@ -697,13 +700,19 @@ the app's signature, and runs its `crok` command. It refuses to run while anothe
 volume named "Crok Desktop" is mounted, because Finder lays out the window by
 volume name.
 
-The generated app and image are **ad hoc signed**, not Developer ID signed or
+The generated app and its `crok` are signed by the "Crok Code Signing" certificate
+that [`release/codesign.sh`](../../release/codesign.sh) makes on first use, in
+`~/.crok-codesign` (see [Releases and updates](../../release/README.md#the-code-signing-certificate)).
+macOS keeps privacy permissions for a signature's designated requirement, and with
+one certificate that requirement is the same for every build, so each build,
+version and test app keeps the permissions the user gave the one before (ad hoc
+signatures lost them on every build). The app is not Developer ID signed or
 notarized, so each Mac asks its user to approve the first launch (see
 [Install](#install)). Later versions arrive through **Check for Updates…** or
 `crok upgrade` (see [Updates](#updates)), which install a signed release without
 that question; the bundled `crok` command updates with the app. `SIGN_IDENTITY`
-selects the signing identity for the app and the image, but the scripts do not
-enable the hardened runtime or notarize. The build targets the architecture of
+selects another signing identity for the app and the image (`-` for ad hoc), but
+the scripts do not enable the hardened runtime or notarize. The build targets the architecture of
 the build machine: a disk image built on Apple silicon runs only on Apple silicon.
 
 ### Publishing a release

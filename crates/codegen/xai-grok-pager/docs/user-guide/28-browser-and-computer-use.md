@@ -56,6 +56,8 @@ The `computer` tool takes screenshots of the main display and moves the pointer,
 
 Grant them in **System Settings → Privacy & Security**. Crok Desktop shows both in **Settings → Browser and computer use**, with a button that asks macOS for whichever is missing.
 
+Every Crok Desktop version is signed with the same certificate, so these permissions carry over when it updates. In a terminal they belong to the terminal app, which a Crok update does not touch.
+
 A few things keep it predictable:
 
 - Screenshots are scaled to fit 1568 pixels on the long edge (about 1.15 megapixels). The model points in screenshot pixels, and Crok maps them back to the screen.
@@ -111,5 +113,6 @@ Every key is listed in the [Configuration Reference](26-config-reference.md).
 | The browser asks you to sign in again | Crok's browser has its own profile; sign in once in its window. |
 | Computer screenshots fail or show only the desktop | Grant Screen Recording to the app Crok runs in, then quit and reopen that app. |
 | Clicks and typing do nothing | Grant Accessibility to the app Crok runs in. |
+| System Settings shows Crok Desktop switched on, but Crok says it is not allowed | The permission was given to a differently signed copy (an ad hoc signed version before the update). Remove Crok Desktop from that list with **−**, then allow it again. |
 | "Computer use is in use by another Crok session" | Another session is using the computer; it frees up two minutes after that session's last action, or when it quits. |
 | The tools are missing after turning them on | They are read when a session starts: restart Crok, or start a new task in Crok Desktop. |

@@ -162,5 +162,5 @@ printf 'Built %s\n' "$dmg"
 printf '  Crok Desktop %s for %s, bundling %s\n' "$version" "$arch" "$bundled_version"
 printf '  %s, SHA-256 %s\n' "$(/usr/bin/du -h "$dmg" | /usr/bin/cut -f1 | /usr/bin/tr -d ' ')" "$(/usr/bin/shasum -a 256 "$dmg" | /usr/bin/cut -d ' ' -f1)"
 if [[ -z "${SIGN_IDENTITY:-}" || "$SIGN_IDENTITY" == "-" ]]; then
-    printf '  Ad hoc signed and not notarized: on first launch macOS asks users to allow it in System Settings > Privacy & Security.\n'
+    printf '  Not Developer ID signed or notarized: on first launch macOS asks users to allow it in System Settings > Privacy & Security.\n'
 fi

@@ -38,7 +38,7 @@ The switch is read when a session starts. In the terminal, restart Crok after ch
    - **Accessibility**, to tap and type into the mirroring window.
    - **Screen & System Audio Recording**, to see the phone's screen (it takes effect after that app restarts).
 
-   Crok asks macOS for both the first time it needs them. Crok Desktop shows both in **Settings → Phone use**, with a button that asks for whichever is missing.
+   Crok asks macOS for both the first time it needs them. Crok Desktop shows both in **Settings → Phone use**, with a button that asks for whichever is missing. They carry over when Crok Desktop updates, since every version is signed with the same certificate.
 
 From then on Crok opens iPhone Mirroring itself, presses its **Connect** button, and brings the window forward so you can watch. What only you can do:
 

@@ -7,7 +7,9 @@
 # The version is VERSION at the repository root; the tag is desktop-v<version>. The manifest is
 # signed with `ssh-keygen -Y sign` and the key in ~/.ssh/crok-release (SIGN_KEY), whose public half
 # is release/crok-release.pub, compiled into crok. `crok upgrade` and Check for Updates… refuse a
-# release whose manifest does not verify against it.
+# release whose manifest does not verify against it. The apps and crok are code signed by
+# release/codesign.sh, and nothing is published unless that is the certificate in
+# release/crok-codesign.pem, so macOS permissions carry over from the previous release.
 #
 # Options:
 #   --notes FILE     Release notes (English first, then the five translations; see the README).
@@ -20,6 +22,8 @@
 #   MACOS26_SDKROOT    SDK for the macOS 26 image (default: the toolchain's default SDK).
 #   MACOS15_SDKROOT    SDK for the macOS 15 image (default: the newest MacOSX15*.sdk in CommandLineTools).
 #   CARGO_TARGET_DIR   Passed to make (a worktree can reuse the main checkout's target).
+#   CROK_CODESIGN_DIR  The code signing identity's folder (default ~/.crok-codesign).
+#   SIGN_IDENTITY      Another code signing identity; it must still be release/crok-codesign.pem's.
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +40,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run) dry_run=1; shift ;;
         --skip-build) skip_build=1; shift ;;
         --allow-dirty) allow_dirty=1; shift ;;
-        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
         *) printf 'unknown option %s\n' "$1" >&2; exit 2 ;;
     esac
 done
@@ -78,9 +82,23 @@ if [[ "$dry_run" == 0 ]]; then
         fail "release $tag already exists on $github_repo"
     fi
 fi
-if ! security find-identity -v -p codesigning 2>/dev/null | grep -q 'Developer ID'; then
-    printf 'No Developer ID identity: the app and image will be ad hoc signed (SIGN_IDENTITY unset).\n'
+# Every release is signed by this certificate, so the permissions macOS gave one version (Screen
+# Recording, Accessibility, microphone) carry over to the next. A release signed by any other
+# would make every user allow them again.
+signer_pem="$repo/release/crok-codesign.pem"
+[[ -f "$signer_pem" ]] || fail "missing $signer_pem, the certificate releases are signed by"
+fingerprint() { /usr/bin/openssl x509 -noout -fingerprint -sha1 | cut -d = -f 2 | tr -d : | tr '[:upper:]' '[:lower:]'; }
+signer="$(fingerprint < "$signer_pem")"
+if [[ "$skip_build" == 0 && -z "${SIGN_IDENTITY:-}" ]]; then
+    local_signer="$({ release/codesign.sh --certificate 2>/dev/null || true; } | fingerprint 2>/dev/null || true)"
+    if [[ "$local_signer" != "$signer" ]]; then
+        fail "this Mac's Crok Code Signing identity (${CROK_CODESIGN_DIR:-~/.crok-codesign}) is not the certificate in release/crok-codesign.pem. Copy that folder from the Mac that has it (see release/README.md); replace the .pem only to change certificates on purpose."
+    fi
 fi
+check_signer() {
+    codesign --verify --strict -R="certificate leaf = H\"$signer\"" "$1" 2>/dev/null \
+        || fail "$1 is not signed by the certificate in release/crok-codesign.pem"
+}
 
 mkdir -p "$out"
 if [[ "$skip_build" == 0 ]]; then
@@ -123,9 +141,22 @@ if [[ "$skip_build" == 0 ]]; then
     trap 'rm -rf "$staging"' EXIT
     cp "$harness" "$staging/crok"
     chmod 755 "$staging/crok"
-    codesign --force --sign "${SIGN_IDENTITY:--}" "$staging/crok"
+    release/codesign.sh --identifier dev.chenli.crok "$staging/crok"
     tar -czf "$out/$tarball" -C "$staging" crok
 fi
+
+say "Checking the code signatures"
+for sdk in 26 15; do
+    app="$out/apps/macOS$sdk-SDK.app"
+    [[ -d "$app" ]] || fail "missing $app, the app inside the macOS $sdk SDK image"
+    check_signer "$app"
+    check_signer "$app/Contents/Resources/crok"
+done
+unpacked="$(mktemp -d "${TMPDIR:-/tmp}/crok-release-check.XXXXXX")"
+tar -xzf "$out/$tarball" -C "$unpacked" crok
+check_signer "$unpacked/crok"
+rm -rf "$unpacked"
+printf 'Signed by release/crok-codesign.pem (%s)\n' "$signer"
 
 say "Signing the manifest"
 cd "$out"
