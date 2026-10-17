@@ -242,4 +242,38 @@
     <string name="cd_clear">清除</string>
     <string name="cd_more_options">更多选项</string>
     <string name="cd_drag_to_reorder">拖动以调整顺序</string>
+
+    <!-- New sessions, composer commands (relay/DESIGN.md §5) -->
+    <string name="new_session_title">新会话</string>
+    <string name="new_session_subtitle">%1$s · %2$s</string>
+    <string name="new_session_starts_in">将在 %2$s 的 %1$s 中开始</string>
+    <string name="new_session_first_prompt">发送第一条提示词即可在那里开始会话。</string>
+    <string name="new_session_unavailable">不知道此会话所属的项目，因此 /new 无法在这里开始会话。</string>
+    <string name="session_starting">正在启动…</string>
+    <string name="sessions_new_session">新会话</string>
+    <string name="sessions_new_in_project">在 %1$s 中新建会话</string>
+    <string name="picker_title">在哪里开始会话…</string>
+    <string name="picker_empty">没有在线的电脑。在一台电脑上启动 crok 或 Crok Desktop，即可在那里开始会话。</string>
+    <string name="composer_menu">菜单</string>
+    <string name="composer_new_placeholder">给 %1$s 的第一条提示词…</string>
+    <string name="cmd_new">在此项目中开始新会话</string>
+    <string name="cmd_model">更换模型（在此会话所在的电脑上）</string>
+    <string name="cmd_think">更改思考级别</string>
+    <string name="cmd_stop">停止正在进行的回合</string>
+    <string name="cmd_info">会话信息</string>
+    <string name="cmd_hint_new">[提示词]</string>
+    <string name="cmd_hint_model">[名称]</string>
+    <string name="cmd_hint_think">[级别]</string>
+    <string name="bot_model_title">此会话的模型</string>
+    <string name="bot_think_title">此会话的思考级别</string>
+    <string name="bot_model_done">模型：%1$s ✓</string>
+    <string name="bot_think_done">思考级别：%1$s ✓</string>
+    <string name="bot_offline">%1$s 已离线，现在没有可选的项。</string>
+    <string name="bot_no_models">%1$s 还不提供模型选择——请在那台电脑上更新 crok。</string>
+    <string name="bot_no_thinking">当前模型没有思考级别。</string>
+    <string name="bot_no_match">没有与“%1$s”匹配的项。</string>
+    <string name="bot_ambiguous">“%1$s”匹配到多个选项。</string>
+    <string name="bot_failed">无法更改：%1$s</string>
+    <string name="bot_current">当前</string>
+    <string name="cd_compose">新会话</string>
 </resources>

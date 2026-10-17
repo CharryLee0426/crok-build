@@ -4,11 +4,15 @@ import dev.chenli.crok.mobile.data.ApproveResult
 import dev.chenli.crok.mobile.data.CommandDoc
 import dev.chenli.crok.mobile.data.CommandRef
 import dev.chenli.crok.mobile.data.CommandStatus
+import dev.chenli.crok.mobile.data.CommandType
+import dev.chenli.crok.mobile.data.ConfigId
+import dev.chenli.crok.mobile.data.CreateResult
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.EventKind
 import dev.chenli.crok.mobile.data.EventPage
 import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.Me
+import dev.chenli.crok.mobile.data.SessionCommands
 import dev.chenli.crok.mobile.data.SessionDetail
 import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.PendingLogin
@@ -29,6 +33,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -61,16 +66,26 @@ class DemoTransport(
     /** Requests the computer already took an answer for: later answers to them change nothing. */
     private val answered = HashSet<String>()
 
+    /** Bumped by [refreshAuth]: like Convex after a new token, every subscription answers again. */
+    private val identity = MutableStateFlow(0)
+
     override val connected: StateFlow<Boolean> = MutableStateFlow(true)
 
     override suspend fun authenticate(): Result<Unit> = Result.success(Unit)
+
+    override suspend fun refreshAuth(): Result<Unit> {
+        identity.update { it + 1 }
+        return Result.success(Unit)
+    }
 
     init {
         if (animate) finishStreamingReply()
     }
 
     override fun subscribe(name: String, args: Map<String, Any?>): Flow<Result<JsonElement>> =
-        state.map { current -> runCatching { answer(current, name, args) } }.distinctUntilChanged()
+        combine(state, identity) { current, version -> version to runCatching { answer(current, name, args) } }
+            .distinctUntilChanged()
+            .map { it.second }
 
     override suspend fun mutation(name: String, args: Map<String, Any?>): JsonElement {
         delay(if (animate) 150 else 0)
@@ -101,12 +116,24 @@ class DemoTransport(
             "sessions:get" -> {
                 val session = s.sessions.firstOrNull { it.id == args["sessionDocId"] }
                     ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such session.")
-                RelayJson.encodeToJsonElement(SessionDetail.serializer(), session.detail.copy(unread = session.unread))
+                val models = if (session.detail.deviceOnline) DemoData.modelsFor(session.detail.deviceId) else null
+                RelayJson.encodeToJsonElement(SessionDetail.serializer(), session.detail.copy(unread = session.unread, models = models))
+            }
+            "sessions:commands" -> {
+                val session = s.sessions.firstOrNull { it.id == args["sessionDocId"] }
+                    ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such session.")
+                // A session crok runs has its own list; one nobody runs gets its computer's last one; a fresh one none.
+                val commands = when {
+                    session.detail.starting -> SessionCommands()
+                    session.detail.online -> SessionCommands(DemoData.slashCommands, "session")
+                    else -> SessionCommands(DemoData.slashCommands, "computer")
+                }
+                RelayJson.encodeToJsonElement(SessionCommands.serializer(), commands)
             }
             "sessions:events" -> RelayJson.encodeToJsonElement(EventPage.serializer(), page(s, args))
             "commands:forSession" -> RelayJson.encodeToJsonElement(
                 ListSerializer(dev.chenli.crok.mobile.data.PromptCommand.serializer()),
-                s.commands.filter { it.sessionDocId == args["sessionDocId"] && it.type == "prompt" }
+                s.commands.filter { it.sessionDocId == args["sessionDocId"] && (it.type == CommandType.PROMPT || it.type == CommandType.CREATE) }
                     .sortedByDescending { it.createdAt }
                     .map { it.prompt() },
             )
@@ -195,6 +222,8 @@ class DemoTransport(
                 state.update { s -> s.copy(sessions = s.sessions.filterNot { it.id == sessionDocId }) }
             }
             "commands:sendPrompt" -> return sendPrompt(sessionDocId, args["text"] as? String ?: "", args["clientId"] as? String)
+            "sessions:create" -> return create(args["deviceId"] as? String, args["path"] as? String, args["text"] as? String, args["clientId"] as? String)
+            "commands:setConfig" -> return setConfig(sessionDocId, args["configId"] as? String, args["value"] as? String)
             "commands:stop" -> {
                 val session = session(sessionDocId)
                 val id = newCommand(session.id, "cancel", status = CommandStatus.DONE)
@@ -411,6 +440,117 @@ class DemoTransport(
         if (trimmed.isEmpty()) throw RelayException(RelayErrorCode.INVALID, "The prompt is empty.")
         val id = newCommand(sessionDocId!!, "prompt", trimmed, clientId)
         runPrompt(sessionDocId, id, trimmed)
+        return ref(id)
+    }
+
+    /**
+     * `sessions:create`: the session is listed at once (`starting`, its title from the prompt), with a `create` command;
+     * "the computer" opens it a moment later and runs the prompt like any other.
+     */
+    private fun create(deviceId: String?, path: String?, text: String?, clientId: String?): JsonElement {
+        val s = state.value
+        s.commands.firstOrNull { clientId != null && it.clientId == clientId && it.type == CommandType.CREATE }?.let {
+            return RelayJson.encodeToJsonElement(CreateResult.serializer(), CreateResult(it.sessionDocId, it.id))
+        }
+        val device = s.devices.firstOrNull { it.id == deviceId && it.isComputer }
+            ?: throw RelayException(RelayErrorCode.FORBIDDEN, "That is not one of your computers.")
+        if (path.isNullOrBlank() || !path.startsWith("/")) throw RelayException(RelayErrorCode.INVALID, "The folder must be an absolute path.")
+        if (!device.online) throw RelayException(RelayErrorCode.OFFLINE, "${device.name} is offline: start crok or Crok Desktop there.")
+        if (!DemoData.canCreate(device.id)) {
+            throw RelayException(RelayErrorCode.OFFLINE, "${device.name} runs an older crok that cannot start sessions from other devices: update crok there.")
+        }
+        val prompt = text?.trim()?.takeIf { it.isNotEmpty() }
+        val id = "demo-new-${UUID.randomUUID().toString().take(8)}"
+        val now = clock()
+        val project = s.sessions.firstOrNull { it.detail.deviceId == device.id && it.detail.projectPath == path }?.detail
+        val session = DemoSession(
+            SessionDetail(
+                id = id,
+                sessionId = "pending:$clientId",
+                title = prompt?.lineSequence()?.firstOrNull()?.take(80) ?: "New session",
+                cwd = path,
+                model = DemoData.modelsFor(device.id)?.firstOrNull()?.id,
+                effort = DemoData.modelsFor(device.id)?.firstOrNull()?.defaultEffort,
+                status = if (prompt != null) SessionStatus.RUNNING else SessionStatus.IDLE,
+                online = false,
+                app = "desktop",
+                deviceId = device.id,
+                deviceName = device.name,
+                devicePlatform = device.platform,
+                deviceOnline = true,
+                createdAt = now,
+                lastActivityAt = now,
+                projectKey = "${device.id}:$path",
+                projectPath = path,
+                projectName = project?.projectName ?: path.trimEnd('/').substringAfterLast('/'),
+                historyState = HistoryState.READY,
+                starting = true,
+            ),
+            preview = null,
+            previewKind = null,
+            unread = 0,
+        )
+        val commandId = "demo-cmd-${UUID.randomUUID()}"
+        state.update { st ->
+            st.copy(
+                sessions = st.sessions + session,
+                commands = st.commands + DemoCommand(commandId, id, CommandType.CREATE, prompt.orEmpty(), clientId, createdAt = now),
+            )
+        }
+        val open = suspend {
+            updateSession(id) {
+                it.copy(detail = it.detail.copy(starting = false, online = true, sessionId = "0199e2e0-0000-7000-8000-${id.takeLast(8).padStart(12, '0')}"))
+            }
+            if (prompt == null) {
+                updateCommand(commandId) { it.copy(status = CommandStatus.DONE, updatedAt = clock()) }
+            }
+        }
+        if (animate) {
+            scope.launch {
+                delay(1_200)
+                open()
+                if (prompt != null) runPrompt(id, commandId, prompt)
+            }
+        }
+        return RelayJson.encodeToJsonElement(CreateResult.serializer(), CreateResult(id, commandId))
+    }
+
+    /** `commands:setConfig`: checked against the computer's models, applied by "the computer" a moment later. */
+    private fun setConfig(sessionDocId: String?, configId: String?, value: String?): JsonElement {
+        val session = requireReachable(sessionDocId)
+        val models = DemoData.modelsFor(session.detail.deviceId)
+            ?: throw RelayException(RelayErrorCode.OFFLINE, "${session.detail.deviceName} runs an older crok that cannot change models from other devices: update crok there.")
+        val detail = session.detail
+        val (model, effort) = when (configId) {
+            ConfigId.MODEL -> {
+                val choice = models.firstOrNull { it.id == value } ?: throw RelayException(RelayErrorCode.INVALID, "No such model: $value")
+                val keep = choice.efforts.firstOrNull { it.level == detail.effort }
+                choice.id to (keep ?: choice.efforts.firstOrNull { it.id == choice.defaultEffort })?.level
+            }
+            ConfigId.EFFORT -> {
+                val current = models.firstOrNull { it.id == detail.model } ?: throw RelayException(RelayErrorCode.INVALID, "This model has no thinking levels.")
+                val choice = current.efforts.firstOrNull { it.id == value } ?: throw RelayException(RelayErrorCode.INVALID, "No such thinking level: $value")
+                current.id to choice.level
+            }
+            else -> throw RelayException(RelayErrorCode.INVALID, "Unknown setting: $configId")
+        }
+        val id = newCommand(session.id, CommandType.CONFIG, text = value.orEmpty())
+        val apply = {
+            updateSession(session.id) { it.copy(detail = it.detail.copy(model = model, effort = effort, online = true)) }
+            val result = buildJsonObject {
+                put("model", model)
+                effort?.let { put("effort", it) }
+            }
+            updateCommand(id) { it.copy(status = CommandStatus.DONE, result = result, updatedAt = clock()) }
+        }
+        if (animate) {
+            scope.launch {
+                delay(800)
+                apply()
+            }
+        } else {
+            apply()
+        }
         return ref(id)
     }
 

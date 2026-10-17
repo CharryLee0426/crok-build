@@ -8,7 +8,6 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.chenli.crok.mobile.auth.AuthController
 import dev.chenli.crok.mobile.auth.AuthEffect
 import dev.chenli.crok.mobile.auth.AuthState
-import dev.chenli.crok.mobile.auth.DeviceAuthProvider
 import dev.chenli.crok.mobile.auth.TokenManager
 import dev.chenli.crok.mobile.data.AppSettings
 import dev.chenli.crok.mobile.data.ConvexHttpApi
@@ -83,9 +82,17 @@ class AppViewModel(private val graph: AppGraph) : ViewModel() {
                 onTokens = { token, expiresAt -> viewModelScope.launch { auth.saveTokens(token, expiresAt) } },
                 onRevoked = { viewModelScope.launch { auth.onRevoked() } },
             )
-            val transport = ConvexTransport(credentials.serverUrl, DeviceAuthProvider(tokens), graph.context)
             tokens.start()
-            CrokEngine(credentials, isDemo = false, transport = transport, network = graph.network.available, cache = graph.sessionCache)
+            CrokEngine(
+                account = credentials,
+                isDemo = false,
+                // A new Convex client each time the engine replaces a dead one; all of them share the token manager.
+                connect = { ConvexTransport(credentials.serverUrl, tokens) },
+                network = graph.network.available,
+                cache = graph.sessionCache,
+                networkChanges = graph.network.changes,
+                foreground = graph.foreground.inFront,
+            )
         }
         engine.start()
         engine.scope.launch {

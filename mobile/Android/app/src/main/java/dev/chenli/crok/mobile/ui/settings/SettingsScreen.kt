@@ -1,5 +1,7 @@
 package dev.chenli.crok.mobile.ui.settings
 
+import dev.chenli.crok.mobile.ui.common.GlassScaffold
+import dev.chenli.crok.mobile.ui.common.glassBarColors
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -8,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,13 +20,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -129,22 +128,21 @@ fun SettingsScreen(viewModel: SettingsViewModel, theme: ThemeMode, actions: Sett
 fun SettingsContent(state: SettingsUiState, theme: ThemeMode, actions: SettingsActions) {
     val colors = CrokTheme.colors
     var confirmSignOut by remember { mutableStateOf(false) }
-    Scaffold(
-        containerColor = colors.grouped,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    GlassScaffold(
+        background = colors.grouped,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_title)) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.grouped),
+                colors = glassBarColors(),
             )
         },
     ) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = 24.dp),
+                // Inside the scroll: the rows scroll up under the glass bars.
+                .padding(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp),
         ) {
             // Account
             Row(

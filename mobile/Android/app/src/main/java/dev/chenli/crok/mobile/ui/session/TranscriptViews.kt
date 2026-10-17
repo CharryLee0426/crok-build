@@ -38,6 +38,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
@@ -61,6 +62,15 @@ data class TranscriptActions(
     val onCopy: (String) -> Unit = {},
     val onRetry: (TranscriptItem.User) -> Unit = {},
     val onDelete: (TranscriptItem.User) -> Unit = {},
+    /** A bot card's button (`cardId`, the choice's id). */
+    val onApplyConfig: (String, String) -> Unit = { _, _ -> },
+)
+
+/** What a bot card shows its choices from: the session's models and its computer. */
+data class BotContext(
+    val models: ModelState = ModelState(),
+    val deviceName: String = "",
+    val deviceOnline: Boolean = false,
 )
 
 private fun outShape(grouping: Grouping) = RoundedCornerShape(
@@ -80,8 +90,9 @@ private fun inShape(grouping: Grouping) = RoundedCornerShape(
 private fun Modifier.groupSpacing(grouping: Grouping) = padding(top = if (grouping.withOlder) 2.dp else 10.dp)
 
 @Composable
-fun TranscriptRow(item: TranscriptItem, now: Long, actions: TranscriptActions) {
+fun TranscriptRow(item: TranscriptItem, now: Long, actions: TranscriptActions, bot: BotContext = BotContext()) {
     when (item) {
+        is TranscriptItem.Bot -> BotCardRow(item.card, bot, actions.onApplyConfig)
         is TranscriptItem.Day -> DayHeader(item, now)
         is TranscriptItem.User -> UserBubble(item, actions)
         is TranscriptItem.Assistant -> AssistantBubble(item, actions)
@@ -143,14 +154,16 @@ private fun UserBubble(item: TranscriptItem.User, actions: TranscriptActions) {
                     .padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 6.dp),
                 horizontalAlignment = Alignment.End,
             ) {
-                Text(item.text, style = MaterialTheme.typography.bodyLarge, color = colors.textPrimary, modifier = Modifier.align(Alignment.Start))
+                Text(item.text, style = MaterialTheme.typography.bodyLarge, color = colors.onBubbleOut, modifier = Modifier.align(Alignment.Start))
+                // Time and label on the bubble: muted ordinary text on light blue, translucent white on dark blue.
+                val meta = if (colors.isDark) colors.onBubbleOut.copy(alpha = 0.6f) else colors.textTertiary
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (item.remote && item.fromLabel != null) {
-                        Icon(CrokIcons.Phone, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(12.dp))
-                        Text(stringResource(R.string.message_from, item.fromLabel), fontSize = 12.sp, color = colors.textTertiary, maxLines = 1)
+                        Icon(CrokIcons.Phone, contentDescription = null, tint = meta, modifier = Modifier.size(12.dp))
+                        Text(stringResource(R.string.message_from, item.fromLabel), fontSize = 12.sp, color = meta, maxLines = 1)
                         Spacer(Modifier.width(2.dp))
                     }
-                    Text(formatter.time(item.at), fontSize = 12.sp, color = colors.textTertiary)
+                    Text(formatter.time(item.at), fontSize = 12.sp, color = meta)
                     item.tick?.let { TickIcon(it) }
                 }
             }
@@ -169,10 +182,13 @@ private fun UserBubble(item: TranscriptItem.User, actions: TranscriptActions) {
 @Composable
 private fun TickIcon(tick: Tick) {
     val colors = CrokTheme.colors
+    // Accent ticks on the light bubble; on the dark blue one the accent would vanish, so a light blue-white.
+    val check = if (colors.isDark) Color(0xFFB8D8FF) else colors.accent
+    val clock = if (colors.isDark) colors.onBubbleOut.copy(alpha = 0.6f) else colors.textTertiary
     val (icon, tint, label) = when (tick) {
-        Tick.Clock -> Triple(CrokIcons.Clock, colors.textTertiary, R.string.tick_clock)
-        Tick.Sent -> Triple(CrokIcons.Check, colors.accent, R.string.tick_sent)
-        Tick.Done -> Triple(CrokIcons.DoneAll, colors.accent, R.string.tick_done)
+        Tick.Clock -> Triple(CrokIcons.Clock, clock, R.string.tick_clock)
+        Tick.Sent -> Triple(CrokIcons.Check, check, R.string.tick_sent)
+        Tick.Done -> Triple(CrokIcons.DoneAll, check, R.string.tick_done)
         Tick.Failed -> Triple(CrokIcons.Error, colors.danger, R.string.tick_failed)
     }
     Icon(icon, contentDescription = stringResource(label), tint = tint, modifier = Modifier.size(15.dp))

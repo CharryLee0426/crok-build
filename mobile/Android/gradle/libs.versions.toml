@@ -14,6 +14,11 @@ coroutines = "1.11.0"
 # The official Convex Android client. It ships JNA 5.14.0, which crashes on 16 KB page devices; jna below forces the fix.
 convex = "0.8.0"
 jna = "5.19.1"
+# Kyant's Liquid Glass for Compose (backdrop blur, lens refraction, rim highlight). 1.0.x is the Android-only line built
+# on Compose 1.10; 2.x moved to Compose Multiplatform 1.12, which needs compileSdk 37 like the AndroidX releases above.
+backdrop = "1.0.6"
+# Its continuous-corner ("squircle") shapes, which the glass refracts along; the version backdrop 1.0.6 is built with.
+kyantShapes = "1.2.0"
 junit = "4.13.2"
 robolectric = "4.17"
 roborazzi = "1.76.0"
@@ -36,6 +41,8 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
+backdrop = { module = "io.github.kyant0:backdrop", version.ref = "backdrop" }
+kyant-shapes = { module = "io.github.kyant0:shapes", version.ref = "kyantShapes" }
 gms-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }

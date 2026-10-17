@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Build
 import android.provider.Settings
+import androidx.lifecycle.ProcessLifecycleOwner
 import dev.chenli.crok.mobile.auth.AuthStore
 import dev.chenli.crok.mobile.auth.DeviceInfo
 import dev.chenli.crok.mobile.data.CollapsedProjectsStore
@@ -14,6 +15,7 @@ import dev.chenli.crok.mobile.data.KeystoreSecretBox
 import dev.chenli.crok.mobile.data.PrefsKeyValueStore
 import dev.chenli.crok.mobile.data.SessionListCache
 import dev.chenli.crok.mobile.data.SettingsStore
+import dev.chenli.crok.mobile.engine.AppForeground
 import dev.chenli.crok.mobile.engine.NetworkMonitor
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +24,11 @@ import kotlinx.coroutines.SupervisorJob
 
 class CrokApplication : Application() {
     val graph: AppGraph by lazy { AppGraph(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        graph.foreground.observe(ProcessLifecycleOwner.get().lifecycle)
+    }
 }
 
 /** The app's long-lived objects; screens reach the per-account ones through the CrokEngine instead. */
@@ -33,6 +40,9 @@ class AppGraph(val context: Context) {
     val sessionCache = SessionListCache(File(context.filesDir, "session-cache"))
     val collapsedProjects = CollapsedProjectsStore(PrefsKeyValueStore(context, "crok_list"))
     val network by lazy { NetworkMonitor(context, appScope) }
+
+    /** Whether the app is in front: coming back to it checks the relay connection. */
+    val foreground = AppForeground()
     val apiFactory: DeviceAuthApiFactory = HttpDeviceAuthApi.Factory
 
     /** The relay this build signs in to (`RELAY_URL` in app/build.gradle.kts; `-PcrokRelayUrl` for development). */

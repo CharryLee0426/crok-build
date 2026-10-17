@@ -309,7 +309,7 @@ class TokenManagerTest {
         val pushed = mutableListOf<String?>()
         val saved = mutableListOf<String>()
         val tokens = TokenManager(api, credentials, backgroundScope, { testScheduler.currentTime }, onTokens = { t, _ -> saved += t })
-        tokens.listener = { pushed += it }
+        tokens.addListener { pushed += it }
         tokens.start()
         advanceTimeBy(3_600_000 - 5 * 60_000 - 1_000)
         assertTrue(pushed.isEmpty())
@@ -325,12 +325,62 @@ class TokenManagerTest {
         var revoked = false
         val pushed = mutableListOf<String?>()
         val tokens = TokenManager(api, credentials, backgroundScope, { testScheduler.currentTime }, onRevoked = { revoked = true })
-        tokens.listener = { pushed += it }
+        tokens.addListener { pushed += it }
         val result = tokens.token(force = true)
         assertTrue(result.isFailure)
         assertTrue(revoked)
         assertEquals(listOf<String?>(null), pushed)
         assertNotNull(result.exceptionOrNull() as? RelayException)
+    }
+
+    /**
+     * The bug behind "the app loses the connection and shows no sessions until it is killed": the Convex client asks for
+     * a forced refresh on every reconnect and caches what it gets — a null after a failed refresh (the network not back
+     * yet after the phone woke up) made it reconnect without a user, for good. A token that is still valid is kept.
+     */
+    @Test
+    fun aFailedRefreshOnReconnectKeepsTheStillValidToken() = runTest {
+        var down = true
+        val api = FakeApi().apply {
+            refreshAnswer = {
+                if (down) throw RelayNetworkException("Unable to resolve host")
+                RefreshResult("dev-1", "jwt-${++refreshes}", testScheduler.currentTime + 3_600_000)
+            }
+        }
+        val tokens = TokenManager(api, credentials, backgroundScope, { testScheduler.currentTime })
+        assertEquals("jwt-0", tokens.token(force = true).getOrThrow())
+        // An explicit refresh reports the failure, so the engine knows the socket did not get a new token.
+        assertTrue(tokens.refresh().isFailure)
+        down = false
+        assertEquals("jwt-1", tokens.token(force = true).getOrThrow())
+    }
+
+    @Test
+    fun anExpiredTokenIsNotHandedOutWhenTheRefreshFails() = runTest {
+        val api = FakeApi().apply { refreshAnswer = { throw RelayNetworkException("down") } }
+        val tokens = TokenManager(api, credentials.copy(accessTokenExpiresAt = 10_000), backgroundScope, { testScheduler.currentTime })
+        advanceTimeBy(20_000)
+        assertTrue(tokens.token(force = true).isFailure)
+        assertNull(tokens.currentToken())
+    }
+
+    @Test
+    fun aClosedProviderNoLongerTakesTokens() = runTest {
+        val api = FakeApi().apply { refreshAnswer = { RefreshResult("dev-1", "jwt-${++refreshes}", testScheduler.currentTime + 600_000) } }
+        val tokens = TokenManager(api, credentials.copy(accessTokenExpiresAt = 0), backgroundScope, { testScheduler.currentTime })
+        val old = DeviceAuthProvider(tokens)
+        val new = DeviceAuthProvider(tokens)
+        val toOld = mutableListOf<String?>()
+        val toNew = mutableListOf<String?>()
+        old.loginFromCache { toOld += it }
+        new.loginFromCache { toNew += it }
+        // The engine replaced the old client: its provider is closed and must not take the next token.
+        old.close()
+        tokens.start()
+        advanceTimeBy(600_000)
+        assertTrue(toOld.isEmpty())
+        assertTrue(toNew.isNotEmpty())
+        tokens.stop()
     }
 
     @Test

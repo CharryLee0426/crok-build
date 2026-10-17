@@ -4,6 +4,8 @@ import dev.chenli.crok.mobile.auth.StoredCredentials
 import dev.chenli.crok.mobile.data.ApproveResult
 import dev.chenli.crok.mobile.data.CommandDoc
 import dev.chenli.crok.mobile.data.CommandRef
+import dev.chenli.crok.mobile.data.ConfigId
+import dev.chenli.crok.mobile.data.CreateResult
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.Me
 import dev.chenli.crok.mobile.data.PendingLogin
@@ -12,6 +14,7 @@ import dev.chenli.crok.mobile.data.RelayErrorCode
 import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
 import dev.chenli.crok.mobile.data.RevokeOthersResult
+import dev.chenli.crok.mobile.data.SessionCommands
 import dev.chenli.crok.mobile.data.SessionDetail
 import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.SessionListCache
@@ -20,7 +23,6 @@ import dev.chenli.crok.mobile.data.relayCode
 import dev.chenli.crok.mobile.logic.OrderChange
 import dev.chenli.crok.mobile.logic.SessionOrder
 import kotlin.coroutines.CoroutineContext
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -31,19 +33,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.builtins.ListSerializer
@@ -68,30 +65,56 @@ data class SessionListState(
 /**
  * One signed-in account (Telegram's AccountInstance / iOS TelegramEngine): owns the relay connection and exposes typed
  * facades. Screens get everything through it; signing out closes it and everything it started.
+ *
+ * [connect] makes a relay transport; the engine makes a new one whenever the current one stops answering (relay/
+ * DESIGN.md §5, "Staying connected", in [RelayConnection]), told by [foreground] (the app came back to the front),
+ * [network] and [networkChanges] (the network came back or changed).
  */
 class CrokEngine(
     val account: StoredCredentials,
     val isDemo: Boolean,
-    private val transport: RelayTransport,
+    connect: () -> RelayTransport,
     network: StateFlow<Boolean>,
     private val cache: SessionListCache?,
     dispatcher: CoroutineContext = Dispatchers.Main.immediate,
     val clock: () -> Long = System::currentTimeMillis,
+    networkChanges: Flow<Unit> = emptyFlow(),
+    foreground: StateFlow<Boolean> = MutableStateFlow(true),
+    timing: ConnectionTiming = ConnectionTiming(),
+    /** Where relay results are decoded (off the main thread). */
+    private val decodeDispatcher: CoroutineContext = Dispatchers.Default,
 ) {
+    /** One transport for good (demo mode, tests): a replacement gets the same one back. */
+    constructor(
+        account: StoredCredentials,
+        isDemo: Boolean,
+        transport: RelayTransport,
+        network: StateFlow<Boolean>,
+        cache: SessionListCache?,
+        dispatcher: CoroutineContext = Dispatchers.Main.immediate,
+        clock: () -> Long = System::currentTimeMillis,
+    ) : this(account, isDemo, { transport }, network, cache, dispatcher, clock)
+
     val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
-    private val authReady = MutableStateFlow(false)
-    private val synced = MutableStateFlow(false)
     private val _revoked = MutableSharedFlow<Unit>(replay = 1)
 
     /** Emits once when the relay says this device was signed out (`REVOKED`). */
     val revoked: SharedFlow<Unit> = _revoked.asSharedFlow()
 
+    internal val relay = RelayConnection(
+        connect = connect,
+        scope = scope,
+        network = network,
+        networkChanges = networkChanges,
+        foreground = foreground,
+        clock = clock,
+        timing = timing,
+        onRevoked = { _revoked.tryEmit(Unit) },
+    )
+
     /** The raw state; screens show it through [delayedForDisplay]. */
-    val connection: StateFlow<ConnectionState> =
-        combine(network, transport.connected, authReady, synced) { net, connected, auth, fresh ->
-            connectionStateOf(net, connected, auth && fresh)
-        }.stateIn(scope, SharingStarted.Eagerly, ConnectionState.Connecting)
+    val connection: StateFlow<ConnectionState> = relay.state
 
     val sessions = Sessions()
     val events = Events()
@@ -100,61 +123,25 @@ class CrokEngine(
     val accounts = Accounts()
 
     fun start() {
-        scope.launch { authenticateLoop() }
-        scope.launch {
-            // Every reconnect makes the list stale until the relay answers again ("Updating…").
-            transport.connected.collect { connected -> if (!connected) synced.value = false }
-        }
+        relay.start()
         sessions.start()
-    }
-
-    private suspend fun authenticateLoop() {
-        var attempt = 0
-        while (true) {
-            val result = transport.authenticate()
-            if (result.isSuccess) {
-                authReady.value = true
-                return
-            }
-            if (result.exceptionOrNull()?.relayCode == RelayErrorCode.REVOKED) {
-                _revoked.tryEmit(Unit)
-                return
-            }
-            attempt++
-            delay((2_000L * attempt).coerceAtMost(30_000L))
-        }
     }
 
     fun close() {
         scope.cancel()
-        transport.close()
+        relay.close()
     }
 
-    internal fun report(error: Throwable?) {
-        if (error?.relayCode == RelayErrorCode.REVOKED) _revoked.tryEmit(Unit)
-    }
-
-    /** A realtime query, decoded; waits for sign-in so it never runs unauthenticated. */
+    /** A realtime query, decoded; waits for sign-in so it never runs unauthenticated, and survives a new transport. */
     internal fun <T> live(name: String, args: Map<String, Any?>, strategy: DeserializationStrategy<T>): Flow<Result<T>> =
-        flow {
-            authReady.first { it }
-            emitAll(transport.subscribe(name, args))
-        }.map { result ->
+        relay.subscribe(name, args).map { result ->
             result.mapCatching { RelayJson.decodeFromJsonElement(strategy, it) }
-        }.onEach { report(it.exceptionOrNull()) }.flowOn(Dispatchers.Default)
+        }.flowOn(decodeDispatcher)
 
     /** A mutation, decoded. Throws RelayException / RelayNetworkException. */
     internal suspend fun <T> call(name: String, args: Map<String, Any?>, strategy: DeserializationStrategy<T>): T {
-        try {
-            authReady.first { it }
-            val value: JsonElement = transport.mutation(name, args)
-            return RelayJson.decodeFromJsonElement(strategy, value)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            report(e)
-            throw e
-        }
+        val value: JsonElement = relay.call { transport -> transport.mutation(name, args) }
+        return RelayJson.decodeFromJsonElement(strategy, value)
     }
 
     internal suspend fun callUnit(name: String, args: Map<String, Any?>) {
@@ -215,7 +202,6 @@ class CrokEngine(
                             dropReflectedLocked()
                             publishLocked()
                         }
-                        synced.value = true
                     }.onFailure { error ->
                         synchronized(lock) {
                             base = base.copy(error = error as? RelayException)
@@ -297,6 +283,25 @@ class CrokEngine(
                 if (result.exceptionOrNull()?.relayCode == RelayErrorCode.NOT_FOUND) Result.success(null) else result
             }
 
+        /**
+         * `sessions:create`: a new session in [path] on computer [deviceId], started with [text] when there is one. The
+         * row exists at once (`starting`); the same [clientId] gives the same session back.
+         */
+        suspend fun create(deviceId: String, path: String, text: String?, clientId: String): CreateResult {
+            val args = buildMap<String, Any?> {
+                put("deviceId", deviceId)
+                put("path", path)
+                // Optional on the relay: leave it out rather than send null.
+                if (!text.isNullOrBlank()) put("text", text)
+                put("clientId", clientId)
+            }
+            return call("sessions:create", args, CreateResult.serializer())
+        }
+
+        /** `sessions:commands`: the session's slash commands (crok's own, skills, workflows), without the `/`. */
+        fun commands(sessionDocId: String): Flow<Result<SessionCommands>> =
+            live("sessions:commands", mapOf("sessionDocId" to sessionDocId), SessionCommands.serializer())
+
         suspend fun markRead(sessionDocId: String) = callUnit("sessions:markRead", mapOf("sessionDocId" to sessionDocId))
 
         suspend fun watch(sessionDocId: String) = callUnit("sessions:watch", mapOf("sessionDocId" to sessionDocId))
@@ -335,6 +340,17 @@ class CrokEngine(
             call(
                 "commands:answer",
                 mapOf("sessionDocId" to sessionDocId, "interactionId" to interactionId, "optionId" to optionId),
+                CommandRef.serializer(),
+            ).commandId
+
+        /**
+         * `commands:setConfig`: the session's model ([ConfigId.MODEL]) or thinking level ([ConfigId.EFFORT], an effort's
+         * id), as if picked on its computer. The command's result is `{model, effort}` once done.
+         */
+        suspend fun setConfig(sessionDocId: String, configId: String, value: String): String =
+            call(
+                "commands:setConfig",
+                mapOf("sessionDocId" to sessionDocId, "configId" to configId, "value" to value),
                 CommandRef.serializer(),
             ).commandId
 

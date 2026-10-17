@@ -6,16 +6,7 @@ import androidx.activity.compose.LocalActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -26,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -38,6 +30,7 @@ import dev.chenli.crok.mobile.R
 import dev.chenli.crok.mobile.auth.AuthState
 import dev.chenli.crok.mobile.data.ThemeMode
 import dev.chenli.crok.mobile.engine.CrokEngine
+import dev.chenli.crok.mobile.ui.session.NewSessionTarget
 import dev.chenli.crok.mobile.ui.session.SessionInfoSheet
 import dev.chenli.crok.mobile.ui.session.SessionInfoViewModel
 import dev.chenli.crok.mobile.ui.session.SessionScreen
@@ -57,9 +50,12 @@ import dev.chenli.crok.mobile.ui.signin.WaitingUiState
 import dev.chenli.crok.mobile.ui.signin.WelcomeScreen
 import dev.chenli.crok.mobile.ui.signin.WelcomeUiState
 import dev.chenli.crok.mobile.ui.common.CrokIcons
+import dev.chenli.crok.mobile.ui.common.GlassTab
+import dev.chenli.crok.mobile.ui.common.GlassTabScaffold
 import dev.chenli.crok.mobile.ui.theme.CrokTheme
 import dev.chenli.crok.mobile.ui.theme.isDarkFor
 import kotlinx.coroutines.flow.StateFlow
+import java.util.UUID
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -67,6 +63,23 @@ data object HomeRoute
 
 @Serializable
 data class SessionRoute(val id: String)
+
+/** The new-session screen for a folder on a computer; [prompt] (from `/new <prompt>`) is sent at once. */
+@Serializable
+data class NewSessionRoute(
+    val deviceId: String,
+    val path: String,
+    val deviceName: String,
+    val projectName: String,
+    val prompt: String? = null,
+) {
+    val target: NewSessionTarget get() = NewSessionTarget(deviceId, path, deviceName, projectName)
+
+    companion object {
+        fun of(target: NewSessionTarget, prompt: String? = null) =
+            NewSessionRoute(target.deviceId, target.path, target.deviceName, target.projectName, prompt)
+    }
+}
 
 @Serializable
 data object DevicesRoute
@@ -142,6 +155,7 @@ private fun SignedInApp(engine: CrokEngine, theme: ThemeMode, appViewModel: AppV
                     theme = theme,
                     appViewModel = appViewModel,
                     onOpenSession = { nav.navigate(SessionRoute(it)) },
+                    onNewSession = { nav.navigate(NewSessionRoute.of(it)) },
                     onDevices = { nav.navigate(DevicesRoute) },
                     onLink = { nav.navigate(LinkRoute()) },
                 )
@@ -152,10 +166,28 @@ private fun SignedInApp(engine: CrokEngine, theme: ThemeMode, appViewModel: AppV
                 SessionScreen(
                     viewModel = viewModel,
                     onBack = { nav.popBackStack() },
-                    infoSheet = { dismiss ->
-                        val info = viewModel(key = "info-${route.id}") { SessionInfoViewModel(engine, route.id) }
-                        SessionInfoSheet(info, onDismiss = dismiss, onRemoved = { nav.popBackStack() })
-                    },
+                    onNewSession = { target, prompt -> nav.navigate(NewSessionRoute.of(target, prompt)) },
+                    infoSheet = { id, dismiss -> InfoSheet(engine, id, dismiss) { nav.popBackStack() } },
+                )
+            }
+            composable<NewSessionRoute> { entry ->
+                val route = entry.toRoute<NewSessionRoute>()
+                // One per navigation entry: it turns into the session it creates, in place.
+                val viewModel = viewModel(key = "new-${entry.id}") {
+                    SessionViewModel(
+                        engine, null, graph.drafts,
+                        newSession = route.target,
+                        firstPrompt = route.prompt,
+                        saved = createSavedStateHandle(),
+                        // The entry's id survives the app being killed: a restored screen resends the same create.
+                        firstPromptClientId = UUID.nameUUIDFromBytes(entry.id.toByteArray()).toString(),
+                    )
+                }
+                SessionScreen(
+                    viewModel = viewModel,
+                    onBack = { nav.popBackStack() },
+                    onNewSession = { target, prompt -> nav.navigate(NewSessionRoute.of(target, prompt)) },
+                    infoSheet = { id, dismiss -> InfoSheet(engine, id, dismiss) { nav.popBackStack() } },
                 )
             }
             composable<DevicesRoute> {
@@ -180,6 +212,7 @@ private fun HomeTabs(
     theme: ThemeMode,
     appViewModel: AppViewModel,
     onOpenSession: (String) -> Unit,
+    onNewSession: (NewSessionTarget) -> Unit,
     onDevices: () -> Unit,
     onLink: () -> Unit,
 ) {
@@ -188,7 +221,7 @@ private fun HomeTabs(
     HomeScaffold(tab, onTab = { tab = it }) {
         if (tab == 0) {
             val viewModel = viewModel { SessionsViewModel(engine, graph.collapsedProjects) }
-            SessionsScreen(viewModel, onOpen = { onOpenSession(it.id) }, onLinkComputer = onLink)
+            SessionsScreen(viewModel, onOpen = { onOpenSession(it.id) }, onNewSession = onNewSession, onLinkComputer = onLink)
         } else {
             val viewModel = viewModel { SettingsViewModel(engine) }
             SettingsScreen(
@@ -205,39 +238,22 @@ private fun HomeTabs(
     }
 }
 
-/** The two tabs, Sessions and Settings, with the bottom navigation bar. */
+@Composable
+private fun InfoSheet(engine: CrokEngine, sessionDocId: String, onDismiss: () -> Unit, onRemoved: () -> Unit) {
+    val info = viewModel(key = "info-$sessionDocId") { SessionInfoViewModel(engine, sessionDocId) }
+    SessionInfoSheet(info, onDismiss = onDismiss, onRemoved = onRemoved)
+}
+
+/** The two tabs, Sessions and Settings, under a floating Liquid Glass tab bar. */
 @Composable
 fun HomeScaffold(tab: Int, onTab: (Int) -> Unit, content: @Composable () -> Unit) {
-    val colors = CrokTheme.colors
-    Scaffold(
-        containerColor = colors.screen,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            NavigationBar(containerColor = colors.bar) {
-                val itemColors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = colors.accent,
-                    selectedTextColor = colors.accent,
-                    indicatorColor = colors.bubbleOut,
-                    unselectedIconColor = colors.textSecondary,
-                    unselectedTextColor = colors.textSecondary,
-                )
-                NavigationBarItem(
-                    selected = tab == 0,
-                    onClick = { onTab(0) },
-                    icon = { Icon(if (tab == 0) CrokIcons.Chat else CrokIcons.ChatOutline, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_sessions)) },
-                    colors = itemColors,
-                )
-                NavigationBarItem(
-                    selected = tab == 1,
-                    onClick = { onTab(1) },
-                    icon = { Icon(CrokIcons.Settings, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_settings)) },
-                    colors = itemColors,
-                )
-            }
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) { content() }
-    }
+    GlassTabScaffold(
+        tabs = listOf(
+            GlassTab(stringResource(R.string.tab_sessions), CrokIcons.ChatOutline, CrokIcons.Chat),
+            GlassTab(stringResource(R.string.tab_settings), CrokIcons.Settings),
+        ),
+        selected = tab,
+        onSelect = onTab,
+        content = content,
+    )
 }

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,20 +32,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -96,6 +91,14 @@ import dev.chenli.crok.mobile.ui.common.InitialsAvatar
 import dev.chenli.crok.mobile.ui.common.WorkingDots
 import dev.chenli.crok.mobile.ui.common.rememberFormatter
 import dev.chenli.crok.mobile.ui.theme.CrokTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.semantics.Role
+import dev.chenli.crok.mobile.data.SessionGroup
+import dev.chenli.crok.mobile.ui.common.GlassChipTabs
+import dev.chenli.crok.mobile.ui.common.GlassScaffold
+import dev.chenli.crok.mobile.ui.common.glassBarColors
+import dev.chenli.crok.mobile.ui.session.NewSessionTarget
 import kotlinx.coroutines.launch
 
 /** What the session list can ask its host to do. */
@@ -120,10 +123,17 @@ data class SessionsActions(
     val onReorderSessions: (projectKey: String, sessionDocIds: List<String>) -> Unit = { _, _ -> },
     val onSortProjectsByRecent: () -> Unit = {},
     val onSortSessionsByRecent: (projectKey: String) -> Unit = {},
+    /** "+" on a project, its menu's New session, or a pick in the compose button's picker. */
+    val onNewSession: (SessionGroup) -> Unit = {},
 )
 
 @Composable
-fun SessionsScreen(viewModel: SessionsViewModel, onOpen: (SessionRow) -> Unit, onLinkComputer: () -> Unit) {
+fun SessionsScreen(
+    viewModel: SessionsViewModel,
+    onOpen: (SessionRow) -> Unit,
+    onNewSession: (NewSessionTarget) -> Unit,
+    onLinkComputer: () -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val resources = LocalResources.current
@@ -165,18 +175,29 @@ fun SessionsScreen(viewModel: SessionsViewModel, onOpen: (SessionRow) -> Unit, o
             onReorderSessions = viewModel::reorderSessions,
             onSortProjectsByRecent = viewModel::sortProjectsByRecent,
             onSortSessionsByRecent = viewModel::sortSessionsByRecent,
+            onNewSession = { group -> onNewSession(group.newSessionTarget()) },
         ),
     )
 }
+
+/** Where a session started from a project's "+" runs: that folder on that computer. */
+fun SessionGroup.newSessionTarget() = NewSessionTarget(
+    deviceId = deviceId,
+    path = path,
+    deviceName = deviceName,
+    projectName = name.ifBlank { SessionList.folderName(path) },
+)
 
 @Composable
 fun SessionsContent(
     state: SessionsUiState,
     actions: SessionsActions,
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
+    pickerInitiallyOpen: Boolean = false,
 ) {
     val colors = CrokTheme.colors
     var searching by rememberSaveable { mutableStateOf(state.query.isNotEmpty()) }
+    var picking by rememberSaveable { mutableStateOf(pickerInitiallyOpen) }
     val swipingRows = remember { mutableStateOf(emptySet<String>()) }
     val onSwiping: (String, Boolean) -> Unit = { id, active ->
         val next = if (active) swipingRows.value + id else swipingRows.value - id
@@ -186,12 +207,10 @@ fun SessionsContent(
         }
     }
 
-    Scaffold(
-        containerColor = colors.screen,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    GlassScaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            Column(Modifier.background(colors.bar)) {
+            Column {
                 when {
                     state.reordering -> ReorderTopBar(actions)
                     searching -> SearchBar(
@@ -208,6 +227,7 @@ fun SessionsContent(
                             actions.onReordering(false)
                             searching = true
                         },
+                        onCompose = { picking = true },
                         actions = actions,
                     )
                 }
@@ -215,21 +235,90 @@ fun SessionsContent(
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when {
-                state.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = colors.accent)
-                state.isEmpty -> EmptyState(state, actions.onLinkComputer)
-                state.reordering -> ReorderList(state, actions)
-                state.grouped -> GroupedList(state, actions, onSwiping)
-                else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 8.dp)) {
-                    items(state.rows, key = { it.id }, contentType = { "session" }) { row ->
-                        SwipeableSessionRow(
-                            row = row,
-                            now = state.now,
-                            actions = actions,
-                            onSwiping = { onSwiping(row.id, it) },
-                            modifier = Modifier.animateItem(),
-                        )
+        val inner = Modifier.fillMaxSize().padding(padding)
+        val listPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 8.dp)
+        when {
+            state.loading -> Box(inner, contentAlignment = Alignment.Center) { CircularProgressIndicator(color = colors.accent) }
+            state.isEmpty -> Box(inner) { EmptyState(state, actions.onLinkComputer) }
+            state.reordering -> ReorderList(state, actions, listPadding)
+            state.grouped -> GroupedList(state, actions, onSwiping, listPadding)
+            else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = listPadding) {
+                items(state.rows, key = { it.id }, contentType = { "session" }) { row ->
+                    SwipeableSessionRow(
+                        row = row,
+                        now = state.now,
+                        actions = actions,
+                        onSwiping = { onSwiping(row.id, it) },
+                        modifier = Modifier.animateItem(),
+                    )
+                }
+            }
+        }
+    }
+    if (picking) {
+        ProjectPicker(
+            computers = state.newSessionProjects,
+            onPick = { group ->
+                picking = false
+                actions.onNewSession(group)
+            },
+            onDismiss = { picking = false },
+        )
+    }
+}
+
+/**
+ * The compose button's question (Telegram's new chat): which project, on which online computer, recent first. The
+ * picked one opens the new-session screen.
+ */
+@Composable
+private fun ProjectPicker(computers: List<SessionList.ComputerProjects>, onPick: (SessionGroup) -> Unit, onDismiss: () -> Unit) {
+    val colors = CrokTheme.colors
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.sheet) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp).testTag("project-picker")) {
+            Text(
+                stringResource(R.string.picker_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.textPrimary,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+            )
+            if (computers.isEmpty()) {
+                Text(
+                    stringResource(R.string.picker_empty),
+                    color = colors.textSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                )
+            }
+            LazyColumn(Modifier.heightIn(max = 520.dp)) {
+                computers.forEach { computer ->
+                    item(key = "c:${computer.deviceId}") {
+                        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(CrokIcons.Laptop, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(computer.deviceName, color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Spacer(Modifier.width(6.dp))
+                            Box(Modifier.size(7.dp).clip(CircleShape).background(colors.online))
+                        }
+                    }
+                    items(computer.projects, key = { "p:${it.key}" }) { group ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(group) }
+                                .heightIn(min = 56.dp)
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val name = group.name.ifBlank { SessionList.folderName(group.path) }
+                            InitialsAvatar(name, key = name, size = 40.dp)
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(name, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(SessionList.prettyPath(group.path), color = colors.textTertiary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Icon(CrokIcons.Add, contentDescription = null, tint = colors.accent, modifier = Modifier.size(22.dp))
+                        }
                     }
                 }
             }
@@ -238,13 +327,17 @@ fun SessionsContent(
 }
 
 @Composable
-private fun ListTopBar(state: SessionsUiState, onSearch: () -> Unit, actions: SessionsActions) {
+private fun ListTopBar(state: SessionsUiState, onSearch: () -> Unit, onCompose: () -> Unit, actions: SessionsActions) {
     var menu by remember { mutableStateOf(false) }
     TopAppBar(
         title = { ConnectionTitle(state.connection, stringResource(R.string.sessions_title)) },
         actions = {
             IconButton(onClick = onSearch) {
                 Icon(CrokIcons.Search, contentDescription = stringResource(R.string.sessions_search))
+            }
+            // Telegram's compose button: a new session, after picking where.
+            IconButton(onClick = onCompose, modifier = Modifier.testTag("compose")) {
+                Icon(CrokIcons.Edit, contentDescription = stringResource(R.string.cd_compose), tint = CrokTheme.colors.accent)
             }
             if (state.canReorder) {
                 IconButton(onClick = { actions.onReordering(true) }, modifier = Modifier.testTag("reorder")) {
@@ -267,7 +360,7 @@ private fun ListTopBar(state: SessionsUiState, onSearch: () -> Unit, actions: Se
                 }
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = CrokTheme.colors.bar),
+        colors = glassBarColors(),
     )
 }
 
@@ -302,7 +395,7 @@ private fun ReorderTopBar(actions: SessionsActions) {
                 Text(stringResource(R.string.action_done), color = colors.accent, fontWeight = FontWeight.SemiBold)
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.bar),
+        colors = glassBarColors(),
     )
 }
 
@@ -335,39 +428,20 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, onClose: () -> U
                 IconButton(onClick = { onQuery("") }) { Icon(CrokIcons.Close, contentDescription = stringResource(R.string.cd_clear)) }
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = CrokTheme.colors.bar),
+        colors = glassBarColors(),
     )
 }
 
-/** All · one tab per computer · Archived (Telegram's folder tabs). */
+/** All · one tab per computer · Archived (Telegram's folder tabs, as capsules on the glass bar). */
 @Composable
 private fun FilterTabs(state: SessionsUiState, onFilter: (SessionFilter) -> Unit) {
-    val colors = CrokTheme.colors
     val filters = buildList {
         add(SessionFilter.All to stringResource(R.string.filter_all))
         state.tabs.forEach { add(SessionFilter.Computer(it.deviceId) to it.name) }
         // Reorder mode moves projects, which the flat Archived tab has none of.
         if (!state.reordering) add(SessionFilter.Archived to stringResource(R.string.filter_archived))
     }
-    val selected = filters.indexOfFirst { it.first == state.filter }.coerceAtLeast(0)
-    PrimaryScrollableTabRow(
-        selectedTabIndex = selected,
-        containerColor = colors.bar,
-        contentColor = colors.accent,
-        edgePadding = 8.dp,
-        minTabWidth = 64.dp,
-        divider = { HorizontalDivider(color = colors.divider) },
-    ) {
-        filters.forEachIndexed { index, (filter, label) ->
-            Tab(
-                selected = index == selected,
-                onClick = { onFilter(filter) },
-                selectedContentColor = colors.accent,
-                unselectedContentColor = colors.textSecondary,
-                text = { Text(label, maxLines = 1, fontWeight = if (index == selected) FontWeight.SemiBold else FontWeight.Normal) },
-            )
-        }
-    }
+    GlassChipTabs(items = filters, selected = state.filter, onSelect = onFilter)
 }
 
 @Composable
@@ -417,8 +491,8 @@ private fun EmptyState(state: SessionsUiState, onLinkComputer: () -> Unit) {
 
 /** The main list: one section per project (header, its first sessions, "Show N more"). */
 @Composable
-private fun GroupedList(state: SessionsUiState, actions: SessionsActions, onSwiping: (String, Boolean) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize().testTag("sessions-list"), contentPadding = PaddingValues(bottom = 8.dp)) {
+private fun GroupedList(state: SessionsUiState, actions: SessionsActions, onSwiping: (String, Boolean) -> Unit, contentPadding: PaddingValues) {
+    LazyColumn(Modifier.fillMaxSize().testTag("sessions-list"), contentPadding = contentPadding) {
         state.sections.forEachIndexed { index, section ->
             item(key = "h:${section.key}", contentType = "header") {
                 ProjectHeader(
@@ -480,7 +554,7 @@ private fun ProjectHeader(
 ) {
     val colors = CrokTheme.colors
     var menu by remember { mutableStateOf(false) }
-    val hasMenu = canMoveUp || canMoveDown || canSort
+    val hasMenu = canMoveUp || canMoveDown || canSort || section.group.deviceOnline
     val collapsed = section.isCollapsed
     val toggleLabel = stringResource(if (collapsed) R.string.action_expand else R.string.action_collapse)
     Box(modifier.fillMaxWidth().background(colors.grouped)) {
@@ -499,6 +573,21 @@ private fun ProjectHeader(
         ) {
             ProjectTitle(section, showComputer, Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
+            if (section.group.deviceOnline && !section.searching) {
+                val newLabel = stringResource(R.string.sessions_new_in_project, section.group.name.ifBlank { SessionList.folderName(section.group.path) })
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable(onClickLabel = newLabel, role = Role.Button) { actions.onNewSession(section.group) }
+                        .semantics { contentDescription = newLabel }
+                        .testTag("new-in-${section.key}"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(CrokIcons.Add, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+            }
             val countLabel = pluralStringResource(R.plurals.sessions_count, section.count, section.count)
             Text(
                 section.count.toString(),
@@ -517,6 +606,16 @@ private fun ProjectHeader(
             }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            if (section.group.deviceOnline) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.sessions_new_session)) },
+                    leadingIcon = { Icon(CrokIcons.Add, contentDescription = null) },
+                    onClick = {
+                        menu = false
+                        actions.onNewSession(section.group)
+                    },
+                )
+            }
             if (canMoveUp) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.action_move_up)) },
@@ -751,6 +850,7 @@ fun SessionRowItem(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.weight(1f)) {
                             when {
+                                row.starting -> Text(stringResource(R.string.session_starting), fontSize = 14.sp, color = colors.accent, maxLines = 1)
                                 row.isWaiting -> NeedsApprovalChip()
                                 row.isRunning -> WorkingDots(stringResource(R.string.sessions_working), colors.accent)
                                 else -> Preview(row, dimmed)

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,6 +34,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -45,16 +45,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -70,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalResources
@@ -98,6 +94,19 @@ import dev.chenli.crok.mobile.ui.common.CrokIcons
 import dev.chenli.crok.mobile.ui.common.WorkingDots
 import dev.chenli.crok.mobile.ui.common.connectionText
 import dev.chenli.crok.mobile.ui.theme.CrokTheme
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import dev.chenli.crok.mobile.logic.CommandEntry
+import dev.chenli.crok.mobile.logic.ComposerCommands
+import dev.chenli.crok.mobile.logic.LocalCommand
+import dev.chenli.crok.mobile.ui.common.GlassCircle
+import dev.chenli.crok.mobile.ui.common.GlassScaffold
+import dev.chenli.crok.mobile.ui.common.GlassShapes
+import dev.chenli.crok.mobile.ui.common.GlassStyle
+import dev.chenli.crok.mobile.ui.common.glass
+import dev.chenli.crok.mobile.ui.common.glassBarColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -112,11 +121,18 @@ data class SessionActions(
     val onAnswer: (String, String) -> Unit = { _, _ -> },
     val onLoadMore: () -> Unit = {},
     val onReload: () -> Unit = {},
+    /** A row of the command list. */
+    val onPickCommand: (CommandEntry) -> Unit = {},
     val transcript: TranscriptActions = TranscriptActions(),
 )
 
 @Composable
-fun SessionScreen(viewModel: SessionViewModel, onBack: () -> Unit, infoSheet: @Composable (onDismiss: () -> Unit) -> Unit) {
+fun SessionScreen(
+    viewModel: SessionViewModel,
+    onBack: () -> Unit,
+    onNewSession: (NewSessionTarget, String?) -> Unit,
+    infoSheet: @Composable (sessionDocId: String, onDismiss: () -> Unit) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val clipboard = LocalClipboard.current
@@ -133,6 +149,9 @@ fun SessionScreen(viewModel: SessionViewModel, onBack: () -> Unit, infoSheet: @C
             when (event) {
                 is SessionEvent.StopFailed -> snackbar.showSnackbar(resources.getString(R.string.stop_failed, event.message))
                 is SessionEvent.AnswerFailed -> snackbar.showSnackbar(resources.getString(R.string.error_generic, event.message))
+                SessionEvent.ShowInfo -> showInfo = true
+                is SessionEvent.NewSession -> onNewSession(event.target, event.prompt)
+                SessionEvent.NewSessionUnavailable -> snackbar.showSnackbar(resources.getString(R.string.new_session_unavailable))
             }
         }
     }
@@ -151,6 +170,7 @@ fun SessionScreen(viewModel: SessionViewModel, onBack: () -> Unit, infoSheet: @C
             onAnswer = viewModel::answer,
             onLoadMore = viewModel::loadMore,
             onReload = viewModel::reload,
+            onPickCommand = viewModel::pickCommand,
             transcript = TranscriptActions(
                 onCopy = { text ->
                     scope.launch {
@@ -161,10 +181,12 @@ fun SessionScreen(viewModel: SessionViewModel, onBack: () -> Unit, infoSheet: @C
                 },
                 onRetry = viewModel::retry,
                 onDelete = viewModel::discard,
+                onApplyConfig = viewModel::applyConfig,
             ),
         ),
     )
-    if (showInfo) infoSheet { showInfo = false }
+    val sessionDocId = viewModel.sessionDocId
+    if (showInfo && sessionDocId != null) infoSheet(sessionDocId) { showInfo = false }
 }
 
 @Composable
@@ -175,10 +197,12 @@ fun SessionContent(
     actions: SessionActions,
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
     listState: LazyListState = rememberLazyListState(),
+    menuInitiallyOpen: Boolean = false,
 ) {
     val colors = CrokTheme.colors
     val scope = rememberCoroutineScope()
     var planExpanded by rememberSaveable { mutableStateOf(false) }
+    var menuOpen by rememberSaveable { mutableStateOf(menuInitiallyOpen) }
 
     // Follow the newest item while the reader is at the bottom; count new ones while scrolled away.
     val newestKey = state.items.firstOrNull()?.key
@@ -211,107 +235,138 @@ fun SessionContent(
         }.distinctUntilChanged().filter { it }.collect { actions.onLoadMore() }
     }
 
-    Scaffold(
-        containerColor = colors.screen,
+    val bot = BotContext(state.models, state.deviceName, state.deviceOnline)
+    GlassScaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Column(Modifier.background(colors.bar)) {
+            Column {
                 TopAppBar(
                     navigationIcon = {
                         IconButton(onClick = actions.onBack) { Icon(CrokIcons.Back, contentDescription = stringResource(R.string.action_back)) }
                     },
                     title = { SessionHeader(state) },
                     actions = {
-                        IconButton(onClick = actions.onInfo) { Icon(CrokIcons.Info, contentDescription = stringResource(R.string.session_info)) }
+                        if (state.newSession == null) {
+                            IconButton(onClick = actions.onInfo) { Icon(CrokIcons.Info, contentDescription = stringResource(R.string.session_info)) }
+                        }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.bar),
+                    colors = glassBarColors(),
                 )
-                val summary = state.planSummary
-                if (summary != null) {
-                    PlanBar(summary, state.plan, planExpanded) { planExpanded = !planExpanded }
-                } else {
-                    HorizontalDivider(color = colors.divider, thickness = 0.5.dp)
-                }
+                state.planSummary?.let { summary -> PlanBar(summary, state.plan, planExpanded) { planExpanded = !planExpanded } }
             }
         },
-        bottomBar = { Composer(state, draft, actions) },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when {
-                state.gone -> CenterNote(stringResource(R.string.session_gone))
-                !state.loaded && state.error != null -> Column(
-                    Modifier.align(Alignment.Center).padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(stringResource(R.string.transcript_load_failed, state.error), color = colors.textSecondary, textAlign = TextAlign.Center)
-                    TextButton(onClick = actions.onReload) { Text(stringResource(R.string.action_retry), color = colors.accent) }
-                }
-                !state.loaded -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = colors.accent)
-                state.historyOnComputer && state.deviceOnline -> Column(
-                    Modifier.align(Alignment.Center).padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp, color = colors.accent)
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        stringResource(R.string.session_history_loading, state.deviceName),
-                        color = colors.textSecondary,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-                state.historyOnComputer -> Column(
-                    Modifier.align(Alignment.Center).padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(CrokIcons.Laptop, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(40.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        stringResource(R.string.session_history_offline, state.deviceName),
-                        color = colors.textSecondary,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-                state.items.isEmpty() -> CenterNote(stringResource(R.string.transcript_empty))
-                else -> LazyColumn(
-                    state = listState,
-                    reverseLayout = true,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp),
-                ) {
-                    items(state.items, key = { it.key }, contentType = { it::class.simpleName }) { item ->
-                        TranscriptRow(item, now, actions.transcript)
-                    }
-                    item(key = "history-edge", contentType = "edge") {
-                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                            when {
-                                state.loadingMore -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = colors.accent)
-                                state.historyComplete -> Text(
-                                    stringResource(R.string.transcript_beginning),
-                                    color = colors.textTertiary,
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+        bottomBar = {
+            Composer(
+                state = state,
+                draft = draft,
+                menuOpen = menuOpen,
+                onMenu = { menuOpen = !menuOpen },
+                actions = actions.copy(
+                    onPickCommand = { entry ->
+                        menuOpen = false
+                        actions.onPickCommand(entry)
+                    },
+                    onSend = {
+                        menuOpen = false
+                        actions.onSend()
+                    },
+                ),
+            )
+        },
+        floating = { padding ->
             AnimatedVisibility(
                 visible = !atBottom && state.items.isNotEmpty(),
                 enter = scaleIn() + fadeIn(),
                 exit = scaleOut() + fadeOut(),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = padding.calculateBottomPadding() + 12.dp),
             ) {
                 ScrollToBottomButton(newCount) { scope.launch { listState.animateScrollToItem(0) } }
+            }
+        },
+    ) { padding ->
+        val inner = Modifier.fillMaxSize().padding(padding)
+        when {
+            state.gone -> CenterNote(stringResource(R.string.session_gone), inner)
+            state.newSession != null && state.items.isEmpty() -> NewSessionNote(state.newSession, inner)
+            !state.loaded && state.error != null -> Column(inner.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Text(stringResource(R.string.transcript_load_failed, state.error), color = colors.textSecondary, textAlign = TextAlign.Center)
+                TextButton(onClick = actions.onReload) { Text(stringResource(R.string.action_retry), color = colors.accent) }
+            }
+            !state.loaded -> Box(inner, contentAlignment = Alignment.Center) { CircularProgressIndicator(color = colors.accent) }
+            state.historyOnComputer && state.deviceOnline -> Column(inner.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp, color = colors.accent)
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.session_history_loading, state.deviceName), color = colors.textSecondary, textAlign = TextAlign.Center)
+            }
+            state.historyOnComputer -> Column(inner.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Icon(CrokIcons.Laptop, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(40.dp))
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.session_history_offline, state.deviceName), color = colors.textSecondary, textAlign = TextAlign.Center)
+            }
+            state.items.isEmpty() -> CenterNote(stringResource(R.string.transcript_empty), inner)
+            else -> LazyColumn(
+                state = listState,
+                reverseLayout = true,
+                modifier = Modifier.fillMaxSize(),
+                // Rows scroll under the glass bars: the padding only keeps the ends clear of them.
+                contentPadding = PaddingValues(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 12.dp),
+            ) {
+                items(state.items, key = { it.key }, contentType = { it::class.simpleName }) { item ->
+                    TranscriptRow(item, now, actions.transcript, bot)
+                }
+                item(key = "history-edge", contentType = "edge") {
+                    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                        when {
+                            state.loadingMore -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = colors.accent)
+                            state.historyComplete -> Text(
+                                stringResource(R.string.transcript_beginning),
+                                color = colors.textTertiary,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun CenterNote(text: String) {
-    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+private fun CenterNote(text: String, modifier: Modifier = Modifier) {
+    Box(modifier.padding(32.dp), contentAlignment = Alignment.Center) {
         Text(text, color = CrokTheme.colors.textSecondary, textAlign = TextAlign.Center)
+    }
+}
+
+/** The new-session screen's empty transcript (Telegram's new chat): where the session will run. */
+@Composable
+private fun NewSessionNote(target: NewSessionTarget, modifier: Modifier) {
+    val colors = CrokTheme.colors
+    Box(modifier.padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier
+                // Part of the content the glass bars read: a backdrop of its own would read itself, so frosted only.
+                .glass(GlassShapes.rounded(22.dp), backdrop = null)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .testTag("new-session-note"),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(CrokIcons.Folder, contentDescription = null, tint = colors.accent, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.new_session_starts_in, target.path, target.deviceName),
+                color = colors.textPrimary,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.new_session_first_prompt),
+                color = colors.textSecondary,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 
@@ -319,16 +374,35 @@ private fun CenterNote(text: String) {
 private fun SessionHeader(state: SessionUiState) {
     val colors = CrokTheme.colors
     Column {
-        Text(state.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        val newSession = state.newSession
+        Text(
+            if (newSession != null) stringResource(R.string.new_session_title) else state.title,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
         val subtitleSize = 13.sp
-        if (state.connection != ConnectionState.Connected) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        when {
+            state.connection != ConnectionState.Connected -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(10.dp), strokeWidth = 1.5.dp, color = colors.textSecondary)
                 Spacer(Modifier.width(6.dp))
                 Text(connectionText(state.connection), fontSize = subtitleSize, color = colors.textSecondary, maxLines = 1)
             }
-        } else {
-            when (state.phase) {
+            newSession != null -> Text(
+                stringResource(R.string.new_session_subtitle, newSession.projectName, newSession.deviceName),
+                fontSize = subtitleSize,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            state.starting && state.phase != SessionPhase.Error -> Text(
+                stringResource(R.string.session_starting),
+                fontSize = subtitleSize,
+                color = colors.accent,
+                maxLines = 1,
+            )
+            else -> when (state.phase) {
                 SessionPhase.Working -> WorkingDots(stringResource(R.string.session_status_working).trimEnd('…', '.'), colors.accent, fontSize = subtitleSize)
                 SessionPhase.Waiting -> Text(
                     stringResource(R.string.session_status_waiting, state.deviceName),
@@ -355,8 +429,8 @@ private fun SessionHeader(state: SessionUiState) {
 @Composable
 private fun PlanBar(summary: PlanSummary, plan: List<PlanEntry>, expanded: Boolean, onToggle: () -> Unit) {
     val colors = CrokTheme.colors
-    Column(Modifier.fillMaxWidth().background(colors.bar).animateContentSize()) {
-        HorizontalDivider(color = colors.divider, thickness = 0.5.dp)
+    Column(Modifier.fillMaxWidth().animateContentSize()) {
+        HorizontalDivider(color = colors.divider.copy(alpha = 0.6f), thickness = 0.5.dp)
         Row(
             Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -385,7 +459,6 @@ private fun PlanBar(summary: PlanSummary, plan: List<PlanEntry>, expanded: Boole
                 plan.forEach { PlanEntryRow(it) }
             }
         }
-        HorizontalDivider(color = colors.divider, thickness = 0.5.dp)
     }
 }
 
@@ -422,13 +495,8 @@ fun PlanEntryRow(entry: PlanEntry) {
 private fun ScrollToBottomButton(count: Int, onClick: () -> Unit) {
     val colors = CrokTheme.colors
     Box {
-        SmallFloatingActionButton(
-            onClick = onClick,
-            containerColor = colors.sheet,
-            contentColor = colors.textSecondary,
-            shape = CircleShape,
-        ) {
-            Icon(CrokIcons.ArrowDown, contentDescription = stringResource(R.string.transcript_scroll_bottom))
+        GlassCircle(onClick = onClick, size = 44.dp) {
+            Icon(CrokIcons.ArrowDown, contentDescription = stringResource(R.string.transcript_scroll_bottom), tint = colors.textSecondary)
         }
         if (count > 0) {
             Box(
@@ -446,22 +514,29 @@ private fun ScrollToBottomButton(count: Int, onClick: () -> Unit) {
 }
 
 /**
- * Message field with Send, or Stop while a turn runs (Telegram's streaming-stop button), under the pending permission
- * request if there is one; blocked only while the computer is offline (a session nobody runs opens for a prompt).
+ * The composer, floating on glass over the transcript: the Menu button (Telegram's bot menu: a blue pill, "Menu" while
+ * the field is empty, just the icon while typing), the field, and Send — or Stop while a turn runs (Telegram's
+ * streaming-stop button). Above it the pending permission request, and the command list when the Menu button or a
+ * leading `/` opened it. Blocked only while the computer is offline (a session nobody runs opens for a prompt).
  */
 @Composable
-private fun Composer(state: SessionUiState, draft: String, actions: SessionActions) {
+private fun Composer(state: SessionUiState, draft: String, menuOpen: Boolean, onMenu: () -> Unit, actions: SessionActions) {
     val colors = CrokTheme.colors
     Column(
         Modifier
             .fillMaxWidth()
-            .background(colors.bar)
             .navigationBarsPadding()
-            .imePadding(),
+            .imePadding()
+            .padding(horizontal = 8.dp, vertical = 6.dp),
     ) {
-        HorizontalDivider(color = colors.divider, thickness = 0.5.dp)
         if (!state.canSend) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(GlassShapes.rounded(22.dp), GlassStyle.Bar)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Icon(CrokIcons.Laptop, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(
@@ -474,44 +549,163 @@ private fun Composer(state: SessionUiState, draft: String, actions: SessionActio
             return@Column
         }
         state.pending?.let { PermissionCard(it, state.deviceName, state.answering, actions.onAnswer) }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
-            TextField(
-                value = draft,
-                onValueChange = actions.onDraft,
-                placeholder = { Text(stringResource(R.string.composer_placeholder, state.deviceName), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                maxLines = 6,
-                shape = RoundedCornerShape(22.dp),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = colors.card,
-                    unfocusedContainerColor = colors.card,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    cursorColor = colors.accent,
-                ),
-                modifier = Modifier.weight(1f),
-            )
+        val suggestions = if (state.hasMenu) {
+            ComposerCommands.suggestions(draft, menuOpen, state.localCommands, state.sessionCommands)
+        } else {
+            null
+        }
+        if (!suggestions.isNullOrEmpty()) CommandList(suggestions, actions.onPickCommand)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .glass(GlassShapes.rounded(24.dp))
+                    .padding(start = 6.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                if (state.hasMenu) {
+                    MenuPill(expanded = draft.isEmpty(), open = menuOpen, onClick = onMenu)
+                }
+                val newSession = state.newSession
+                val placeholder = if (newSession != null) {
+                    stringResource(R.string.composer_new_placeholder, newSession.projectName)
+                } else {
+                    stringResource(R.string.composer_placeholder, state.deviceName)
+                }
+                BasicTextField(
+                    value = draft,
+                    onValueChange = actions.onDraft,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.textPrimary),
+                    cursorBrush = SolidColor(colors.accent),
+                    maxLines = 6,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                        .semantics { contentDescription = placeholder }
+                        .testTag("composer-field"),
+                    decorationBox = { field ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (draft.isEmpty()) {
+                                Text(
+                                    placeholder,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = colors.textTertiary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            field()
+                        }
+                    },
+                )
+                if (state.running && draft.isNotBlank()) {
+                    IconButton(onClick = actions.onStop, modifier = Modifier.size(36.dp)) {
+                        Icon(CrokIcons.Stop, contentDescription = stringResource(R.string.composer_stop), tint = colors.danger)
+                    }
+                }
+            }
             Spacer(Modifier.width(6.dp))
             val blank = draft.isBlank()
             if (state.running && blank) {
                 RoundAction(CrokIcons.Stop, stringResource(R.string.composer_stop), colors.danger, Color.White, onClick = actions.onStop)
-            } else {
-                if (state.running) {
-                    IconButton(onClick = actions.onStop, modifier = Modifier.padding(bottom = 4.dp)) {
-                        Icon(CrokIcons.Stop, contentDescription = stringResource(R.string.composer_stop), tint = colors.danger)
-                    }
+            } else if (blank) {
+                GlassCircle(onClick = {}, size = 48.dp) {
+                    Icon(CrokIcons.Send, contentDescription = stringResource(R.string.composer_send), tint = colors.textTertiary, modifier = Modifier.size(22.dp))
                 }
-                RoundAction(
-                    CrokIcons.Send,
-                    stringResource(R.string.composer_send),
-                    if (blank) colors.card else colors.accent,
-                    if (blank) colors.textTertiary else colors.onAccent,
-                    enabled = !blank,
-                    onClick = actions.onSend,
-                )
+            } else {
+                RoundAction(CrokIcons.Send, stringResource(R.string.composer_send), colors.accent, colors.onAccent, onClick = actions.onSend)
             }
         }
     }
+}
+
+/** Telegram's bot menu button: a blue pill with ☰ and "Menu", only ☰ while there is text. */
+@Composable
+private fun MenuPill(expanded: Boolean, open: Boolean, onClick: () -> Unit) {
+    val colors = CrokTheme.colors
+    val label = stringResource(R.string.composer_menu)
+    Row(
+        Modifier
+            .padding(bottom = 2.dp)
+            .height(32.dp)
+            .clip(GlassShapes.capsule)
+            .background(if (open) colors.accent.copy(alpha = 0.85f) else colors.accent)
+            .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label }
+            .padding(horizontal = if (expanded) 12.dp else 8.dp)
+            .animateContentSize()
+            .testTag("menu-pill"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(if (open) CrokIcons.Close else CrokIcons.Menu, contentDescription = null, tint = colors.onAccent, modifier = Modifier.size(18.dp))
+        if (expanded) {
+            Spacer(Modifier.width(6.dp))
+            Text(label, color = colors.onAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * The command list above the composer (Telegram's BotCommandsMenuView): `/name` in bold with its input hint greyed after
+ * it, the description under; the phone's own commands first, then the session's.
+ */
+@Composable
+private fun CommandList(entries: List<CommandEntry>, onPick: (CommandEntry) -> Unit) {
+    val colors = CrokTheme.colors
+    LazyColumn(
+        Modifier
+            .padding(bottom = 8.dp)
+            .fillMaxWidth()
+            .heightIn(max = 300.dp)
+            .glass(GlassShapes.rounded(22.dp), GlassStyle.Bar)
+            .testTag("command-list"),
+        contentPadding = PaddingValues(vertical = 6.dp),
+    ) {
+        items(entries, key = { (if (it.local != null) "l:" else "s:") + it.name }) { entry ->
+            val description = entry.local?.let { localDescription(it) } ?: entry.description
+            val hint = entry.local?.let { localHint(it) } ?: entry.hint
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onPick(entry) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = colors.textPrimary)) { append("/" + entry.name) }
+                        if (!hint.isNullOrBlank()) withStyle(SpanStyle(color = colors.textTertiary)) { append(" $hint") }
+                    },
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (description.isNotBlank()) {
+                    Text(description, fontSize = 13.sp, color = colors.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun localDescription(command: LocalCommand): String = stringResource(
+    when (command) {
+        LocalCommand.New -> R.string.cmd_new
+        LocalCommand.Model -> R.string.cmd_model
+        LocalCommand.Think -> R.string.cmd_think
+        LocalCommand.Stop -> R.string.cmd_stop
+        LocalCommand.Info -> R.string.cmd_info
+    },
+)
+
+@Composable
+private fun localHint(command: LocalCommand): String? = when (command) {
+    LocalCommand.New -> stringResource(R.string.cmd_hint_new)
+    LocalCommand.Model -> stringResource(R.string.cmd_hint_model)
+    LocalCommand.Think -> stringResource(R.string.cmd_hint_think)
+    else -> null
 }
 
 /**
@@ -524,10 +718,10 @@ private fun PermissionCard(pending: PendingInteraction, computer: String, answer
     val colors = CrokTheme.colors
     Column(
         Modifier
+            .padding(bottom = 8.dp)
             .fillMaxWidth()
-            .padding(start = 8.dp, end = 8.dp, top = 8.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(colors.warningContainer)
+            .clip(GlassShapes.rounded(20.dp))
+            .background(colors.warningContainer.copy(alpha = 0.96f))
             .padding(12.dp)
             .testTag("permission-card"),
     ) {

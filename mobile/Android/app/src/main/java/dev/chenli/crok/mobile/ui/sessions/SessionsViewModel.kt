@@ -47,6 +47,8 @@ data class SessionsUiState(
     val reordering: Boolean = false,
     /** In Reorder mode, the project opened to move its sessions (null: the projects themselves move). */
     val reorderProject: String? = null,
+    /** The compose button's picker: online computers' projects. */
+    val newSessionProjects: List<SessionList.ComputerProjects> = emptyList(),
 ) {
     /** The tab shows projects (not the flat Archived list). */
     val grouped: Boolean get() = filter != SessionFilter.Archived
@@ -89,6 +91,7 @@ data class SessionsUiState(
                 totalActive = active.rows.size,
                 query = query,
                 now = now,
+                newSessionProjects = SessionList.newSessionProjects(active.groups),
             )
             val reorder = reordering && state.canReorder
             return state.copy(
