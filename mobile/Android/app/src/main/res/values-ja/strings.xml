@@ -242,4 +242,38 @@
     <string name="cd_clear">クリア</string>
     <string name="cd_more_options">その他のオプション</string>
     <string name="cd_drag_to_reorder">ドラッグして並べ替え</string>
+
+    <!-- New sessions, composer commands (relay/DESIGN.md §5) -->
+    <string name="new_session_title">新しいセッション</string>
+    <string name="new_session_subtitle">%1$s · %2$s</string>
+    <string name="new_session_starts_in">%2$s の %1$s で始まります</string>
+    <string name="new_session_first_prompt">最初のプロンプトを送ると、そこでセッションが始まります。</string>
+    <string name="new_session_unavailable">このセッションのプロジェクトが分からないため、/new ではここでセッションを始められません。</string>
+    <string name="session_starting">開始中…</string>
+    <string name="sessions_new_session">新しいセッション</string>
+    <string name="sessions_new_in_project">%1$s で新しいセッション</string>
+    <string name="picker_title">セッションを始める場所…</string>
+    <string name="picker_empty">オンラインのコンピュータがありません。いずれかで crok か Crok Desktop を起動すると、そこでセッションを始められます。</string>
+    <string name="composer_menu">メニュー</string>
+    <string name="composer_new_placeholder">%1$s への最初のプロンプト…</string>
+    <string name="cmd_new">このプロジェクトで新しいセッションを始める</string>
+    <string name="cmd_model">モデルを変更（このセッションのコンピュータで）</string>
+    <string name="cmd_think">思考レベルを変更</string>
+    <string name="cmd_stop">実行中のターンを停止</string>
+    <string name="cmd_info">セッション情報</string>
+    <string name="cmd_hint_new">[プロンプト]</string>
+    <string name="cmd_hint_model">[名前]</string>
+    <string name="cmd_hint_think">[レベル]</string>
+    <string name="bot_model_title">このセッションのモデル</string>
+    <string name="bot_think_title">このセッションの思考レベル</string>
+    <string name="bot_model_done">モデル：%1$s ✓</string>
+    <string name="bot_think_done">思考レベル：%1$s ✓</string>
+    <string name="bot_offline">%1$s はオフラインのため、今は選べるものがありません。</string>
+    <string name="bot_no_models">%1$s はまだモデルを選べません。そのコンピュータで crok を更新してください。</string>
+    <string name="bot_no_thinking">現在のモデルには思考レベルがありません。</string>
+    <string name="bot_no_match">「%1$s」に一致するものがありません。</string>
+    <string name="bot_ambiguous">「%1$s」は複数の選択肢に一致します。</string>
+    <string name="bot_failed">変更できませんでした：%1$s</string>
+    <string name="bot_current">現在</string>
+    <string name="cd_compose">新しいセッション</string>
 </resources>

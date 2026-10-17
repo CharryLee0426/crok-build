@@ -14,6 +14,8 @@ struct SidebarView: View {
     @State private var collapsedComputers: Set<String> = []
     private static let folderLimit = 5
     private static let recentsLimit = 10
+    /// Another computer's folders show their newest sessions; the rest wait behind "Show more".
+    private static let remoteFolderLimit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -127,8 +129,8 @@ struct SidebarView: View {
         }
     }
 
-    /// The person's other computers, each with its sessions (remote control). Opening one makes a task here that
-    /// the other computer runs.
+    /// The person's other computers, each with its folders and their sessions (remote control). Opening a
+    /// session makes a task here that the other computer runs; a folder's New task starts one there.
     @ViewBuilder
     private func otherComputers(now: Date) -> some View {
         SidebarSectionHeader(title: L10n.t("remote_other_computers", "Other computers"))
@@ -136,36 +138,48 @@ struct SidebarView: View {
             let key = "computer:\(computer.deviceID)"
             let expanded = Binding(get: { !collapsedComputers.contains(key) },
                                    set: { open in if open { collapsedComputers.remove(key) } else { collapsedComputers.insert(key) } })
-            let sessions = computer.projects.flatMap { project in project.sessions.map { (project, $0) } }
             Fold(isExpanded: expanded, spacing: 1) { toggle, isOpen in
                 RemoteComputerRow(computer: computer, isExpanded: isOpen,
                                   runningCount: computer.sessions.filter(\.isWorking).count, onToggle: toggle)
             } content: {
                 VStack(alignment: .leading, spacing: 1) {
-                    let showsAll = expandedLists.contains(key)
-                    ForEach(showsAll ? sessions : Array(sessions.prefix(Self.folderLimit)), id: \.1.id) { project, entry in
-                        RemoteSessionRow(entry: entry, projectName: project.name, computer: computer.name, now: now,
-                                         isSelected: store.conversation?.sessionID == entry.sessionID) {
-                            store.openRemoteSession(entry, on: computer)
+                    ForEach(computer.projects) { project in
+                        RemoteProjectRow(project: project, computer: computer, isActive: isStartingTask(on: computer, in: project)) {
+                            store.newRemoteTask(on: computer, in: project)
+                        }
+                        let listKey = "\(key):\(project.key)"
+                        let showsAll = expandedLists.contains(listKey)
+                        ForEach(showsAll ? project.sessions : Array(project.sessions.prefix(Self.remoteFolderLimit))) { entry in
+                            RemoteSessionRow(entry: entry, projectName: project.name, computer: computer.name, now: now,
+                                             isSelected: store.conversation?.sessionID == entry.sessionID) {
+                                store.openRemoteSession(entry, on: computer)
+                            }
+                        }
+                        if project.sessions.count > Self.remoteFolderLimit {
+                            Button {
+                                FoldMotion.toggle { if showsAll { expandedLists.remove(listKey) } else { expandedLists.insert(listKey) } }
+                            } label: {
+                                Text(showsAll ? L10n.t("show_less", "Show less") : L10n.t("show_n_more", "Show %d more", count: project.sessions.count - Self.remoteFolderLimit))
+                                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                                    .padding(.leading, RemoteSessionRow.indent).padding(.vertical, 6)
+                                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
                         }
                     }
-                    if sessions.count > Self.folderLimit {
-                        Button {
-                            FoldMotion.toggle { if showsAll { expandedLists.remove(key) } else { expandedLists.insert(key) } }
-                        } label: {
-                            Text(showsAll ? L10n.t("show_less", "Show less") : L10n.t("show_n_more", "Show %d more", count: sessions.count - Self.folderLimit))
-                                .font(.system(size: 12)).foregroundStyle(Theme.muted)
-                                .padding(.leading, 30).padding(.vertical, 6)
-                                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                        }.buttonStyle(.plain)
-                    }
-                    if sessions.isEmpty {
+                    if computer.projects.isEmpty {
                         Text(L10n.t("remote_no_sessions", "No sessions")).font(.system(size: 12)).foregroundStyle(Theme.muted)
                             .padding(.leading, 30).padding(.vertical, 5)
                     }
                 }
             }
         }
+    }
+
+    /// Whether the new task on screen starts in this folder of this computer.
+    private func isStartingTask(on computer: RemoteComputer, in project: RemoteProjectGroup) -> Bool {
+        guard store.state.selectedConversationID == nil, store.state.selectedProjectID == RemoteSessions.projectID,
+              let target = store.remoteNewTask else { return false }
+        return target.deviceID == computer.deviceID && target.path == project.path
     }
 
     @ViewBuilder
@@ -550,7 +564,60 @@ private struct RemoteComputerRow: View {
     }
 }
 
-/// A session of another computer in the sidebar, before or after it was opened here.
+/// A folder of another computer, over its sessions: a "+" on hover and New Task in its menu start a
+/// task there, unless the computer is offline, which the button's help and the menu say.
+private struct RemoteProjectRow: View {
+    let project: RemoteProjectGroup
+    let computer: RemoteComputer
+    /// The new task on screen starts here.
+    let isActive: Bool
+    let onNewTask: () -> Void
+    @State private var hovered = false
+    @ObservedObject private var language = L10n.state
+
+    private var name: String { project.name.isEmpty ? project.path : project.name }
+    private var newTaskHelp: String {
+        computer.online ? L10n.t("remote_new_task_help", "New task in {folder} on {computer}", ["folder": name, "computer": computer.name])
+            : RemoteSessions.offline(computer.name)
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            // Offline, a click says why nothing starts (see `AppStore.newRemoteTask`).
+            Button(action: onNewTask) {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder").font(.system(size: 11)).frame(width: 16)
+                    Text(name).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 4)
+                }
+                .foregroundStyle(Theme.muted)
+                .padding(.leading, 20).frame(maxWidth: .infinity, minHeight: 26, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(project.path)
+            if hovered {
+                IconButton(icon: "plus", help: newTaskHelp, size: 22, action: onNewTask)
+                    .disabled(!computer.online)
+                    .help(newTaskHelp)
+            }
+        }
+        .padding(.trailing, 4)
+        .background(isActive ? Theme.hover.opacity(0.8) : hovered ? Theme.hover.opacity(0.5) : .clear, in: RoundedRectangle(cornerRadius: 7))
+        .onHover { hovered = $0 }
+        .contextMenu {
+            Button(L10n.t("new_task", "New Task"), systemImage: "plus", action: onNewTask).disabled(!computer.online)
+            if !computer.online { Text(RemoteSessions.offline(computer.name)) }
+            Divider()
+            Button(L10n.t("copy_path", "Copy Path"), systemImage: "doc.on.doc") {
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(project.path, forType: .string)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(name), \(computer.name)")
+    }
+}
+
+/// A session of another computer in the sidebar, under its folder, before or after it was opened here.
 private struct RemoteSessionRow: View {
     let entry: RemoteSessionEntry
     let projectName: String
@@ -560,26 +627,23 @@ private struct RemoteSessionRow: View {
     let action: () -> Void
     @State private var hovered = false
     @ObservedObject private var language = L10n.state
+    /// Where the title starts, under its folder's name.
+    static let indent: CGFloat = 38
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 7) {
-                    Text(entry.title).font(.system(size: 13)).lineLimit(1).truncationMode(.tail)
-                    Spacer(minLength: 6)
-                    if entry.needsInput {
-                        Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(.orange)
-                    } else if entry.isWorking {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Text(RelativeTime.short(entry.lastActivityAt, now: now)).font(.system(size: 11)).monospacedDigit().foregroundStyle(Theme.muted)
-                    }
-                }
-                if !projectName.isEmpty {
-                    Label(projectName, systemImage: "folder").labelStyle(SidebarCaptionLabelStyle())
+            HStack(spacing: 7) {
+                Text(entry.title).font(.system(size: 13)).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 6)
+                if entry.needsInput {
+                    Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(.orange)
+                } else if entry.isWorking {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Text(RelativeTime.short(entry.lastActivityAt, now: now)).font(.system(size: 11)).monospacedDigit().foregroundStyle(Theme.muted)
                 }
             }
-            .padding(.leading, 30).padding(.trailing, 8).padding(.vertical, 5)
+            .padding(.leading, Self.indent).padding(.trailing, 8)
             .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading).contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -41,8 +41,8 @@ use xai_acp_lib::{AcpArgs, AcpClientMessage, AcpResult};
 
 pub use crok_remote::HostApp;
 pub use viewer::{
-    PERMISSION_RESOLVED_METHOD, RELAY_PREFIX, REMOTE_SESSIONS_CHANGED_METHOD,
-    REMOTE_SESSIONS_METHOD,
+    PERMISSION_RESOLVED_METHOD, RELAY_PREFIX, REMOTE_NEW_SESSION_METHOD,
+    REMOTE_SESSIONS_CHANGED_METHOD, REMOTE_SESSIONS_METHOD,
 };
 
 use crate::agent::MvpAgent;
@@ -557,7 +557,17 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         args: acp::SetSessionModelRequest,
     ) -> acp::Result<acp::SetSessionModelResponse> {
         if viewer::is_relay_session(&args.session_id.0) {
-            return Err(not_here("Changing the model"));
+            // The TUI's picker sends the thinking level with the model.
+            let effort = args
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get(xai_grok_sampling_types::REASONING_EFFORT_META_KEY))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            return self
+                .viewer()?
+                .set_model(&args.session_id.0, &args.model_id.0, effort)
+                .await;
         }
         self.inner.set_session_model(args).await
     }
@@ -567,7 +577,16 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         args: acp::SetSessionConfigOptionRequest,
     ) -> acp::Result<acp::SetSessionConfigOptionResponse> {
         if viewer::is_relay_session(&args.session_id.0) {
-            return Err(not_here("Changing session settings"));
+            let value = serde_json::to_value(&args.value).unwrap_or(Value::Null);
+            let value = value
+                .as_str()
+                .map(str::to_owned)
+                .or_else(|| value.get("value").and_then(Value::as_str).map(str::to_owned))
+                .ok_or_else(|| acp::Error::invalid_params().data("expected a value id"))?;
+            return self
+                .viewer()?
+                .set_config(&args.session_id.0, &args.config_id.0, &value)
+                .await;
         }
         self.inner.set_session_config_option(args).await
     }
@@ -630,6 +649,10 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         if method == REMOTE_SESSIONS_METHOD {
             let params: Value = serde_json::from_str(args.params.get()).unwrap_or(Value::Null);
             return ext_response(&self.viewer()?.sessions(&params).await);
+        }
+        if method == REMOTE_NEW_SESSION_METHOD {
+            let params: Value = serde_json::from_str(args.params.get()).unwrap_or(Value::Null);
+            return ext_response(&self.viewer()?.new_session(&params).await?);
         }
         let session = params_session(&args.params);
         if let Some(session_id) = session.as_deref().filter(|s| viewer::is_relay_session(s)) {

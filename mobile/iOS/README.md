@@ -82,13 +82,44 @@ while the computer is offline. Rows are dimmed and "offline" only while their co
 online computer takes prompts (a crok there opens it when one arrives), so it looks like any other. The order rules are pure functions in `Core/ProjectGroups.swift`, mirroring
 `relay/convex/lib/projects.ts`.
 
+## New sessions and composer commands
+
+As relay/DESIGN.md §5 "New sessions" and "Commands in the composer" describe: a project's "+" (and its menu's **New
+Session**), or the list's compose button (which asks for the project: online computers' projects, most recent first),
+opens a new-session screen ("Starts in <folder> on <computer>"); sending calls `sessions:create` and the same screen
+becomes the session, with the prompt shown at once. Rows of sessions not open on their computer yet say "Starting…".
+In a session, the Menu pill (or typing `/`) opens the command list: the phone's own `/new [prompt]`, `/model [name]`,
+`/think [level]` (only when the model has thinking levels), `/stop` (only while running) and `/info`, then the
+session's commands from `sessions:commands`. `/model` and `/think` answer with a card in the transcript (on this phone
+only) whose buttons call `commands:setConfig`; with an argument they match an id, value or name by unique prefix and
+apply at once. Anything else starting with `/` goes to the computer as a prompt. A computer whose crok is too old to
+publish models gets "<computer> doesn't offer model choices yet. Update crok there." in the card (only an offline one
+is called offline), and when `sessions:create` or `commands:setConfig` refuses, the relay's message is shown as is.
+The new fields are decoded leniently, so the app also works against a relay without them. Demo mode implements all of it
+(`Engine/Demo`): the MacBook offers four models, one with thinking levels whose ids differ from their values.
+
+## Staying connected
+
+`ConnectionKeeper` (`Core/ConnectionKeeper.swift`, run by `CrokEngine`) implements relay/DESIGN.md §5 "Staying
+connected": on returning to the foreground, on the network coming back or switching, and when nothing has synced for
+20 s while the network is up, it refreshes the access token and pushes it (a live socket answers with fresh query
+results); if nothing syncs within 10 s, `ConvexRelay` replaces its ConvexMobile client. Subscriptions move to the new
+client through `QueryHub.restartAll` (screens keep their data), calls waiting on the old client are sent again, and
+queries in backoff retry at once. `UNAUTHENTICATED` refreshes and replaces at once (at most every 15 s). Why it is
+needed: ConvexMobile's WebSocket connect has no timeout, so a socket that died while the phone was suspended could leave
+the client "connecting" for good, with every query and mutation queued behind it; and its auth bridge keeps the old
+token when a refresh fails on reconnect. Only results that arrive over the socket count as synced for the title, not a
+value the hub replays to a new screen.
+
 ## Tests
 
 ```sh
 # Unit tests: transcript grouping, ticks, user codes, plan summary, relative time, the sign-in state machine and its
 # persistence (no server field; the built-in relay and the developer override), HTTP API decoding (incl.
 # sessions:groups and pending requests), the list's order rules and optimistic moves, search, the reveal pacer, the
-# query hub, prompts to sessions nobody runs and answering permission requests (demo relay), localization coverage.
+# query hub, prompts to sessions nobody runs and answering permission requests (demo relay), localization coverage,
+# the connection keeper and its wiring (fake backend, manual clock), the token source, the hub moving subscriptions to
+# a new client, the composer's commands and bot cards, new sessions, and decoding the new relay fields.
 # ConvexMobile's library has no x86_64 simulator slice, hence ARCHS=arm64.
 xcodebuild test -project Crok.xcodeproj -scheme Crok -destination 'platform=iOS Simulator,name=iPhone 17' \
   ARCHS=arm64 -only-testing:CrokTests
@@ -96,7 +127,7 @@ xcodebuild test -project Crok.xcodeproj -scheme Crok -destination 'platform=iOS 
 # UI tests: a tour of demo mode (sign-in, sessions grouped by project, Show more, collapsing, moving a project, Reorder
 # mode, sessions only on a computer's disk, a running session with Stop, sending a prompt, answering a permission
 # request, a session nobody runs, an offline computer's session, info, settings,
-# devices, linking a computer, dark mode, German, Chinese and Japanese). Screenshots are attached to the result bundle
+# devices, linking a computer, new sessions, the command menu and bot cards, dark mode, German, Chinese and Japanese). Screenshots are attached to the result bundle
 # and, with TEST_RUNNER_CROK_SCREENSHOT_DIR, written as PNG files.
 TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
   -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/DemoTourUITests
@@ -126,21 +157,30 @@ The test closes the browser sheet (no web app runs locally, so the page cannot l
 the session, sends a prompt and watches clock → ✓ → ✓✓, stops a slow reply, opens the info sheet and the Devices
 screen. The positions it taps for the system's sign-in alert and the sheet's close button assume an iPhone 17.
 
+`CrokUITests/LiveReconnectUITests` checks "Staying connected" against a local relay (`TEST_RUNNER_CROK_LIVE_RECONNECT=1`):
+run `node scripts/fake-computer.mjs` in `relay/`, put a freezable TCP proxy in front of the relay (while the file
+`$CROK_LIVE_DIR/freeze` exists it keeps open connections silent and never answers new ones, like a socket that died
+while the phone was suspended), and point the test at it (`TEST_RUNNER_CROK_LIVE_RELAY_URL`, default
+`http://127.0.0.1:3290`). It writes the sign-in code to `$CROK_LIVE_DIR/live-user-code.txt` (default `/tmp/crok-live`),
+then freezes the proxy, unfreezes it and expects the app back by itself, and does the same around a trip to the
+background.
+
 ## Layout
 
 ```
 Crok/
   App/         CrokApp, RootView, AppModel (the persisted sign-in state machine), AppEnvironment (live / demo)
   Core/        models, errors and the HTTP API client, Keychain, transcript builder, Markdown blocks, reveal pacer,
-               connection state, user codes, plan summary, relative time, avatars, the list's order rules and search,
-               drafts, collapsed projects and the list cache
+               connection state and the connection keeper, user codes, plan summary, relative time, avatars, the
+               list's order rules and search, composer commands and bot cards, drafts, collapsed projects, list cache
   Engine/      CrokEngine (one per signed-in account), RelayAPI (facades), ConvexRelay + QueryHub + DeviceAuthProvider
-               (ConvexMobile), LiveQuery, Demo/ (in-memory relay and sample data)
-  Features/    SignIn, Sessions, Session (transcript, composer, plan bar), Info, Settings (devices, link a computer, QR)
-  UI/          Theme (semantic colours), shared components, Markdown rendering
+               (ConvexMobile, replaceable clients, the token source), LiveQuery, Demo/ (in-memory relay, sample data)
+  Features/    SignIn, Sessions (list, new-session picker and screen), Session (transcript, composer with the Menu and
+               command list, bot cards, plan bar), Info, Settings (devices, link a computer, QR)
+  UI/          Theme (semantic colours, Liquid Glass surfaces), shared components, Markdown rendering
   Resources/   Assets (app icon, Crok mark, accent), Localizable.xcstrings, InfoPlist.xcstrings
 CrokTests/     unit tests
-CrokUITests/   demo tour and the live relay check
+CrokUITests/   demo tour, the live relay check and the live reconnect check
 scripts/       make-icon.swift: renders the app icon and the mark from desktop/macOS/Resources/GrokMark.svg
 ```
 
@@ -169,7 +209,8 @@ table is in `relay/DESIGN.md` §5; in this app:
 | `TextRevealController` | `TextRevealPacer`: reveal speed from the chunk interval, finish within 0.3 s |
 | pinned message bar, page-down button, drafts | `PlanBar`, the scroll-to-bottom button with a new-item counter, `DraftStore` |
 | `AuthTransfer` / QR scan, Active Sessions | Settings › Link a computer (QR or typed code, approve / deny), Settings › Devices |
-| `PresentationTheme` | `Theme`: semantic colours on the Crok palette (sage `#41634C` / `#A1BFA8`, Crok Day / Crok Night) |
+| `PresentationTheme` | `Theme`: semantic colours on the Crok palette (Telegram blue `#3390EC` / `#3E88F7`, own bubbles `#E1EFFD` / `#2B5278`, Crok Day / Crok Night); Liquid Glass composer and floating buttons on iOS 26 (`glassSurface`, a material on iOS 17–25) |
+| new message, `ChatTextInputMenuButton`, command panel, inline keyboards | the list's compose button (project picker) and a project's "+": a new-session screen that becomes the session; the Menu pill and command list in the composer; `/model` and `/think` bot cards with an inline keyboard |
 
 ## Notes
 

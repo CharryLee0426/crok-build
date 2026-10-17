@@ -14,15 +14,46 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
     var devices: any DevicesAPI { self }
     var account: any AccountAPI { self }
 
+    private let lock = NSLock()
+    private var signalSinks: [UUID: AsyncStream<ConnectionSignal>.Continuation] = [:]
+    private var refreshes = 0
+    private var replacements = 0
+
+    /// How often the engine asked for a fresh token and a new client (the connection keeper at work).
+    var refreshCount: Int { lock.withLock { refreshes } }
+    var replaceCount: Int { lock.withLock { replacements } }
+
     func connectionSignals() -> AsyncStream<ConnectionSignal> {
         AsyncStream { continuation in
+            let id = UUID()
+            lock.withLock { signalSinks[id] = continuation }
             continuation.yield(.network(available: true))
             continuation.yield(.socket(connected: true))
+            continuation.yield(.synced)
+            continuation.onTermination = { [weak self] _ in
+                self?.lock.withLock { _ = self?.signalSinks.removeValue(forKey: id) }
+            }
         }
+    }
+
+    private func broadcast(_ signals: ConnectionSignal...) {
+        let sinks = lock.withLock { Array(signalSinks.values) }
+        for sink in sinks { for signal in signals { sink.yield(signal) } }
     }
 
     func start() async {}
     func shutdown() async {}
+
+    /// Always connected: a new token gets fresh results at once, as from a live socket.
+    func refreshAuth() async throws {
+        lock.withLock { refreshes += 1 }
+        broadcast(.synced)
+    }
+
+    func replaceClient() async {
+        lock.withLock { replacements += 1 }
+        broadcast(.socket(connected: false), .socket(connected: true), .synced)
+    }
 
     /// Emits `compute(world)` now and after every change, skipping repeats.
     private func observe<T: Sendable & Equatable>(_ compute: @escaping @MainActor (DemoWorld) throws -> T) -> RelayStream<T> {
@@ -119,6 +150,16 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         }
     }
 
+    func create(deviceId: DocID, path: String, text: String?, clientId: String) async throws -> CreatedSession {
+        try await mutate(.milliseconds(350)) { world in
+            try world.createSession(deviceId: deviceId, path: path, text: text, clientId: clientId)
+        }
+    }
+
+    func slashCommands(_ sessionDocId: DocID) -> RelayStream<SlashCommandList> {
+        observe { world in try world.slashCommands(for: sessionDocId) }
+    }
+
     // MARK: CommandsAPI
 
     func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String) async throws -> DocID {
@@ -171,6 +212,10 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
             try world.answer(sessionId: sessionDocId, interactionId: interactionId, optionId: optionId)
             return world.newId("command")
         }
+    }
+
+    func setConfig(_ sessionDocId: DocID, configId: ConfigOption, value: String) async throws -> DocID {
+        try await mutate { world in try world.setConfig(sessionId: sessionDocId, configId: configId, value: value) }
     }
 
     func get(_ commandId: DocID) -> RelayStream<CommandRecord?> { observe { $0.infoCommands[commandId] } }

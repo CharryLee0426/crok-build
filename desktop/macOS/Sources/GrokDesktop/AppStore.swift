@@ -67,6 +67,12 @@ final class AppStore: ObservableObject {
     var remoteHostLoop: Task<Void, Never>?
     var remoteHostRetryAt: Date?
     var remoteSessionsAskedAt: Date?
+    /// Sidebar › Other computers › a folder › New task: where the new task on screen starts, while
+    /// the remote tasks' project is selected with no task (see `RemoteSessions.swift`).
+    @Published var remoteNewTask: RemoteNewTask?
+    /// New tasks of other computers whose first prompt is on its way there, by task: the text sent,
+    /// which the viewer announces again when that computer starts the turn (see `startRemoteTurn`).
+    var remoteFirstPrompts: [UUID: String] = [:]
     @Published var showRename = false
     /// The command sheet on screen, if any.
     @Published var sheet: DesktopSheet?
@@ -173,10 +179,14 @@ final class AppStore: ObservableObject {
     enum DraftLocation: Hashable {
         case conversation(UUID)
         case newTask(UUID?)
+        /// A new task on another computer, in one of its folders.
+        case remoteNewTask(RemoteNewTask)
     }
     var drafts: [DraftLocation: String] = [:]
     var draftLocation: DraftLocation {
-        state.selectedConversationID.map(DraftLocation.conversation) ?? .newTask(state.selectedProjectID)
+        if let id = state.selectedConversationID { return .conversation(id) }
+        if state.selectedProjectID == RemoteSessions.projectID, let target = remoteNewTask { return .remoteNewTask(target) }
+        return .newTask(state.selectedProjectID)
     }
     var clients: [UUID: ACPClient] = [:]
     var loaded: Set<UUID> = []
@@ -215,12 +225,18 @@ final class AppStore: ObservableObject {
     var run: RunState {
         var catalog = catalogRun
         if commandCatalogProjectID != state.selectedProjectID { catalog.commands = []; catalog.commandsLoaded = false; catalog.availableTools = nil }
+        if state.selectedProjectID == RemoteSessions.projectID {
+            // Another computer's tasks choose among that computer's models, never this Mac's: a new
+            // task there has none to show until its session has started.
+            catalog.models = []; catalog.modelID = ""; catalog.reasoningOptions = []; catalog.reasoningID = ""
+        }
         guard let id = state.selectedConversationID else { return catalog }
         if let existing = runs[id], loaded.contains(id) { return existing }
         var shown = runs[id] ?? catalog
         if runs[id] == nil { shown.isConfiguring = false }
         guard let task = task(id) else { return shown }
-        return Self.showingSavedOptions(shown, modelID: task.modelID, reasoningID: task.reasoningID, catalog: catalogRun.models)
+        let saved = task.remote.map { state.remoteModelCatalogs[$0.deviceID] ?? [] } ?? catalogRun.models
+        return Self.showingSavedOptions(shown, modelID: task.modelID, reasoningID: task.reasoningID, catalog: saved)
     }
 
     /// Until a task's harness has loaded its session, the composer shows the model and thinking
@@ -344,6 +360,11 @@ final class AppStore: ObservableObject {
             updateCatalogReasoning(preferred: state.selectedReasoningID)
         }
         if state.projects.contains(where: { $0.id == state.selectedProjectID }) == false, state.selectedProjectID != RemoteSessions.projectID {
+            state.selectedProjectID = state.projects.first?.id
+        }
+        // A new task on another computer is not kept between launches: without a task, its project gives way.
+        if state.selectedProjectID == RemoteSessions.projectID, state.selectedConversationID.flatMap(task) == nil {
+            state.selectedConversationID = nil
             state.selectedProjectID = state.projects.first?.id
         }
         if let tab = defaults.string(forKey: "sidePanelTab").flatMap(SidePanelTab.init(rawValue:)) { sidePanelTab = tab }
@@ -484,6 +505,7 @@ final class AppStore: ObservableObject {
 
     func selectProject(_ id: UUID) {
         drafts[draftLocation] = draft
+        remoteNewTask = nil
         state.selectedProjectID = id; state.selectedConversationID = nil
         draft = drafts[draftLocation] ?? ""; search = ""; showArchived = false; selectedFile = nil; diffText = ""
         workspace = GitWorkspaceSnapshot(branch: "", changes: [])
@@ -497,6 +519,7 @@ final class AppStore: ObservableObject {
             selectedFile = nil; diffText = ""
         }
         state.selectedConversationID = task.id; state.selectedProjectID = task.projectID
+        remoteNewTask = nil
         unreadConversationIDs.remove(task.id)
         features.tokens.restore(conversationID: task.id)
         draft = drafts[draftLocation] ?? ""; save(); Task { await refreshWorkspace() }
@@ -504,6 +527,14 @@ final class AppStore: ObservableObject {
 
     func newTask() {
         drafts[draftLocation] = draft
+        if state.selectedProjectID == RemoteSessions.projectID {
+            // Beside a task of another computer, a new task starts on that computer in the same folder.
+            if let remote = conversation?.remote {
+                remoteNewTask = RemoteNewTask(deviceID: remote.deviceID, computer: remote.computer, path: remote.cwd)
+            } else if remoteNewTask == nil {
+                state.selectedProjectID = state.projects.first?.id
+            }
+        }
         state.selectedConversationID = nil
         draft = drafts[draftLocation] ?? ""; showArchived = false; save()
     }
@@ -531,6 +562,7 @@ final class AppStore: ObservableObject {
         state.conversations.removeAll { $0.id == id }
         if state.selectedConversationID == id {
             state.selectedConversationID = nil
+            if state.selectedProjectID == RemoteSessions.projectID, remoteNewTask == nil { state.selectedProjectID = state.projects.first?.id }
             draft = drafts[draftLocation] ?? ""
         }
         // A tombstone must reach disk before a later history import can discover this session.
@@ -555,6 +587,8 @@ final class AppStore: ObservableObject {
             await loadImportedConversation()
             return
         }
+        // A new task on another computer: that computer's models come with its session.
+        guard project.id != RemoteSessions.projectID else { return }
         guard !(catalogRun.isConfiguring && catalogLoadingProjectID == project.id),
               catalogProjectID != project.id || catalogRun.models.isEmpty else { return }
         catalogRun.isConfiguring = true
@@ -643,6 +677,12 @@ final class AppStore: ObservableObject {
             return
         }
         guard !prompt.isEmpty || !pendingAttachments.isEmpty, let project, !run.isRunning, !run.isConfiguring else { return }
+        // A new task on another computer, or one whose start there failed: the prompt starts its session there.
+        if let target = remoteStartTarget {
+            startRemoteTask(prompt, sending: promptText ?? prompt, target: target, attachments: pendingAttachments,
+                            draftLocation: commandDraftLocation, clearsDraft: displayText == nil)
+            return
+        }
         if promptText == nil, !bypassDesktopCommands, let command = SlashCommand.split(prompt), run.commandsLoaded,
            !run.commands.contains(where: { $0.name == command.name || $0.aliases.contains(command.name) }) {
             banner = "Unknown command /\(command.name). Open the command menu to see commands available in this project."
@@ -725,6 +765,11 @@ final class AppStore: ObservableObject {
             }
             return client
         }
+        // A task of another computer that has no session there yet starts it with its first prompt
+        // (`startRemoteTask`); a session of this Mac's own would run here instead.
+        if let remote = task(id)?.remote, task(id)?.sessionID == nil {
+            throw DesktopError.message(L10n.t("remote_task_not_started", "This task has not started on {computer} yet. Send a prompt to start it.", ["computer": remote.computer]))
+        }
         let client = ACPClient()
         client.onNotification = { [weak self, weak client] method, params in
             guard let self, let client, self.clients[id] === client else { return }
@@ -746,7 +791,8 @@ final class AppStore: ObservableObject {
         try client.start(executable: binaryPath, cwd: project.path)
         let initial = try await initialize(client)
         try checkOperation(id, operationID: operationID)
-        if let modelState = (initial["_meta"] as? [String: Any])?["modelState"] as? [String: Any] { applyModels(modelState, id: id) }
+        // This harness's own models are this Mac's; another computer's session brings that computer's with its load.
+        if task(id)?.remote == nil, let modelState = (initial["_meta"] as? [String: Any])?["modelState"] as? [String: Any] { applyModels(modelState, id: id) }
         if let commands = (initial["_meta"] as? [String: Any])?["availableCommands"] as? [[String: Any]] {
             runs[id, default: RunState()].commands = SlashCommand.parse(commands)
         }
@@ -771,7 +817,13 @@ final class AppStore: ObservableObject {
             if let index = state.conversations.firstIndex(where: { $0.id == id }) {
                 // The harness owns persisted history. Keep the visible prompt that has not been sent yet.
                 pendingTranscript.removeValue(forKey: id)
-                let replayed = (importBuffers[id] ?? []) + (pendingPrompts[id].map { [$0] } ?? [])
+                var pending = pendingPrompts[id].map { [$0] } ?? []
+                // A new task's first prompt on another computer is in the history already when that computer was quick to start it.
+                if let first = remoteFirstPrompts[id], (importBuffers[id] ?? []).contains(where: { $0.kind == .user && RemoteSessions.samePrompt($0.text, first) }) {
+                    pending = []
+                    remoteFirstPrompts.removeValue(forKey: id)
+                }
+                let replayed = (importBuffers[id] ?? []) + pending
                 // A replay that matches the local copy keeps it, so the transcript neither re-renders nor jumps.
                 // An empty replay of a task with a saved transcript is a harness that lost the session; keep the copy.
                 let lost = !staleTranscripts.contains(id) && (importBuffers[id] ?? []).isEmpty && !state.conversations[index].messages.isEmpty
@@ -799,11 +851,14 @@ final class AppStore: ObservableObject {
             runs[id]?.modeID = modes["currentModeId"] as? String ?? ""
         }
         if let options = result["configOptions"] as? [[String: Any]] { applyConfigOptions(options, id: id) }
-        if let desired = task(id)?.modelID, desired != runs[id]?.modelID {
+        // Another computer's session keeps the model it has there, which may have been changed on any device since.
+        let restoresChoices = task(id)?.remote == nil
+        if let remote = task(id)?.remote { rememberRemoteModels(runs[id]?.models ?? [], deviceID: remote.deviceID) }
+        if restoresChoices, let desired = task(id)?.modelID, desired != runs[id]?.modelID {
             try await updateConfig(client, id: id, key: "model", value: desired)
             try checkOperation(id, operationID: operationID)
         }
-        if let desired = task(id)?.reasoningID, desired != runs[id]?.reasoningID,
+        if restoresChoices, let desired = task(id)?.reasoningID, desired != runs[id]?.reasoningID,
            runs[id]?.reasoningOptions.contains(where: { $0.id == desired }) == true {
             try await updateConfig(client, id: id, key: "reasoning_effort", value: desired)
             try checkOperation(id, operationID: operationID)
@@ -852,6 +907,8 @@ final class AppStore: ObservableObject {
         if receiveRemote(method, params: params, id: id) { return }
         if receiveFeatureNotification(method, params: params, id: id) { return }
         if method == "x.ai/models/update" {
+            // This Mac's catalog changed; another computer's session lists that computer's models.
+            guard task(id)?.remote == nil else { return }
             runs[id, default: RunState()].models = SessionOptions.models(params)
             rememberModelCatalog(runs[id]?.models ?? [])
             return
@@ -1158,6 +1215,8 @@ final class AppStore: ObservableObject {
                     try await updateConfig(client, id: id, key: key, value: value)
                     try checkOperation(id, operationID: operationID)
                     persistSessionOptions(id)
+                    // Another computer's model is that task's alone: this Mac's defaults and catalog stay as they were.
+                    guard task(id)?.remote == nil else { runs[id]?.phase = "Ready"; save(); return }
                     state.selectedModelID = runs[id]?.modelID
                     state.selectedReasoningID = runs[id]?.reasoningID.isEmpty == false ? runs[id]?.reasoningID : nil
                     catalogProjectID = project.id
@@ -1178,9 +1237,10 @@ final class AppStore: ObservableObject {
 
     func updateConfig(_ client: ACPClient, id: UUID, key: String, value: String) async throws {
         guard let session = task(id)?.sessionID else { throw DesktopError.message("The task has no session.") }
+        // Another computer applies the change itself and answers through the relay.
         let result = try await client.request("session/set_config_option", params: [
             "sessionId": session, "configId": key, "value": value
-        ])
+        ], timeout: task(id)?.remote == nil ? 30 : 90)
         guard task(id) != nil, clients[id] === client else { throw CancellationError() }
         guard let options = result["configOptions"] as? [[String: Any]] else {
             throw DesktopError.message("The runtime did not confirm the updated task settings.")
@@ -1222,6 +1282,10 @@ final class AppStore: ObservableObject {
     /// has, so a model a connecting harness has not listed yet still shows its display name.
     func modelOption(_ id: String) -> ModelOption? {
         guard !id.isEmpty else { return nil }
+        // Another computer's model is named from that computer's list, not from this Mac's.
+        if let device = selectedRemoteDeviceID {
+            return run.models.first { $0.id == id } ?? state.remoteModelCatalogs[device]?.first { $0.id == id }
+        }
         return run.models.first { $0.id == id }
             ?? catalogRun.models.first { $0.id == id }
             ?? state.modelCatalog.first { $0.id == id }
@@ -1229,7 +1293,8 @@ final class AppStore: ObservableObject {
 
     func applyModels(_ models: [String: Any], id: UUID) {
         runs[id, default: RunState()].models = SessionOptions.models(models)
-        rememberModelCatalog(runs[id]?.models ?? [])
+        if let remote = task(id)?.remote { rememberRemoteModels(runs[id]?.models ?? [], deviceID: remote.deviceID) }
+        else { rememberModelCatalog(runs[id]?.models ?? []) }
         runs[id]?.modelID = models["currentModelId"] as? String ?? ""
         let selected = runs[id]?.models.first { $0.id == runs[id]?.modelID }
         runs[id]?.reasoningOptions = selected?.reasoningOptions ?? []

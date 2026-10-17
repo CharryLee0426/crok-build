@@ -25,7 +25,7 @@ export function AppHeader({
   const { t } = useI18n();
   const pathname = usePathname() ?? "/";
   const items = [
-    { href: "/", label: t("nav_sessions"), icon: <ChatsIcon size={18} />, active: pathname === "/" || pathname.startsWith("/sessions") },
+    { href: "/", label: t("nav_sessions"), icon: <ChatsIcon size={18} />, active: pathname === "/" || pathname === "/new" || pathname.startsWith("/sessions") },
     { href: "/devices", label: t("nav_devices"), icon: <DevicesIcon size={18} />, active: pathname.startsWith("/devices") },
     { href: "/link", label: t("nav_link"), icon: <LinkIcon size={18} />, active: pathname.startsWith("/link") },
   ];

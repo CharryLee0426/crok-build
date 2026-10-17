@@ -1,10 +1,12 @@
 "use client";
 
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { newClientId } from "@/lib/browser";
 import { relayError } from "@/lib/errors";
+import { dropHandedOver, handedOverPrompt, newSessionHref, queueNewSessionPrompt } from "@/lib/new-session";
 import type { CommandId, OutboxItem, PendingPrompt, SessionId, SessionInfoResult } from "@/lib/types";
 import { ErrorBoundary } from "../AccountGate";
 import { useI18n } from "../I18nProvider";
@@ -12,6 +14,7 @@ import { ChatsIcon } from "../icons";
 import { useErrorText, useSessionActions } from "../SessionList";
 import { useToast } from "../Toast";
 import { ButtonLink, Loading, Notice, useNow } from "../ui";
+import { useBotCards } from "./BotCommands";
 import { SessionView } from "./SessionView";
 import type { InfoState, SessionModel } from "./SessionView";
 
@@ -50,14 +53,36 @@ export function SessionScreen({ id }: { id: string }) {
   );
 }
 
+/** Follows one `commands:setConfig` command and reports once the computer applied it or it failed. */
+function ConfigWatcher({
+  commandId,
+  onSettled,
+}: {
+  commandId: CommandId;
+  onSettled: (status: "done" | "failed", error?: string) => void;
+}) {
+  const command = useQuery(api.commands.get, { commandId });
+  const status = command?.status;
+  const error = command?.error;
+  useEffect(() => {
+    if (status === "done" || status === "failed") onSettled(status, error ?? undefined);
+    // onSettled is a fresh closure each render; the status is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, error]);
+  return null;
+}
+
 function LiveSession({ id }: { id: SessionId }) {
+  const { t } = useI18n();
   const toast = useToast();
   const errorText = useErrorText();
   const now = useNow(30_000);
+  const router = useRouter();
 
   const session = useQuery(api.sessions.get, { sessionDocId: id });
   const transcript = usePaginatedQuery(api.sessions.events, { sessionDocId: id }, { initialNumItems: 50 });
   const commands = useQuery(api.commands.forSession, { sessionDocId: id });
+  const slash = useQuery(api.sessions.commands, { sessionDocId: id });
 
   const sendPrompt = useMutation(api.commands.sendPrompt);
   const stopTurn = useMutation(api.commands.stop);
@@ -65,12 +90,17 @@ function LiveSession({ id }: { id: SessionId }) {
   const discardCommand = useMutation(api.commands.discard);
   const requestInfo = useMutation(api.commands.requestInfo);
   const answerRequest = useMutation(api.commands.answer);
+  const setConfig = useMutation(api.commands.setConfig);
   // Pin and archive from the info panel move the row in the list at once, like the list's own menu.
   const sessionActions = useSessionActions();
   const watch = useMutation(api.sessions.watch);
   const markRead = useMutation(api.sessions.markRead);
 
-  const [outbox, setOutbox] = useState<OutboxItem[]>([]);
+  // A session just made on the new-session screen arrives with its first prompt, still on its way.
+  const [outbox, setOutbox] = useState<OutboxItem[]>(() => {
+    const first = handedOverPrompt(id);
+    return first ? [first] : [];
+  });
   const [stopping, setStopping] = useState(false);
   const [answering, setAnswering] = useState<string | null>(null);
   const [infoCommandId, setInfoCommandId] = useState<CommandId | null>(null);
@@ -113,7 +143,9 @@ function LiveSession({ id }: { id: SessionId }) {
     if (!commands) return;
     const known = new Set(commands.map((c) => c.clientId));
     setOutbox((items) => (items.some((i) => known.has(i.clientId)) ? items.filter((i) => !known.has(i.clientId)) : items));
-  }, [commands]);
+    const first = handedOverPrompt(id);
+    if (first && known.has(first.clientId)) dropHandedOver(id);
+  }, [commands, id]);
 
   const events = transcript.results;
   const pending = useMemo<PendingPrompt[]>(() => {
@@ -193,6 +225,21 @@ function LiveSession({ id }: { id: SessionId }) {
   } else if (infoCommand?.status === "failed") info = { state: "failed", result: null };
   else if (infoLocal === "loading" && !infoCommand) info = { state: "loading", result: null };
 
+  // `/model` and `/think` answers. A refused change fails its card at once, in the relay's words for OFFLINE and
+  // INVALID (no crok there, not a choice there, or a crok too old to change it: "update crok").
+  const deviceName = session?.deviceName ?? "";
+  const cards = useBotCards({
+    session,
+    apply: (configId, value) =>
+      setConfig({ sessionDocId: id, configId, value }).then(({ commandId }) => commandId),
+    errorText: (error) => {
+      const { code, message } = relayError(error);
+      if (code === "OFFLINE") return message || t("card_err_offline", { computer: deviceName });
+      if (code === "INVALID") return message || t("card_err_invalid");
+      return errorText(error);
+    },
+  });
+
   if (session === undefined) return <Loading />;
 
   const model: SessionModel = {
@@ -207,6 +254,8 @@ function LiveSession({ id }: { id: SessionId }) {
     },
     commands,
     pending,
+    slashCommands: slash?.commands,
+    cards: cards.cards,
     info,
     stopping,
     answering,
@@ -244,8 +293,27 @@ function LiveSession({ id }: { id: SessionId }) {
       requestInfo: doRequestInfo,
       setPinned: (pinned) => sessionActions.setPinned(id, pinned),
       setArchived: (archived) => sessionActions.setArchived(id, archived),
+      newSession: (text) => {
+        if (text) queueNewSessionPrompt(session.deviceId, session.projectPath, text);
+        router.push(newSessionHref(session.deviceId, session.projectPath));
+      },
+      openCard: cards.open,
+      chooseInCard: cards.choose,
     },
   };
 
-  return <SessionView model={model} />;
+  return (
+    <>
+      <SessionView model={model} />
+      {cards.cards.map((card) =>
+        card.state === "applying" && card.commandId ? (
+          <ConfigWatcher
+            key={`${card.id}:${card.commandId}`}
+            commandId={card.commandId}
+            onSettled={(status, error) => cards.settle(card.id, status, error)}
+          />
+        ) : null,
+      )}
+    </>
+  );
 }

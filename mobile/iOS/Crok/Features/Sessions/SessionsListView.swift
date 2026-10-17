@@ -5,9 +5,13 @@ import SwiftUI
 /// and sessions keep the order people put them in, shared with the web and the other phones.
 struct SessionsListView: View {
     @Environment(CrokEngine.self) private var engine
+    @Environment(\.openSessionRoute) private var openRoute
     @State private var filter: SessionFilter = .all
     @State private var query = ""
     @State private var showsLink = false
+    @State private var showsNewSession = false
+    /// The project picked in the compose sheet; its screen opens once the sheet is gone.
+    @State private var pickedTarget: NewSessionTarget?
     @State private var actionError: RelayError?
     @State private var editMode: EditMode = .inactive
     /// Projects showing every session instead of the first five (for this visit only).
@@ -19,7 +23,9 @@ struct SessionsListView: View {
     private var canReorder: Bool { filter != .archived && !isSearching }
 
     var body: some View {
-        Group {
+        // Read while the view is installed: the sheet's closures run later, outside `body`.
+        let openRoute = self.openRoute
+        return Group {
             if filter == .archived {
                 archivedList
             } else {
@@ -39,6 +45,17 @@ struct SessionsListView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 listMenu
             }
+            if !isEditing {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showsNewSession = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+                    .accessibilityLabel(Text("New Session"))
+                    .accessibilityIdentifier("composeButton")
+                }
+            }
         }
         .environment(\.editMode, $editMode)
         .onChange(of: filter) { _, newValue in
@@ -55,6 +72,18 @@ struct SessionsListView: View {
         }
         .sheet(isPresented: $showsLink) {
             NavigationStack { LinkComputerView(showsClose: true) }
+        }
+        .sheet(
+            isPresented: $showsNewSession,
+            onDismiss: {
+                // Pushed once the sheet is gone (a push while it is still going away is lost).
+                if let target = pickedTarget {
+                    pickedTarget = nil
+                    openRoute(.new(NewSessionRoute(target: target)))
+                }
+            }
+        ) {
+            NewSessionPicker(groups: engine.groups) { target in pickedTarget = target }
         }
         .alert(
             "Couldn't do that", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } }),
@@ -142,6 +171,7 @@ struct SessionsListView: View {
                 onToggle: {
                     withAnimation(.snappy) { engine.toggleCollapsed(group.key) }
                 },
+                onNewSession: group.deviceOnline && !isEditing ? { startSession(in: NewSessionTarget(group: group)) } : nil,
                 menu: { projectMenu(group, among: groups, collapsed: collapsed) })
         }
     }
@@ -173,9 +203,16 @@ struct SessionsListView: View {
         .accessibilityIdentifier("showMore-\(group.name)")
     }
 
-    /// A section header's menu: move the project, sort its sessions by activity, collapse it.
+    /// A section header's menu: a new session in the project, move it, sort its sessions by activity, collapse it.
     @ViewBuilder
     private func projectMenu(_ group: ProjectGroup, among groups: [ProjectGroup], collapsed: Bool) -> some View {
+        Button {
+            startSession(in: NewSessionTarget(group: group))
+        } label: {
+            Label("New Session", systemImage: "square.and.pencil")
+        }
+        .disabled(!group.deviceOnline)
+        Divider()
         if canReorder {
             let keys = groups.map(\.key)
             Button {
@@ -211,7 +248,7 @@ struct SessionsListView: View {
     // MARK: Rows
 
     private func sessionLink(_ row: SessionRow, in group: ProjectGroup?) -> some View {
-        NavigationLink(value: SessionRoute(id: row.id)) {
+        NavigationLink(value: SessionRoute.session(row.id)) {
             SessionRowView(row: row, grouped: group != nil)
         }
         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 14))
@@ -316,6 +353,11 @@ struct SessionsListView: View {
         Task { actionError = await engine.reorder(change) }
     }
 
+    /// The new-session screen for a project (its "+", its menu, or the compose button's picker).
+    private func startSession(in target: NewSessionTarget) {
+        openRoute(.new(NewSessionRoute(target: target)))
+    }
+
     // MARK: Empty
 
     @ViewBuilder
@@ -359,11 +401,25 @@ struct ProjectSectionHeader<MenuItems: View>: View {
     let showsComputer: Bool
     let collapsed: Bool
     let onToggle: () -> Void
+    /// "+": a new session in this project (only while its computer is online).
+    var onNewSession: (() -> Void)?
     @ViewBuilder let menu: () -> MenuItems
 
     var body: some View {
         HStack(spacing: 2) {
             toggle
+            if let onNewSession {
+                Button(action: onNewSession) {
+                    Image(systemName: "plus")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 30, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("New Session"))
+                .accessibilityIdentifier("newSession-\(group.name)")
+            }
             Menu {
                 menu()
             } label: {

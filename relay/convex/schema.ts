@@ -26,7 +26,8 @@ export const eventKind = v.union(
 
 /**
  * `history`: the relay asks any running crok on the computer to read a session's transcript from disk. `answer`: a
- * choice for the session's pending permission request.
+ * choice for the session's pending permission request. `create`: open a new crok session for a `pending:` row (and run
+ * its first prompt, `text`). `config`: set the session's model or thinking level (`configId`, value in `text`).
  */
 export const commandType = v.union(
   v.literal("prompt"),
@@ -34,7 +35,39 @@ export const commandType = v.union(
   v.literal("info"),
   v.literal("history"),
   v.literal("answer"),
+  v.literal("create"),
+  v.literal("config"),
 );
+
+/** The settings `commands:setConfig` changes, named as crok's `session/set_config_option` names them. */
+export const configId = v.union(v.literal("model"), v.literal("reasoning_effort"));
+
+/**
+ * One thinking level a model offers (crok's `reasoning_effort` choices): `id` is what `commands:setConfig` takes,
+ * `value` the level it stands for (`low`, `high`, …), which is what a session's `effort` says.
+ */
+export const effortOption = v.object({
+  id: v.string(),
+  name: v.string(),
+  value: v.optional(v.string()),
+  description: v.optional(v.string()),
+});
+
+/** A model a crok process can run, with its thinking levels (none: the model has no thinking level to choose). */
+export const modelOption = v.object({
+  id: v.string(),
+  name: v.string(),
+  description: v.optional(v.string()),
+  efforts: v.array(effortOption),
+  defaultEffort: v.optional(v.string()),
+});
+
+/** One slash command a session offers, without the leading `/`. */
+export const slashCommand = v.object({
+  name: v.string(),
+  description: v.string(),
+  hint: v.optional(v.string()),
+});
 
 /**
  * For a session listed from the computer's disk while no crok runs it: `none` = no transcript on the relay yet,
@@ -156,6 +189,11 @@ export default defineSchema({
     pid: v.optional(v.number()),
     /** It can open a session nobody runs, to take a prompt for it. */
     canAdopt: v.optional(v.boolean()),
+    /**
+     * Command types beyond the first relay's that this crok handles (`create`, `config`); older crok processes get none
+     * of those (their inbox would not parse them).
+     */
+    features: v.optional(v.array(v.string())),
     startedAt: v.number(),
     lastSeenAt: v.number(),
     online: v.boolean(),
@@ -269,6 +307,8 @@ export default defineSchema({
     text: v.optional(v.string()),
     /** For `answer`: the pending request it answers (`text` holds the chosen option). */
     interactionId: v.optional(v.string()),
+    /** For `config`: the setting it changes (`text` holds the value). */
+    configId: v.optional(configId),
     /** Client-made id: makes a resend idempotent and lets the sender match its optimistic bubble. */
     clientId: v.optional(v.string()),
     status: commandStatus,
@@ -283,6 +323,31 @@ export default defineSchema({
     .index("by_session", ["sessionDocId", "createdAt"])
     .index("by_client_id", ["userId", "clientId"])
     .index("by_status_created", ["status", "createdAt"]),
+
+  /**
+   * The slash commands a session offers (`bridge:setCommands`); the row without `sessionDocId` is its computer's latest
+   * list, for sessions no crok runs. Apart from `sessions` so the list query does not re-send them.
+   */
+  commandLists: defineTable({
+    userId: v.id("users"),
+    deviceId: v.id("devices"),
+    sessionDocId: v.optional(v.id("sessions")),
+    commands: v.array(slashCommand),
+    updatedAt: v.number(),
+  })
+    .index("by_session", ["sessionDocId"])
+    .index("by_device_session", ["deviceId", "sessionDocId"]),
+
+  /**
+   * The models a computer's crok can run, with their thinking levels (`bridge:setModels`, the latest from any of its
+   * processes). One row per computer, apart from `hosts` (heartbeats would re-send it to every open session).
+   */
+  modelLists: defineTable({
+    userId: v.id("users"),
+    deviceId: v.id("devices"),
+    models: v.array(modelOption),
+    updatedAt: v.number(),
+  }).index("by_device", ["deviceId"]),
 
   /** A viewer has this session open; while `until` is ahead the bridge streams text at a fine grain. */
   sessionViews: defineTable({

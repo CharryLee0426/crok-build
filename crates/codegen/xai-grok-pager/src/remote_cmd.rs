@@ -236,3 +236,252 @@ pub async fn logout(agent_id: AgentId) -> TaskResult {
         toast: None,
     }
 }
+
+/// One project of another computer that `/remote new` can start a session in.
+#[derive(Clone, Debug, PartialEq)]
+struct RemoteProject {
+    device_id: String,
+    computer: String,
+    name: String,
+    path: String,
+}
+
+/// The online computers' projects from `x.ai/remote/sessions`, in the relay's order.
+fn remote_projects(payload: &serde_json::Value) -> Vec<RemoteProject> {
+    let mut projects = Vec::new();
+    for computer in payload
+        .get("computers")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if computer.get("online").and_then(serde_json::Value::as_bool) != Some(true) {
+            continue;
+        }
+        let device_id = computer.get("deviceId").and_then(serde_json::Value::as_str);
+        let name = computer
+            .get("deviceName")
+            .and_then(serde_json::Value::as_str);
+        let (Some(device_id), Some(computer_name)) = (device_id, name) else {
+            continue;
+        };
+        for project in computer
+            .get("projects")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(path) = project.get("path").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            projects.push(RemoteProject {
+                device_id: device_id.to_string(),
+                computer: computer_name.to_string(),
+                name: project
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(path)
+                    .to_string(),
+                path: path.to_string(),
+            });
+        }
+    }
+    projects
+}
+
+/// The project `/remote new <which>` names: its number in the list, or a unique (case-insensitive) name prefix, also as
+/// `name@computer`.
+fn pick_project<'a>(
+    projects: &'a [RemoteProject],
+    which: &str,
+) -> Result<&'a RemoteProject, String> {
+    if let Ok(number) = which.parse::<usize>() {
+        return number
+            .checked_sub(1)
+            .and_then(|index| projects.get(index))
+            .ok_or_else(|| {
+                tlf(
+                    "There is no project {number}. Use /remote new to list them.",
+                    &[("number", &which)],
+                )
+            });
+    }
+    let wanted = which.to_lowercase();
+    let (name, computer) = match wanted.split_once('@') {
+        Some((name, computer)) => (name.to_string(), Some(computer.to_string())),
+        None => (wanted.clone(), None),
+    };
+    let matches = |exact: bool| -> Vec<&RemoteProject> {
+        projects
+            .iter()
+            .filter(|p| {
+                let project = p.name.to_lowercase();
+                let named = if exact {
+                    project == name
+                } else {
+                    project.starts_with(&name)
+                };
+                named
+                    && computer
+                        .as_ref()
+                        .is_none_or(|c| p.computer.to_lowercase().starts_with(c.as_str()))
+            })
+            .collect()
+    };
+    let exact = matches(true);
+    let found = if exact.is_empty() {
+        matches(false)
+    } else {
+        exact
+    };
+    match found.as_slice() {
+        [one] => Ok(one),
+        [] => Err(tlf(
+            "No project matches “{query}”. Use /remote new to list them.",
+            &[("query", &which)],
+        )),
+        _ => Err(tlf(
+            "“{query}” matches more than one project: use its number.",
+            &[("query", &which)],
+        )),
+    }
+}
+
+async fn ext_call(
+    tx: &xai_acp_lib::AcpAgentTx,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let raw = serde_json::value::to_raw_value(&params).map_err(|error| error.to_string())?;
+    let response = xai_acp_lib::acp_send(
+        agent_client_protocol::ExtRequest::new(method, raw.into()),
+        tx,
+    )
+    .await
+    .map_err(|error| error.message.to_string())?;
+    serde_json::from_str(response.0.get()).map_err(|error| error.to_string())
+}
+
+/// `/remote new [project] [prompt]`: without a project, lists the projects of the person's other computers that are
+/// online; with one, starts a session there (with the prompt, if any) and opens it here.
+pub async fn new_session(
+    agent_id: AgentId,
+    args: String,
+    tx: xai_acp_lib::AcpAgentTx,
+) -> TaskResult {
+    let notice = |text: String| TaskResult::RemoteNotice {
+        agent_id,
+        text,
+        toast: None,
+    };
+    let payload = match ext_call(&tx, "x.ai/remote/sessions", serde_json::json!({})).await {
+        Ok(payload) => payload,
+        Err(error) => return notice(error),
+    };
+    if payload.get("signedIn").and_then(serde_json::Value::as_bool) != Some(true) {
+        return notice(
+            tl("Sign in with /remote login first: your other computers' sessions come through the relay.").to_string(),
+        );
+    }
+    let projects = remote_projects(&payload);
+    if projects.is_empty() {
+        return notice(tl("None of your other computers is online with crok running.").to_string());
+    }
+    let mut words = args.splitn(2, char::is_whitespace);
+    let which = words.next().unwrap_or("").trim();
+    let prompt = words.next().unwrap_or("").trim();
+    if which.is_empty() {
+        let mut lines = vec![tl("Projects on your other computers:").to_string()];
+        for (index, project) in projects.iter().enumerate() {
+            lines.push(format!(
+                "  {}. {} · {}  {}",
+                index + 1,
+                project.name,
+                project.computer,
+                project.path
+            ));
+        }
+        lines.push(
+            tl("Use /remote new <number or name> [prompt] to start a session there.").to_string(),
+        );
+        return notice(lines.join("\n"));
+    }
+    let project = match pick_project(&projects, which) {
+        Ok(project) => project.clone(),
+        Err(error) => return notice(error),
+    };
+    let mut params = serde_json::json!({ "deviceId": project.device_id, "path": project.path });
+    if !prompt.is_empty()
+        && let Some(object) = params.as_object_mut()
+    {
+        object.insert("text".into(), serde_json::json!(prompt));
+    }
+    match ext_call(&tx, "x.ai/remote/new_session", params).await {
+        Ok(created) => match created.get("sessionId").and_then(serde_json::Value::as_str) {
+            Some(session_id) => TaskResult::RemoteSessionCreated {
+                agent_id,
+                session_id: session_id.to_string(),
+                text: tlf(
+                    "Started a session in {project} on {computer}.",
+                    &[("project", &project.name), ("computer", &project.computer)],
+                ),
+            },
+            None => notice(tl("The relay did not start the session.").to_string()),
+        },
+        Err(error) => notice(tlf(
+            "Could not start the session: {error}",
+            &[("error", &error)],
+        )),
+    }
+}
+
+#[cfg(test)]
+mod new_session_tests {
+    use super::*;
+
+    fn projects() -> Vec<RemoteProject> {
+        remote_projects(&serde_json::json!({
+            "signedIn": true,
+            "computers": [
+                { "deviceId": "d1", "deviceName": "Office PC", "online": true, "projects": [
+                    { "name": "webapp", "path": "/w/webapp" },
+                    { "name": "web-docs", "path": "/w/web-docs" },
+                ]},
+                { "deviceId": "d2", "deviceName": "Old Laptop", "online": false, "projects": [
+                    { "name": "webapp", "path": "/old/webapp" },
+                ]},
+                { "deviceId": "d3", "deviceName": "Mac mini", "online": true, "projects": [
+                    { "name": "webapp", "path": "/m/webapp" },
+                ]},
+            ],
+        }))
+    }
+
+    #[test]
+    fn only_online_computers_are_offered() {
+        let list = projects();
+        assert_eq!(list.len(), 3);
+        assert!(list.iter().all(|p| p.computer != "Old Laptop"));
+    }
+
+    #[test]
+    fn projects_are_picked_by_number_name_or_name_at_computer() {
+        let list = projects();
+        assert_eq!(
+            pick_project(&list, "2").map(|p| p.path.as_str()),
+            Ok("/w/web-docs")
+        );
+        assert!(pick_project(&list, "9").is_err());
+        assert_eq!(
+            pick_project(&list, "web-d").map(|p| p.path.as_str()),
+            Ok("/w/web-docs")
+        );
+        // Two computers have a "webapp": ambiguous until the computer is named.
+        assert!(pick_project(&list, "webapp").is_err());
+        assert_eq!(
+            pick_project(&list, "webapp@mac").map(|p| p.path.as_str()),
+            Ok("/m/webapp")
+        );
+        assert!(pick_project(&list, "billing").is_err());
+    }
+}

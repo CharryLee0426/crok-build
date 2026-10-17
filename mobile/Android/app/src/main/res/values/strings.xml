@@ -254,4 +254,38 @@
     <string name="cd_clear">Clear</string>
     <string name="cd_more_options">More options</string>
     <string name="cd_drag_to_reorder">Drag to reorder</string>
+
+    <!-- New sessions, composer commands (relay/DESIGN.md §5) -->
+    <string name="new_session_title">New session</string>
+    <string name="new_session_subtitle">%1$s · %2$s</string>
+    <string name="new_session_starts_in">Starts in %1$s on %2$s</string>
+    <string name="new_session_first_prompt">Your first prompt starts the session there.</string>
+    <string name="new_session_unavailable">This session’s project isn’t known, so /new can’t start a session here.</string>
+    <string name="session_starting">Starting…</string>
+    <string name="sessions_new_session">New session</string>
+    <string name="sessions_new_in_project">New session in %1$s</string>
+    <string name="picker_title">Start a session in…</string>
+    <string name="picker_empty">No computer is online. Start crok or Crok Desktop on one to begin a session there.</string>
+    <string name="composer_menu">Menu</string>
+    <string name="composer_new_placeholder">First prompt for %1$s…</string>
+    <string name="cmd_new">Start a new session in this project</string>
+    <string name="cmd_model">Change the model (on this session’s computer)</string>
+    <string name="cmd_think">Change the thinking level</string>
+    <string name="cmd_stop">Stop the running turn</string>
+    <string name="cmd_info">Session info</string>
+    <string name="cmd_hint_new">[prompt]</string>
+    <string name="cmd_hint_model">[name]</string>
+    <string name="cmd_hint_think">[level]</string>
+    <string name="bot_model_title">Model for this session</string>
+    <string name="bot_think_title">Thinking level for this session</string>
+    <string name="bot_model_done">Model: %1$s ✓</string>
+    <string name="bot_think_done">Thinking level: %1$s ✓</string>
+    <string name="bot_offline">%1$s is offline, so there is nothing to choose from right now.</string>
+    <string name="bot_no_models">%1$s doesn’t offer model choices yet — update crok there.</string>
+    <string name="bot_no_thinking">The current model has no thinking levels.</string>
+    <string name="bot_no_match">Nothing matches “%1$s”.</string>
+    <string name="bot_ambiguous">“%1$s” matches more than one choice.</string>
+    <string name="bot_failed">Couldn’t change it: %1$s</string>
+    <string name="bot_current">Current</string>
+    <string name="cd_compose">New session</string>
 </resources>

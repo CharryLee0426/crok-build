@@ -1,8 +1,9 @@
 package dev.chenli.crok.mobile.ui.settings
 
+import dev.chenli.crok.mobile.ui.common.GlassScaffold
+import dev.chenli.crok.mobile.ui.common.glassBarColors
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,12 +16,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -140,9 +139,8 @@ fun DevicesContent(
     val colors = CrokTheme.colors
     var selectedId by rememberSaveable { mutableStateOf(initiallySelected) }
     var confirmOthers by remember { mutableStateOf(false) }
-    Scaffold(
-        containerColor = colors.grouped,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    GlassScaffold(
+        background = colors.grouped,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
@@ -150,7 +148,7 @@ fun DevicesContent(
                     IconButton(onClick = actions.onBack) { Icon(CrokIcons.Back, contentDescription = stringResource(R.string.action_back)) }
                 },
                 title = { Text(stringResource(R.string.devices_title)) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.grouped),
+                colors = glassBarColors(),
             )
         },
     ) { padding ->
@@ -160,15 +158,14 @@ fun DevicesContent(
                 Spacer(Modifier.height(64.dp))
                 CircularProgressIndicator(color = colors.accent)
             }
-            return@Scaffold
+            return@GlassScaffold
         }
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
-                .padding(bottom = 24.dp),
+                .padding(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp),
         ) {
             state.current?.let { current ->
                 Section(header = stringResource(R.string.devices_this_device), footer = stringResource(R.string.devices_this_device_note)) {

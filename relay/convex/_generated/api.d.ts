@@ -17,6 +17,7 @@ import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_projects from "../lib/projects.js";
+import type * as lib_starting from "../lib/starting.js";
 import type * as maintenance from "../maintenance.js";
 import type * as sessions from "../sessions.js";
 import type * as users from "../users.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/crypto": typeof lib_crypto;
   "lib/projects": typeof lib_projects;
+  "lib/starting": typeof lib_starting;
   maintenance: typeof maintenance;
   sessions: typeof sessions;
   users: typeof users;

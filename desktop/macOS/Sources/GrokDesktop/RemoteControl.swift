@@ -528,9 +528,12 @@ extension AppStore {
             finishRemoteTurn(promptID: params["promptId"] as? String, stopReason: params["stopReason"] as? String, id: id)
             return false
         case "x.ai/session_notification":
+            // Another computer's model, changed on any device.
+            if let update = (params["params"] as? [String: Any] ?? params)["update"] as? [String: Any], applyRemoteModelChange(update, id: id) { return true }
             if let nested = params["params"] as? [String: Any] { _ = receiveRemote("x.ai/session/update", params: nested, id: id) }
             return false
         case "x.ai/session/update", "session/update":
+            if let update = params["update"] as? [String: Any], applyRemoteModelChange(update, id: id) { return true }
             // The durable end of a turn, which a reload also replays: only a live one ends a turn.
             guard let update = params["update"] as? [String: Any], update["sessionUpdate"] as? String == "turn_completed",
                   !replaying.contains(id), !importing.contains(id) else { return false }
@@ -550,7 +553,12 @@ extension AppStore {
         // `fromKind` says a browser sent it; the transcript names that sender "Web" (see `remoteCaption`).
         let from = RemoteAccount.text(params["fromKind"]) == "web" ? "Web" : (RemoteAccount.text(params["from"]) ?? "")
         DesktopLog.info("remote.prompt", session: task(id)?.sessionID, ["prompt_id": promptID, "from": from, "task": id.uuidString])
-        append(Message(kind: .user, text: text, createdAt: Date(), remoteFrom: from), to: id)
+        // A new task's own first prompt, which the task shows already: its turn starts without a second copy.
+        if let first = remoteFirstPrompts[id], RemoteSessions.samePrompt(first, text) {
+            remoteFirstPrompts.removeValue(forKey: id)
+        } else {
+            append(Message(kind: .user, text: text, createdAt: Date(), remoteFrom: from), to: id)
+        }
         remoteTurns[id] = promptID
         cancellationRequested.remove(id)
         runs[id, default: RunState()].isRunning = true
@@ -560,7 +568,8 @@ extension AppStore {
     /// The turn a remote prompt started ended: the task is ready again, unless something the app
     /// started itself is still at work in it, which ends the running state when it is done.
     func finishRemoteTurn(promptID: String?, stopReason: String?, id: UUID) {
-        guard let running = remoteTurns[id], promptID == nil || promptID == running else { return }
+        // A new task's first turn ends with whichever turn ends first: the viewer did not name it.
+        guard let running = remoteTurns[id], promptID == nil || promptID == running || running == RemoteSessions.startingTurn else { return }
         remoteTurns.removeValue(forKey: id)
         flushTranscript(id)
         let stopped = stopReason == "cancelled" || cancellationRequested.contains(id)

@@ -1,28 +1,71 @@
 import SwiftUI
 
-/// A session: header with live status, the plan bar, the transcript (bottom-anchored, paged), and the composer.
+/// A session: header with live status, the plan bar, the transcript (bottom-anchored, paged), and the composer. For a
+/// new session (the list's "+", the compose button, `/new`), first the new-session screen, which becomes the session
+/// once `sessions:create` answers.
 struct SessionScreen: View {
-    let sessionDocId: DocID
+    let route: SessionRoute
     @Environment(CrokEngine.self) private var engine
+    @Environment(\.openSessionRoute) private var openRoute
     @State private var model: SessionViewModel?
+    @State private var newModel: NewSessionModel?
+    /// The session a new-session entry turned into.
+    @State private var createdId: DocID?
 
     var body: some View {
-        Group {
+        // Read while the view is installed; `/new` uses it later, from a closure.
+        let openRoute = self.openRoute
+        return Group {
             if let model {
                 SessionContent(model: model)
+            } else if let newModel {
+                NewSessionContent(model: newModel)
             } else {
                 Theme.canvas.ignoresSafeArea()
             }
         }
         .onAppear {
-            if model == nil { model = SessionViewModel(sessionDocId: sessionDocId, engine: engine) }
+            if model == nil { setUp(openRoute) }
             model?.appear()
         }
         .onDisappear {
-            // Popped: stop every subscription. Coming back builds a fresh model.
+            // Popped or covered: stop every subscription. Coming back builds a fresh model.
             model?.tearDown()
             model = nil
         }
+    }
+
+    private func setUp(_ openRoute: OpenSessionRouteAction) {
+        switch route {
+        case .session(let id):
+            open(id, openRoute)
+        case .new(let new):
+            if let id = createdId ?? engine.startedSessions[new.clientId] {
+                open(id, openRoute)
+                return
+            }
+            guard newModel == nil else { return }
+            let created = NewSessionModel(target: new.target, engine: engine, draft: new.prompt ?? "", clientId: new.clientId)
+            created.onCreated = { id in
+                createdId = id
+                open(id, openRoute)
+                model?.appear()
+                newModel = nil
+            }
+            newModel = created
+            if let prompt = new.prompt, !prompt.isEmpty {
+                // `/new <prompt>`: at once.
+                Task { await created.send() }
+            }
+        }
+    }
+
+    private func open(_ id: DocID, _ openRoute: OpenSessionRouteAction) {
+        let session = SessionViewModel(sessionDocId: id, engine: engine)
+        session.onNewSession = { target, prompt in
+            openRoute(.new(NewSessionRoute(target: target, prompt: prompt)))
+        }
+        model = session
     }
 }
 
@@ -30,7 +73,6 @@ private struct SessionContent: View {
     @Bindable var model: SessionViewModel
     @Environment(CrokEngine.self) private var engine
     @Environment(\.dismiss) private var dismiss
-    @State private var showsInfo = false
     @State private var planExpanded = false
     @FocusState private var composerFocused: Bool
 
@@ -120,11 +162,11 @@ private struct SessionContent: View {
             ToolbarItem(placement: .principal) {
                 ConnectionTitleView(
                     title: model.title, connection: engine.connection, subtitle: AnyView(SessionSubtitle(model: model)))
-                    .onTapGesture { showsInfo = true }
+                    .onTapGesture { model.showsInfo = true }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showsInfo = true
+                    model.showsInfo = true
                 } label: {
                     Image(systemName: "info.circle")
                 }
@@ -133,7 +175,7 @@ private struct SessionContent: View {
             }
         }
         .toolbar(.hidden, for: .tabBar)
-        .sheet(isPresented: $showsInfo) {
+        .sheet(isPresented: $model.showsInfo) {
             SessionInfoView(sessionDocId: model.sessionDocId, onRemoved: { dismiss() })
                 .environment(engine)
         }
@@ -170,6 +212,8 @@ private struct SessionSubtitle: View {
         Group {
             if model.isRemoved {
                 Text("removed")
+            } else if model.isStarting && model.isComputerOnline {
+                Text("starting on \(model.computerName)…")
             } else {
                 switch model.presence {
                 case .offline:
@@ -237,9 +281,11 @@ private struct ScrollToBottomButton: View {
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 42, height: 42)
-                .background(.regularMaterial, in: Circle())
-                .overlay(Circle().strokeBorder(Theme.hairline))
-                .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+                .glassSurface(in: Circle(), interactive: true)
+                .overlay {
+                    if !hasLiquidGlass { Circle().strokeBorder(Theme.hairline) }
+                }
+                .shadow(color: .black.opacity(hasLiquidGlass ? 0 : 0.12), radius: 6, y: 2)
                 .overlay(alignment: .top) {
                     if count > 0 {
                         UnreadBadge(count: count)

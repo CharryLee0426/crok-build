@@ -1,10 +1,11 @@
 package dev.chenli.crok.mobile.ui.settings
 
+import dev.chenli.crok.mobile.ui.common.GlassScaffold
+import dev.chenli.crok.mobile.ui.common.glassBarColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,10 +28,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -211,27 +210,25 @@ fun LinkComputerScreen(viewModel: LinkComputerViewModel, onBack: () -> Unit) {
 @Composable
 fun LinkComputerContent(code: String, step: LinkStep, now: Long, actions: LinkActions) {
     val colors = CrokTheme.colors
-    Scaffold(
-        containerColor = colors.grouped,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    GlassScaffold(
+        background = colors.grouped,
         topBar = {
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = actions.onBack) { Icon(CrokIcons.Back, contentDescription = stringResource(R.string.action_back)) }
                 },
                 title = { Text(stringResource(R.string.link_title)) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.grouped),
+                colors = glassBarColors(),
             )
         },
     ) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(bottom = 24.dp),
+                .padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             when (step) {

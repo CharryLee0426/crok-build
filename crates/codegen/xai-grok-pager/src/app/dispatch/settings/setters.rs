@@ -2252,7 +2252,11 @@ pub(in crate::app::dispatch) fn set_default_model(
     // would silently fail to resolve on the next startup.
     // slugs that must not become the global Build `default_model`.
     let mut effects: Vec<Effect> = Vec::new();
-    if !xai_grok_shell::agent::chat_modes::process_chat_mode_enabled() {
+    // Another computer's session switches over there; its models are not this computer's to keep as the default.
+    let other_computer = session_id
+        .as_ref()
+        .is_some_and(|sid| sid.0.starts_with(xai_grok_shell::remote_control::RELAY_PREFIX));
+    if !other_computer && !xai_grok_shell::agent::chat_modes::process_chat_mode_enabled() {
         let new_id_str = new_id.0.to_string();
         let prev_id_str = prev_id
             .as_ref()

@@ -260,4 +260,38 @@
     <string name="cd_clear">Effacer</string>
     <string name="cd_more_options">Plus d’options</string>
     <string name="cd_drag_to_reorder">Faire glisser pour réorganiser</string>
+
+    <!-- New sessions, composer commands (relay/DESIGN.md §5) -->
+    <string name="new_session_title">Nouvelle session</string>
+    <string name="new_session_subtitle">%1$s · %2$s</string>
+    <string name="new_session_starts_in">Démarre dans %1$s sur %2$s</string>
+    <string name="new_session_first_prompt">Votre premier message y démarre la session.</string>
+    <string name="new_session_unavailable">Le projet de cette session est inconnu : /new ne peut pas en démarrer une ici.</string>
+    <string name="session_starting">Démarrage…</string>
+    <string name="sessions_new_session">Nouvelle session</string>
+    <string name="sessions_new_in_project">Nouvelle session dans %1$s</string>
+    <string name="picker_title">Démarrer une session dans…</string>
+    <string name="picker_empty">Aucun ordinateur n’est en ligne. Lancez crok ou Crok Desktop sur l’un d’eux pour y démarrer une session.</string>
+    <string name="composer_menu">Menu</string>
+    <string name="composer_new_placeholder">Premier message pour %1$s…</string>
+    <string name="cmd_new">Démarrer une nouvelle session dans ce projet</string>
+    <string name="cmd_model">Changer de modèle (sur l’ordinateur de cette session)</string>
+    <string name="cmd_think">Changer le niveau de réflexion</string>
+    <string name="cmd_stop">Arrêter le tour en cours</string>
+    <string name="cmd_info">Infos de la session</string>
+    <string name="cmd_hint_new">[message]</string>
+    <string name="cmd_hint_model">[nom]</string>
+    <string name="cmd_hint_think">[niveau]</string>
+    <string name="bot_model_title">Modèle de cette session</string>
+    <string name="bot_think_title">Niveau de réflexion de cette session</string>
+    <string name="bot_model_done">Modèle : %1$s ✓</string>
+    <string name="bot_think_done">Niveau de réflexion : %1$s ✓</string>
+    <string name="bot_offline">%1$s est hors ligne : il n’y a rien à choisir pour l’instant.</string>
+    <string name="bot_no_models">%1$s ne propose pas encore de choix de modèle : mettez crok à jour sur cet ordinateur.</string>
+    <string name="bot_no_thinking">Le modèle actuel n’a pas de niveaux de réflexion.</string>
+    <string name="bot_no_match">Rien ne correspond à « %1$s ».</string>
+    <string name="bot_ambiguous">« %1$s » correspond à plusieurs choix.</string>
+    <string name="bot_failed">Impossible de le changer : %1$s</string>
+    <string name="bot_current">Actuel</string>
+    <string name="cd_compose">Nouvelle session</string>
 </resources>

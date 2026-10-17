@@ -93,6 +93,9 @@ struct ContentView: View {
         if let remote = store.conversation?.remote {
             return "\(remote.computer) · \(URL(fileURLWithPath: remote.cwd).lastPathComponent)"
         }
+        if store.conversation == nil, store.state.selectedProjectID == RemoteSessions.projectID, let target = store.remoteNewTask {
+            return "\(target.computer) · \(target.folderName)"
+        }
         return store.project?.name ?? L10n.t("your_workspace", "Your workspace")
     }
 

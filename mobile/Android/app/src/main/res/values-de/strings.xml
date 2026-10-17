@@ -251,4 +251,38 @@
     <string name="cd_clear">Löschen</string>
     <string name="cd_more_options">Weitere Optionen</string>
     <string name="cd_drag_to_reorder">Ziehen zum Neuanordnen</string>
+
+    <!-- New sessions, composer commands (relay/DESIGN.md §5) -->
+    <string name="new_session_title">Neue Sitzung</string>
+    <string name="new_session_subtitle">%1$s · %2$s</string>
+    <string name="new_session_starts_in">Startet in %1$s auf %2$s</string>
+    <string name="new_session_first_prompt">Deine erste Eingabe startet dort die Sitzung.</string>
+    <string name="new_session_unavailable">Das Projekt dieser Sitzung ist unbekannt, daher kann /new hier keine Sitzung starten.</string>
+    <string name="session_starting">Startet …</string>
+    <string name="sessions_new_session">Neue Sitzung</string>
+    <string name="sessions_new_in_project">Neue Sitzung in %1$s</string>
+    <string name="picker_title">Sitzung starten in …</string>
+    <string name="picker_empty">Kein Computer ist online. Starte crok oder Crok Desktop auf einem, um dort eine Sitzung zu beginnen.</string>
+    <string name="composer_menu">Menü</string>
+    <string name="composer_new_placeholder">Erste Eingabe für %1$s …</string>
+    <string name="cmd_new">Eine neue Sitzung in diesem Projekt starten</string>
+    <string name="cmd_model">Das Modell wechseln (auf dem Computer dieser Sitzung)</string>
+    <string name="cmd_think">Die Denkstufe ändern</string>
+    <string name="cmd_stop">Den laufenden Durchgang stoppen</string>
+    <string name="cmd_info">Sitzungsinfo</string>
+    <string name="cmd_hint_new">[Eingabe]</string>
+    <string name="cmd_hint_model">[Name]</string>
+    <string name="cmd_hint_think">[Stufe]</string>
+    <string name="bot_model_title">Modell für diese Sitzung</string>
+    <string name="bot_think_title">Denkstufe für diese Sitzung</string>
+    <string name="bot_model_done">Modell: %1$s ✓</string>
+    <string name="bot_think_done">Denkstufe: %1$s ✓</string>
+    <string name="bot_offline">%1$s ist offline, daher gibt es gerade nichts zur Auswahl.</string>
+    <string name="bot_no_models">%1$s bietet noch keine Modellauswahl an – aktualisiere crok dort.</string>
+    <string name="bot_no_thinking">Das aktuelle Modell hat keine Denkstufen.</string>
+    <string name="bot_no_match">Nichts passt zu „%1$s“.</string>
+    <string name="bot_ambiguous">„%1$s“ passt zu mehr als einer Auswahl.</string>
+    <string name="bot_failed">Konnte nicht geändert werden: %1$s</string>
+    <string name="bot_current">Aktuell</string>
+    <string name="cd_compose">Neue Sitzung</string>
 </resources>

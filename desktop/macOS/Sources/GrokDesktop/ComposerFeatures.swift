@@ -444,6 +444,8 @@ final class ComposerFeatureModel: ObservableObject {
                 store.banner = "Already using \(description)."; return
             }
             store.banner = "Switched to \(description)"
+            // Another computer's model is not one this Mac can make its default.
+            guard conversationID.flatMap(store.task)?.remote == nil else { return }
             self.persistModelDefault(modelID: run.modelID, effort: effort.flatMap(ComposerModelArguments.standardLevel), confirmation: "Switched to \(description)")
         }
     }

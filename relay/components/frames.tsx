@@ -44,7 +44,10 @@ export function ChatLayout({
   );
 }
 
-/** The live chat frame for signed-in people (`/` and `/sessions/[id]`); it stays mounted across those routes. */
+/**
+ * The live chat frame for signed-in people (`/`, `/sessions/[id]` and the new-session screen `/new`); it stays mounted
+ * across those routes.
+ */
 export function ChatsFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
   const activeId = /^\/sessions\/([^/?#]+)/.exec(pathname)?.[1];
@@ -52,7 +55,7 @@ export function ChatsFrame({ children }: { children: ReactNode }) {
     <ChatLayout
       header={<AppHeader status={<ConnectionIndicator />} />}
       pane={<SessionsPane activeId={activeId} />}
-      inSession={Boolean(activeId)}
+      inSession={Boolean(activeId) || pathname === "/new"}
     >
       {children}
     </ChatLayout>

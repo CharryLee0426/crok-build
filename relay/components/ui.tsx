@@ -110,7 +110,7 @@ export function ProjectAvatar({
       </span>
       {online ? (
         <span
-          className="absolute rounded-full bg-accent"
+          className="absolute rounded-full bg-online"
           style={{
             width: dot,
             height: dot,

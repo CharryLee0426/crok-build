@@ -1,16 +1,13 @@
 import SwiftUI
 
-/// The input panel: a multi-line field with Send, and Stop while a turn runs (Telegram's streaming stop), under the card
-/// of a permission request the session waits on. It takes prompts whenever the session's computer is online (a crok
-/// there opens a session nobody runs); it is read-only only while the computer is offline.
+/// The input panel: the Menu button and its command list (Telegram's bot menu), a multi-line field with Send, and Stop
+/// while a turn runs (Telegram's streaming stop), under the card of a permission request the session waits on. It takes
+/// prompts whenever the session's computer is online (a crok there opens a session nobody runs); it is read-only only
+/// while the computer is offline.
 struct ComposerView: View {
     @Bindable var model: SessionViewModel
     var focused: FocusState<Bool>.Binding
     let onSend: () -> Void
-
-    private var canSend: Bool {
-        !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     var body: some View {
         Group {
@@ -18,76 +15,44 @@ struct ComposerView: View {
                 EmptyView()
             } else if !model.canSendPrompts {
                 offlineNotice
+                    .background(.regularMaterial)
+                    .overlay(alignment: .top) { Divider() }
             } else {
-                VStack(spacing: 0) {
-                    if let request = model.pendingRequest {
-                        PermissionCard(
-                            request: request, computerName: model.computerName, answering: model.isAnsweringRequest,
-                            onAnswer: { option in Task { await model.answer(option, to: request) } }
-                        )
-                        .padding(.horizontal, 10)
-                        .padding(.top, 8)
-                        .frame(maxWidth: 760)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                ComposerBar {
+                    VStack(spacing: 8) {
+                        if let request = model.pendingRequest {
+                            PermissionCard(
+                                request: request, computerName: model.computerName, answering: model.isAnsweringRequest,
+                                onAnswer: { option in Task { await model.answer(option, to: request) } }
+                            )
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        if !model.commandMenuItems.isEmpty {
+                            CommandListPanel(items: model.commandMenuItems) { item in
+                                model.pick(item)
+                                if item.takesArgument { focused.wrappedValue = true }
+                            }
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        ComposerInputRow(
+                            draft: $model.draft,
+                            placeholder: String(localized: "Message crok on \(model.computerName)…"),
+                            focused: focused,
+                            menu: .init(
+                                collapsed: !model.draft.isEmpty, open: !model.commandMenuItems.isEmpty,
+                                action: { withAnimation(.snappy) { model.toggleMenu() } }),
+                            isRunning: model.isRunning, canSend: model.canSendDraft,
+                            onStop: { Task { await model.stop() } },
+                            onSend: {
+                                model.send()
+                                onSend()
+                            })
                     }
-                    inputRow
+                    .animation(.snappy, value: model.pendingRequest?.id)
+                    .animation(.snappy, value: model.commandMenuItems.map(\.id))
                 }
-                .animation(.snappy, value: model.pendingRequest?.id)
             }
         }
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
-    }
-
-    private var inputRow: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(
-                "Message crok on \(model.computerName)…", text: $model.draft, axis: .vertical
-            )
-            .lineLimit(1...6)
-            .focused(focused)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Theme.hairline))
-            .accessibilityIdentifier("composerField")
-            if model.isRunning {
-                Button {
-                    Task { await model.stop() }
-                } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
-                        .background(Theme.danger, in: Circle())
-                }
-                .accessibilityLabel(Text("Stop"))
-                .accessibilityIdentifier("stopButton")
-                .transition(.scale.combined(with: .opacity))
-            }
-            if canSend || !model.isRunning {
-                Button {
-                    model.send()
-                    onSend()
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Theme.onAccent)
-                        .frame(width: 38, height: 38)
-                        .background(canSend ? Theme.accent : Color.secondary.opacity(0.35), in: Circle())
-                }
-                .disabled(!canSend)
-                .accessibilityLabel(Text("Send"))
-                .accessibilityIdentifier("sendButton")
-                .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: 760)
-        .frame(maxWidth: .infinity)
-        .animation(.snappy, value: model.isRunning)
-        .animation(.snappy, value: canSend)
     }
 
     private var offlineNotice: some View {
@@ -104,6 +69,105 @@ struct ComposerView: View {
         .padding(.vertical, 14)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("offlineNotice")
+    }
+}
+
+/// The composer's surface: on iOS 26 its controls float as Liquid Glass over the transcript scrolling beneath; on
+/// iOS 17–25 a material bar with a hairline on top.
+struct ComposerBar<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        if hasLiquidGlass {
+            content()
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+                .padding(.bottom, 8)
+                .frame(maxWidth: 780)
+                .frame(maxWidth: .infinity)
+        } else {
+            content()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: 780)
+                .frame(maxWidth: .infinity)
+                .background(.regularMaterial)
+                .overlay(alignment: .top) { Divider() }
+        }
+    }
+}
+
+/// The Menu button, the field, Stop and Send. The field is a glass capsule on iOS 26.
+struct ComposerInputRow: View {
+    struct MenuConfig {
+        var collapsed: Bool
+        var open: Bool
+        var action: () -> Void
+    }
+
+    @Binding var draft: String
+    let placeholder: String
+    var focused: FocusState<Bool>.Binding
+    let menu: MenuConfig?
+    let isRunning: Bool
+    let canSend: Bool
+    let onStop: () -> Void
+    let onSend: () -> Void
+
+    private var hasText: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            if let menu {
+                MenuPill(collapsed: menu.collapsed, open: menu.open, action: menu.action)
+            }
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .lineLimit(1...6)
+                .focused(focused)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .modifier(FieldSurface())
+                .accessibilityIdentifier("composerField")
+            if isRunning {
+                Button(action: onStop) {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 38, height: 38)
+                        .background(Theme.danger, in: Circle())
+                }
+                .accessibilityLabel(Text("Stop"))
+                .accessibilityIdentifier("stopButton")
+                .transition(.scale.combined(with: .opacity))
+            }
+            if hasText || !isRunning {
+                Button(action: onSend) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(Theme.onAccent)
+                        .frame(width: 38, height: 38)
+                        .background(canSend ? Theme.accent : Color.secondary.opacity(0.35), in: Circle())
+                }
+                .disabled(!canSend)
+                .accessibilityLabel(Text("Send"))
+                .accessibilityIdentifier("sendButton")
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .animation(.snappy, value: isRunning)
+        .animation(.snappy, value: hasText)
+    }
+
+    private struct FieldSurface: ViewModifier {
+        func body(content: Content) -> some View {
+            if hasLiquidGlass {
+                content.glassSurface(in: RoundedRectangle(cornerRadius: 20, style: .continuous), interactive: true)
+            } else {
+                content
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Theme.hairline))
+            }
+        }
     }
 }
 
@@ -167,8 +231,20 @@ struct PermissionCard: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.waiting.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .modifier(CardGlass())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("permissionCard")
+    }
+
+    /// Over a glass composer the card needs its own surface to stay legible.
+    private struct CardGlass: ViewModifier {
+        func body(content: Content) -> some View {
+            if hasLiquidGlass {
+                content.glassSurface(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            } else {
+                content
+            }
+        }
     }
 
     private func optionButtons(fill: Bool) -> some View {

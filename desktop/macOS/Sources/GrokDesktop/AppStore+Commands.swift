@@ -142,7 +142,8 @@ extension AppStore {
     @discardableResult
     func ensureConversation(title: String) -> UUID? {
         if let id = state.selectedConversationID { return id }
-        guard let project else { return nil }
+        // A new task on another computer starts there with its first prompt, not as a session here.
+        guard let project, project.id != RemoteSessions.projectID else { return nil }
         let item = Conversation(projectID: project.id, title: title, modelID: state.selectedModelID, reasoningID: state.selectedReasoningID)
         state.conversations.insert(item, at: 0)
         state.selectedConversationID = item.id

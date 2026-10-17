@@ -12,6 +12,12 @@ export type PromptCommand = FunctionReturnType<typeof api.commands.forSession>[n
 export type DeviceRow = FunctionReturnType<typeof api.devices.list>[number];
 export type PendingLogin = NonNullable<FunctionReturnType<typeof api.deviceAuth.pendingLogin>>;
 
+/** What the session's computer can run (`sessions:get(...).models`), each model with its thinking levels. */
+export type ModelChoice = NonNullable<SessionDetail["models"]>[number];
+export type EffortChoice = ModelChoice["efforts"][number];
+/** `sessions:commands`: the agent's slash commands, without the leading `/`. */
+export type SlashCommand = FunctionReturnType<typeof api.sessions.commands>["commands"][number];
+
 export type SessionStatus = SessionRow["status"];
 export type SessionId = Id<"sessions">;
 export type CommandId = Id<"commands">;

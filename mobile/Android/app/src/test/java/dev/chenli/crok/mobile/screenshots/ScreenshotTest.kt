@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onRoot
@@ -19,7 +20,19 @@ import dev.chenli.crok.mobile.engine.SessionListState
 import dev.chenli.crok.mobile.engine.TranscriptState
 import dev.chenli.crok.mobile.logic.OptimisticPrompt
 import dev.chenli.crok.mobile.logic.SessionFilter
+import dev.chenli.crok.mobile.data.CommandStatus
+import dev.chenli.crok.mobile.data.CommandType
+import dev.chenli.crok.mobile.data.PromptCommand
+import dev.chenli.crok.mobile.data.SessionCommands
+import dev.chenli.crok.mobile.data.SessionDetail
+import dev.chenli.crok.mobile.data.SessionStatus
+import dev.chenli.crok.mobile.logic.BotCard
+import dev.chenli.crok.mobile.logic.BotCardKind
+import dev.chenli.crok.mobile.logic.BotCardProblem
 import dev.chenli.crok.mobile.ui.HomeScaffold
+import dev.chenli.crok.mobile.ui.common.GlassLevel
+import dev.chenli.crok.mobile.ui.common.LocalGlassLevel
+import dev.chenli.crok.mobile.ui.session.NewSessionTarget
 import dev.chenli.crok.mobile.ui.session.InfoRefresh
 import dev.chenli.crok.mobile.ui.session.SessionActions
 import dev.chenli.crok.mobile.ui.session.SessionContent
@@ -74,11 +87,13 @@ class ScreenshotTest {
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
     }
 
-    private fun shoot(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
+    private fun shoot(name: String, dark: Boolean = false, glass: GlassLevel = GlassLevel.Liquid, content: @Composable () -> Unit) {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             CrokTheme(dark = dark) {
-                Box(Modifier.fillMaxSize().background(CrokTheme.colors.screen)) { content() }
+                CompositionLocalProvider(LocalGlassLevel provides glass) {
+                    Box(Modifier.fillMaxSize().background(CrokTheme.colors.screen)) { content() }
+                }
             }
         }
         compose.mainClock.advanceTimeBy(1_000)
@@ -360,5 +375,175 @@ class ScreenshotTest {
     @Config(qualifiers = "+fr")
     fun permissionRequestAnsweringFrench() = shoot("26-session-permission-answering-fr", dark = true) {
         SessionContent(waitingSession(answering = true), draft = "", now = now, actions = SessionActions())
+    }
+
+    // New sessions from the phone (relay/DESIGN.md §5, "New sessions").
+
+    private val crokSite = NewSessionTarget(DemoData.MACBOOK_ID, "/Users/chen/code/crok-site", "MacBook Pro", "crok-site")
+
+    private fun newSessionState(): SessionUiState = SessionUiState.build(
+        row = null,
+        detail = null,
+        gone = false,
+        transcript = TranscriptState(loaded = true, historyComplete = true),
+        prompts = emptyList(),
+        optimistic = emptyList(),
+        connection = ConnectionState.Connected,
+        zone = zone,
+        newSession = crokSite,
+    )
+
+    /** Right after the first prompt: the session exists on the relay and its computer is opening it. */
+    private fun startingSessionState(): SessionUiState {
+        val detail = SessionDetail(
+            id = "demo-new-1", sessionId = "pending:client-new", title = "Fix the footer links", cwd = crokSite.path,
+            status = SessionStatus.RUNNING, online = false, deviceId = DemoData.MACBOOK_ID, deviceName = "MacBook Pro",
+            deviceOnline = true, createdAt = now, lastActivityAt = now, projectKey = DemoData.MACBOOK_CROK_SITE,
+            projectPath = crokSite.path, projectName = "crok-site", starting = true, models = DemoData.macbookModels,
+            model = "grok-code-fast-1", effort = "medium",
+        )
+        val create = PromptCommand(
+            "cmd-new", "client-new", "Fix the footer links: two of them point at the old docs domain.", CommandStatus.PENDING, null,
+            "Pixel 9", DemoData.PHONE_ID, mine = true, createdAt = now - 2_000, updatedAt = now - 2_000, type = CommandType.CREATE,
+        )
+        return SessionUiState.build(
+            row = null, detail = detail, gone = false, transcript = TranscriptState(loaded = true, historyComplete = true),
+            prompts = listOf(create), optimistic = emptyList(), connection = ConnectionState.Connected, zone = zone,
+        )
+    }
+
+    @Test
+    fun newSessionScreen() = shoot("27-new-session") {
+        SessionContent(newSessionState(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun newSessionScreenDark() = shoot("28-new-session-dark", dark = true) {
+        SessionContent(newSessionState(), draft = "Fix the footer links", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun startingSession() = shoot("29-session-starting") {
+        SessionContent(startingSessionState(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun projectPicker() = shoot("30-new-session-picker") {
+        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(), SessionsActions(), pickerInitiallyOpen = true) }
+    }
+
+    @Test
+    fun projectPickerDark() = shoot("31-new-session-picker-dark", dark = true) {
+        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(), SessionsActions(), pickerInitiallyOpen = true) }
+    }
+
+    @Test
+    fun startingRowInTheList() = shoot("32-sessions-starting-row") {
+        val groups = DemoData.groups(DemoData.state(now)).map { group ->
+            if (group.key != DemoData.MACBOOK_CROK_SITE) {
+                group
+            } else {
+                val starting = group.sessions.first().copy(
+                    id = "demo-new-1", title = "Fix the footer links", starting = true, online = false, status = SessionStatus.RUNNING,
+                    unread = 0, pinned = false, preview = null, lastActivityAt = now,
+                )
+                group.copy(sessions = listOf(starting) + group.sessions)
+            }
+        }
+        HomeScaffold(tab = 0, onTab = {}) {
+            SessionsContent(SessionsUiState.build(SessionListState(groups, live = true), null, SessionFilter.All, "", ConnectionState.Connected, now), SessionsActions())
+        }
+    }
+
+    // Commands in the composer (relay/DESIGN.md §5): the Menu button, the command list, bot cards.
+
+    private fun commandSession(cards: List<BotCard> = emptyList(), sessionId: String = DemoData.RUNNING_SESSION, models: Boolean = true): SessionUiState {
+        val session = DemoData.sessions(now).first { it.id == sessionId }
+        val detail = session.detail.copy(models = if (models) DemoData.modelsFor(session.detail.deviceId) else null)
+        return SessionUiState.build(
+            row = session.row(),
+            detail = detail,
+            gone = false,
+            transcript = TranscriptState(
+                if (sessionId == DemoData.RUNNING_SESSION) DemoData.runningEvents(now).sortedByDescending { it.seq } else emptyList(),
+                loaded = true,
+                historyComplete = true,
+            ),
+            prompts = emptyList(),
+            optimistic = emptyList(),
+            connection = ConnectionState.Connected,
+            zone = zone,
+            commands = SessionCommands(DemoData.slashCommands, "session"),
+            cards = cards,
+        )
+    }
+
+    @Test
+    fun commandMenu() = shoot("33-composer-menu") {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions(), menuInitiallyOpen = true)
+    }
+
+    @Test
+    fun commandMenuDark() = shoot("34-composer-menu-dark", dark = true) {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions(), menuInitiallyOpen = true)
+    }
+
+    @Test
+    fun commandListFiltered() = shoot("35-composer-slash-filter") {
+        SessionContent(commandSession(), draft = "/re", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun modelCard() = shoot("36-bot-card-model") {
+        SessionContent(commandSession(listOf(BotCard("card-1", BotCardKind.Model, now - 5_000))), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun thinkCardApplyingAndModelDoneDark() = shoot("37-bot-cards-dark", dark = true) {
+        val cards = listOf(
+            BotCard("card-1", BotCardKind.Model, now - 60_000, done = "Grok Code Fast"),
+            BotCard("card-2", BotCardKind.Think, now - 5_000, applying = "high"),
+        )
+        SessionContent(commandSession(cards), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun cardsWithoutChoices() = shoot("38-bot-card-no-models") {
+        // The Studio's crok is too old to offer models; a typo on top.
+        val cards = listOf(
+            BotCard("card-1", BotCardKind.Model, now - 60_000),
+            BotCard("card-2", BotCardKind.Think, now - 5_000, problem = BotCardProblem.NoMatch("maximum")),
+        )
+        SessionContent(commandSession(cards, sessionId = "demo-s3", models = false), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    @Config(qualifiers = "+ja")
+    fun commandMenuJapanese() = shoot("39-composer-menu-ja") {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions(), menuInitiallyOpen = true)
+    }
+
+    @Test
+    @Config(qualifiers = "+de")
+    fun modelCardGerman() = shoot("40-bot-card-model-de", dark = true) {
+        SessionContent(commandSession(listOf(BotCard("card-1", BotCardKind.Think, now - 5_000))), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    @Config(qualifiers = "+fr")
+    fun newSessionFrench() = shoot("41-new-session-fr") {
+        SessionContent(newSessionState(), draft = "", now = now, actions = SessionActions())
+    }
+
+    // Liquid Glass where the device has no backdrop shaders (Android 11 and older): a frosted surface.
+
+    @Test
+    fun frostedFallback() = shoot("42-sessions-frosted-fallback", glass = GlassLevel.Tinted) {
+        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(), SessionsActions()) }
+    }
+
+    @Test
+    fun frostedFallbackSessionDark() = shoot("43-session-frosted-fallback-dark", dark = true, glass = GlassLevel.Tinted) {
+        SessionContent(runningSession(), draft = "", now = now, actions = SessionActions())
     }
 }

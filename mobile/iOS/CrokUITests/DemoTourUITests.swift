@@ -311,6 +311,138 @@ final class DemoTourUITests: XCTestCase {
         snap("05d-session-permission-answered")
     }
 
+    /// New sessions (relay/DESIGN.md §5 "New sessions"): a project's "+", the compose button's project picker, the
+    /// new-session screen turning into the session, and `/new <prompt>` inside a session.
+    func testNewSessions() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 10))
+        let plus = element(app, "newSession-crok-build")
+        XCTAssertTrue(plus.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "newSession-tokenizer").exists, "no + for a project of an offline computer")
+        plus.tap()
+        XCTAssertTrue(element(app, "newSessionPlaceholder").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "newSessionSubtitle").label.contains("MacBook Pro"))
+        snap("24-new-session")
+
+        let field = element(app, "composerField")
+        field.tap()
+        field.typeText("Add a health check endpoint")
+        element(app, "sendButton").tap()
+        XCTAssertTrue(app.staticTexts["Add a health check endpoint"].waitForExistence(timeout: 5))
+        // The screen became the session: its subtitle and the info button.
+        XCTAssertTrue(element(app, "sessionInfoButton").waitForExistence(timeout: 5))
+        snap("25-new-session-started")
+        XCTAssertTrue(element(app, "stopButton").waitForExistence(timeout: 10), "a crok there opened it and runs the prompt")
+        let reply = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Ran the test 50 times")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 20))
+        snap("25b-new-session-reply")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts["Add a health check endpoint"].waitForExistence(timeout: 5), "listed in its project")
+
+        // The compose button asks for the project first.
+        element(app, "composeButton").tap()
+        let website = element(app, "newSessionProject-website")
+        XCTAssertTrue(website.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "newSessionProject-tokenizer").exists, "only online computers' projects")
+        snap("26-new-session-picker")
+        website.tap()
+        XCTAssertTrue(element(app, "newSessionPlaceholder").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "newSessionSubtitle").label.contains("website"))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // `/new <prompt>` in a session starts one in its project at once.
+        let relay = app.staticTexts["Relay: device sign-in"]
+        XCTAssertTrue(relay.waitForExistence(timeout: 5))
+        relay.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("/new Write the relay README")
+        element(app, "sendButton").tap()
+        XCTAssertTrue(app.staticTexts["Write the relay README"].waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "stopButton").waitForExistence(timeout: 10))
+        snap("27-new-session-from-command")
+    }
+
+    /// The composer's commands (relay/DESIGN.md §5 "Commands in the composer"): the Menu button and command list, `/`
+    /// filtering, bot cards for `/model` and `/think` with inline keyboards, arguments, and a session command sent as
+    /// a prompt.
+    func testComposerCommands() {
+        let app = launch()
+        let relay = app.staticTexts["Relay: device sign-in"]
+        XCTAssertTrue(relay.waitForExistence(timeout: 10))
+        relay.tap()
+        let field = element(app, "composerField")
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+
+        element(app, "menuButton").tap()
+        XCTAssertTrue(element(app, "commandList").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "commandRow-new").exists)
+        XCTAssertTrue(element(app, "commandRow-think").exists)
+        XCTAssertFalse(element(app, "commandRow-stop").exists, "only while a turn runs")
+        XCTAssertTrue(element(app, "commandRow-compact").exists, "the session's own commands follow")
+        snap("28-command-menu")
+
+        // /model fills the field; sending it without a name answers with the card.
+        element(app, "commandRow-model").tap()
+        XCTAssertTrue(element(app, "commandList").waitForNonExistence(timeout: 5))
+        element(app, "sendButton").tap()
+        XCTAssertTrue(element(app, "botCard").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "botChoice-grok-4").waitForExistence(timeout: 5))
+        snap("29-model-card")
+        element(app, "botChoice-grok-4").tap()
+        let done = element(app, "botCardDone")
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        XCTAssertTrue(done.label.contains("Grok 4"), done.label)
+        XCTAssertFalse(element(app, "botChoice-grok-4").exists, "the keyboard folded away")
+        snap("30-model-card-done")
+
+        // Typing / opens the list and filters it.
+        field.tap()
+        field.typeText("/th")
+        XCTAssertTrue(element(app, "commandRow-think").waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "commandRow-model").exists)
+        snap("31-command-filter")
+        field.typeText("ink")
+        element(app, "sendButton").tap()
+        let low = element(app, "botChoice-low")
+        XCTAssertTrue(low.waitForExistence(timeout: 5), "Grok 4's thinking levels")
+        snap("32-think-card")
+        low.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Low ✓")).firstMatch.waitForExistence(timeout: 10))
+
+        // With an argument it applies at once.
+        field.tap()
+        field.typeText("/model claude")
+        element(app, "sendButton").tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Claude Sonnet 4.5 ✓")).firstMatch.waitForExistence(timeout: 10))
+
+        // A session command goes to the computer as a prompt.
+        element(app, "menuButton").tap()
+        XCTAssertTrue(element(app, "commandRow-compact").waitForExistence(timeout: 5))
+        element(app, "commandRow-compact").tap()
+        XCTAssertTrue(app.staticTexts["/compact"].waitForExistence(timeout: 5))
+        snap("33-session-command-sent")
+    }
+
+    func testCommandsDark() {
+        let app = launch(appearance: "dark")
+        let relay = app.staticTexts["Relay: device sign-in"]
+        XCTAssertTrue(relay.waitForExistence(timeout: 10))
+        relay.tap()
+        XCTAssertTrue(element(app, "composerField").waitForExistence(timeout: 5))
+        element(app, "menuButton").tap()
+        XCTAssertTrue(element(app, "commandList").waitForExistence(timeout: 5))
+        snap("28b-command-menu-dark")
+        element(app, "commandRow-model").tap()
+        element(app, "sendButton").tap()
+        XCTAssertTrue(element(app, "botChoice-grok-4").waitForExistence(timeout: 5))
+        snap("29b-model-card-dark")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        element(app, "newSession-crok-build").tap()
+        XCTAssertTrue(element(app, "newSessionPlaceholder").waitForExistence(timeout: 5))
+        snap("24b-new-session-dark")
+    }
+
     /// Waits until `condition` holds, sampling every 100 ms; returns whether it did.
     private func wait(_ timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)

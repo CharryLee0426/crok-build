@@ -10,6 +10,9 @@ import dev.chenli.crok.mobile.data.ApproveResult
 import dev.chenli.crok.mobile.data.CommandDoc
 import dev.chenli.crok.mobile.data.CommandRef
 import dev.chenli.crok.mobile.data.CommandStatus
+import dev.chenli.crok.mobile.data.CommandType
+import dev.chenli.crok.mobile.data.ConfigId
+import dev.chenli.crok.mobile.data.CreateResult
 import dev.chenli.crok.mobile.data.ConvexHttpApi
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.EventPage
@@ -23,10 +26,12 @@ import dev.chenli.crok.mobile.data.RelayErrorCode
 import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
 import dev.chenli.crok.mobile.data.SecretBox
+import dev.chenli.crok.mobile.data.SessionCommands
 import dev.chenli.crok.mobile.data.SessionDetail
 import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.SessionInfoResult
 import dev.chenli.crok.mobile.data.SessionRow
+import dev.chenli.crok.mobile.logic.ComposerCommands
 import dev.chenli.crok.mobile.logic.OptimisticPrompt
 import dev.chenli.crok.mobile.logic.Tick
 import dev.chenli.crok.mobile.logic.Transcript
@@ -373,6 +378,147 @@ class RelayIntegrationTest {
             println("relay integration: all checks passed against $relayUrl")
         } finally {
             scope.cancel()
+        }
+    }
+
+    /**
+     * New sessions from the phone, the model and thinking level, and slash commands (relay/DESIGN.md §2): a computer
+     * whose crok can open sessions publishes its models and a session's commands; the phone starts a session there,
+     * reads it while it is `starting`, sees it bound, and changes its thinking level.
+     */
+    @Test
+    fun phoneStartsASessionAndChangesItsThinkingLevel() = runBlocking {
+        val phoneStart = auth.start("phone", "IT Pixel (new sessions)", "Android 16", "Crok Android IT")
+        approveAsPerson(phoneStart.userCode)
+        val phone = auth.poll(phoneStart.deviceCode)
+        assertEquals(PollResult.APPROVED, phone.status)
+        val jwt = phone.accessToken!!
+
+        val computerStart = auth.start("computer", "IT Mac (new sessions)", "macOS 26", "crok IT")
+        approveAsPerson(computerStart.userCode)
+        val computer = auth.poll(computerStart.deviceCode)
+        val cjwt = computer.accessToken!!
+        try {
+            val hostId = http.mutation(
+                "bridge:connect",
+                args {
+                    put("instanceId", "android-it-${UUID.randomUUID()}")
+                    put("app", "tui")
+                    put("appVersion", "crok IT")
+                    put("canAdopt", true)
+                    putJsonArray("features") { add(JsonPrimitive("create")); add(JsonPrimitive("config")) }
+                },
+                cjwt,
+            ).jsonObject["hostId"]!!.jsonPrimitive.content
+            http.mutation(
+                "bridge:setModels",
+                args {
+                    put("hostId", hostId)
+                    putJsonArray("models") {
+                        addJsonObject {
+                            put("id", "grok-4"); put("name", "Grok 4"); put("description", "Hard problems")
+                            putJsonArray("efforts") {
+                                addJsonObject { put("id", "effort-low"); put("name", "Low"); put("value", "low") }
+                                addJsonObject { put("id", "effort-high"); put("name", "High"); put("value", "high") }
+                            }
+                            put("defaultEffort", "effort-high")
+                        }
+                        addJsonObject { put("id", "plain"); put("name", "Plain"); putJsonArray("efforts") { } }
+                    }
+                },
+                cjwt,
+            )
+
+            // The phone starts a session there; a resend with the same client id is the same session.
+            val clientId = UUID.randomUUID().toString()
+            val createArgs = args {
+                put("deviceId", computer.deviceId!!)
+                put("path", "/Users/it/code/new-project")
+                put("text", "Start here\nwith a second line")
+                put("clientId", clientId)
+            }
+            val created = decode(CreateResult.serializer(), http.mutation("sessions:create", createArgs, jwt))
+            assertEquals(created, decode(CreateResult.serializer(), http.mutation("sessions:create", createArgs, jwt)))
+            val groups = decode(ListSerializer(SessionGroup.serializer()), http.query("sessions:groups", args { }, jwt))
+            val row = groups.flatMap { it.sessions }.first { it.id == created.sessionDocId }
+            assertTrue(row.starting)
+            assertEquals("Start here", row.title)
+            assertEquals("/Users/it/code/new-project", row.projectPath)
+            val starting = decode(SessionDetail.serializer(), http.query("sessions:get", args { put("sessionDocId", created.sessionDocId) }, jwt))
+            assertTrue(starting.starting)
+            assertEquals(listOf("grok-4", "plain"), starting.models?.map { it.id })
+            assertEquals(listOf("low", "high"), starting.models!!.first().efforts.map { it.level })
+            val create = decode(ListSerializer(PromptCommand.serializer()), http.query("commands:forSession", args { put("sessionDocId", created.sessionDocId) }, jwt)).single()
+            assertEquals(CommandType.CREATE, create.type)
+            assertEquals(created.commandId, create.id)
+            assertTrue(create.isMine)
+
+            // The computer opens it, binds the real id, publishes its commands and its model.
+            assertEquals(
+                true,
+                http.mutation("bridge:claimCommand", args { put("hostId", hostId); put("commandId", created.commandId) }, cjwt).jsonPrimitive.content.toBoolean(),
+            )
+            val realId = "android-it-new-${System.currentTimeMillis()}"
+            http.mutation("bridge:bindSession", args { put("hostId", hostId); put("sessionDocId", created.sessionDocId); put("sessionId", realId) }, cjwt)
+            http.mutation(
+                "bridge:upsertSession",
+                args {
+                    put("hostId", hostId)
+                    put("sessionId", realId)
+                    putJsonObject("fields") { put("model", "grok-4"); put("effort", "high"); put("status", "idle") }
+                },
+                cjwt,
+            )
+            http.mutation(
+                "bridge:setCommands",
+                args {
+                    put("hostId", hostId)
+                    put("sessionId", realId)
+                    putJsonArray("commands") {
+                        addJsonObject { put("name", "compact"); put("description", "Summarize the conversation") }
+                        addJsonObject { put("name", "review-pr"); put("description", "Review a pull request"); put("hint", "<number>") }
+                    }
+                },
+                cjwt,
+            )
+            val bound = decode(SessionDetail.serializer(), http.query("sessions:get", args { put("sessionDocId", created.sessionDocId) }, jwt))
+            assertTrue(!bound.starting)
+            assertEquals("grok-4", bound.currentModel?.id)
+            assertEquals("effort-high", ComposerCommands.currentEffort(bound.currentModel, bound.effort)?.id)
+            val commands = decode(SessionCommands.serializer(), http.query("sessions:commands", args { put("sessionDocId", created.sessionDocId) }, jwt))
+            assertEquals("session", commands.source)
+            assertEquals(listOf("compact", "review-pr"), commands.commands.map { it.name })
+            assertEquals("<number>", commands.commands.last().hint)
+
+            // The thinking level: the effort's id goes to setConfig; the result comes back on the command.
+            val configId = decode(
+                CommandRef.serializer(),
+                http.mutation("commands:setConfig", args { put("sessionDocId", created.sessionDocId); put("configId", ConfigId.EFFORT); put("value", "effort-low") }, jwt),
+            ).commandId
+            http.mutation("bridge:claimCommand", args { put("hostId", hostId); put("commandId", configId) }, cjwt)
+            http.mutation(
+                "bridge:completeCommand",
+                args {
+                    put("hostId", hostId)
+                    put("commandId", configId)
+                    put("status", "done")
+                    putJsonObject("result") { put("model", "grok-4"); put("effort", "low") }
+                },
+                cjwt,
+            )
+            val config = decode(CommandDoc.serializer().nullable, http.query("commands:get", args { put("commandId", configId) }, jwt))!!
+            assertEquals(CommandStatus.DONE, config.status)
+            assertEquals("low", (config.result as JsonObject)["effort"]!!.jsonPrimitive.content)
+            try {
+                http.mutation("commands:setConfig", args { put("sessionDocId", created.sessionDocId); put("configId", ConfigId.MODEL); put("value", "gpt-9") }, jwt)
+                fail("a model the computer does not offer is refused")
+            } catch (e: RelayException) {
+                assertEquals(RelayErrorCode.INVALID, e.code)
+            }
+            println("relay integration (new sessions, config, commands): all checks passed against $relayUrl")
+        } finally {
+            runCatching { http.mutation("devices:revoke", args { put("deviceId", computer.deviceId!!) }, jwt) }
+            runCatching { auth.logout(phone.refreshToken!!) }
         }
     }
 }

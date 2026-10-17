@@ -83,6 +83,21 @@ object SessionList {
     }
 
     /** The Archived tab: a flat list (and any other flat list), narrowed by a search. */
+    /** One online computer's projects, for the new-session picker. */
+    data class ComputerProjects(val deviceId: String, val deviceName: String, val projects: List<SessionGroup>)
+
+    /**
+     * Where a new session can start (the compose button's picker): the projects of online computers, grouped by
+     * computer, the computer with the most recent activity first and each one's projects most recent first.
+     */
+    fun newSessionProjects(groups: List<SessionGroup>): List<ComputerProjects> =
+        groups.filter { it.deviceOnline && it.path.isNotBlank() }
+            .groupBy { it.deviceId }
+            .map { (deviceId, projects) ->
+                ComputerProjects(deviceId, projects.first().deviceName, projects.sortedByDescending { it.lastActivityAt })
+            }
+            .sortedByDescending { computer -> computer.projects.maxOf { it.lastActivityAt } }
+
     fun filter(rows: List<SessionRow>, filter: SessionFilter, query: String): List<SessionRow> {
         val byTab = when (filter) {
             is SessionFilter.Computer -> rows.filter { it.deviceId == filter.deviceId }

@@ -3,10 +3,12 @@ package dev.chenli.crok.mobile.demo
 import dev.chenli.crok.mobile.auth.StoredCredentials
 import dev.chenli.crok.mobile.data.CommandStatus
 import dev.chenli.crok.mobile.data.Device
+import dev.chenli.crok.mobile.data.EffortChoice
 import dev.chenli.crok.mobile.data.EventKind
 import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.Me
 import dev.chenli.crok.mobile.data.MeDevice
+import dev.chenli.crok.mobile.data.ModelChoice
 import dev.chenli.crok.mobile.data.PendingInteraction
 import dev.chenli.crok.mobile.data.PendingOption
 import dev.chenli.crok.mobile.data.PlanEntry
@@ -19,6 +21,7 @@ import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.SessionRow
 import dev.chenli.crok.mobile.data.SessionStatus
 import dev.chenli.crok.mobile.data.SessionUsage
+import dev.chenli.crok.mobile.data.SlashCommand
 import dev.chenli.crok.mobile.logic.SessionList
 
 /** A session in the demo relay: its detail plus the list-only fields and its hand-placed position. */
@@ -55,6 +58,7 @@ data class DemoSession(
         projectPath = detail.projectPath,
         projectName = detail.projectName,
         historyState = detail.historyState,
+        starting = detail.starting,
     )
 }
 
@@ -74,7 +78,10 @@ data class DemoCommand(
     val result: kotlinx.serialization.json.JsonElement? = null,
 ) {
     fun prompt(): PromptCommand =
-        PromptCommand(id, clientId, text, status, error, fromLabel, fromDeviceId, mine = fromDeviceId == DemoData.PHONE_ID, createdAt = createdAt, updatedAt = updatedAt)
+        PromptCommand(
+            id, clientId, text, status, error, fromLabel, fromDeviceId,
+            mine = fromDeviceId == DemoData.PHONE_ID, createdAt = createdAt, updatedAt = updatedAt, type = type,
+        )
 }
 
 data class DemoState(
@@ -427,6 +434,53 @@ object DemoData {
             PendingOption("reject", "Reject", "reject_once"),
         ),
         at = now - 4 * MIN + 2_000,
+    )
+
+    /**
+     * What the MacBook's crok can run (`sessions:get` → `models`): two models with thinking levels and one without. The
+     * Studio runs an older crok that publishes none (and cannot start sessions for other devices); the Linux box is
+     * offline.
+     */
+    val macbookModels: List<ModelChoice> = listOf(
+        ModelChoice(
+            id = "grok-code-fast-1",
+            name = "Grok Code Fast",
+            description = "Quick edits and tool calls",
+            efforts = listOf(
+                EffortChoice("low", "Low", value = "low"),
+                EffortChoice("medium", "Medium", value = "medium"),
+                EffortChoice("high", "High", value = "high"),
+            ),
+            defaultEffort = "medium",
+        ),
+        ModelChoice(
+            id = "grok-4",
+            name = "Grok 4",
+            description = "Hard problems, long plans",
+            efforts = listOf(
+                EffortChoice("low", "Low", value = "low"),
+                EffortChoice("medium", "Medium", value = "medium"),
+                EffortChoice("high", "High", value = "high"),
+                EffortChoice("xhigh", "Extra high", value = "xhigh"),
+            ),
+            defaultEffort = "high",
+        ),
+        ModelChoice(id = "claude-sonnet-4-5", name = "Claude Sonnet 4.5", description = "Through your Anthropic key"),
+    )
+
+    /** Models by computer: only computers whose crok publishes them. */
+    fun modelsFor(deviceId: String): List<ModelChoice>? = if (deviceId == MACBOOK_ID) macbookModels else null
+
+    /** Computers that can open sessions for other devices (`sessions:create`, `commands:setConfig`). */
+    fun canCreate(deviceId: String): Boolean = deviceId == MACBOOK_ID
+
+    /** The slash commands crok advertises for a session (`sessions:commands`). */
+    val slashCommands: List<SlashCommand> = listOf(
+        SlashCommand("compact", "Summarize the conversation to free up context"),
+        SlashCommand("context", "Show what fills the context window"),
+        SlashCommand("memory", "Edit the memory files crok reads"),
+        SlashCommand("review-pr", "Review a pull request", hint = "<number>"),
+        SlashCommand("release-notes", "Write release notes in six languages", hint = "<version>"),
     )
 
     /** What a computer pushes for a listed session someone opened: the last turn, read from its disk. */

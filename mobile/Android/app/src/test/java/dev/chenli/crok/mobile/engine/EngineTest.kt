@@ -1,6 +1,8 @@
 package dev.chenli.crok.mobile.engine
 
 import dev.chenli.crok.mobile.data.CommandStatus
+import dev.chenli.crok.mobile.data.CommandType
+import dev.chenli.crok.mobile.data.ConfigId
 import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.RelayErrorCode
 import dev.chenli.crok.mobile.data.RelayException
@@ -19,6 +21,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -269,6 +273,63 @@ class EngineOverDemoTest {
         assertEquals("Chen Li", me?.name)
         val pending = engine.accounts.pendingLogin("bcdf ghjk")
         assertEquals("BCDF-GHJK", pending?.userCode)
+    }
+
+    @Test
+    fun createsASessionThatIsListedAtOnceAsStarting() = await {
+        engine.sessions.active.first { it.live }
+        val path = "/Users/chen/code/crok-site"
+        val created = engine.sessions.create(DemoData.MACBOOK_ID, path, "Fix the footer links\nand the header", "client-new")
+        // The same client id gives the same session back (a retried send).
+        assertEquals(created, engine.sessions.create(DemoData.MACBOOK_ID, path, "Fix the footer links\nand the header", "client-new"))
+        val row = engine.sessions.active.first { state -> state.rows.any { it.id == created.sessionDocId } }.rows.first { it.id == created.sessionDocId }
+        assertTrue(row.starting)
+        assertEquals("Fix the footer links", row.title)
+        assertEquals(DemoData.MACBOOK_CROK_SITE, row.projectKey)
+        val detail = engine.sessions.get(created.sessionDocId).first().getOrThrow()!!
+        assertTrue(detail.starting)
+        assertEquals(SessionStatus.RUNNING, detail.status)
+        // Its first prompt is listed with the session's prompts, for the sender's ticks.
+        val create = engine.commands.forSession(created.sessionDocId).first().getOrThrow().single()
+        assertEquals(CommandType.CREATE, create.type)
+        assertEquals(created.commandId, create.id)
+        assertTrue(create.isMine)
+
+        // Offline computers and computers with an older crok cannot; a relative folder is refused.
+        expectError(RelayErrorCode.OFFLINE) { engine.sessions.create(DemoData.LINUX_ID, "/home/chen", null, "client-l") }
+        expectError(RelayErrorCode.OFFLINE) { engine.sessions.create(DemoData.STUDIO_ID, "/Users/chen/code/crok-build", null, "client-s") }
+        expectError(RelayErrorCode.INVALID) { engine.sessions.create(DemoData.MACBOOK_ID, "code/crok", null, "client-r") }
+    }
+
+    @Test
+    fun changesTheModelAndThinkingLevelOnTheComputer() = await {
+        val detail = engine.sessions.get(DemoData.RUNNING_SESSION).first().getOrThrow()!!
+        assertEquals(DemoData.macbookModels.map { it.id }, detail.models?.map { it.id })
+        assertEquals("grok-code-fast-1", detail.currentModel?.id)
+
+        val modelCommand = engine.commands.setConfig(DemoData.RUNNING_SESSION, ConfigId.MODEL, "grok-4")
+        val done = engine.commands.get(modelCommand).first { it.getOrNull()?.status == CommandStatus.DONE }.getOrThrow()!!
+        assertEquals("grok-4", (done.result as JsonObject)["model"]?.jsonPrimitive?.content)
+        // The thinking level carries over when the new model has it.
+        assertEquals("medium", engine.sessions.get(DemoData.RUNNING_SESSION).first { it.getOrNull()?.model == "grok-4" }.getOrThrow()!!.effort)
+
+        engine.commands.setConfig(DemoData.RUNNING_SESSION, ConfigId.EFFORT, "xhigh")
+        assertEquals("xhigh", engine.sessions.get(DemoData.RUNNING_SESSION).first { it.getOrNull()?.effort == "xhigh" }.getOrThrow()!!.effort)
+        expectError(RelayErrorCode.INVALID) { engine.commands.setConfig(DemoData.RUNNING_SESSION, ConfigId.MODEL, "gpt-9") }
+
+        // The Studio's crok is older: online, but no models to choose from, and no config changes.
+        val studio = engine.sessions.get("demo-s3").first().getOrThrow()!!
+        assertTrue(studio.deviceOnline)
+        assertEquals(null, studio.models)
+        expectError(RelayErrorCode.OFFLINE) { engine.commands.setConfig("demo-s3", ConfigId.MODEL, "grok-4") }
+    }
+
+    @Test
+    fun listsTheSessionsSlashCommands() = await {
+        val running = engine.sessions.commands(DemoData.RUNNING_SESSION).first().getOrThrow()
+        assertEquals("session", running.source)
+        assertEquals(DemoData.slashCommands.map { it.name }, running.commands.map { it.name })
+        assertEquals("computer", engine.sessions.commands(DemoData.CATALOG_SESSION).first().getOrThrow().source)
     }
 
     @Test

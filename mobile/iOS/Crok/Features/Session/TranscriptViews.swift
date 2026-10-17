@@ -19,6 +19,10 @@ struct TranscriptRow: View {
             ToolCard(call: call)
         case .notice(let text, let style):
             NoticeCapsule(text: text, style: style)
+        case .botCard(let card):
+            BotCardView(card: card, choices: model.choices(for: card)) { choice in
+                model.choose(choice, on: card)
+            }
         }
     }
 }
@@ -106,11 +110,11 @@ private struct UserBubble: View {
                 HStack(spacing: 4) {
                     Text(date, format: .dateTime.hour().minute())
                     if let tick = message.tick, tick != .failed {
-                        DeliveryTickView(tick: tick, color: Theme.userBubbleText.opacity(0.75))
+                        DeliveryTickView(tick: tick, color: Theme.userBubbleMeta)
                     }
                 }
                 .font(.caption2)
-                .foregroundStyle(Theme.userBubbleText.opacity(0.6))
+                .foregroundStyle(Theme.userBubbleMeta)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

@@ -168,7 +168,7 @@ private fun <T> List<T>.moved(from: Int, to: Int): List<T> = toMutableList().app
  * the engine shows it at once.
  */
 @Composable
-internal fun ReorderList(state: SessionsUiState, actions: SessionsActions) {
+internal fun ReorderList(state: SessionsUiState, actions: SessionsActions, contentPadding: PaddingValues = PaddingValues(bottom = 24.dp)) {
     val listState = rememberLazyListState()
     var projectOrder by remember { mutableStateOf<List<String>?>(null) }
     var sessionOrder by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
@@ -253,7 +253,7 @@ internal fun ReorderList(state: SessionsUiState, actions: SessionsActions) {
         }
     }
 
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize().testTag("reorder-list"), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize().testTag("reorder-list"), contentPadding = PaddingValues(top = contentPadding.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding() + 16.dp)) {
         item(key = "hint", contentType = "hint") { ReorderHint() }
         sections.forEachIndexed { index, section ->
             val headerKey = ReorderDragState.headerKey(section.key)

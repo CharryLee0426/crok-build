@@ -20,7 +20,8 @@ import dev.chenli.crok.mobile.data.ThemeMode
 
 /**
  * Crok's semantic colour tokens (Telegram's Theme.java keys, iOS PresentationTheme): every screen asks for a role, not
- * a hex value. Light is Crok Day's neutrals, dark is Crok Night's, both with the sage accent of Crok Desktop.
+ * a hex value. Light is Crok Day's neutrals, dark is Crok Night's, both with Telegram's blue accent (relay/DESIGN.md §5,
+ * "Look"): links, buttons, switches, selection, unread badges, the Menu pill and ticks. Online dots stay green.
  */
 @Immutable
 data class CrokColors(
@@ -36,7 +37,9 @@ data class CrokColors(
     val textSecondary: Color,
     val textTertiary: Color,
     val divider: Color,
+    /** The person's own prompt bubbles, and the text on them. */
     val bubbleOut: Color,
+    val onBubbleOut: Color,
     val bubbleIn: Color,
     val online: Color,
     val warning: Color,
@@ -50,13 +53,16 @@ data class CrokColors(
     val link: Color,
     val swipePin: Color,
     val swipeArchive: Color,
+    /** Liquid Glass bars and controls: the tint over the blurred content, and the rim of the glass. */
+    val glassTint: Color,
+    val glassRim: Color,
     val avatars: List<Color>,
 )
 
 private val AvatarPalette = listOf(
     Color(0xFF5B8A6A), // sage
     Color(0xFF3E8A92), // teal
-    Color(0xFF4A78B5), // blue
+    Color(0xFF3D7FD6), // blue
     Color(0xFF7E5BB5), // violet
     Color(0xFFB5587A), // rose
     Color(0xFFB5813A), // amber
@@ -65,7 +71,7 @@ private val AvatarPalette = listOf(
 
 val CrokLight = CrokColors(
     isDark = false,
-    accent = Color(0xFF41634C),
+    accent = Color(0xFF3390EC),
     onAccent = Color(0xFFFFFFFF),
     screen = Color(0xFFF5F5F5),
     grouped = Color(0xFFEEEEEE),
@@ -76,9 +82,10 @@ val CrokLight = CrokColors(
     textSecondary = Color(0xFF626262),
     textTertiary = Color(0xFF8A8A8A),
     divider = Color(0xFFD9D9DE),
-    bubbleOut = Color(0xFFDAE6DD),
+    bubbleOut = Color(0xFFE1EFFD),
+    onBubbleOut = Color(0xFF262626),
     bubbleIn = Color(0xFFFFFFFF),
-    online = Color(0xFF3B7751),
+    online = Color(0xFF3B9F55),
     warning = Color(0xFFB45F00),
     warningContainer = Color(0xFFFBE7CF),
     danger = Color(0xFFB3261E),
@@ -87,16 +94,18 @@ val CrokLight = CrokColors(
     badgeMuted = Color(0xFF9E9E9E),
     codeBackground = Color(0xFFEAEAEA),
     inlineCode = Color(0xFFE3E3E3),
-    link = Color(0xFF2F64D2),
-    swipePin = Color(0xFF41634C),
+    link = Color(0xFF3390EC),
+    swipePin = Color(0xFF3390EC),
     swipeArchive = Color(0xFF8E8E93),
+    glassTint = Color(0xFFFAFAFA),
+    glassRim = Color(0xFFFFFFFF),
     avatars = AvatarPalette,
 )
 
 val CrokDark = CrokColors(
     isDark = true,
-    accent = Color(0xFFA1BFA8),
-    onAccent = Color(0xFF10261A),
+    accent = Color(0xFF3E88F7),
+    onAccent = Color(0xFFFFFFFF),
     screen = Color(0xFF141414),
     grouped = Color(0xFF0F0F0F),
     card = Color(0xFF1C1C1C),
@@ -106,9 +115,10 @@ val CrokDark = CrokColors(
     textSecondary = Color(0xFF9A9A9A),
     textTertiary = Color(0xFF737373),
     divider = Color(0xFF2C2C30),
-    bubbleOut = Color(0xFF2B3D31),
+    bubbleOut = Color(0xFF2B5278),
+    onBubbleOut = Color(0xFFFFFFFF),
     bubbleIn = Color(0xFF222222),
-    online = Color(0xFF91C5A1),
+    online = Color(0xFF5FC77A),
     warning = Color(0xFFF0A94B),
     warningContainer = Color(0xFF3D2A12),
     danger = Color(0xFFF2877E),
@@ -117,9 +127,11 @@ val CrokDark = CrokColors(
     badgeMuted = Color(0xFF5A5A5A),
     codeBackground = Color(0xFF1C1C1C),
     inlineCode = Color(0xFF2A2A2A),
-    link = Color(0xFF7AA6DA),
-    swipePin = Color(0xFF4F7A5C),
+    link = Color(0xFF3E88F7),
+    swipePin = Color(0xFF3E88F7),
     swipeArchive = Color(0xFF55555A),
+    glassTint = Color(0xFF242426),
+    glassRim = Color(0xFFFFFFFF),
     avatars = AvatarPalette,
 )
 
@@ -129,11 +141,11 @@ private fun CrokColors.toMaterial(): ColorScheme {
         primary = accent,
         onPrimary = onAccent,
         primaryContainer = bubbleOut,
-        onPrimaryContainer = textPrimary,
+        onPrimaryContainer = onBubbleOut,
         secondary = accent,
         onSecondary = onAccent,
         secondaryContainer = bubbleOut,
-        onSecondaryContainer = textPrimary,
+        onSecondaryContainer = onBubbleOut,
         tertiary = accent,
         background = screen,
         onBackground = textPrimary,
@@ -151,7 +163,7 @@ private fun CrokColors.toMaterial(): ColorScheme {
         surfaceDim = grouped,
         inverseSurface = textPrimary,
         inverseOnSurface = screen,
-        inversePrimary = if (isDark) Color(0xFF41634C) else Color(0xFFA1BFA8),
+        inversePrimary = if (isDark) Color(0xFF3390EC) else Color(0xFF3E88F7),
         outline = textTertiary,
         outlineVariant = divider,
         error = danger,

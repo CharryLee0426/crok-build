@@ -33,7 +33,9 @@ struct WelcomeView: View {
     }
 
     @ViewBuilder private var project: some View {
-        if let project = store.project {
+        if store.conversation == nil, store.state.selectedProjectID == RemoteSessions.projectID, let target = store.remoteNewTask {
+            RemoteNewTaskChip(target: target, online: store.remoteComputers.first { $0.deviceID == target.deviceID }?.online ?? true)
+        } else if let project = store.project {
             Menu {
                 ForEach(store.state.projects) { item in
                     Button { store.selectProject(item.id) } label: {
@@ -51,6 +53,31 @@ struct WelcomeView: View {
             .help(project.path).accessibilityLabel("Project: \(project.name)")
         } else {
             Button(L10n.t("open_a_project", "Open a project")) { store.addProject() }.buttonStyle(SubtleButtonStyle())
+        }
+    }
+}
+
+/// Where a new task on another computer will start, in place of the project menu: that computer and
+/// its folder, and a word when the computer has gone offline since.
+private struct RemoteNewTaskChip: View {
+    let target: RemoteNewTask
+    let online: Bool
+    @ObservedObject private var language = L10n.state
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "desktopcomputer")
+                Text(verbatim: "\(target.computer) · \(target.folderName)")
+            }
+            .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.muted).padding(.horizontal, 12).padding(.vertical, 8)
+            .glassSurface(in: Capsule(), interactive: false)
+            .help(L10n.t("remote_new_task_where", "Runs on {computer}, in {path}", ["computer": target.computer, "path": target.path]))
+            .accessibilityElement(children: .combine)
+            Text(online ? L10n.t("remote_new_task_detail", "Your first prompt starts this task on {computer}.", ["computer": target.computer])
+                 : RemoteSessions.offline(target.computer))
+                .font(.system(size: 12)).foregroundStyle(online ? Theme.muted : .orange)
+                .multilineTextAlignment(.center)
         }
     }
 }

@@ -88,6 +88,13 @@ sealed interface TranscriptItem {
         val text: String,
         val at: Long,
     ) : TranscriptItem
+
+    /** The phone's own answer to `/model` or `/think` (not on the relay). */
+    data class Bot(
+        override val key: String,
+        val card: BotCard,
+        val at: Long,
+    ) : TranscriptItem
 }
 
 object Transcript {
@@ -108,6 +115,7 @@ object Transcript {
         is TranscriptItem.Thought -> item.at
         is TranscriptItem.Tool -> item.at
         is TranscriptItem.Notice -> item.at
+        is TranscriptItem.Bot -> item.at
         is TranscriptItem.Day -> 0
     }
 
@@ -118,6 +126,7 @@ object Transcript {
      * @param events any order, possibly with duplicates across pages
      * @param prompts `commands:forSession` — prompts from phones and the web, for ticks and failures
      * @param historyComplete true when the oldest page is loaded (`isDone`)
+     * @param cards the phone's bot cards (`/model`, `/think`), placed by when they were made
      */
     fun build(
         events: List<RelayEvent>,
@@ -126,6 +135,7 @@ object Transcript {
         sessionRunning: Boolean,
         historyComplete: Boolean,
         zone: ZoneId,
+        cards: List<BotCard> = emptyList(),
     ): List<TranscriptItem> {
         val ordered = events.distinctBy { it.id }.sortedBy { it.seq }
         val commandsById = prompts.associateBy { it.id }
@@ -140,13 +150,19 @@ object Transcript {
             null
         }
 
-        val rows = ArrayList<TranscriptItem>(ordered.size + optimistic.size)
+        val rows = ArrayList<TranscriptItem>(ordered.size + optimistic.size + cards.size)
+        // Bot cards go among the events by time: a card made before the computer's next reply stays above it.
+        val botRows = cards.sortedBy { it.createdAt }.map { TranscriptItem.Bot("b:${it.id}", it, it.createdAt) }
+        var nextCard = 0
         for (event in ordered) {
-            rowFor(event, commandsById, streamingId)?.let(rows::add)
+            val row = rowFor(event, commandsById, streamingId) ?: continue
+            while (nextCard < botRows.size && botRows[nextCard].at < atOf(row)) rows += botRows[nextCard++]
+            rows += row
         }
+        while (nextCard < botRows.size) rows += botRows[nextCard++]
 
         // Prompts on their way: this phone's optimistic bubbles, and sent prompts the transcript does not hold yet.
-        val pending = ArrayList<Pair<Long, TranscriptItem.User>>()
+        val pending = ArrayList<Pair<Long, TranscriptItem>>()
         val optimisticClients = HashSet<String>()
         for (prompt in optimistic) {
             optimisticClients += prompt.clientId

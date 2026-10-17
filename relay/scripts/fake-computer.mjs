@@ -9,7 +9,9 @@
 //
 // It links a "computer" device for the test person (approving with `npx convex run --identity`), mirrors one session
 // with a short transcript, and answers the phone: prompts get a user event + a reply streamed in chunks, Stop cancels
-// the running reply, info returns usage numbers. A prompt containing "slow" streams slowly so Stop can be tried.
+// the running reply, info returns usage numbers. A prompt containing "slow" streams slowly so Stop can be tried. It
+// also lists two models with thinking levels and a few slash commands, applies model and thinking-level changes, and
+// starts new sessions asked for from other devices (`sessions:create`).
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -61,7 +63,26 @@ const { hostId } = await client.mutation("bridge:connect", {
   app: "tui",
   appVersion: "crok 1.0.45 (fake)",
   pid: process.pid,
+  canAdopt: true,
+  features: ["create", "config"],
 });
+const efforts = [
+  { id: "low", name: "Low", value: "low" },
+  { id: "medium", name: "Medium", value: "medium" },
+  { id: "high", name: "High", value: "high" },
+];
+const models = [
+  { id: "grok-code-fast-1", name: "Grok Code Fast", description: "Fast and cheap for everyday coding", efforts, defaultEffort: "high" },
+  { id: "grok-4", name: "Grok 4", description: "The most capable model", efforts: [...efforts, { id: "xhigh", name: "Extra high", value: "xhigh" }], defaultEffort: "medium" },
+  { id: "grok-3-mini", name: "Grok 3 Mini", efforts: [] },
+];
+const slashCommands = [
+  { name: "compact", description: "Compress conversation history to save context window" },
+  { name: "context", description: "Show context window usage and session stats" },
+  { name: "memory", description: "Browse, view, and manage your memories" },
+  { name: "review-pr", description: "Review a pull request", hint: "<number>" },
+];
+await client.mutation("bridge:setModels", { hostId, models });
 setInterval(() => client.mutation("bridge:heartbeat", { hostId }).catch((e) => log("heartbeat", e.message)), 30_000);
 
 const sessionId = `0199f1a2-${Date.now().toString(16)}-7c1d-9a10-fake`;
@@ -110,12 +131,16 @@ await client.mutation("bridge:pushEvents", {
   ],
 });
 log("session mirrored", sessionDocId);
+await client.mutation("bridge:setCommands", { hostId, sessionId, commands: slashCommands });
 
 const handled = new Set();
 let turn = null; // { cancelled, promptId }
 let messages = 5;
+/** The sessions this computer runs, by relay id: the first one and any started from another device. */
+const sessions = new Map([[sessionDocId, { sessionId, sessionDocId, model: "grok-code-fast-1", effort: "high" }]]);
 
-async function prompt(command) {
+async function prompt(command, session = sessions.get(command.sessionDocId) ?? sessions.get(sessionDocId)) {
+  const { sessionId, sessionDocId } = session;
   while (turn) await sleep(200); // queued behind the running turn (status stays "delivered")
   turn = { cancelled: false, promptId: command._id };
   const t = Date.now();
@@ -194,6 +219,46 @@ async function handle(command) {
   if (!claimed) return;
   if (command.type === "prompt") {
     await prompt(command);
+  } else if (command.type === "create") {
+    // A new session asked for from another device: open it, give the relay its id, then run the first prompt.
+    await sleep(400);
+    const created = { sessionId: `0199f1a3-${Date.now().toString(16)}-7c1d-9a10-fake`, sessionDocId: command.sessionDocId, model: "grok-code-fast-1", effort: "high" };
+    await client.mutation("bridge:bindSession", { hostId, sessionDocId: command.sessionDocId, sessionId: created.sessionId });
+    sessions.set(command.sessionDocId, created);
+    await client.mutation("bridge:upsertSession", {
+      hostId,
+      sessionId: created.sessionId,
+      fields: { cwd: command.cwd, model: created.model, effort: created.effort, status: command.text ? "running" : "idle" },
+    });
+    await client.mutation("bridge:setCommands", { hostId, sessionId: created.sessionId, commands: slashCommands });
+    log("session started", created.sessionId, "in", command.cwd);
+    if (command.text) await prompt(command, created);
+    else await client.mutation("bridge:completeCommand", { hostId, commandId: command._id, status: "done", result: { sessionId: created.sessionId } });
+  } else if (command.type === "config") {
+    const session = sessions.get(command.sessionDocId) ?? sessions.get(sessionDocId);
+    await sleep(500);
+    if (command.configId === "model") {
+      const model = models.find((m) => m.id === command.text);
+      session.model = command.text;
+      // A model without that thinking level falls back to its default, as crok does.
+      if (!model?.efforts.some((e) => e.value === session.effort)) {
+        session.effort = model?.efforts.find((e) => e.id === model.defaultEffort)?.value ?? undefined;
+      }
+    } else {
+      session.effort = command.text;
+    }
+    await client.mutation("bridge:upsertSession", {
+      hostId,
+      sessionId: session.sessionId,
+      fields: { model: session.model, ...(session.effort ? { effort: session.effort } : {}) },
+    });
+    await client.mutation("bridge:completeCommand", {
+      hostId,
+      commandId: command._id,
+      status: "done",
+      result: { model: session.model, effort: session.effort ?? null },
+    });
+    log("config", command.configId, "=", command.text);
   } else if (command.type === "cancel") {
     if (turn) turn.cancelled = true;
     await client.mutation("bridge:completeCommand", { hostId, commandId: command._id, status: "done" });

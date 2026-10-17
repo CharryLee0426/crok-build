@@ -89,6 +89,57 @@ client shares.
   filled). Tapping one calls `commands:answer`; the buttons stay disabled until the request leaves the session, and
   `EXPIRED` (another device answered first) is ignored quietly.
 
+## New sessions and composer commands
+
+As on the web and iOS (relay/DESIGN.md §5, "New sessions" and "Commands in the composer"):
+
+- Each project section of an online computer has a "+" (and **New session** in its long-press menu); the top bar's
+  compose button first asks for the project (online computers' projects, grouped by computer, recent first). Both open
+  the **new-session screen**: "New session" with the project and computer under it, "Starts in <path> on <computer>",
+  and the composer. Sending calls `sessions:create` and the same screen turns into that session (same navigation
+  entry), the prompt shown at once with its ticks (`commands:forSession` lists `create` commands like prompts). Rows
+  and headers of a `starting` session say "Starting…". A failure shows the relay's own message on the bubble (e.g. a
+  computer whose crok is too old: "update crok there"), with Retry.
+- The composer's blue **Menu** pill (☰ "Menu" on an empty field, just ☰ while typing) or a leading `/` opens the command
+  list above it, filtered by prefix: the phone's own `/new [prompt]`, `/model [name]`, `/think [level]` (only when the
+  model has levels), `/stop` (only while running) and `/info`, then the session's (`sessions:commands`). A command that
+  takes arguments fills the field; the others run at once. Any other `/text` goes to the computer as a prompt.
+- `/model` and `/think` answer with a local **bot card** in the transcript and an inline keyboard (`sessions:get` →
+  `models`; the current choice marked ✓; thinking levels two per row). A tap calls `commands:setConfig` and spins until
+  `commands:get` says done; the card then reads "Model: Grok 4 ✓". With an argument they match by id, level or name
+  (exact first, else a unique prefix) and apply directly. Without `models` the card says the computer is offline, or —
+  online but no models — that its crok needs an update.
+
+## Look: Liquid Glass
+
+The top bars (with the folder tabs as capsules), the home tab bar (a floating capsule), the composer and the floating
+buttons are glass over the content that scrolls beneath them, like iOS 26: the content is blurred, saturated and bent
+at the glass's edge, under a light tint with a rim and a specular highlight, in continuous-corner ("squircle") shapes.
+It is drawn with Kyant's [backdrop](https://github.com/Kyant0/AndroidLiquidGlass) 1.0.6 (`ui/common/Glass.kt`,
+`GlassBars.kt`): the screen's content records itself into a layer and every glass surface draws that layer with the
+effects. The lens and highlight need Android 13 (runtime shaders), the blur Android 12; on Android 11 and older the
+glass is a translucent frosted surface with a drawn rim (`GlassLevel`). The 2.x line of the library moved to Compose
+Multiplatform 1.12, which needs compileSdk 37, so it waits like the AndroidX updates above. Accent: Telegram blue
+(`#3390EC` light, `#3E88F7` dark); the person's own bubbles are `#E1EFFD` (light) and `#2B5278` with white text (dark).
+
+## Staying connected
+
+A phone's socket dies while the app is suspended or the network changes, and the Convex client does not always notice
+or recover (relay/DESIGN.md §5, "Staying connected"). `RelayConnection` (engine) keeps the app working without being
+killed:
+
+- On returning to the foreground (`ProcessLifecycleOwner`), when the network comes back or the default network changes
+  (Wi-Fi ↔ mobile data), and when nothing has synced for 20 s while the network is up, it refreshes the token on the
+  socket (a live socket answers with a fresh result for every subscription); if nothing arrives within 10 s it replaces
+  the Convex client. Live queries move to the new client by themselves and screens keep what they show; a mutation still
+  running on the old client gets 10 s, then goes again on the new one (all of the app's mutations are safe to repeat).
+  The old client's native core is destroyed (the Convex client never frees it itself).
+- `UNAUTHENTICATED` from a query or mutation refreshes the token and replaces the client at once; `REVOKED` signs out.
+  Repeated replacements back off (10 s, 20 s, … up to 2 min).
+- `TokenManager` no longer lets a failed refresh wipe a still-valid token: the Convex client caches whatever its auth
+  callback returns on a reconnect, and a null made it reconnect without a user for good (every query then failed with
+  `UNAUTHENTICATED` and nothing reconnected it — the "lost the connection, no sessions until I kill the app" bug).
+
 ## Demo mode
 
 Debug builds can run on built-in demo data (three computers, several projects, sessions in every state including ones
@@ -99,7 +150,8 @@ listed from disk and one waiting on a permission request, a reply that streams a
 
 Prompts (also to a session nobody runs, which the demo computer then opens), Stop, info requests, answering the
 permission request (the turn goes on: the build runs, or is skipped on Reject), pin / archive, reordering projects and
-sessions, loading a listed session's history and device sign-outs all work against the in-memory relay
+sessions, loading a listed session's history, new sessions (on the MacBook; the Studio runs an "older crok" that offers
+no models and cannot start sessions), `/model` and `/think` and device sign-outs all work against the in-memory relay
 (`demo/DemoTransport.kt`, which answers the same Convex function names). Release builds ignore it.
 
 ## Tests
@@ -117,7 +169,12 @@ models (float64 numbers, `sessions:groups`, `pending`, stored info), the session
 composer gating, the permission card), the auth state machine with persistence across a "killed" process and the
 built-in relay, token refresh and revocation, the delayed connection state, and the engine against the demo relay
 (paging, commands, devices, optimistic reorders and taking a refused one back, loading a listed session's history,
-prompts / Stop / info for a session nobody runs, answering a permission request).
+prompts / Stop / info for a session nobody runs, answering a permission request, new sessions, model and thinking-level
+changes, slash commands), the composer commands and argument matching, the session view model (a new session turning
+into the session, `/model` / `/think` cards, commands sent as prompts), and staying connected (`StayingConnectedTest`,
+`EngineReconnectTest`: a dead socket replaced after coming back to the foreground or a network change, a live one kept,
+the 20 s watchdog, `UNAUTHENTICATED` and its back-off, `REVOKED`, a mutation moved to the new client, the title states)
+on virtual time.
 `ReorderDragTest` drags Reorder mode's handles with touch input under Robolectric.
 
 ### Screenshot tests
@@ -151,9 +208,11 @@ app/src/main/java/dev/chenli/crok/mobile/
   MainActivity.kt, CrokApplication.kt (AppGraph), AppViewModel.kt   activity, app-wide objects, auth → engine lifecycle
   auth/        AuthController (sign-in state machine), AuthStore (encrypted), TokenManager + DeviceAuthProvider
   data/        wire models, RelayJson (float64 ↔ Long), errors, Convex HTTP API, Keystore box, settings/drafts/cache/collapsed projects
-  engine/      CrokEngine (per-account facades), RelayTransport + ConvexTransport, TranscriptPager, ConnectionState
+  engine/      CrokEngine (per-account facades), RelayConnection (staying connected), RelayTransport + ConvexTransport,
+               TranscriptPager, ConnectionState (+ NetworkMonitor, AppForeground)
   demo/        DemoData + DemoTransport (in-memory relay for demo mode and screenshots)
-  logic/       pure logic: Transcript, Markdown, RevealPacer, SessionList (sections), SessionOrder, PlanSummary, RelativeTime, UserCode
+  logic/       pure logic: Transcript, ComposerCommands (command list, matching, bot cards), Markdown, RevealPacer, SessionList
+               (sections), SessionOrder, PlanSummary, RelativeTime, UserCode
   ui/          CrokRoot (navigation), theme, common components, signin/, sessions/, session/, settings/
 ```
 
@@ -171,6 +230,8 @@ Structure and UX only — Telegram is GPL and no code is copied. See the full ta
 | ChatActivity reversed, windowed history | `LazyColumn(reverseLayout = true)` over `TranscriptPager` (50 per page, `endCursor` pinning) |
 | Grouping, day headers, status ticks, failed-message menu | `Transcript.build`, `TranscriptViews` (clock → ✓ → ✓✓, red "!" with Retry / Delete) |
 | Streaming-stop send button, blocked when offline | `Composer` (Send / Stop / offline note) |
+| Bot menu button, command list, inline keyboards | `MenuPill`, `CommandList`, `BotCardRow` |
+| New chat (compose → pick → empty chat) | compose button → `ProjectPicker` → new-session screen (`NewSessionRoute`) |
 | TextRevealController | `RevealPacer` + `rememberRevealedLength` |
 | Pinned message bar, page-down button with counter | `PlanBar`, `ScrollToBottomButton` |
 | SessionsActivity (active sessions), QR login | `DevicesScreen`, `LinkComputerScreen` (Google code scanner) |
@@ -181,3 +242,7 @@ Structure and UX only — Telegram is GPL and no code is copied. See the full ta
 Everything that needs a device or emulator: the Convex WebSocket client (its Rust core loads through JNA on Android
 only; the transport is compile-checked and the same calls are verified over the HTTP API), the Auth Tab / Custom Tab
 round trip, the Keystore, the Google code scanner, notifications of network changes, and the release build on a phone.
+Staying connected is proven on the JVM with fake transports and virtual time, not yet on a phone that dozed or changed
+networks; replacing a client destroys its native core, which only a device exercises. Liquid Glass is rendered by
+Robolectric's native graphics in the screenshot tests (blur, lens, rim); its cost while scrolling on a real phone is
+unmeasured.

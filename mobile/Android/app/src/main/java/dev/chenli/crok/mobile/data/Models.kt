@@ -170,6 +170,8 @@ data class SessionRow(
     val projectPath: String = "",
     val projectName: String = "",
     val historyState: String? = null,
+    /** Made by `sessions:create` and not open on its computer yet ("Starting…"). Older relays leave it out. */
+    val starting: Boolean = false,
 ) {
     val isRunning: Boolean get() = online && status == SessionStatus.RUNNING
     val isWaiting: Boolean get() = online && status == SessionStatus.WAITING
@@ -253,12 +255,72 @@ data class SessionDetail(
     val historyState: String? = null,
     /** A permission request the session waits on, or null. */
     val pending: PendingInteraction? = null,
+    /** Made by `sessions:create` and not open on its computer yet. */
+    val starting: Boolean = false,
+    /**
+     * What the session's computer can run (`/model`, `/think`): from its runner, else any crok there; null while the
+     * computer is offline, or when its crok is too old to say.
+     */
+    val models: List<ModelChoice>? = null,
 ) {
     val isRunning: Boolean get() = online && status == SessionStatus.RUNNING
+
+    /** The session's model among [models] (by id, else by name). */
+    val currentModel: ModelChoice?
+        get() = models?.let { list -> list.firstOrNull { it.id == model } ?: list.firstOrNull { model != null && it.name.equals(model, ignoreCase = true) } }
 
     /** Takes prompts: a crok runs it, or its computer is online and opens it when one arrives. */
     val reachable: Boolean get() = online || deviceOnline
 }
+
+/**
+ * One model a computer offers (`sessions:get` → `models`), with its thinking levels; an empty [efforts] has none.
+ * [defaultEffort] is an effort's id.
+ */
+@Serializable
+data class ModelChoice(
+    val id: String = "",
+    val name: String = "",
+    val description: String? = null,
+    val efforts: List<EffortChoice> = emptyList(),
+    val defaultEffort: String? = null,
+) {
+    val label: String get() = name.ifBlank { id }
+}
+
+/**
+ * A thinking level: [id] is what `commands:setConfig` takes, [value] the canonical level (`low`, `medium`, `high`,
+ * `xhigh`, …) that a session's `effort` holds; older relays send no [value], then the id is the level.
+ */
+@Serializable
+data class EffortChoice(
+    val id: String = "",
+    val name: String = "",
+    val description: String? = null,
+    val value: String? = null,
+) {
+    val level: String get() = value ?: id
+    val label: String get() = name.ifBlank { id }
+}
+
+/** One of a session's slash commands (`sessions:commands`), without the leading `/`. */
+@Serializable
+data class SlashCommand(
+    val name: String = "",
+    val description: String = "",
+    val hint: String? = null,
+)
+
+/** `sessions:commands`: the agent's commands; [source] `session`, `computer` (the computer's last list) or `none`. */
+@Serializable
+data class SessionCommands(
+    val commands: List<SlashCommand> = emptyList(),
+    val source: String = "none",
+)
+
+/** `sessions:create`: the new session (its row exists at once) and the command that starts it. */
+@Serializable
+data class CreateResult(val sessionDocId: String, val commandId: String = "")
 
 object EventKind {
     const val USER = "user"
@@ -296,6 +358,18 @@ data class EventPage(
 
 // ---- Commands ----
 
+object CommandType {
+    const val PROMPT = "prompt"
+    const val CREATE = "create"
+    const val CONFIG = "config"
+}
+
+/** `commands:setConfig`'s two settings. */
+object ConfigId {
+    const val MODEL = "model"
+    const val EFFORT = "reasoning_effort"
+}
+
 object CommandStatus {
     const val PENDING = "pending"
     const val DELIVERED = "delivered"
@@ -306,7 +380,10 @@ object CommandStatus {
 @Serializable
 data class CommandRef(val commandId: String)
 
-/** A prompt sent from a phone or the web (`commands:forSession`), for the sender's status ticks. */
+/**
+ * A prompt sent from a phone or the web (`commands:forSession`), for the sender's status ticks. [type] is `prompt`, or
+ * `create` for the first prompt of a session started from a device.
+ */
 @Serializable
 data class PromptCommand(
     @SerialName("_id") val id: String,
@@ -320,6 +397,7 @@ data class PromptCommand(
     val mine: Boolean? = null,
     val createdAt: WireLong = 0,
     val updatedAt: WireLong = 0,
+    val type: String = CommandType.PROMPT,
 ) {
     val isMine: Boolean get() = mine ?: true
 }

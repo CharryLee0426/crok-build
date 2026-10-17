@@ -1102,6 +1102,10 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             ActiveView::Agent(agent_id) => vec![Effect::RemoteLogout { agent_id }],
             _ => vec![],
         },
+        Action::RemoteNew(args) => match app.active_view {
+            ActiveView::Agent(agent_id) => vec![Effect::RemoteNew { agent_id, args }],
+            _ => vec![],
+        },
         Action::ShowReleaseNotes { title, content } => {
             dispatch_show_release_notes(app, title, content)
         }
