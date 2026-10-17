@@ -107,6 +107,8 @@ browser_use = false                    # the browser tool (default: false; see B
 computer_use = false                   # the computer tool, macOS only (default: false)
 phone_use = true                       # the phone tool: iPhone via iPhone Mirroring, Android via adb
                                        # (default: true; see Phone Use)
+agent_observability = false            # report model calls to the Grafana Agent Observability stack
+                                       # in ~/.crok/agento11y.env; applies while running (default: false)
 
 [session]
 auto_compact_threshold_percent = 85    # auto-compact at this % of context window (default: 85)

@@ -18,9 +18,31 @@ These knobs are independent of each other (and of this guide's external OTEL str
 | Telemetry master switch | `[features] telemetry` / `CROK_TELEMETRY_ENABLED` |
 | Trace upload | `[telemetry] trace_upload` / `CROK_TELEMETRY_TRACE_UPLOAD` |
 | External OpenTelemetry | `CROK_EXTERNAL_OTEL` / `[telemetry] otel_*` (this guide) |
+| Grafana Agent Observability | `[features] agent_observability` / `CROK_AGENT_OBSERVABILITY`, or the Settings switch ([below](#grafana-agent-observability)) |
 
 See also [Authentication](02-authentication.md) and
 [Configuration](05-configuration.md#telemetry).
+
+## Grafana Agent Observability
+
+Separately from the stream below, Crok can report every model call it makes, in
+the terminal and in Crok Desktop, to a
+[Grafana Agent Observability](https://grafana.com/docs/grafana-cloud/machine-learning/agent-observability/)
+stack of your own: the prompt, the reply, tool calls, token use and timing, one
+generation per request.
+
+- **Switch:** `/settings` › Privacy › Agent Observability in the terminal, or
+  Settings › Agent Observability in Crok Desktop. Both write
+  `[features] agent_observability` (default `false`) in `~/.crok/config.toml`.
+  Every running Crok process follows the key, so turning it on or off applies
+  to open sessions too, with no restart.
+- **Destination:** `~/.crok/agento11y.env` (mode 600), with the stack's
+  `AGENTO11Y_*` and `OTEL_EXPORTER_OTLP_*` values. The crok repository's
+  `crates/codegen/xai-grok-agento11y/setup.sh` writes it from the stack's
+  Connection page and a token. It is read again when it changes. With the
+  switch on and no destination, nothing is sent.
+- **Needs** Node 20 or newer (or Bun). The bridge logs to
+  `~/.crok/logs/agento11y.log`.
 
 ## External OTEL stream
 

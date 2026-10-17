@@ -1,8 +1,8 @@
 import Foundation
 
 /// Follows `~/.crok/config.toml` while the app runs. The terminal writes the same file, so a
-/// setting changed there (today: the interface language) applies here without a relaunch, the
-/// way the terminal follows a change made here.
+/// setting changed there (today: the interface language and the Agent Observability switch) applies
+/// here without a relaunch, the way the terminal follows a change made here.
 ///
 /// It stats the file every `interval` seconds and reads it only when the stamp moves. Both apps
 /// replace the file atomically, so a moved stamp always means a complete new file. The desktop's
@@ -72,5 +72,7 @@ final class ConfigFileWatcher {
     /// and again for every change the watcher sees.
     static func apply(_ config: GrokConfig) {
         L10n.configure(fromConfig: config)
+        // Always called on the main thread (see `start`), where the settings model lives.
+        MainActor.assumeIsolated { AgentObservabilitySettings.shared.apply(config) }
     }
 }

@@ -6,6 +6,10 @@ using the agento11y TypeScript SDK (`@grafana/agento11y-core`).
 
 ## Turning it on
 
+Two parts: where reports go (`~/.crok/agento11y.env`), and the switch.
+
+### The destination
+
 Get the values from the stack's Agent Observability Connection page
 (`https://<stack>.grafana.net/plugins/grafana-agento11y-app`), with a Grafana Cloud access policy
 token that has `sigil:write`, `metrics:write`, `traces:write` and `logs:write`. Then:
@@ -28,10 +32,20 @@ OTEL_EXPORTER_OTLP_ENDPOINT=…/otlp
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 of instance:token>"
 ```
 
-New crok processes read it at start: a new TUI, or a new Crok Desktop conversation (each runs its
-own `crok agent stdio`). Without the file, the same variables exported in the environment work too;
-with it, inherited `AGENTO11Y_*` and `OTEL_*` variables are ignored. Delete the file, or add
-`AGENTO11Y_ENABLED=false`, to stop.
+Without the file, the same variables exported in the environment work too; with it, inherited
+`AGENTO11Y_*` and `OTEL_*` variables are ignored. `AGENTO11Y_ENABLED=false` in the file stops
+sending whatever the switch says.
+
+### The switch
+
+Nothing is sent until it is on: `/settings` › Privacy › Agent Observability in the terminal, or
+Settings › Agent Observability in Crok Desktop. Both write `[features] agent_observability` in
+`~/.crok/config.toml` (default `false`); `CROK_AGENT_OBSERVABILITY=1` in the environment outranks
+the file, and a `requirements.toml` pin outranks both.
+
+Every crok process follows the switch and the destination file while it runs: a TUI, and each
+Crok Desktop conversation (each runs its own `crok agent stdio`). Turning the switch on or off, or
+writing a new `agento11y.env`, applies from the next model call, with no restart.
 
 Node 20 or newer is needed (or Bun). crok looks on `PATH`, then in nvm, Homebrew, Volta and asdf;
 `CROK_AGENTO11Y_NODE=/path/to/node` in the file names one.
@@ -68,10 +82,13 @@ sampler (Rust)                               bridge (Node, TypeScript SDK)
 ```
 
 - `xai-grok-sampler/src/observe.rs` snapshots each request and records it when its event stream
-  completes, fails or is dropped. It costs one atomic load per request when nothing is installed.
-- `src/` loads the settings, finds Node, and runs one bridge per crok process. The bridge starts
-  at the first model call, stops after five idle minutes (`CROK_AGENTO11Y_IDLE_SECS`), and flushes
-  when crok exits. Records queue in memory (256) and are dropped, never waited on, when it lags.
+  completes, fails or is dropped. Before the snapshot it asks the sink whether it is active; while
+  the switch is off that costs a `stat` of `config.toml` per request and nothing is copied.
+- `src/` follows the switch and the settings (`switch.rs`: each file is read again only when its
+  modification time or size moves), finds Node, and runs one bridge per crok process. The bridge
+  starts at the first model call, stops after five idle minutes (`CROK_AGENTO11Y_IDLE_SECS`),
+  restarts with new settings when `agento11y.env` changes, and flushes when crok exits. Records
+  queue in memory (256) and are dropped, never waited on, when it lags.
 - `bridge/` is the TypeScript side. It creates the OpenTelemetry tracer and meter providers the
   SDK records into (without them every span and metric is silently lost), replays each call with
   crok's own timestamps, and logs every export result to `~/.crok/logs/agento11y.log`

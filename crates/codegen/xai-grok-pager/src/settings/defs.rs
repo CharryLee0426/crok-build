@@ -1263,6 +1263,33 @@ pub fn default_settings() -> Vec<SettingMeta> {
             restart_required: false,
             hidden_in_minimal: false,
         },
+        // SHELL-owned `[features].agent_observability`, off by default. Every crok process follows the key while it
+        // runs (`xai-grok-agento11y`), so a change applies to open sessions, Crok Desktop's included.
+        SettingMeta {
+            key: "agent_observability",
+            category: SettingCategory::Privacy,
+            owner: SettingOwner::Shell,
+            label: "Agent Observability",
+            description: "Report each model call (prompt, reply, tool calls, tokens, timing) from the \
+                          terminal and Crok Desktop to the Grafana Agent Observability stack set in \
+                          ~/.crok/agento11y.env. Applies right away, to open sessions too.",
+            keywords: &[
+                "observability",
+                "agento11y",
+                "grafana",
+                "monitoring",
+                "traces",
+                "metrics",
+                "generations",
+                "report",
+                "features",
+            ],
+            kind: SettingKind::Bool {
+                default: Feature::AgentObservability.default_enabled(),
+            },
+            restart_required: false,
+            hidden_in_minimal: false,
+        },
         // SHELL-owned, persisted to `[ui].default_selected_permission` in config.toml. Canonical
         // `always_allow_all_sessions` (the effective default) lands the first prompt's cursor on the enable-always-approve
         // row.

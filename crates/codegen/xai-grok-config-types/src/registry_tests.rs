@@ -81,6 +81,7 @@ fn registered_settings() {
             ("browser_use", ("GROK_BROWSER_USE", false)),
             ("computer_use", ("GROK_COMPUTER_USE", false)),
             ("phone_use", ("GROK_PHONE_USE", true)),
+            ("agent_observability", ("GROK_AGENT_OBSERVABILITY", false)),
         ]),
     );
 }
@@ -120,7 +121,8 @@ fn every_registered_feature_reads_its_own_remote_setting() {
             Feature::BackendTools
             | Feature::BrowserUse
             | Feature::ComputerUse
-            | Feature::PhoneUse => {
+            | Feature::PhoneUse
+            | Feature::AgentObservability => {
                 assert!(spec.remote.is_none(), "{} grew a remote tier", spec.key);
                 continue;
             }

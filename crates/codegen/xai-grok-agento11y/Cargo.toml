@@ -9,11 +9,14 @@ description = "Sends every model call to Grafana Agent Observability through a N
 blake3 = { workspace = true }
 tracing = { workspace = true }
 xai-dirs = { workspace = true }
+xai-grok-config = { workspace = true }
+xai-grok-config-types = { workspace = true }
 xai-grok-sampler = { path = "../xai-grok-sampler" }
 xai-tty-utils = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+toml = { workspace = true }
 
 [lints]
 workspace = true

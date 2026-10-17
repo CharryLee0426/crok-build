@@ -51,7 +51,8 @@ partial="$(mktemp "$home/agento11y.env.XXXXXX")"
 trap 'rm -f "$partial"' EXIT
 cat >"$partial" <<EOF
 # Grafana Agent Observability for crok, written by setup.sh. It holds a token: keep it mode 600.
-# Delete this file, or set AGENTO11Y_ENABLED=false, to stop sending.
+# Reports are sent while Settings › Agent Observability is on ([features] agent_observability in
+# config.toml). Switch it off, delete this file, or set AGENTO11Y_ENABLED=false, to stop sending.
 AGENTO11Y_ENDPOINT=$endpoint
 AGENTO11Y_PROTOCOL=http
 AGENTO11Y_AUTH_MODE=basic
@@ -63,4 +64,5 @@ EOF
 chmod 600 "$partial"
 mv "$partial" "$home/agento11y.env"
 trap - EXIT
-echo "Wrote $home/agento11y.env (mode 600). New crok sessions and Crok Desktop conversations pick it up."
+echo "Wrote $home/agento11y.env (mode 600). Running crok sessions and Crok Desktop conversations pick it up."
+echo "Reports are sent while Agent Observability is on: /settings › Privacy in the terminal, or Crok Desktop's Settings."

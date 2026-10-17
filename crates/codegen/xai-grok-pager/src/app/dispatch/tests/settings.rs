@@ -1581,6 +1581,35 @@ fn subagent_model_inheritance_persists_overrides_and_reset_deletes_the_key() {
     assert_eq!(Some(false), app.subagent_model_inheritance.config.user);
     assert!(read_toast(&app).contains("fixed by a requirements.toml pin or an MDM policy"));
 }
+/// Every crok process follows the Agent Observability switch while it runs, so its toast says where reports go (or
+/// that no destination is set up yet) instead of asking for a restart.
+#[test]
+fn agent_observability_saves_its_key_and_needs_no_restart() {
+    use xai_grok_shell::agent::config::Feature;
+    let feature = Feature::AgentObservability;
+    let mut app = test_app_with_agent();
+    let effects = dispatch(Action::SetDeviceFeature(feature, true), &mut app);
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::PersistFeatureOverride {
+                feature: Feature::AgentObservability,
+                saved: Some(true),
+            }]
+        ),
+        "got {effects:?}"
+    );
+    let toast = read_toast(&app);
+    assert!(
+        toast.starts_with("\u{2713} Agent Observability: on · reporting to ")
+            || toast.starts_with("\u{2713} Agent Observability: on · nothing is sent until "),
+        "got {toast:?}"
+    );
+    assert!(!toast.contains("restart to apply"));
+    let _ = handle_feature_override_persisted(&mut app, feature, Ok(Some(true)));
+    let _ = dispatch(Action::SetDeviceFeature(feature, false), &mut app);
+    assert_eq!(read_toast(&app), "\u{2713} Agent Observability: off");
+}
 /// One write is on disk at a time: toggles under a pending write only queue the newest intent, the completion issues
 /// it (also after a failure) unless it already matches the disk, and a lone failure settles the mirror back on the disk.
 #[test]
@@ -1769,6 +1798,10 @@ fn move_setting_away_from_default(app: &mut AppView, key: crate::settings::Setti
         "phone_use" => {
             let feature = xai_grok_shell::agent::config::Feature::PhoneUse;
             let _ = dispatch(Action::SetDeviceFeature(feature, false), app);
+        }
+        "agent_observability" => {
+            let feature = xai_grok_shell::agent::config::Feature::AgentObservability;
+            let _ = dispatch(Action::SetDeviceFeature(feature, true), app);
         }
         "keep_text_selection" => {
             let _ = dispatch(
