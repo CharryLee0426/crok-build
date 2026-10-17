@@ -80,6 +80,17 @@ Copyright:  Copyright (c) 2019-2026 Miguel de Icaza; Copyright (c) 2017-2019 The
 Used by:    desktop/macOS (the embedded terminal of Grok Desktop)
 
 --------------------------------------------------------------------------------
+LibrariesDev (SwiftUI ports: MetalFxKit, BorderBeamKit, ThinkingOrbsKit, VoiceGlowKit)
+--------------------------------------------------------------------------------
+Path:       third_party/LibrariesDev/
+License:    MIT
+License file: third_party/LibrariesDev/LICENSE
+Notice:     third_party/LibrariesDev/NOTICE (Paper Shaders' liquidMetal, Apache-2.0)
+Upstream:   https://github.com/Jakubantalik/Libraries.dev (@ bfcb863, 2026-10-16)
+Copyright:  Copyright (c) 2026 Jakub Antalik; Paper Shaders Copyright (c) Paper Design, Inc.
+Used by:    desktop/macOS (Crok Desktop's liquid metal, border beam, thinking orbs, voice glow)
+
+--------------------------------------------------------------------------------
 End of notices for vendored third_party/ crates.
 
 Full product notices (all crates.io / git dependencies shipped with the Grok

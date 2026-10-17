@@ -25,9 +25,16 @@ header) — treat those as the source of truth when re-vendoring.
 | [`nfsserve`](./nfsserve/) | 0.11.0 | BSD-3-Clause | [huggingface/nfsserve](https://github.com/huggingface/nfsserve) | [`LICENSE`](./nfsserve/LICENSE) |
 | [`fuser`](./fuser/) | 0.18.0 | MIT | [cberner/fuser](https://github.com/cberner/fuser) | [`LICENSE.md`](./fuser/LICENSE.md) |
 | [`SwiftTerm`](./SwiftTerm/) | 1.20.0 | MIT | [migueldeicaza/SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | [`LICENSE`](./SwiftTerm/LICENSE) |
+| [`LibrariesDev`](./LibrariesDev/) | `bfcb863` | MIT (Paper Shaders material: Apache-2.0) | [Jakubantalik/Libraries.dev](https://github.com/Jakubantalik/Libraries.dev) | [`LICENSE`](./LibrariesDev/LICENSE), [`NOTICE`](./LibrariesDev/NOTICE) |
 
 SwiftTerm is a Swift package, used by `desktop/macOS` as a local path
 dependency so the desktop app builds without fetching anything.
+
+LibrariesDev holds the SwiftUI ports of the Libraries.dev effects (liquid
+metal, border beam, thinking orbs, voice glow) that Crok Desktop's look is
+built with, also a local path dependency of `desktop/macOS`. Its Metal shaders
+are compiled by its `build-shaders.sh`; its `README.md` lists the local
+patches.
 
 Mermaid layout stack:
 
@@ -63,7 +70,7 @@ This directory is only for **in-tree vendored** sources.
 ## Upgrading
 
 1. Read the `VENDORING NOTES` block at the top of the crate’s `Cargo.toml`
-   (SwiftTerm: `Package.swift`).
+   (SwiftTerm: `Package.swift`; LibrariesDev: `README.md`).
 2. Re-apply listed local patches (fmt, hermetic env, unsafe fixes, dropped bins/tests).
 3. Confirm the license file still matches the declared `license =` field.
 4. Refresh [`NOTICE`](./NOTICE) if versions or upstream URLs change.
