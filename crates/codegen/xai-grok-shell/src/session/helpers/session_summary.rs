@@ -248,11 +248,47 @@ Just generate the session_title and nothing else"#,
             tracing::warn!(
                 model = %model,
                 error = %e,
-                "session title generation failed, falling back to truncated user text"
+                "session title generation with a forced tool call failed, retrying as plain text"
             );
         }
     }
+    if let Some(title) = generate_session_summary_plain(&clean_message, &client, model).await {
+        return title;
+    }
     title_fallback_from_user_text(&clean_message)
+}
+
+/// Plain-text retry for providers that refuse a forced tool call (some OpenRouter models answer 400).
+async fn generate_session_summary_plain(
+    clean_message: &str,
+    client: &OaiCompatClient,
+    model: &str,
+) -> Option<String> {
+    let request = ConversationRequest::from_items(vec![
+        ConversationItem::system(
+            "You are tasked with generating the session title. The user is asking almost always software engineering related questions on their codebase. \
+             Reply with ONLY a short and distinctive 5-10 word descriptive title for the session: plain text, no quotes, no labels, no markdown, super info dense, no filler. \
+             Do not call any tools.",
+        ),
+        ConversationItem::user(format!("<user_query>\n{clean_message}\n</user_query>")),
+    ])
+    .with_model(model)
+    .with_max_output_tokens(100)
+    .with_temperature(1.0);
+    match client.conversation_collect(request).await {
+        Ok(response) => {
+            let title = clean_title_text(&response.assistant_text());
+            (!title.is_empty()).then_some(title)
+        }
+        Err(e) => {
+            tracing::warn!(
+                model = %model,
+                error = %e,
+                "session title generation failed, falling back to truncated user text"
+            );
+            None
+        }
+    }
 }
 
 /// Instruction turn appended to a conversation snapshot to refresh the auto title.

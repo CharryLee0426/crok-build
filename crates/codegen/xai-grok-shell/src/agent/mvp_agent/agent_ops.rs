@@ -154,11 +154,8 @@ impl MvpAgent {
                 );
                 cfg
             }
-            None => {
-                let mut fallback = primary.clone();
-                fallback.model = slug;
-                fallback
-            }
+            // The summary slug belongs to the default provider. Another provider (Claude, OpenRouter, ...) rejects it with a 404, so the session's own model writes the title.
+            None => primary.clone(),
         };
         let model = config.model.clone();
         let client = OaiCompatClient::new(config).map_err(map_sampling_err_to_acp)?;
