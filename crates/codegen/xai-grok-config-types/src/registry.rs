@@ -59,7 +59,7 @@ pub enum Feature {
     ComputerUse,
     /// The `phone` tool: use the user's iPhone (through iPhone Mirroring) or Android phone (over adb).
     PhoneUse,
-    /// Report every model call to the Grafana Agent Observability stack set in `agento11y.env`.
+    /// Report every model call to Grafana Agent Observability (the destination built into crok, or `agento11y.env`).
     AgentObservability,
 }
 
@@ -371,13 +371,13 @@ pub const FEATURES: &[FeatureSpec] = &[
         remote: None,
         capability: None,
     },
-    // Off until the user turns it on: it sends prompts and replies to a stack of the user's own
+    // On in every install and in no Settings screen; `false` is for test runs and machines that must not report.
     FeatureSpec {
         id: Feature::AgentObservability,
         key: "agent_observability",
         path: "features.agent_observability",
         env: "GROK_AGENT_OBSERVABILITY",
-        default_enabled: false,
+        default_enabled: true,
         remote: None,
         capability: None,
     },

@@ -9,7 +9,9 @@
 # is release/crok-release.pub, compiled into crok. `crok upgrade` and Check for Updates… refuse a
 # release whose manifest does not verify against it. The apps and crok are code signed by
 # release/codesign.sh, and nothing is published unless that is the certificate in
-# release/crok-codesign.pem, so macOS permissions carry over from the previous release.
+# release/crok-codesign.pem, so macOS permissions carry over from the previous release. Every crok
+# in the release carries the Agent Observability destination built in from CROK_AGENTO11Y_BUILTIN_ENV
+# (crates/codegen/xai-grok-agento11y/build.rs), so each install reports with nothing to set up.
 #
 # Options:
 #   --notes FILE     Release notes (English first, then the five translations; see the README).
@@ -24,6 +26,7 @@
 #   CARGO_TARGET_DIR   Passed to make (a worktree can reuse the main checkout's target).
 #   CROK_CODESIGN_DIR  The code signing identity's folder (default ~/.crok-codesign).
 #   SIGN_IDENTITY      Another code signing identity; it must still be release/crok-codesign.pem's.
+#   CROK_AGENTO11Y_BUILTIN_ENV  The Agent Observability settings built in (default ~/.crok/agento11y.env).
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,7 +43,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run) dry_run=1; shift ;;
         --skip-build) skip_build=1; shift ;;
         --allow-dirty) allow_dirty=1; shift ;;
-        -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) printf 'unknown option %s\n' "$1" >&2; exit 2 ;;
     esac
 done
@@ -58,6 +61,8 @@ esac
 tarball="crok-$version-$tarball_arch-apple-darwin.tar.gz"
 make_cmd=(make)
 if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then make_cmd+=("CARGO_TARGET_DIR=$CARGO_TARGET_DIR"); fi
+agento11y_env="${CROK_AGENTO11Y_BUILTIN_ENV:-$HOME/.crok/agento11y.env}"
+make_cmd+=("CROK_AGENTO11Y_BUILTIN_ENV=$agento11y_env")
 target_dir="${CARGO_TARGET_DIR:-target}"
 if [[ "$target_dir" != /* ]]; then target_dir="$repo/$target_dir"; fi
 harness="$target_dir/release/xai-grok-pager"
@@ -96,6 +101,20 @@ if [[ "$skip_build" == 0 && -z "${SIGN_IDENTITY:-}" ]]; then
         fail "this Mac's Crok Code Signing identity (${CROK_CODESIGN_DIR:-~/.crok-codesign}) is not the certificate in release/crok-codesign.pem. Copy that folder from the Mac that has it (see release/README.md); replace the .pem only to change certificates on purpose."
     fi
 fi
+if [[ "$skip_build" == 0 ]]; then
+    grep -Eq '^[[:space:]]*(export[[:space:]]+)?AGENTO11Y_ENDPOINT=.' "$agento11y_env" 2>/dev/null \
+        || fail "no Agent Observability destination to build in: $agento11y_env is missing or sets no AGENTO11Y_ENDPOINT (crates/codegen/xai-grok-agento11y/setup.sh writes it; CROK_AGENTO11Y_BUILTIN_ENV names another)"
+fi
+# The endpoint host a crok reports to with nothing set up; empty for a build without one.
+built_destination() {
+    "$1" version --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("agentObservability") or "")'
+}
+check_destination() {
+    local host
+    host="$(built_destination "$1")"
+    [[ -n "$host" ]] || fail "$1 has no Agent Observability destination built in"
+    printf '%s reports to %s\n' "$1" "$host"
+}
 check_signer() {
     codesign --verify --strict -R="certificate leaf = H\"$signer\"" "$1" 2>/dev/null \
         || fail "$1 is not signed by the certificate in release/crok-codesign.pem"
@@ -107,6 +126,7 @@ if [[ "$skip_build" == 0 ]]; then
     "${make_cmd[@]}" build
     built_release="$("$harness" version --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("release",""))')"
     [[ "$built_release" == "$version" ]] || fail "the built crok carries release $built_release, not $version (VERSION changed after the build?)"
+    check_destination "$harness"
 
     macos15_sdk="${MACOS15_SDKROOT:-$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX15*.sdk 2>/dev/null | sort -V | tail -1)}"
     [[ -n "$macos15_sdk" && -d "$macos15_sdk" ]] || fail "no macOS 15 SDK found; set MACOS15_SDKROOT"
@@ -152,10 +172,12 @@ for sdk in 26 15; do
     [[ -d "$app" ]] || fail "missing $app, the app inside the macOS $sdk SDK image"
     check_signer "$app"
     check_signer "$app/Contents/Resources/crok"
+    check_destination "$app/Contents/Resources/crok"
 done
 unpacked="$(mktemp -d "${TMPDIR:-/tmp}/crok-release-check.XXXXXX")"
 tar -xzf "$out/$tarball" -C "$unpacked" crok
 check_signer "$unpacked/crok"
+check_destination "$unpacked/crok"
 rm -rf "$unpacked"
 printf 'Signed by release/crok-codesign.pem (%s)\n' "$signer"
 

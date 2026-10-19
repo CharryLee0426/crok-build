@@ -746,8 +746,6 @@ fn rows_contain_categories_and_settings_through_pr_14() {
             "phone_use",
             // SHELL-owned coding_data_sharing (Privacy category).
             "coding_data_sharing",
-            // SHELL-owned `[features]` row for Agent Observability (Privacy category)
-            "agent_observability",
             // SHELL-owned default_model (Models category).
             "default_model",
             // SHELL-owned `[features]` row (Models category, registered right after default_model)

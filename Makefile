@@ -24,6 +24,11 @@ SEED_CACHE = -@"$(CURDIR)/bin/crok-build-cache" seed --quiet --profile release -
 
 .PHONY: build deploy build-desktop deploy-desktop dmg-desktop build-test-tui build-test-desktop import-grok-config cache-status cache-prune cache-hooks help
 
+# The Agent Observability destination built into crok (crates/codegen/xai-grok-agento11y/build.rs), so an
+# install reports with nothing to set up: this Mac's ~/.crok/agento11y.env when it has one. Empty builds none.
+CROK_AGENTO11Y_BUILTIN_ENV ?= $(wildcard $(HOME)/.crok/agento11y.env)
+export CROK_AGENTO11Y_BUILTIN_ENV
+
 # CROK_BINARY names an existing harness for the desktop build; GROK_BINARY still works.
 CROK_BINARY ?= $(GROK_BINARY)
 
@@ -127,5 +132,5 @@ help:
 		'make cache-prune        Delete superseded and unused cargo build products in all of them.' \
 		'make cache-hooks        Seed new worktrees from this cache and prune automatically (git hooks).' \
 		'' \
-		'Overrides: CARGO, RUSTUP, CARGO_TARGET_DIR, PREFIX, BINDIR, DESKTOP_INSTALL_DIR.' \
+		'Overrides: CARGO, RUSTUP, CARGO_TARGET_DIR, PREFIX, BINDIR, DESKTOP_INSTALL_DIR, CROK_AGENTO11Y_BUILTIN_ENV.' \
 		'Set CROK_BINARY to reuse an existing harness when building the desktop app.'

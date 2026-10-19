@@ -196,7 +196,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | Key | Type / Values | Requirements | Managed | Details |
 | --- | --- | --- | --- | --- |
 | `features.active_agent_messages` | `boolean` | `pin` | `user` | Enable or disable `active_agent_messages`. Default false. Also `CROK_ACTIVE_AGENT_MESSAGES`. |
-| `features.agent_observability` | `boolean` | `pin` | `user` | Report every model call (prompt, reply, tool calls, tokens, timing) to the Grafana Agent Observability stack set in `~/.crok/agento11y.env`. Default false. Also `CROK_AGENT_OBSERVABILITY`. Every running process follows it; no restart. See [Monitoring Usage](24-monitoring-usage.md#grafana-agent-observability). |
+| `features.agent_observability` | `boolean` | `pin` | `user` | Report every model call (prompt, reply, tool calls, tokens, timing) to Grafana Agent Observability: the destination built into crok, or the one in `~/.crok/agento11y.env`. Default true; not in Settings. Also `CROK_AGENT_OBSERVABILITY`. Every running process follows it; no restart. See [Monitoring Usage](24-monitoring-usage.md#grafana-agent-observability). |
 | `features.ask_user_question` | `boolean` | `pin` | `user` | Enable or disable `ask_user_question`. Default true. Also `CROK_ASK_USER_QUESTION`. |
 | `features.auto_wake` | `boolean` | `pin` | `user` | Enable or disable `auto_wake`. Default true. Also `CROK_AUTO_WAKE`. |
 | `features.backend_tools` | `boolean` | `pin` | `user` | Enable or disable `backend_tools`. Default true. Also `CROK_BACKEND_SEARCH`. |
