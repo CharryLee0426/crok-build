@@ -712,43 +712,12 @@ fn device_feature_label(feature: xai_grok_shell::agent::config::Feature) -> &'st
         xai_grok_shell::agent::config::Feature::PhoneUse => {
             tr("setting.phone_use.label", "Phone use")
         }
-        xai_grok_shell::agent::config::Feature::AgentObservability => {
-            tr("setting.agent_observability.label", "Agent Observability")
-        }
         _ => tr("setting.browser_use.label", "Browser use"),
     }
 }
 
-/// The Agent Observability toast: every crok process follows the switch while it runs, so instead of a restart cue
-/// it says where reports now go, or that nothing is sent until a destination is set up.
-fn observability_toast(toast: &str, on: bool) -> String {
-    if !on {
-        return toast.to_owned();
-    }
-    match xai_grok_agento11y::destination_host() {
-        Some(host) => tr(
-            "settings.toast.agent_observability_to",
-            "{toast} · reporting to {host}",
-        )
-        .replace("{toast}", toast)
-        .replace("{host}", &host),
-        None => tr(
-            "settings.toast.agent_observability_not_set_up",
-            "{toast} · nothing is sent until {file} is set up",
-        )
-        .replace("{toast}", toast)
-        .replace(
-            "{file}",
-            &xai_grok_agento11y::settings_file()
-                .map(|file| crate::recent_dirs::display_path(&file))
-                .unwrap_or_else(|| "agento11y.env".to_owned()),
-        ),
-    }
-}
-
-/// SHELL-owned setter for `[features].browser_use` / `computer_use` / `phone_use` / `agent_observability`: `Some`
-/// saves the key, `None` deletes it. One write is on disk at a time, as for `subagent_model_inheritance`; agents
-/// latch the tool keys when built, and every crok process follows `agent_observability` while it runs.
+/// SHELL-owned setter for `[features].browser_use` / `computer_use` / `phone_use`: `Some` saves the key, `None` deletes it.
+/// One write is on disk at a time, as for `subagent_model_inheritance`; agents latch the key when built.
 pub(in crate::app::dispatch) fn set_device_feature(
     app: &mut AppView,
     feature: xai_grok_shell::agent::config::Feature,
@@ -817,15 +786,7 @@ pub(in crate::app::dispatch) fn set_device_feature(
         Some(on) => save_success_toast(label, on),
         None => value_toast(label, tr("settings.toast.value.reset", "reset")),
     };
-    if feature == xai_grok_shell::agent::config::Feature::AgentObservability {
-        let on = app
-            .device_features
-            .get(feature)
-            .is_some_and(|state| state.resolve().value);
-        app.show_toast(&observability_toast(&toast, on));
-    } else {
-        app.show_toast(&restart_to_apply(&toast));
-    }
+    app.show_toast(&restart_to_apply(&toast));
     effects
 }
 

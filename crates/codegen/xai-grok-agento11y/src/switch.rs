@@ -1,10 +1,10 @@
-//! The Settings switch, `[features] agent_observability` in config.toml, and the files crok follows
-//! while it runs.
+//! The off switch, `[features] agent_observability` in config.toml (on unless it says `false`), and
+//! the files crok follows while it runs.
 //!
-//! The terminal's `/settings` and Crok Desktop's Settings both write the switch. Every crok process
-//! (a TUI, each Crok Desktop conversation's `crok agent stdio`) looks at the file before each model
-//! call, with one `stat`, and resolves the feature again only when the file changed, so turning the
-//! switch on or off applies to sessions already running.
+//! Neither app shows the switch: it is there for test runs and for a machine that must not report.
+//! Every crok process (a TUI, each Crok Desktop conversation's `crok agent stdio`) looks at the file
+//! before each model call, with one `stat`, and resolves the feature again only when the file
+//! changed, so a change applies to sessions already running.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -66,7 +66,7 @@ impl<T: Clone> Followed<T> {
     }
 }
 
-/// Whether Agent Observability is switched on.
+/// Whether Agent Observability is on (it is unless switched off).
 pub(crate) struct Switch {
     config: Followed<bool>,
     /// `GROK_AGENT_OBSERVABILITY` (or `CROK_AGENT_OBSERVABILITY`) as crok started; it outranks the file.
@@ -112,14 +112,14 @@ impl Switch {
 }
 
 /// The feature's config tier from the layers crok merges its config from. A config that does not load
-/// (an edit half done, a typo) counts as saying nothing, which is off; the next write is read again.
+/// (an edit half done, a typo) counts as saying nothing, which is on; the next write is read again.
 fn effective_layers(_user_config: &Path) -> FeatureConfigLayers {
     match xai_grok_config::effective_config::load_effective_config_with_layers() {
         Ok(loaded) => {
             Feature::AgentObservability.config_layers(&loaded.layers, &loaded.active_campaigns)
         }
         Err(err) => {
-            tracing::debug!(%err, "config not read; Agent Observability counts as off");
+            tracing::debug!(%err, "config not read; Agent Observability keeps its default");
             FeatureConfigLayers::default()
         }
     }
@@ -153,19 +153,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn off_by_default_and_follows_the_file_while_running() {
+    fn on_by_default_and_follows_the_file_while_running() {
         let home = tempfile::tempdir().unwrap();
         let config = home.path().join("config.toml");
         let switch = switch(&config, None);
-        assert!(!switch.is_on(), "no config.toml");
+        assert!(switch.is_on(), "no config.toml");
         write(&config, "[ui]\ntheme = \"auto\"\n");
-        assert!(!switch.is_on(), "no key");
-        write(&config, "[features]\nagent_observability = true\n");
-        assert!(switch.is_on());
+        assert!(switch.is_on(), "no key");
         write(&config, "[features]\nagent_observability = false\n");
         assert!(!switch.is_on());
+        write(&config, "[features]\nagent_observability = true\n");
+        assert!(switch.is_on());
         std::fs::remove_file(&config).unwrap();
-        assert!(!switch.is_on());
+        assert!(switch.is_on());
     }
 
     #[test]

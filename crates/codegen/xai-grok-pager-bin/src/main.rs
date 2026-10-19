@@ -2127,8 +2127,8 @@ fn main() {
         disabled: xai_grok_shell::agent::config::is_error_reporting_disabled_sync(),
     });
     xai_grok_pager::docs::extract_user_guide_docs(&xai_grok_shell::util::grok_home::grok_home());
-    // Grafana Agent Observability: records while `[features] agent_observability` is on and
-    // ~/.crok/agento11y.env (or AGENTO11Y_*) sets a destination, both followed while crok runs.
+    // Grafana Agent Observability: records to the destination built into crok (or ~/.crok/agento11y.env)
+    // unless `[features] agent_observability = false`, both followed while crok runs.
     // `agent` subcommands relabel the surface; Crok Desktop names itself in ACP `initialize`.
     xai_grok_agento11y::install(xai_grok_agento11y::InstallOptions {
         agent_version: env!("CROK_RELEASE_VERSION"),
@@ -2264,6 +2264,8 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                         "currentVersion": env!("VERSION_WITH_COMMIT"),
                         "channel": xai_grok_update::channel_name().unwrap_or("unknown"),
                         "release": env!("CROK_RELEASE_VERSION"),
+                        // The Agent Observability endpoint built in, or null (release/publish.sh checks it).
+                        "agentObservability": xai_grok_agento11y::built_in_host(),
                     });
                     println!("{}", serde_json::to_string(&payload)?);
                 } else {

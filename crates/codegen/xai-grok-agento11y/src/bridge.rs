@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use xai_grok_sampler::observe::ObservedCall;
 
-use crate::settings::{Settings, Source, is_bridge_var};
+use crate::settings::{Settings, is_bridge_var};
 
 /// The bundled bridge (see `bridge/build.mjs`): the agento11y SDK and OpenTelemetry in one file.
 const BRIDGE_JS: &str = include_str!("../bridge/dist/agento11y-bridge.mjs");
@@ -32,6 +32,8 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 /// A bridge that dies sooner than this after starting is not restarted until [`RESTART_BACKOFF`] has passed.
 const MIN_HEALTHY_LIFETIME: Duration = Duration::from_secs(10);
 const RESTART_BACKOFF: Duration = Duration::from_secs(60);
+/// After the bridge could not be set up (no runtime, a failed Node download), the next try waits this long.
+const LAUNCH_RETRY: Duration = Duration::from_secs(15 * 60);
 /// Idle time after which the bridge is told to flush and exit; the next call starts a new one.
 const DEFAULT_IDLE: Duration = Duration::from_secs(300);
 
@@ -49,26 +51,28 @@ pub(crate) struct Launch {
     pub script: PathBuf,
     /// Variables set on the bridge, on top of crok's environment.
     pub env: BTreeMap<String, String>,
-    /// The configured `AGENTO11Y_TAGS`, which the bridge gets with a `surface` tag added.
+    /// The configured `AGENTO11Y_TAGS`, which the bridge gets with `surface` and `host` tags added.
     pub user_tags: String,
-    /// Drop the inherited `AGENTO11Y_*` / `OTEL_*` variables first (the settings file is the whole configuration).
+    /// Drop the inherited `AGENTO11Y_*` / `OTEL_*` variables first (the settings file or the built-in
+    /// destination is the whole configuration).
     pub replace_inherited: bool,
     pub idle: Duration,
 }
 
 impl Launch {
-    /// Finds the runtime and writes the script; the error says, for the bridge log, why it cannot start.
+    /// Finds the runtime (downloading Node on a machine without one) and writes the script; the
+    /// error says, for the bridge log, why it cannot start.
     fn new(settings: &Settings, base: &Base) -> Result<Self, String> {
         let explicit = settings
             .get("CROK_AGENTO11Y_NODE")
             .map(str::to_owned)
             .or_else(|| std::env::var("CROK_AGENTO11Y_NODE").ok());
-        let runtime = crate::node::find_runtime(
+        let runtime = crate::node::ensure_runtime(
             explicit.as_deref(),
             std::env::var_os("PATH").as_deref(),
             xai_dirs::home_dir().as_deref(),
-        )
-        .ok_or("Agent Observability is on but no Node.js was found: install Node 20+ or set CROK_AGENTO11Y_NODE")?;
+            &bridge_dir(&base.home),
+        )?;
         let script = write_script(&base.home)
             .map_err(|err| format!("could not write the bridge script: {err}"))?;
         Ok(Self {
@@ -79,7 +83,7 @@ impl Launch {
                 .get("AGENTO11Y_TAGS")
                 .unwrap_or_default()
                 .to_owned(),
-            replace_inherited: matches!(settings.source, Source::File(_)),
+            replace_inherited: settings.replaces_inherited(),
             idle: settings
                 .get("CROK_AGENTO11Y_IDLE_SECS")
                 .and_then(|secs| secs.parse().ok())
@@ -154,33 +158,48 @@ struct Bridge {
 /// One set of settings and the bridge that sends with them.
 struct Destination {
     settings: Arc<Settings>,
-    /// `None` when the bridge cannot start with these settings; the reason is in the bridge log.
+    /// `None` while the bridge cannot start with these settings; the reason is in the bridge log.
     launch: Option<Launch>,
+    /// When to try setting the bridge up again, after it could not be.
+    retry_launch_at: Option<Instant>,
     bridge: Option<Bridge>,
     paused_until: Option<Instant>,
 }
 
 impl Destination {
     fn new(settings: Arc<Settings>, base: &Base) -> Self {
-        let launch = Launch::new(&settings, base)
-            .inspect_err(|reason| {
-                log_line(&base.log_path, reason);
-                tracing::warn!("{reason}");
-            })
-            .ok();
-        if let Some(launch) = &launch {
-            tracing::info!(
-                "agento11y on: {}; bridge {} with {}",
-                settings.describe(),
-                launch.script.display(),
-                launch.runtime.display()
-            );
-        }
-        Self {
+        let mut destination = Self {
             settings,
-            launch,
+            launch: None,
+            retry_launch_at: None,
             bridge: None,
             paused_until: None,
+        };
+        destination.set_up(base);
+        destination
+    }
+
+    /// Sets the bridge up unless it is, or a failed try is too recent.
+    fn set_up(&mut self, base: &Base) {
+        if self.launch.is_some() || self.retry_launch_at.is_some_and(|at| Instant::now() < at) {
+            return;
+        }
+        match Launch::new(&self.settings, base) {
+            Ok(launch) => {
+                tracing::info!(
+                    "agento11y on: {}; bridge {} with {}",
+                    self.settings.describe(),
+                    launch.script.display(),
+                    launch.runtime.display()
+                );
+                self.launch = Some(launch);
+                self.retry_launch_at = None;
+            }
+            Err(reason) => {
+                log_line(&base.log_path, &reason);
+                tracing::warn!("{reason}");
+                self.retry_launch_at = Some(Instant::now() + LAUNCH_RETRY);
+            }
         }
     }
 
@@ -219,6 +238,7 @@ fn run_writer(rx: Receiver<Job>, base: Base) {
                     }
                 };
                 let destination = current.insert(destination);
+                destination.set_up(&base);
                 if let Some(launch) = &destination.launch {
                     deliver(
                         &mut destination.bridge,
@@ -348,7 +368,11 @@ fn spawn(launch: &Launch, base: &Base) -> io::Result<Bridge> {
     let surface = xai_grok_sampler::observe::surface();
     cmd.env(
         "AGENTO11Y_TAGS",
-        client_tags(&launch.user_tags, surface.as_deref()),
+        client_tags(
+            &launch.user_tags,
+            surface.as_deref(),
+            host_name().as_deref(),
+        ),
     );
     xai_tty_utils::detach_std_command(&mut cmd);
     // Detached on purpose: when crok exits, the bridge outlives it only to flush, and exits
@@ -366,23 +390,47 @@ fn spawn(launch: &Launch, base: &Base) -> io::Result<Bridge> {
     })
 }
 
-/// The bridge's client tags: the configured ones plus `surface`, unless they set it themselves.
-/// Client tags reach the spans and metrics too, so the Performance view can split TUI from desktop.
-pub(crate) fn client_tags(user_tags: &str, surface: Option<&str>) -> String {
-    let user_tags = user_tags.trim().trim_matches(',');
-    let has_surface = user_tags
+/// The bridge's client tags: the configured ones plus `surface` and `host`, each unless they set
+/// it themselves. Client tags reach the spans and metrics too, so the Performance view can split
+/// TUI from desktop, and one machine from another now that every install reports to one stack.
+pub(crate) fn client_tags(user_tags: &str, surface: Option<&str>, host: Option<&str>) -> String {
+    let mut tags: Vec<String> = user_tags
         .split(',')
-        .any(|pair| pair.split('=').next().map(str::trim) == Some("surface"));
-    match surface {
-        Some(surface) if !has_surface && user_tags.is_empty() => format!("surface={surface}"),
-        Some(surface) if !has_surface => format!("{user_tags},surface={surface}"),
-        _ => user_tags.to_owned(),
+        .map(str::trim)
+        .filter(|pair| !pair.is_empty())
+        .map(str::to_owned)
+        .collect();
+    for (key, value) in [("surface", surface), ("host", host)] {
+        let named = tags
+            .iter()
+            .any(|pair| pair.split('=').next().map(str::trim) == Some(key));
+        if let Some(value) = value.filter(|_| !named) {
+            tags.push(format!("{key}={value}"));
+        }
     }
+    tags.join(",")
+}
+
+/// This machine's name, as a tag value: `gethostname` without `.local`, and without the `,` and
+/// `=` that separate tags.
+fn host_name() -> Option<String> {
+    let name = gethostname::gethostname().to_string_lossy().into_owned();
+    let name = name.strip_suffix(".local").unwrap_or(&name);
+    let name: String = name
+        .chars()
+        .map(|c| if c == ',' || c == '=' { '-' } else { c })
+        .collect();
+    (!name.trim().is_empty()).then(|| name.trim().to_owned())
+}
+
+/// Where the bridge script and a downloaded Node live: `home/agento11y/`.
+fn bridge_dir(home: &Path) -> PathBuf {
+    home.join("agento11y")
 }
 
 /// Writes the embedded bridge under `home/agento11y/`, named by its content hash, and removes older copies.
 pub(crate) fn write_script(home: &Path) -> io::Result<PathBuf> {
-    let dir = home.join("agento11y");
+    let dir = bridge_dir(home);
     std::fs::create_dir_all(&dir)?;
     let hash = blake3::hash(BRIDGE_JS.as_bytes()).to_hex();
     let name = format!("bridge-{}.mjs", hash.get(..12).unwrap_or(hash.as_str()));
@@ -480,11 +528,28 @@ mod tests {
     }
 
     #[test]
-    fn the_surface_joins_the_configured_tags_unless_they_name_one() {
-        assert_eq!(client_tags("", Some("desktop")), "surface=desktop");
-        assert_eq!(client_tags("team=me,", Some("tui")), "team=me,surface=tui");
-        assert_eq!(client_tags("surface=laptop", Some("tui")), "surface=laptop");
-        assert_eq!(client_tags("team=me", None), "team=me");
+    fn surface_and_host_join_the_configured_tags_unless_they_name_them() {
+        assert_eq!(client_tags("", Some("desktop"), None), "surface=desktop");
+        assert_eq!(
+            client_tags("team=me,", Some("tui"), Some("mbp")),
+            "team=me,surface=tui,host=mbp"
+        );
+        assert_eq!(
+            client_tags("surface=laptop", Some("tui"), Some("mbp")),
+            "surface=laptop,host=mbp"
+        );
+        assert_eq!(
+            client_tags("host=build-box", None, Some("mbp")),
+            "host=build-box"
+        );
+        assert_eq!(client_tags("team=me", None, None), "team=me");
+    }
+
+    #[test]
+    fn the_host_name_is_a_tag_value() {
+        let host = host_name().expect("this machine has a name");
+        assert!(!host.contains([',', '=']));
+        assert!(!host.ends_with(".local"));
     }
 
     #[test]

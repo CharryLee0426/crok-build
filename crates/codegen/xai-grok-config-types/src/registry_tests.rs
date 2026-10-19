@@ -81,7 +81,7 @@ fn registered_settings() {
             ("browser_use", ("GROK_BROWSER_USE", false)),
             ("computer_use", ("GROK_COMPUTER_USE", false)),
             ("phone_use", ("GROK_PHONE_USE", true)),
-            ("agent_observability", ("GROK_AGENT_OBSERVABILITY", false)),
+            ("agent_observability", ("GROK_AGENT_OBSERVABILITY", true)),
         ]),
     );
 }

@@ -31,7 +31,6 @@ struct SettingsView: View {
                         BrowserSettingsSection()
                         DeviceUseSettingsSection()
                         PhoneUseSettingsSection()
-                        AgentObservabilitySettingsSection()
                         CommandLineSettingsSection()
                         if PerformanceMonitorSettings.isAvailable { DeveloperSettingsSection() }
                     }
