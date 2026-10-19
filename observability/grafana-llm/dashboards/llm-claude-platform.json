@@ -1,0 +1,3546 @@
+{
+  "apiVersion": "dashboard.grafana.app/v1beta1",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "llm-claude-platform",
+    "annotations": {
+      "grafana.app/folder": "llm-observability"
+    }
+  },
+  "spec": {
+    "title": "Claude Platform",
+    "description": "Messages API traffic from the Claude Platform OpenTelemetry export: spend estimate, prompt cache, latency, stop reasons and errors, for every workspace the export covers.",
+    "tags": [
+      "llm-observability",
+      "claude",
+      "anthropic"
+    ],
+    "timezone": "browser",
+    "editable": true,
+    "graphTooltip": 1,
+    "schemaVersion": 41,
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "refresh": "5m",
+    "timepicker": {
+      "refresh_intervals": [
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h"
+      ]
+    },
+    "links": [
+      {
+        "type": "dashboards",
+        "tags": [
+          "llm-observability"
+        ],
+        "asDropdown": false,
+        "title": "LLM dashboards",
+        "includeVars": false,
+        "keepTime": true,
+        "targetBlank": false
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "type": "datasource",
+          "name": "ds",
+          "label": "Traces",
+          "query": "tempo",
+          "regex": "",
+          "refresh": 1,
+          "hide": 0,
+          "current": {
+            "selected": true,
+            "text": "grafanacloud-narrowgrotto289-traces",
+            "value": "grafanacloud-traces"
+          }
+        }
+      ]
+    },
+    "annotations": {
+      "list": []
+    },
+    "panels": [
+      {
+        "type": "row",
+        "title": "At a glance (whole time range)",
+        "collapsed": false,
+        "panels": [],
+        "id": 1,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Requests",
+        "description": "Messages API requests in every covered workspace. Grafana Cloud runs a TraceQL metrics query over 25 hours at most, so keep the time range at 24 hours or less.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "/^Total$/",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "transformations": [
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time()",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 2,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 0,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Estimated spend",
+        "description": "Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. Your bill is in the Claude Console under Billing.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "noValue": "$0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                }
+              ]
+            },
+            "decimals": 2
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "/^Total$/",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "transformations": [
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.00000975+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000025+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000004+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000038+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000004+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00002",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "C",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000019+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000005+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00001",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "D",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.00000009+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.000000025+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.0000005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "E",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.input_tokens)by(kind))*0.0000004+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(kind))*-0.00000036+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(kind))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(kind))*0.0000004+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.output_tokens)by(kind))*0.000002",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "F",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.000009+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000025+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "G",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000005+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000045+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000125+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000005+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000025",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "H",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000018+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000005+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00001",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "I",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000003+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000027+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000075+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000003+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000015",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "J",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000009+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000025+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "K",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000015+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000135+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000375+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000015+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000075",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "L",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.0000008+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.00000072+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000002+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.0000008+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000004",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 3,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 4,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Input tokens",
+        "description": "Prompt tokens, cache reads and writes included.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "/^Total$/",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "transformations": [
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 4,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 8,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Output tokens",
+        "description": "Generated tokens, thinking included.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "/^Total$/",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "transformations": [
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.output_tokens)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 5,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 12,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Cache hit rate",
+        "description": "Share of input tokens read from the prompt cache. A low value in long sessions means the start of the prompt keeps changing. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 0.5
+                },
+                {
+                  "color": "green",
+                  "value": 0.8
+                }
+              ]
+            },
+            "decimals": 1
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens))",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 6,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 16,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "p95 latency",
+        "description": "95% of requests finished faster than this (bucketed to powers of two). Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            },
+            "decimals": 1
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|quantile_over_time(duration,.95)",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 7,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 20,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Error rate",
+        "description": "Share of requests that failed. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "noValue": "0%",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 0.01
+                },
+                {
+                  "color": "red",
+                  "value": 0.05
+                }
+              ]
+            },
+            "decimals": 1
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&status=error}|count_over_time())/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time())",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 8,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 0,
+          "y": 5
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Rate limited",
+        "description": "Requests refused with 429 / rate_limit_error. If this grows, spread the load or ask for a higher rate limit.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "/^Total$/",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "transformations": [
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&(span.error.type=\"rate_limit_error\"||span.http.response.status_code=429)}|count_over_time()",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 9,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 4,
+          "y": 5
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Output speed",
+        "description": "Output tokens divided by request time over all requests. Request time includes reading the prompt, so long prompts lower it. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "suffix: tok/s",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            },
+            "decimals": 0
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(span.gen_ai.usage.output_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(duration))",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 10,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 8,
+          "y": 5
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Avg prompt",
+        "description": "Average input tokens per request. Agents grow it as a conversation gets longer. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            },
+            "decimals": 0
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time())",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 11,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 12,
+          "y": 5
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Thinking share",
+        "description": "Share of output tokens spent on extended thinking. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            },
+            "decimals": 0
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.reasoning.output_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.output_tokens))",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 12,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 16,
+          "y": 5
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Unpriced model requests",
+        "description": "Requests to a model that prices.json does not list, so the spend estimate leaves them out. Add the model to prices.json and rebuild the dashboards.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "/^Total$/",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "transformations": [
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.response.model!~\"(claude-(fable|mythos)-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-haiku-5-5|claude-(fable|mythos)-5|claude-opus-(5|4-[5-8])|claude-sonnet-5|claude-sonnet-4(-[56])?|claude-haiku-4-5|claude-opus-4(-1)?|claude-3-5-haiku)(-2.*)?\"}|count_over_time()",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 13,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 20,
+          "y": 5
+        }
+      },
+      {
+        "type": "row",
+        "title": "Spend and tokens",
+        "collapsed": false,
+        "panels": [],
+        "id": 14,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 9
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Estimated spend by model",
+        "description": "Estimated spend in each time bucket. The legend total is the spend over the range. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 70,
+              "lineWidth": 1,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "none",
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "decimals": 3
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "calcs": [
+              "sum"
+            ],
+            "showLegend": true,
+            "sortBy": "Total",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^server$",
+              "renamePattern": "Haiku 5.5: extra for prompts over 100K"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.00000975+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000025+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00005",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000004+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000038+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000004+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00002",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "C",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000019+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000005+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00001",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "D",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.00000009+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.000000025+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.0000005",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "E",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.input_tokens)by(kind))*0.0000004+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(kind))*-0.00000036+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(kind))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(kind))*0.0000004+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.output_tokens)by(kind))*0.000002",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "F",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.000009+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000025+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00005",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "G",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000005+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000045+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000125+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000005+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000025",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "H",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000018+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000005+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00001",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "I",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000003+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000027+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000075+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000003+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000015",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "J",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000009+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000025+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000005",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "K",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000015+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000135+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000375+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000015+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000075",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "L",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.0000008+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.00000072+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000002+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.0000008+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000004",
+            "metricsQueryType": "range"
+          }
+        ],
+        "id": 15,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 0,
+          "y": 10
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Token mix",
+        "description": "Where the tokens go. A cache read costs a tenth of input or less, a cache write 1.25x (5 min) or 2x (1 hour) input, output 5x input.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 70,
+              "lineWidth": 1,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "none",
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "calcs": [
+              "sum"
+            ],
+            "showLegend": true,
+            "sortBy": "Total",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^server$",
+              "renamePattern": "Uncached input"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^chat$",
+              "renamePattern": "Cache read"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic$",
+              "renamePattern": "Cache write, 5 min"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^POST$",
+              "renamePattern": "Cache write, 1 hour"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^https$",
+              "renamePattern": "Output"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens) by(kind))-({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(kind))-({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_write.input_tokens) by(kind))",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(span.gen_ai.operation.name)",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "C",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens) by(span.gen_ai.provider.name)",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "D",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens) by(span.http.request.method)",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "E",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.url.scheme)",
+            "metricsQueryType": "range"
+          }
+        ],
+        "id": 16,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 12,
+          "y": 10
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Cache hit rate by model",
+        "description": "A sudden drop means the start of the prompt changed: a new system prompt, a changed tool list, or compaction.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 12,
+              "lineWidth": 2,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "opacity",
+              "stacking": {
+                "mode": "none",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "mean",
+              "min"
+            ],
+            "showLegend": true,
+            "sortBy": "Mean",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(span.gen_ai.request.model))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))",
+            "metricsQueryType": "range"
+          }
+        ],
+        "id": 17,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 19
+        }
+      },
+      {
+        "type": "table",
+        "title": "Estimated spend by model",
+        "description": "Estimated spend over the time range for each model, largest first. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Estimated spend"
+                },
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "green"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                },
+                {
+                  "id": "decimals",
+                  "value": 3
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^server$",
+              "renamePattern": "Haiku 5.5: extra for prompts over 100K"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.00000975+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000025+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000004+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000038+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000004+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00002",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "C",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000019+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000005+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00001",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "D",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.00000009+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.000000025+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.0000005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "E",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.input_tokens)by(kind))*0.0000004+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(kind))*-0.00000036+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(kind))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(kind))*0.0000004+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.output_tokens)by(kind))*0.000002",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "F",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.000009+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000025+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "G",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000005+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000045+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000125+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000005+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000025",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "H",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000018+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000005+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.00001",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "I",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000003+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000027+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000075+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000003+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000015",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "J",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000009+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000025+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "K",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.000015+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.0000135+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.00000375+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.000015+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000075",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "L",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens)by(span.gen_ai.response.model))*0.0000008+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)by(span.gen_ai.response.model))*-0.00000072+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens)by(span.gen_ai.response.model))*0.0000002+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens)by(span.gen_ai.response.model))*0.0000008+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens)by(span.gen_ai.response.model))*0.000004",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 18,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 19
+        }
+      },
+      {
+        "type": "row",
+        "title": "Latency",
+        "collapsed": false,
+        "panels": [],
+        "id": 19,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 27
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Request duration by model",
+        "description": "From the API receiving the request to the last token.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 12,
+              "lineWidth": 2,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "opacity",
+              "stacking": {
+                "mode": "none",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "mean",
+              "max"
+            ],
+            "showLegend": true,
+            "sortBy": "Mean",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^\\{p=0\\.5, [^=]+=\"?([^\"]*)\"?\\}$",
+              "renamePattern": "$1 p50"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(\\{p=0\\.5\\}|0\\.5)$",
+              "renamePattern": "(not set) p50"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^\\{p=0\\.95, [^=]+=\"?([^\"]*)\"?\\}$",
+              "renamePattern": "$1 p95"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(\\{p=0\\.95\\}|0\\.95)$",
+              "renamePattern": "(not set) p95"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^\\{p=0\\.99, [^=]+=\"?([^\"]*)\"?\\}$",
+              "renamePattern": "$1 p99"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(\\{p=0\\.99\\}|0\\.99)$",
+              "renamePattern": "(not set) p99"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|quantile_over_time(duration,.5,.95,.99) by(span.gen_ai.request.model)",
+            "metricsQueryType": "range"
+          }
+        ],
+        "id": 20,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 28
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Output speed by model",
+        "description": "Output tokens per second of request time.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "suffix: tok/s",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 12,
+              "lineWidth": 2,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "opacity",
+              "stacking": {
+                "mode": "none",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "mean"
+            ],
+            "showLegend": true,
+            "sortBy": "Mean",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(duration) by(span.gen_ai.request.model))",
+            "metricsQueryType": "range"
+          }
+        ],
+        "id": 21,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 28
+        }
+      },
+      {
+        "type": "row",
+        "title": "Outcomes",
+        "collapsed": false,
+        "panels": [],
+        "id": 22,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 36
+        }
+      },
+      {
+        "type": "piechart",
+        "title": "Stop reasons",
+        "description": "end_turn: finished. tool_use: asked for a tool. max_tokens: cut off, raise max_tokens. refusal: declined. pause_turn: a server tool paused the turn.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "pieType": "donut",
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "values": [
+              "value",
+              "percent"
+            ],
+            "showLegend": true
+          },
+          "tooltip": {
+            "mode": "single"
+          },
+          "displayLabels": []
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time() by(span.anthropic.message.stop_reason)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 23,
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 37
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Errors by type",
+        "description": "Failed requests by error type. rate_limit_error and overloaded_error are worth retrying with backoff.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 70,
+              "lineWidth": 1,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "none",
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "sum"
+            ],
+            "showLegend": true,
+            "sortBy": "Total",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&status=error}|count_over_time() by(span.error.type)",
+            "metricsQueryType": "range"
+          }
+        ],
+        "id": 24,
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 37
+        }
+      },
+      {
+        "type": "table",
+        "title": "HTTP status",
+        "description": "Final HTTP status of each request.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Status"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Requests"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "orange"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time() by(span.http.response.status_code)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 25,
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 37
+        }
+      },
+      {
+        "type": "table",
+        "title": "Effort level",
+        "description": "Requests by the effort set in output_config. (not set) means the request did not set one.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Requests"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "purple"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time() by(span.gen_ai.request.reasoning.level)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 26,
+        "gridPos": {
+          "h": 7,
+          "w": 8,
+          "x": 0,
+          "y": 45
+        }
+      },
+      {
+        "type": "table",
+        "title": "Service tier",
+        "description": "The tier that served each request: standard, priority or batch.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tier"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Requests"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time() by(span.anthropic.response.service_tier)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 27,
+        "gridPos": {
+          "h": 7,
+          "w": 8,
+          "x": 8,
+          "y": 45
+        }
+      },
+      {
+        "type": "table",
+        "title": "Requests by workspace",
+        "description": "Requests per Claude Console workspace. Workspace names are in the Console under Settings > Workspaces.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Workspace"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Requests"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time() by(span.anthropic.workspace.id)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 28,
+        "gridPos": {
+          "h": 7,
+          "w": 8,
+          "x": 16,
+          "y": 45
+        }
+      },
+      {
+        "type": "row",
+        "title": "Requests",
+        "collapsed": false,
+        "panels": [],
+        "id": 29,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 52
+        }
+      },
+      {
+        "type": "table",
+        "title": "Latest requests",
+        "description": "The most recent requests. Request ID is the request-id that Anthropic support asks for.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|select(span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.cache_read.input_tokens,span.gen_ai.usage.output_tokens,span.anthropic.message.stop_reason,span.gen_ai.request.reasoning.level,span.error.type,span.anthropic.request.id)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 30,
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 53
+        }
+      },
+      {
+        "type": "row",
+        "title": "Tools and Managed Agents",
+        "collapsed": true,
+        "panels": [
+          {
+            "type": "table",
+            "title": "Server and MCP tool uses",
+            "description": "Tools that the API ran: web search, code execution, MCP connector tools and Managed Agents tools. Empty unless you use them.",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  }
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "Field"
+                  },
+                  "properties": [
+                    {
+                      "id": "displayName",
+                      "value": "Tool"
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 230
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "Total (sum)"
+                  },
+                  "properties": [
+                    {
+                      "id": "displayName",
+                      "value": "Uses"
+                    },
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    },
+                    {
+                      "id": "min",
+                      "value": 0
+                    },
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "blue"
+                      }
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "gauge",
+                        "mode": "basic",
+                        "valueDisplayMode": "text"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "showHeader": true,
+              "cellHeight": "sm",
+              "footer": {
+                "show": false
+              }
+            },
+            "transformations": [
+              {
+                "id": "renameByRegex",
+                "options": {
+                  "regex": "^nil$",
+                  "renamePattern": "(not set)"
+                }
+              },
+              {
+                "id": "reduce",
+                "options": {
+                  "reducers": [
+                    "sum"
+                  ],
+                  "mode": "seriesToRows"
+                }
+              },
+              {
+                "id": "groupBy",
+                "options": {
+                  "fields": {
+                    "Field": {
+                      "operation": "groupby",
+                      "aggregations": []
+                    },
+                    "Total": {
+                      "operation": "aggregate",
+                      "aggregations": [
+                        "sum"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": "sortBy",
+                "options": {
+                  "sort": [
+                    {
+                      "field": "Total (sum)",
+                      "desc": true
+                    }
+                  ]
+                }
+              }
+            ],
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "tempo",
+                  "uid": "${ds}"
+                },
+                "queryType": "traceql",
+                "query": "{resource.service.name=\"claude-platform\"&&span.gen_ai.operation.name=\"execute_tool\"}|count_over_time() by(span.gen_ai.tool.name)",
+                "metricsQueryType": "range",
+                "step": "1m"
+              }
+            ],
+            "id": 32,
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 0,
+              "y": 64
+            }
+          },
+          {
+            "type": "table",
+            "title": "Tool errors",
+            "description": "Tool uses that failed.",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  }
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "Field"
+                  },
+                  "properties": [
+                    {
+                      "id": "displayName",
+                      "value": "Tool"
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 230
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "Total (sum)"
+                  },
+                  "properties": [
+                    {
+                      "id": "displayName",
+                      "value": "Errors"
+                    },
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    },
+                    {
+                      "id": "min",
+                      "value": 0
+                    },
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "red"
+                      }
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "gauge",
+                        "mode": "basic",
+                        "valueDisplayMode": "text"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "showHeader": true,
+              "cellHeight": "sm",
+              "footer": {
+                "show": false
+              }
+            },
+            "transformations": [
+              {
+                "id": "renameByRegex",
+                "options": {
+                  "regex": "^nil$",
+                  "renamePattern": "(not set)"
+                }
+              },
+              {
+                "id": "reduce",
+                "options": {
+                  "reducers": [
+                    "sum"
+                  ],
+                  "mode": "seriesToRows"
+                }
+              },
+              {
+                "id": "groupBy",
+                "options": {
+                  "fields": {
+                    "Field": {
+                      "operation": "groupby",
+                      "aggregations": []
+                    },
+                    "Total": {
+                      "operation": "aggregate",
+                      "aggregations": [
+                        "sum"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": "sortBy",
+                "options": {
+                  "sort": [
+                    {
+                      "field": "Total (sum)",
+                      "desc": true
+                    }
+                  ]
+                }
+              }
+            ],
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "tempo",
+                  "uid": "${ds}"
+                },
+                "queryType": "traceql",
+                "query": "{resource.service.name=\"claude-platform\"&&span.gen_ai.operation.name=\"execute_tool\"&&status=error}|count_over_time() by(span.gen_ai.tool.name)",
+                "metricsQueryType": "range",
+                "step": "1m"
+              }
+            ],
+            "id": 33,
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 8,
+              "y": 64
+            }
+          },
+          {
+            "type": "table",
+            "title": "Managed Agents turns",
+            "description": "Agent turns by why the turn ended. Empty unless you run Claude Managed Agents.",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  }
+                }
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "Field"
+                  },
+                  "properties": [
+                    {
+                      "id": "displayName",
+                      "value": "Stop reason"
+                    },
+                    {
+                      "id": "custom.width",
+                      "value": 230
+                    }
+                  ]
+                },
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "Total (sum)"
+                  },
+                  "properties": [
+                    {
+                      "id": "displayName",
+                      "value": "Turns"
+                    },
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    },
+                    {
+                      "id": "min",
+                      "value": 0
+                    },
+                    {
+                      "id": "color",
+                      "value": {
+                        "mode": "fixed",
+                        "fixedColor": "purple"
+                      }
+                    },
+                    {
+                      "id": "custom.cellOptions",
+                      "value": {
+                        "type": "gauge",
+                        "mode": "basic",
+                        "valueDisplayMode": "text"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "showHeader": true,
+              "cellHeight": "sm",
+              "footer": {
+                "show": false
+              }
+            },
+            "transformations": [
+              {
+                "id": "renameByRegex",
+                "options": {
+                  "regex": "^nil$",
+                  "renamePattern": "(not set)"
+                }
+              },
+              {
+                "id": "reduce",
+                "options": {
+                  "reducers": [
+                    "sum"
+                  ],
+                  "mode": "seriesToRows"
+                }
+              },
+              {
+                "id": "groupBy",
+                "options": {
+                  "fields": {
+                    "Field": {
+                      "operation": "groupby",
+                      "aggregations": []
+                    },
+                    "Total": {
+                      "operation": "aggregate",
+                      "aggregations": [
+                        "sum"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": "sortBy",
+                "options": {
+                  "sort": [
+                    {
+                      "field": "Total (sum)",
+                      "desc": true
+                    }
+                  ]
+                }
+              }
+            ],
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "tempo",
+                  "uid": "${ds}"
+                },
+                "queryType": "traceql",
+                "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.session.turn\"}|count_over_time() by(span.anthropic.session.turn.stop_reason)",
+                "metricsQueryType": "range",
+                "step": "1m"
+              }
+            ],
+            "id": 34,
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 16,
+              "y": 64
+            }
+          }
+        ],
+        "id": 31,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 63
+        }
+      }
+    ]
+  }
+}

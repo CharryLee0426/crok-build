@@ -13831,12 +13831,18 @@ name = "xai-grok-agento11y"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "flate2",
+ "gethostname",
+ "reqwest 0.12.24",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
  "toml",
  "tracing",
  "xai-dirs",
  "xai-grok-config",
  "xai-grok-config-types",
+ "xai-grok-extra-ca",
  "xai-grok-sampler",
  "xai-tty-utils",
 ]
@@ -14498,7 +14504,6 @@ dependencies = [
  "xai-file-utils",
  "xai-grok-active-sessions",
  "xai-grok-agent",
- "xai-grok-agento11y",
  "xai-grok-announcements",
  "xai-grok-cloud-config",
  "xai-grok-config",

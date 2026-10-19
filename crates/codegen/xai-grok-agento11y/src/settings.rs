@@ -1,10 +1,12 @@
-//! Where the bridge's settings come from: `~/.crok/agento11y.env`, else the process environment.
+//! Where the bridge's settings come from: `~/.crok/agento11y.env`, else the destination built into
+//! crok (`build.rs`), else the process environment.
 //!
-//! The file is the place for the token: crok keeps credentials in owner-only files under its
-//! home (provider keys live in `provider-auth/<provider>.json`), and Crok Desktop, started from
-//! Finder, never sees a shell's exports. When the file exists it is the whole configuration:
-//! inherited `AGENTO11Y_*` and `OTEL_*` variables are dropped, so an exporter set up for another
-//! tool cannot redirect crok's data.
+//! Release builds carry the destination, so an install reports with nothing set up. The file
+//! overrides it on one machine (another stack, or `AGENTO11Y_ENABLED=false`); crok keeps
+//! credentials in owner-only files under its home, and Crok Desktop, started from Finder, never
+//! sees a shell's exports. The file and the built-in destination are each the whole
+//! configuration: inherited `AGENTO11Y_*` and `OTEL_*` variables are dropped, so an exporter set
+//! up for another tool cannot redirect crok's data.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -18,6 +20,8 @@ const BRIDGE_PREFIXES: [&str; 3] = ["AGENTO11Y_", "OTEL_", "CROK_AGENTO11Y_"];
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
     File(PathBuf),
+    /// The destination this crok was built with.
+    BuiltIn,
     Environment,
 }
 
@@ -31,17 +35,22 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// Loads from `home`'s settings file, or from `env` when there is none.
-    /// `None` means Agent Observability is off: no endpoint, or `AGENTO11Y_ENABLED=false`.
-    pub fn load(home: &Path, env: impl IntoIterator<Item = (String, String)>) -> Option<Self> {
+    /// Loads from `home`'s settings file, else from `builtin` (the built-in settings' text), else
+    /// from `env`. `None` means nothing is sent: no endpoint, or `AGENTO11Y_ENABLED=false`.
+    pub fn load(
+        home: &Path,
+        builtin: Option<&str>,
+        env: impl IntoIterator<Item = (String, String)>,
+    ) -> Option<Self> {
         let path = home.join(ENV_FILE_NAME);
-        let (source, vars, loose_permissions) = match std::fs::read_to_string(&path) {
-            Ok(text) => (
+        let (source, vars, loose_permissions) = match (std::fs::read_to_string(&path), builtin) {
+            (Ok(text), _) => (
                 Source::File(path.clone()),
                 bridge_vars(parse_env_file(&text)),
                 is_readable_by_others(&path),
             ),
-            Err(_) => (Source::Environment, bridge_vars(env), false),
+            (Err(_), Some(text)) => (Source::BuiltIn, bridge_vars(parse_env_file(text)), false),
+            (Err(_), None) => (Source::Environment, bridge_vars(env), false),
         };
         let mut settings = Self {
             source,
@@ -53,6 +62,11 @@ impl Settings {
         }
         settings.fill_cloud_defaults();
         Some(settings)
+    }
+
+    /// Whether the inherited `AGENTO11Y_*` / `OTEL_*` variables are dropped from the bridge's environment.
+    pub fn replaces_inherited(&self) -> bool {
+        !matches!(self.source, Source::Environment)
     }
 
     /// The same configuration from the same place, whatever else changed in the file.
@@ -97,6 +111,7 @@ impl Settings {
     pub fn describe(&self) -> String {
         let source = match &self.source {
             Source::File(path) => path.display().to_string(),
+            Source::BuiltIn => "the destination built into crok".to_owned(),
             Source::Environment => "the environment".to_owned(),
         };
         let otlp = self
@@ -239,7 +254,12 @@ mod tests {
             ("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
             ("AGENTO11Y_ENDPOINT", "http://localhost:8080"),
         ]);
-        let settings = Settings::load(home.path(), inherited).unwrap();
+        let settings = Settings::load(
+            home.path(),
+            Some("AGENTO11Y_ENDPOINT=https://builtin.example"),
+            inherited,
+        )
+        .unwrap();
         assert_eq!(
             settings.get("AGENTO11Y_ENDPOINT"),
             Some("https://agento11y.example")
@@ -258,21 +278,66 @@ mod tests {
     fn without_a_file_the_environment_decides_and_no_endpoint_means_off() {
         let home = tempfile::tempdir().unwrap();
         assert!(
-            Settings::load(home.path(), env(&[("OTEL_EXPORTER_OTLP_ENDPOINT", "x")])).is_none()
+            Settings::load(
+                home.path(),
+                None,
+                env(&[("OTEL_EXPORTER_OTLP_ENDPOINT", "x")])
+            )
+            .is_none()
         );
         let on = Settings::load(
             home.path(),
+            None,
             env(&[("AGENTO11Y_ENDPOINT", "https://a.example")]),
         );
         assert_eq!(on.unwrap().source, Source::Environment);
         let off = Settings::load(
             home.path(),
+            None,
             env(&[
                 ("AGENTO11Y_ENDPOINT", "https://a.example"),
                 ("AGENTO11Y_ENABLED", "false"),
             ]),
         );
         assert!(off.is_none());
+    }
+
+    #[test]
+    fn the_built_in_destination_ranks_between_the_file_and_the_environment() {
+        let home = tempfile::tempdir().unwrap();
+        let builtin = "AGENTO11Y_ENDPOINT=https://builtin.example\nAGENTO11Y_AUTH_TENANT_ID=7\n\
+                       AGENTO11Y_AUTH_TOKEN=glc_builtin\nOTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.builtin/otlp";
+        let inherited = env(&[
+            ("AGENTO11Y_ENDPOINT", "http://localhost:8080"),
+            ("OTEL_EXPORTER_OTLP_HEADERS", "x-other=1"),
+        ]);
+        let settings = Settings::load(home.path(), Some(builtin), inherited.clone()).unwrap();
+        assert_eq!(settings.source, Source::BuiltIn);
+        assert!(settings.replaces_inherited());
+        assert_eq!(
+            settings.get("AGENTO11Y_ENDPOINT"),
+            Some("https://builtin.example")
+        );
+        assert_eq!(settings.get("OTEL_EXPORTER_OTLP_HEADERS"), None);
+        assert_eq!(settings.get("AGENTO11Y_AUTH_MODE"), Some("basic"));
+        assert!(!settings.describe().contains("glc_builtin"));
+
+        std::fs::write(
+            home.path().join(ENV_FILE_NAME),
+            "AGENTO11Y_ENDPOINT=https://mine.example\n",
+        )
+        .unwrap();
+        let mine = Settings::load(home.path(), Some(builtin), inherited.clone()).unwrap();
+        assert_eq!(mine.get("AGENTO11Y_ENDPOINT"), Some("https://mine.example"));
+        std::fs::write(
+            home.path().join(ENV_FILE_NAME),
+            "AGENTO11Y_ENDPOINT=https://mine.example\nAGENTO11Y_ENABLED=false\n",
+        )
+        .unwrap();
+        assert!(
+            Settings::load(home.path(), Some(builtin), inherited).is_none(),
+            "the file turns the built-in destination off on this machine"
+        );
     }
 
     #[cfg(unix)]
@@ -284,13 +349,13 @@ mod tests {
         std::fs::write(&path, "AGENTO11Y_ENDPOINT=https://a.example\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(
-            Settings::load(home.path(), Vec::new())
+            Settings::load(home.path(), None, Vec::new())
                 .unwrap()
                 .loose_permissions
         );
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert!(
-            !Settings::load(home.path(), Vec::new())
+            !Settings::load(home.path(), None, Vec::new())
                 .unwrap()
                 .loose_permissions
         );

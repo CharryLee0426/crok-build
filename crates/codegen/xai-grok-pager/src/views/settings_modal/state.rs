@@ -954,10 +954,6 @@ pub(super) fn action_for_bool(key: SettingKey, new: bool) -> Option<Action> {
             xai_grok_shell::agent::config::Feature::PhoneUse,
             new,
         )),
-        "agent_observability" => Some(Action::SetDeviceFeature(
-            xai_grok_shell::agent::config::Feature::AgentObservability,
-            new,
-        )),
         "show_thinking_blocks" => Some(Action::SetShowThinkingBlocks(new)),
         "group_tool_verbs" => Some(Action::SetGroupToolVerbs(new)),
         "collapsed_edit_blocks" => Some(Action::SetCollapsedEditBlocks(new)),

@@ -1,0 +1,985 @@
+#!/usr/bin/env python3
+"""Keep cargo's build cache small across many rebuilds and many git worktrees.
+
+Cargo never deletes anything from a target directory. Every time a crate's
+inputs change in a way that changes its unit hash (a Cargo.lock bump, a
+different feature set, a new toolchain), the old artifacts, build-script
+outputs and incremental sessions stay behind next to the new ones. And every
+linked worktree starts with an empty target/ and compiles all ~800 dependencies
+again. This tool fixes both:
+
+  seed    Give a linked worktree a warm target/ by cloning the main checkout's
+          with copy-on-write (APFS clonefile, or reflinks on Linux). The clone
+          shares disk blocks with the original until a file changes, so the
+          worktree only pays for what it rebuilds: this repository's own crates
+          and whatever its Cargo.lock changes. Those crates are marked dirty in
+          the clone, because cargo judges them by file times, which say nothing
+          about another checkout's sources.
+  prune   Delete what no build still needs. Cargo's fingerprints record each
+          unit's dependencies, so the live set is everything reachable from the
+          newest build of each top-level target (binaries, test binaries, ...)
+          from the last 14 days (7 in a linked worktree), plus anything built in
+          the last few hours. The rest is a superseded
+          generation or unused for weeks. Incremental sessions are matched to
+          their unit by start time. A profile directory that cargo is building
+          in is skipped (cargo's own lock is taken while pruning).
+  status  Show each target directory of this repository and how much is stale.
+  install-git-hooks
+          Run the two automatically: git's post-checkout hook fires in every
+          new worktree (`git worktree add`, including the ones Claude Code
+          makes) and seeds it in the background; post-checkout, post-commit
+          and post-merge start a background prune of every target directory of
+          the repository at most once an hour.
+  hook    The entry point those hooks call (and optional Claude Code hooks).
+
+Deleting never breaks a build: cargo rebuilds whatever is missing.
+
+Environment: CROK_BUILD_CACHE_KEEP_DAYS (14), CROK_BUILD_CACHE_WORKTREE_KEEP_DAYS (7),
+CROK_BUILD_CACHE_GRACE_HOURS (6),
+CROK_BUILD_CACHE_AUTO_EVERY_HOURS (1), CROK_BUILD_CACHE_AUTO=0 turns the hooks off.
+Logs: <main checkout>/target/.crok-build-cache/{auto-prune,seed}.log.
+"""
+
+import argparse
+import ctypes
+import errno
+import fcntl
+import json
+import os
+import re
+import shutil
+import stat
+import struct
+import subprocess
+import sys
+import time
+
+
+def env_float(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        return float(default)
+
+
+KEEP_DAYS = env_float("CROK_BUILD_CACHE_KEEP_DAYS", "14")
+# Linked worktrees are mostly short-lived branches; their caches go sooner once they stop building.
+WORKTREE_KEEP_DAYS = env_float("CROK_BUILD_CACHE_WORKTREE_KEEP_DAYS", "7")
+GRACE_HOURS = env_float("CROK_BUILD_CACHE_GRACE_HOURS", "6")
+AUTO_EVERY_HOURS = env_float("CROK_BUILD_CACHE_AUTO_EVERY_HOURS", "1")
+
+# Kept under the main checkout's target/: the auto-prune stamp, lock and log.
+STATE_DIR = ".crok-build-cache"
+# Written into a seeded profile directory: the fingerprints that seeding blanked.
+SEED_MANIFEST = ".crok-seed.json"
+
+UNIT_DIR = re.compile(r"^(.+)-([0-9a-f]{16})$")
+HASHED_NAME = re.compile(r"-([0-9a-f]{16})(?:\.|$)")
+# The fingerprint file of a unit: [test-|doc-|run-]<target kind>-<target name>.
+KIND_FILE = re.compile(
+    r"^(?:test-|doc-|run-)?(?:lib|bin|proc-macro|integration-test|example|bench|build-script)-(.+)$"
+)
+# Incremental session locks start within a fraction of a second of invoked.timestamp.
+SESSION_MATCH_SECS = 2.0
+
+CLONE_NOFOLLOW = 0x0001
+RENAME_EXCL = 0x0004
+RENAME_NOREPLACE = 0x0001
+AT_FDCWD = -100
+
+
+def say(quiet, *parts):
+    if not quiet:
+        print(*parts, flush=True)
+
+
+def human(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(n) < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} GB"
+
+
+# --- git ----------------------------------------------------------------------------------------
+
+
+# Git exports these to its hooks; they would point every command below at the hook's repository.
+GIT_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX")
+
+
+def git(cwd, *args):
+    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV}
+    try:
+        done = subprocess.run(
+            ["git", *args], cwd=cwd, env=env, capture_output=True, text=True, check=True
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return done.stdout.strip()
+
+
+def checkout_root(cwd):
+    return git(cwd, "rev-parse", "--show-toplevel")
+
+
+def main_checkout(cwd):
+    """The main worktree, whose target/ seeds the linked ones."""
+    common = git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if not common or os.path.basename(common) != ".git":
+        return None
+    return os.path.dirname(common)
+
+
+def checkouts(main):
+    out = git(main, "worktree", "list", "--porcelain") or ""
+    roots = [line[len("worktree ") :] for line in out.splitlines() if line.startswith("worktree ")]
+    return [r for r in roots if os.path.isdir(r)] or [main]
+
+
+def repo_packages(checkout):
+    """Names of the packages whose sources live in this repository."""
+    names = set()
+    listing = git(checkout, "ls-files", "-z", "--", "*Cargo.toml") or ""
+    for rel in listing.split("\0"):
+        if not rel:
+            continue
+        try:
+            with open(os.path.join(checkout, rel), encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        section = re.search(r"(?ms)^\[package\][ \t]*$(.*?)(?=^\[|\Z)", text)
+        if section:
+            name = re.search(r'(?m)^\s*name\s*=\s*"([^"]+)"', section.group(1))
+            if name:
+                names.add(name.group(1))
+    return names
+
+
+# --- filesystem ---------------------------------------------------------------------------------
+
+
+def same_path(a, b):
+    return os.path.realpath(a) == os.path.realpath(b)
+
+
+def profile_dirs(target):
+    """Cargo profile directories of a target dir: debug, release, custom profiles, <triple>/<profile>."""
+    found = []
+
+    def subdirs(path):
+        try:
+            with os.scandir(path) as it:
+                return sorted(
+                    (e for e in it if e.is_dir(follow_symlinks=False) and not e.name.startswith(".")),
+                    key=lambda e: e.name,
+                )
+        except OSError:
+            return []
+
+    def is_profile(path):
+        return os.path.isdir(os.path.join(path, ".fingerprint")) and os.path.isfile(
+            os.path.join(path, ".cargo-lock")
+        )
+
+    for entry in subdirs(target):
+        if is_profile(entry.path):
+            found.append(entry.path)
+        else:
+            found.extend(sub.path for sub in subdirs(entry.path) if is_profile(sub.path))
+    return found
+
+
+def disk_usage(path, seen):
+    """Bytes allocated under path, the way du counts them: each inode once, APFS clones in full."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return 0
+    if (st.st_dev, st.st_ino) in seen:
+        return 0
+    seen.add((st.st_dev, st.st_ino))
+    total = st.st_blocks * 512
+    if not stat.S_ISDIR(st.st_mode):
+        return total
+    stack = [path]
+    while stack:
+        try:
+            it = os.scandir(stack.pop())
+        except OSError:
+            continue
+        with it:
+            for entry in it:
+                try:
+                    st = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                key = (st.st_dev, st.st_ino)
+                if key in seen:
+                    continue
+                seen.add(key)
+                total += st.st_blocks * 512
+                if stat.S_ISDIR(st.st_mode):
+                    stack.append(entry.path)
+    return total
+
+
+def remove(path):
+    try:
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def lock_profile(profile, wait=0.0):
+    """Take cargo's own build lock on a profile directory, so no build runs while we change it."""
+    try:
+        fd = os.open(os.path.join(profile, ".cargo-lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    except OSError:
+        return None
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except OSError as err:
+            if err.errno not in (errno.EWOULDBLOCK, errno.EAGAIN) or time.monotonic() >= deadline:
+                os.close(fd)
+                return None
+            time.sleep(0.5)
+
+
+def unlock(fd):
+    fcntl.flock(fd, fcntl.LOCK_UN)
+    os.close(fd)
+
+
+def clone_tree(src, dst):
+    """Copy-on-write copy of a directory tree. Returns None, or why it could not be cloned."""
+    if sys.platform == "darwin":
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.clonefile(os.fsencode(src), os.fsencode(dst), CLONE_NOFOLLOW) == 0:
+            return None
+        err = ctypes.get_errno()
+        if err == errno.EPERM:
+            # Seen under ~/Documents: macOS privacy protection lets an app clone only the files it
+            # created itself, unless the app has Full Disk Access.
+            return "macOS did not permit cloning it (privacy protection of the folder?)"
+        return os.strerror(err)
+    try:
+        done = subprocess.run(["cp", "-a", "--reflink=always", src, dst], capture_output=True)
+    except OSError as err:
+        return str(err)
+    return None if done.returncode == 0 else "the filesystem cannot make reflinks"
+
+
+def rename_noreplace(src, dst):
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        return libc.renamex_np(os.fsencode(src), os.fsencode(dst), RENAME_EXCL) == 0
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is not None:
+        return renameat2(AT_FDCWD, os.fsencode(src), AT_FDCWD, os.fsencode(dst), RENAME_NOREPLACE) == 0
+    if os.path.lexists(dst):
+        return False
+    os.rename(src, dst)
+    return True
+
+
+# --- cargo's fingerprints ----------------------------------------------------------------------
+
+
+class Unit:
+    """One compilation unit: .fingerprint/<pkg>-<hash>/ plus its files in deps/, build/ and incremental/."""
+
+    __slots__ = ("dir", "pkg", "hash", "kind", "crate", "fp", "deps", "local", "built", "invoked", "mode")
+
+    def __init__(self, name, pkg, unit_hash):
+        self.dir, self.pkg, self.hash = name, pkg, unit_hash
+        self.kind = self.crate = self.fp = None
+        self.deps, self.local, self.mode = [], [], ""
+        self.built = self.invoked = 0.0
+
+
+def read_manifest(profile):
+    try:
+        with open(os.path.join(profile, SEED_MANIFEST), encoding="utf-8") as fh:
+            return json.load(fh).get("units", {})
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def scan_units(profile):
+    manifest = read_manifest(profile)
+    units = {}
+    fingerprints = os.path.join(profile, ".fingerprint")
+    try:
+        entries = list(os.scandir(fingerprints))
+    except OSError:
+        return units
+    for entry in entries:
+        match = UNIT_DIR.match(entry.name)
+        if not match or not entry.is_dir(follow_symlinks=False):
+            continue
+        unit = Unit(entry.name, match.group(1), match.group(2))
+        newest = 0.0
+        try:
+            files = list(os.scandir(entry.path))
+        except OSError:
+            files = []
+        for f in files:
+            try:
+                mtime = f.stat(follow_symlinks=False).st_mtime
+            except OSError:
+                continue
+            newest = max(newest, mtime)
+            name = f.name
+            if name == "invoked.timestamp":
+                unit.invoked = mtime
+            elif not (name.endswith(".json") or name.startswith("dep-") or name.startswith("output-")):
+                unit.kind, unit.built = name, mtime
+                kind = KIND_FILE.match(name)
+                unit.crate = kind.group(1).replace("-", "_") if kind else None
+                try:
+                    with open(f.path, encoding="utf-8") as fh:
+                        unit.fp = fh.read().strip() or None
+                except OSError:
+                    pass
+        if unit.fp is None:
+            # A seeded unit that was marked dirty and not rebuilt yet still links its dependents.
+            unit.fp = manifest.get(unit.dir)
+        if unit.kind:
+            try:
+                with open(os.path.join(entry.path, unit.kind + ".json"), encoding="utf-8") as fh:
+                    data = json.load(fh)
+                # Each dependency is [package id hash, crate name, public, fingerprint as u64];
+                # the dependency's fingerprint file holds that u64 as little-endian hex.
+                unit.deps = [(d[1], struct.pack("<Q", d[3]).hex()) for d in data.get("deps", [])]
+                unit.local = [next(iter(x)) if isinstance(x, dict) else str(x) for x in data.get("local", [])]
+            except (OSError, ValueError, LookupError, TypeError, struct.error, StopIteration):
+                pass
+        if not unit.built:
+            unit.built = newest or entry.stat().st_mtime
+        units[unit.dir] = unit
+    return units
+
+
+def entries_by_hash(directory):
+    by_hash, other = {}, []
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return by_hash, other
+    for entry in entries:
+        match = HASHED_NAME.search(entry.name)
+        if match:
+            by_hash.setdefault(match.group(1), []).append(entry)
+        else:
+            other.append(entry)
+    return by_hash, other
+
+
+def output_mode(entries):
+    """What a unit produced, so a `cargo check` unit is not mistaken for a newer `cargo build` one."""
+    exts = {os.path.splitext(e.name)[1] for e in entries} - {".d", ".o"}
+    return ",".join(sorted(exts))
+
+
+def live_units(units, now, keep_days, grace_hours):
+    by_fp, by_crate = {}, {}
+    for unit in units.values():
+        if unit.fp:
+            by_fp.setdefault(unit.fp, []).append(unit)
+        if unit.crate:
+            by_crate.setdefault(unit.crate, []).append(unit)
+
+    edges, depended_on = {}, set()
+    for unit in units.values():
+        targets = []
+        for crate, fp in unit.deps:
+            exact = by_fp.get(fp)
+            if exact:
+                targets.extend(exact)
+                depended_on.update(t.dir for t in exact if t is not unit)
+            else:
+                # The dependency was rebuilt in place after this unit: keep every unit of that crate.
+                targets.extend(by_crate.get(crate, []))
+        edges[unit.dir] = targets
+
+    recent = now - grace_hours * 3600
+    oldest = now - keep_days * 86400
+    newest_root = {}
+    for unit in units.values():
+        if unit.fp and unit.dir not in depended_on:
+            group = (unit.pkg, unit.kind, unit.mode)
+            best = newest_root.get(group)
+            if best is None or unit.built > best.built:
+                newest_root[group] = unit
+
+    stack = [u for u in units.values() if u.built >= recent]
+    stack += [u for u in newest_root.values() if u.built >= oldest]
+    live = set()
+    while stack:
+        unit = stack.pop()
+        if unit.dir in live:
+            continue
+        live.add(unit.dir)
+        stack.extend(edges.get(unit.dir, ()))
+    return live
+
+
+class Plan:
+    def __init__(self, profile):
+        self.profile = profile
+        self.units = {}
+        self.live = set()
+        self.stale_units = []
+        self.remove = []  # (path, what)
+
+
+def plan_profile(profile, now, keep_days, grace_hours):
+    plan = Plan(profile)
+    units = scan_units(profile)
+    deps_by_hash, _ = entries_by_hash(os.path.join(profile, "deps"))
+    examples_by_hash, _ = entries_by_hash(os.path.join(profile, "examples"))
+    for unit in units.values():
+        unit.mode = output_mode(deps_by_hash.get(unit.hash, []) + examples_by_hash.get(unit.hash, []))
+    live = live_units(units, now, keep_days, grace_hours)
+    plan.units, plan.live = units, live
+    recent = now - grace_hours * 3600
+    by_hash = {u.hash: u for u in units.values()}
+
+    for unit in units.values():
+        if unit.dir in live:
+            continue
+        plan.stale_units.append(unit)
+        plan.remove.append((os.path.join(profile, ".fingerprint", unit.dir), "unit"))
+        build_dir = os.path.join(profile, "build", unit.dir)
+        if os.path.lexists(build_dir):
+            plan.remove.append((build_dir, "unit"))
+        for entry in deps_by_hash.get(unit.hash, []) + examples_by_hash.get(unit.hash, []):
+            plan.remove.append((entry.path, "unit"))
+
+    def old(entry):
+        try:
+            return entry.stat(follow_symlinks=False).st_mtime < recent
+        except OSError:
+            return False
+
+    # Files no fingerprint accounts for: interrupted builds and units cargo forgot.
+    for hashed in (deps_by_hash, examples_by_hash):
+        for unit_hash, entries in hashed.items():
+            if unit_hash not in by_hash:
+                plan.remove.extend((e.path, "orphan") for e in entries if old(e))
+    try:
+        build_entries = list(os.scandir(os.path.join(profile, "build")))
+    except OSError:
+        build_entries = []
+    for entry in build_entries:
+        match = UNIT_DIR.match(entry.name)
+        if match and match.group(2) not in by_hash and old(entry):
+            plan.remove.append((entry.path, "orphan"))
+
+    # rustc keeps one incremental directory per unit; a session starts when cargo invokes the unit.
+    by_crate = {}
+    for unit in units.values():
+        if unit.crate and unit.invoked:
+            by_crate.setdefault(unit.crate, []).append(unit)
+    try:
+        incremental = [e for e in os.scandir(os.path.join(profile, "incremental")) if e.is_dir()]
+    except OSError:
+        incremental = []
+    for entry in incremental:
+        crate = entry.name.rsplit("-", 1)[0]
+        starts, newest = [], 0.0
+        try:
+            for f in os.scandir(entry.path):
+                mtime = f.stat(follow_symlinks=False).st_mtime
+                newest = max(newest, mtime)
+                if f.name.endswith(".lock"):
+                    starts.append(mtime)
+        except OSError:
+            continue
+        owners = [
+            u
+            for u in by_crate.get(crate, [])
+            if any(abs(u.invoked - t) <= SESSION_MATCH_SECS for t in starts)
+        ]
+        if owners:
+            if not any(u.dir in live for u in owners):
+                plan.remove.append((entry.path, "incremental"))
+        elif newest < recent:
+            plan.remove.append((entry.path, "incremental"))
+    return plan
+
+
+def top_level_inodes(profile):
+    """Uplifted outputs (target/debug/<bin> etc.) are hard links to deps/ files and are always kept."""
+    seen = set()
+    try:
+        with os.scandir(profile) as it:
+            for entry in it:
+                if entry.is_file(follow_symlinks=False):
+                    st = entry.stat(follow_symlinks=False)
+                    seen.add((st.st_dev, st.st_ino))
+    except OSError:
+        pass
+    return seen
+
+
+def plan_sizes(plan):
+    seen = top_level_inodes(plan.profile)
+    sizes = {}
+    for path, what in plan.remove:
+        sizes[what] = sizes.get(what, 0) + disk_usage(path, seen)
+    return sizes
+
+
+def rewrite_manifest(profile, units):
+    path = os.path.join(profile, SEED_MANIFEST)
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        kept = {
+            name: fp
+            for name, fp in data.get("units", {}).items()
+            if name in units and units[name].fp == fp
+        }
+        data["units"] = kept
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+# --- commands -----------------------------------------------------------------------------------
+
+
+def target_dirs(args):
+    """The target directories to work on, each with how long its newest builds are kept."""
+    cwd = os.getcwd()
+    main = main_checkout(cwd)
+    if args.all:
+        if not main:
+            sys.exit("crok-build-cache: not inside a git checkout")
+        dirs = [os.path.join(root, "target") for root in checkouts(main)]
+    elif args.targets:
+        dirs = list(args.targets)
+    else:
+        env_dir = os.environ.get("CARGO_TARGET_DIR")
+        root = checkout_root(cwd) or cwd
+        dirs = [os.path.join(cwd, env_dir) if env_dir else os.path.join(root, "target")]
+    unique = []
+    for d in dirs:
+        if not os.path.isdir(d) or any(same_path(d, u) for u, _ in unique):
+            continue
+        owner = main_checkout(d)
+        linked = bool(owner) and not same_path(os.path.dirname(os.path.abspath(d)), owner)
+        unique.append((d, args.worktree_keep_days if linked else args.keep_days))
+    return unique
+
+
+def short(path):
+    home = os.path.expanduser("~")
+    return "~" + path[len(home) :] if path.startswith(home + os.sep) else path
+
+
+def cmd_status(args):
+    now = time.time()
+    rows = []
+    total = stale_total = 0
+    for target, keep_days in target_dirs(args):
+        for profile in profile_dirs(target):
+            plan = plan_profile(profile, now, keep_days, args.grace_hours)
+            size = disk_usage(profile, set())
+            stale = sum(plan_sizes(plan).values())
+            total += size
+            stale_total += stale
+            rows.append((short(profile), size, stale, len(plan.units), len(plan.stale_units)))
+    if not rows:
+        print("No cargo target directories found.")
+        return 0
+    width = max(len(r[0]) for r in rows)
+    print(f"{'profile directory':<{width}}  {'size':>10}  {'stale':>10}  units (stale)")
+    for name, size, stale, n_units, n_stale in rows:
+        print(f"{name:<{width}}  {human(size):>10}  {human(stale):>10}  {n_units} ({n_stale})")
+    print(f"{'total':<{width}}  {human(total):>10}  {human(stale_total):>10}")
+    print("Sizes count APFS clones in full, as du does; clones of the same file share their blocks.")
+    return 0
+
+
+def cmd_prune(args):
+    now = time.time()
+    if args.all and not args.dry_run:
+        main = main_checkout(os.getcwd())
+        if main:
+            state = os.path.join(main, "target", STATE_DIR)
+            os.makedirs(state, exist_ok=True)
+            fd = os.open(os.path.join(state, "prune.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                say(args.quiet, "Another prune is running.")
+                return 0
+    if args.log_time:
+        print(time.strftime("%Y-%m-%d %H:%M:%S"), "prune", flush=True)
+    freed_total = 0
+    for target, keep_days in target_dirs(args):
+        for profile in profile_dirs(target):
+            fd = None if args.dry_run else lock_profile(profile, args.wait)
+            if fd is None and not args.dry_run:
+                say(False, f"{short(profile)}: cargo is building here; skipped")
+                continue
+            try:
+                plan = plan_profile(profile, now, keep_days, args.grace_hours)
+                sizes = plan_sizes(plan)
+                freed = sum(sizes.values())
+                if not args.dry_run:
+                    for path, _ in plan.remove:
+                        remove(path)
+                    rewrite_manifest(profile, scan_units(profile) if plan.remove else plan.units)
+            finally:
+                if fd is not None:
+                    unlock(fd)
+            freed_total += freed
+            if plan.remove or not args.quiet:
+                verb = "would free" if args.dry_run else "freed"
+                detail = ", ".join(f"{human(v)} {k}" for k, v in sorted(sizes.items()) if v)
+                print(
+                    f"{short(profile)}: {verb} {human(freed)}"
+                    f" ({len(plan.stale_units)} of {len(plan.units)} units stale"
+                    + (f"; {detail}" if detail else "")
+                    + ")",
+                    flush=True,
+                )
+    if not args.quiet or freed_total:
+        print(f"Total {'reclaimable' if args.dry_run else 'freed'}: {human(freed_total)}", flush=True)
+    return 0
+
+
+def blank_checkout_units(profile, packages):
+    """Mark this repository's units dirty in a clone; returns {unit dir: fingerprint} for the manifest.
+
+    Cargo decides whether a unit is fresh by comparing the mtimes of the files its dep-info lists
+    with the fingerprint's. A clone carries the main checkout's times, which say nothing about this
+    checkout's sources, so a branch's change could be skipped. Cargo itself blanks the fingerprint
+    file before rebuilding a unit; doing the same here makes the next build recompile these units.
+    Registry crates stay fresh: their dep-info lists files under ~/.cargo/registry, which every
+    checkout shares.
+    """
+    blanked = {}
+    for unit in scan_units(profile).values():
+        # A build script that only reads environment variables is judged by their values.
+        env_only = bool(unit.local) and all(k == "RerunIfEnvChanged" for k in unit.local)
+        if not unit.kind or not unit.fp or unit.pkg not in packages or env_only:
+            continue
+        path = os.path.join(profile, ".fingerprint", unit.dir, unit.kind)
+        try:
+            st = os.stat(path)
+            with open(path, "w", encoding="utf-8"):
+                pass
+            # Keep the build time: prune ages a seeded unit from when it was really built.
+            os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+        except OSError:
+            continue
+        blanked[unit.dir] = unit.fp
+    return blanked
+
+
+def seed(checkout, dest_target, source_target, wait, quiet, profiles=None):
+    """Clone source_target's profile directories that dest_target lacks. Returns the number cloned."""
+    if not os.path.isdir(source_target) or same_path(dest_target, source_target):
+        return 0
+    packages = None
+    cloned = 0
+    for src in profile_dirs(source_target):
+        rel = os.path.relpath(src, source_target)
+        if profiles and rel not in profiles and os.path.basename(rel) not in profiles:
+            continue
+        dst = os.path.join(dest_target, rel)
+        if os.path.lexists(dst):
+            continue
+        fd = lock_profile(src, wait)
+        if fd is None:
+            say(quiet, f"{short(src)}: cargo is building there; not seeding {rel}")
+            continue
+        if os.path.lexists(dst):  # this checkout started its own build while we waited
+            unlock(fd)
+            continue
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        tag = os.path.join(source_target, "CACHEDIR.TAG")
+        if os.path.isfile(tag) and not os.path.exists(os.path.join(dest_target, "CACHEDIR.TAG")):
+            shutil.copyfile(tag, os.path.join(dest_target, "CACHEDIR.TAG"))
+        tmp = os.path.join(os.path.dirname(dst), f".{os.path.basename(dst)}.seeding-{os.getpid()}")
+        remove(tmp)
+        started = time.monotonic()
+        try:
+            failure = clone_tree(src, tmp)
+        finally:
+            unlock(fd)
+        if failure:
+            # Never fall back to a full copy: that would cost exactly what seeding saves.
+            remove(tmp)
+            say(quiet, f"Not seeding from {short(src)}: {failure}. The first build starts cold.")
+            return cloned
+        if packages is None:
+            packages = repo_packages(checkout)
+        blanked = blank_checkout_units(tmp, packages)
+        with open(os.path.join(tmp, SEED_MANIFEST), "w", encoding="utf-8") as fh:
+            json.dump({"from": src, "seeded_at": time.time(), "units": blanked}, fh)
+        # rustc did not reuse another checkout's incremental sessions in our measurements (it wrote
+        # complete new ones), and only this repository's crates have any, so leave them out.
+        remove(os.path.join(tmp, "incremental"))
+        # Uplifted binaries belong to the source checkout's sources; cargo uplifts this checkout's.
+        with os.scandir(tmp) as it:
+            for entry in it:
+                if entry.is_file(follow_symlinks=False) and entry.name not in (".cargo-lock", SEED_MANIFEST):
+                    os.unlink(entry.path)
+        if rename_noreplace(tmp, dst):
+            cloned += 1
+            print(
+                f"Seeded {short(dst)} from {short(src)} in {time.monotonic() - started:.1f}s"
+                f" ({len(blanked)} units of this repository will rebuild)",
+                flush=True,
+            )
+        else:
+            remove(tmp)
+    return cloned
+
+
+def cmd_seed(args):
+    cwd = os.getcwd()
+    checkout = os.path.abspath(args.checkout) if args.checkout else checkout_root(cwd)
+    if not checkout:
+        sys.exit("crok-build-cache: not inside a git checkout")
+    main = main_checkout(checkout)
+    if args.source:
+        source = os.path.abspath(args.source)
+    elif main and not same_path(main, checkout):
+        source = os.path.join(main, "target")
+    else:
+        say(args.quiet, "This is the main checkout; nothing to seed.")
+        return 0
+    if args.target_dir:
+        dest = os.path.join(checkout, args.target_dir)
+    elif os.environ.get("CARGO_TARGET_DIR"):
+        dest = os.path.join(cwd, os.environ["CARGO_TARGET_DIR"])
+    else:
+        dest = os.path.join(checkout, "target")
+    if args.log_time:
+        print(time.strftime("%Y-%m-%d %H:%M:%S"), "seed", short(checkout), flush=True)
+    if seed(checkout, dest, source, args.wait, args.quiet, set(args.profile or ())) == 0:
+        say(args.quiet, "Nothing to seed.")
+    return 0
+
+
+def spawn(main, argv, log_name):
+    """Run this tool again in the background, detached from the caller, logging under target/."""
+    state = os.path.join(main, "target", STATE_DIR)
+    os.makedirs(state, exist_ok=True)
+    log_path = os.path.join(state, log_name)
+    try:
+        if os.path.getsize(log_path) > 1 << 20:
+            os.replace(log_path, log_path + ".1")
+    except OSError:
+        pass
+    with open(log_path, "ab") as log:
+        subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__), *argv],
+            cwd=main,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=log,
+            start_new_session=True,
+            close_fds=True,
+        )
+
+
+def start_auto_prune(main):
+    if AUTO_EVERY_HOURS < 0:
+        return
+    state = os.path.join(main, "target", STATE_DIR)
+    os.makedirs(state, exist_ok=True)
+    stamp = os.path.join(state, "auto-prune.stamp")
+    try:
+        if time.time() - os.stat(stamp).st_mtime < AUTO_EVERY_HOURS * 3600:
+            return
+    except FileNotFoundError:
+        pass
+    with open(stamp, "w"):
+        pass
+    spawn(main, ["prune", "--all", "--quiet", "--log-time"], "auto-prune.log")
+
+
+def build_profiles(command):
+    """Profile directories a shell command will build in, judged from its text."""
+    profiles = set()
+    if re.search(r"\bcargo\b", command):
+        profiles.add("debug")
+        if re.search(r"(?<!\S)(?:--release|-r)(?!\S)", command):
+            profiles.add("release")
+        for name in re.findall(r"--profile[= ]([\w-]+)", command):
+            profiles.add({"dev": "debug", "test": "debug", "bench": "release"}.get(name, name))
+    if re.search(r"\bmake\b", command):
+        profiles.add("release")  # the Makefile's builds are release builds
+    return profiles
+
+
+def cmd_hook(args):
+    # A hook must never get in the way of the git command or tool call it runs for:
+    # no output, always exit 0, and anything slow runs detached.
+    try:
+        if os.environ.get("CROK_BUILD_CACHE_AUTO", "1") == "0":
+            return 0
+        data = {}
+        if args.event in ("pre-bash", "session-start"):
+            try:
+                data = json.load(sys.stdin)
+            except ValueError:
+                pass
+        cwd = data.get("cwd") or os.getcwd()
+        main = main_checkout(cwd)
+        if not main:
+            return 0
+        root = checkout_root(cwd)
+        linked = bool(root) and not same_path(root, main)
+        if args.event == "post-checkout" and linked:
+            # `git worktree add` checks the new worktree out from the null commit.
+            previous = args.args[0] if args.args else ""
+            if previous and set(previous) == {"0"} and not os.environ.get("CARGO_TARGET_DIR"):
+                spawn(main, ["seed", root, "--wait", "1800", "--quiet", "--log-time"], "seed.log")
+        elif args.event == "pre-bash" and linked:
+            command = (data.get("tool_input") or {}).get("command") or ""
+            profiles = build_profiles(command)
+            if (
+                profiles
+                and "CARGO_TARGET_DIR" not in command
+                and "--target-dir" not in command
+                and not os.environ.get("CARGO_TARGET_DIR")
+            ):
+                seed(root, os.path.join(root, "target"), os.path.join(main, "target"), 0, True, profiles)
+        start_auto_prune(main)
+    except Exception:  # noqa: BLE001 - see above
+        pass
+    return 0
+
+
+GIT_HOOKS = ("post-checkout", "post-commit", "post-merge")
+GIT_HOOK_MARK = "# crok-build-cache git hook"
+GIT_HOOK_SCRIPT = """#!/bin/sh
+{mark}: seeds a new worktree's cargo cache and prunes stale builds in the background.
+# Installed by `bin/crok-build-cache install-git-hooks`; `uninstall-git-hooks` removes it.
+main=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)/.." 2>/dev/null && pwd -P)
+tool="$main/bin/crok-build-cache"
+[ -f "$tool" ] || tool="$(git rev-parse --show-toplevel 2>/dev/null)/bin/crok-build-cache"
+if [ -f "$tool" ] && command -v python3 >/dev/null 2>&1; then
+    python3 "$tool" hook {event} "$@" </dev/null >/dev/null 2>&1
+fi
+exit 0
+"""
+
+
+def hooks_dir():
+    path = git(os.getcwd(), "rev-parse", "--path-format=absolute", "--git-path", "hooks")
+    if not path:
+        sys.exit("crok-build-cache: not inside a git checkout")
+    return path
+
+
+def cmd_install_git_hooks(args):
+    directory = hooks_dir()
+    os.makedirs(directory, exist_ok=True)
+    for event in GIT_HOOKS:
+        path = os.path.join(directory, event)
+        if os.path.exists(path):
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                if GIT_HOOK_MARK not in fh.read():
+                    print(f"{short(path)} exists and is not ours; add this line to it yourself:")
+                    print(f'    python3 "<main checkout>/bin/crok-build-cache" hook {event} "$@" </dev/null >/dev/null 2>&1')
+                    continue
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(GIT_HOOK_SCRIPT.format(mark=GIT_HOOK_MARK, event=event))
+        os.chmod(path, 0o755)
+        print(f"Installed {short(path)}")
+    return 0
+
+
+def cmd_uninstall_git_hooks(args):
+    directory = hooks_dir()
+    for event in GIT_HOOKS:
+        path = os.path.join(directory, event)
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                ours = GIT_HOOK_MARK in fh.read()
+        except OSError:
+            continue
+        if ours:
+            os.unlink(path)
+            print(f"Removed {short(path)}")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="crok-build-cache",
+        description="Keep cargo's build cache small across rebuilds and git worktrees.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    def add_policy(p):
+        p.add_argument("--all", action="store_true", help="every worktree of this repository")
+        p.add_argument("--keep-days", type=float, default=KEEP_DAYS,
+                       help="keep the newest build of each target this long (default %(default)s)")
+        p.add_argument("--worktree-keep-days", type=float, default=WORKTREE_KEEP_DAYS,
+                       help="the same for a linked worktree's target (default %(default)s)")
+        p.add_argument("--grace-hours", type=float, default=GRACE_HOURS,
+                       help="never delete anything built this recently (default %(default)s)")
+        p.add_argument("targets", nargs="*", help="target directories (default: this checkout's)")
+
+    p_status = sub.add_parser("status", help="size and stale part of each target directory")
+    add_policy(p_status)
+    p_status.set_defaults(run=cmd_status)
+
+    p_prune = sub.add_parser("prune", help="delete superseded and unused build products")
+    add_policy(p_prune)
+    p_prune.add_argument("--dry-run", "-n", action="store_true")
+    p_prune.add_argument("--quiet", "-q", action="store_true")
+    p_prune.add_argument("--wait", type=float, default=0.0,
+                         help="seconds to wait for a running build (default: skip that profile)")
+    p_prune.add_argument("--log-time", action="store_true", help=argparse.SUPPRESS)
+    p_prune.set_defaults(run=cmd_prune)
+
+    p_seed = sub.add_parser("seed", help="clone the main checkout's build cache into this worktree")
+    p_seed.add_argument("checkout", nargs="?", help="worktree to seed (default: this one)")
+    p_seed.add_argument("--from", dest="source", help="target directory to clone (default: the main checkout's)")
+    p_seed.add_argument("--target-dir", help="this checkout's target directory (default: target)")
+    p_seed.add_argument("--profile", action="append",
+                        help="profile directory to seed, e.g. debug or release (default: all)")
+    p_seed.add_argument("--wait", type=float, default=0.0,
+                        help="seconds to wait for a build in the source (default: do not wait)")
+    p_seed.add_argument("--quiet", "-q", action="store_true")
+    p_seed.add_argument("--log-time", action="store_true", help=argparse.SUPPRESS)
+    p_seed.set_defaults(run=cmd_seed)
+
+    p_install = sub.add_parser("install-git-hooks", help="seed new worktrees and prune automatically")
+    p_install.set_defaults(run=cmd_install_git_hooks)
+    p_uninstall = sub.add_parser("uninstall-git-hooks", help="remove the hooks install-git-hooks added")
+    p_uninstall.set_defaults(run=cmd_uninstall_git_hooks)
+
+    p_hook = sub.add_parser("hook", help="git or Claude Code hook entry point")
+    p_hook.add_argument("event", choices=["post-checkout", "post-commit", "post-merge", "pre-bash", "session-start"])
+    p_hook.add_argument("args", nargs="*", help=argparse.SUPPRESS)
+    p_hook.set_defaults(run=cmd_hook)
+
+    args = parser.parse_args()
+    return args.run(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

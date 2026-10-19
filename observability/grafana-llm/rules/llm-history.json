@@ -1,0 +1,1279 @@
+{
+  "title": "llm-history",
+  "folderUid": "llm-observability",
+  "interval": 600,
+  "rules": [
+    {
+      "uid": "llm-hist-d58c80c0ebe1",
+      "title": "llm_requests provider=claude",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_requests",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time()",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-c8bccb242148",
+      "title": "llm_errors provider=claude",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_errors",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&status=error}|count_over_time()",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-faa03b8d17c2",
+      "title": "llm_tokens provider=claude, direction=input",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_tokens",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "direction": "input"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-f1e73fd69819",
+      "title": "llm_tokens provider=claude, direction=output",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_tokens",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.output_tokens)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "direction": "output"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-92ca85adbbec",
+      "title": "llm_requests provider=openrouter",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_requests",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|count_over_time()",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "openrouter"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-b8ab279914e0",
+      "title": "llm_errors provider=openrouter",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_errors",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil&&status=error}|count_over_time()",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "openrouter"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-bac2a9cacec0",
+      "title": "llm_tokens provider=openrouter, direction=input",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_tokens",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.input_tokens)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "openrouter",
+        "direction": "input"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-40c499708a78",
+      "title": "llm_tokens provider=openrouter, direction=output",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_tokens",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.output_tokens)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "openrouter",
+        "direction": "output"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-85759cb8c162",
+      "title": "llm_tokens provider=claude, direction=cache_read",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_tokens",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "direction": "cache_read"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-27926cf4f9e6",
+      "title": "llm_spend_usd provider=openrouter, price_group=billed",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.total_cost)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "openrouter",
+        "price_group": "billed"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-1c8ef01cd16d",
+      "title": "llm_spend_usd provider=claude, price_group=Fable 5.1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.00000975+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.0000025+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5-1(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00005",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Fable 5.1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-d8000ee81400",
+      "title": "llm_spend_usd provider=claude, price_group=Opus 5.5",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000004+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.0000038+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.000004+({kind=server&&span.gen_ai.response.model=~\"claude-opus-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00002",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Opus 5.5"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-b90f43813072",
+      "title": "llm_spend_usd provider=claude, price_group=Sonnet 5.5",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.0000019+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.0000005+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00001",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Sonnet 5.5"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-6a4b5016416d",
+      "title": "llm_spend_usd provider=claude, price_group=Haiku 5.5",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.00000009+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.000000025+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.0000005",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Haiku 5.5"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-8ac562f8c8ac",
+      "title": "llm_spend_usd provider=claude, price_group=Haiku 5.5: extra for prompts over 100K",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.input_tokens))*0.0000004+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.00000036+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.0000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.0000004+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-5-5(-2.*)?\"&&span.gen_ai.usage.input_tokens>100000}|sum_over_time(span.gen_ai.usage.output_tokens))*0.000002",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Haiku 5.5: extra for prompts over 100K"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-76f026e3ec60",
+      "title": "llm_spend_usd provider=claude, price_group=Fable 5",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.000009+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.0000025+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.00001+({kind=server&&span.gen_ai.response.model=~\"claude-(fable|mythos)-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00005",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Fable 5"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-ebfb475fb30e",
+      "title": "llm_spend_usd provider=claude, price_group=Opus 5, 4.5-4.8",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000005+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.0000045+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.00000125+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.000005+({kind=server&&span.gen_ai.response.model=~\"claude-opus-(5|4-[5-8])(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.000025",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Opus 5, 4.5-4.8"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-e1aabd1e3643",
+      "title": "llm_spend_usd provider=claude, price_group=Sonnet 5",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.0000018+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.0000005+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.000002+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00001",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Sonnet 5"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-ab7e46a65b12",
+      "title": "llm_spend_usd provider=claude, price_group=Sonnet 4.x",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000003+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.0000027+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.00000075+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.000003+({kind=server&&span.gen_ai.response.model=~\"claude-sonnet-4(-[56])?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.000015",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Sonnet 4.x"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-970c127aae72",
+      "title": "llm_spend_usd provider=claude, price_group=Haiku 4.5",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.0000009+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.00000025+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.000001+({kind=server&&span.gen_ai.response.model=~\"claude-haiku-4-5(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.000005",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Haiku 4.5"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-67a20ede91f9",
+      "title": "llm_spend_usd provider=claude, price_group=Opus 4, 4.1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000015+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.0000135+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.00000375+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.000015+({kind=server&&span.gen_ai.response.model=~\"claude-opus-4(-1)?(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.000075",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Opus 4, 4.1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-c228d28bd47a",
+      "title": "llm_spend_usd provider=claude, price_group=Haiku 3.5",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.input_tokens))*0.0000008+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))*-0.00000072+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens))*0.0000002+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens))*0.0000008+({kind=server&&span.gen_ai.response.model=~\"claude-3-5-haiku(-2.*)?\"}|sum_over_time(span.gen_ai.usage.output_tokens))*0.000004",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "price_group": "Haiku 3.5"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    }
+  ]
+}
