@@ -123,6 +123,43 @@ run when the current directory is outside the workspace. The compiled test TUI
 stays under `target/test-builds/`; the small `bin/crok-test` file is the only
 repository file added to the command path.
 
+### Build cache and disk space
+
+Cargo never deletes anything from `target/`. Each Cargo.lock bump, feature
+change or toolchain update leaves a whole old generation of artifacts and
+incremental sessions behind, and every git worktree compiles all dependencies
+into its own `target/` again. [`bin/crok-build-cache`](bin/crok-build-cache)
+keeps that in check:
+
+```sh
+make cache-hooks    # once per clone: seed new worktrees, prune in the background
+make cache-status   # size and stale part of every target dir of this repository
+make cache-prune    # delete superseded and unused build products now
+```
+
+- **Seeding.** A new worktree gets a copy-on-write clone (APFS `clonefile`, or
+  reflinks on Btrfs/XFS) of the main checkout's `target/`. It costs no disk
+  until files change, so the worktree pays only for what it rebuilds, and it
+  starts warm instead of cold. The clone's units for this repository's own
+  crates are marked dirty, so they are rebuilt from the worktree's sources;
+  only the ~900 registry crates are reused. `make build` seeds too, and
+  `bin/crok-build-cache seed` does it by hand. Under `~/Documents`, macOS
+  may refuse to clone files that another app created (`Operation not
+  permitted`); seeding is then skipped and the first build starts cold, as
+  before.
+- **Pruning.** Cargo's fingerprints record each unit's dependencies. The tool
+  keeps everything reachable from the newest build of each top-level target
+  (binaries, test binaries) built in the last 14 days, plus anything built in
+  the last 6 hours, and deletes the rest. It takes cargo's own lock first and
+  skips a directory cargo is building in. Hand-made folders such as
+  `target/test-builds` are never touched. Tune it with
+  `CROK_BUILD_CACHE_KEEP_DAYS` and `CROK_BUILD_CACHE_GRACE_HOURS`, or turn the
+  hooks off with `CROK_BUILD_CACHE_AUTO=0`.
+
+Prefer a seeded worktree to `CARGO_TARGET_DIR=<main>/target`. A shared target
+directory makes builds wait for each other's lock, and builds in different
+checkouts overwrite each other's binaries.
+
 ## macOS desktop app
 
 [Crok Desktop](desktop/macOS/README.md) is a native SwiftUI client for macOS 14+
@@ -229,7 +266,7 @@ MCP servers, skills, plugins, hooks, headless mode, sandboxing, and more.
 | `crates/codegen/crok-remote` | Remote control on the computer: sign-in, credentials, the relay link, `crok remote` |
 | `relay/` | Remote control relay (Convex) and web app (Next.js, Vercel, Clerk) |
 | `mobile/iOS/`, `mobile/Android/` | The Crok phone apps (SwiftUI; Kotlin + Jetpack Compose) |
-| `bin/` | `crok-test` launcher, `crok-import-grok`, and DotSlash tools |
+| `bin/` | `crok-test` launcher, `crok-import-grok`, `crok-build-cache`, and DotSlash tools |
 
 A small `SOURCE_REV` file at the root records the upstream monorepo commit SHA
 of the last upstream sync.

@@ -19,8 +19,10 @@ TEST_DESKTOP_DIR = $(TEST_BUILD_DIR)/desktop
 TEST_DESKTOP_APP = $(TEST_DESKTOP_DIR)/Crok Desktop Test.app
 TEST_DESKTOP_STATE = $(TEST_BUILD_DIR)/desktop-state/state.json
 TEST_DESKTOP_ICON = $(TEST_DESKTOP_DIR)/CrokDesktopTestIcon.icns
+# Clones the main checkout's cargo cache into a linked worktree before its first build (see bin/crok-build-cache).
+SEED_CACHE = -@"$(CURDIR)/bin/crok-build-cache" seed --quiet --profile release --target-dir "$(CARGO_TARGET_DIR)"
 
-.PHONY: build deploy build-desktop deploy-desktop dmg-desktop build-test-tui build-test-desktop import-grok-config help
+.PHONY: build deploy build-desktop deploy-desktop dmg-desktop build-test-tui build-test-desktop import-grok-config cache-status cache-prune cache-hooks help
 
 # CROK_BINARY names an existing harness for the desktop build; GROK_BINARY still works.
 CROK_BINARY ?= $(GROK_BINARY)
@@ -31,6 +33,7 @@ SIGN_TUI = if [ "$$(uname -s)" = Darwin ]; then "$(CURDIR)/release/codesign.sh" 
 
 # The default build and deploy commands only operate on the CLI/TUI.
 build:
+	$(SEED_CACHE)
 	$(CARGO) build -p xai-grok-pager-bin --release --target-dir "$(CARGO_TARGET_DIR)"
 
 deploy: build
@@ -45,6 +48,7 @@ deploy: build
 
 # Test artifacts stay under this checkout. bin/crok-test refuses to launch from another workspace.
 build-test-tui:
+	$(SEED_CACHE)
 	$(CARGO) build -p xai-grok-pager-bin --release --target-dir "$(CARGO_TARGET_DIR)"
 	@mkdir -p "$(TEST_TUI_DIR)"
 	@set -e; \
@@ -99,6 +103,16 @@ build-test-desktop: build-test-tui
 import-grok-config:
 	./bin/crok-import-grok
 
+# Cargo build cache across rebuilds and worktrees (bin/crok-build-cache).
+cache-status:
+	@"$(CURDIR)/bin/crok-build-cache" status --all
+
+cache-prune:
+	@"$(CURDIR)/bin/crok-build-cache" prune --all
+
+cache-hooks:
+	@"$(CURDIR)/bin/crok-build-cache" install-git-hooks
+
 help:
 	@printf '%s\n' \
 		'make / make build       Build the release CLI/TUI only (default).' \
@@ -109,6 +123,9 @@ help:
 		'make build-test-tui     Build the workspace-only TUI used by crok-test.' \
 		'make build-test-desktop Build the TESTING-badged desktop app in target/test-builds.' \
 		'make import-grok-config Copy ~/.grok settings, sessions, and Grok Desktop state into crok.' \
+		'make cache-status       Size and stale part of every cargo target dir of this repository.' \
+		'make cache-prune        Delete superseded and unused cargo build products in all of them.' \
+		'make cache-hooks        Seed new worktrees from this cache and prune automatically (git hooks).' \
 		'' \
 		'Overrides: CARGO, RUSTUP, CARGO_TARGET_DIR, PREFIX, BINDIR, DESKTOP_INSTALL_DIR.' \
 		'Set CROK_BINARY to reuse an existing harness when building the desktop app.'
