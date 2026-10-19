@@ -1,0 +1,11 @@
+{
+  "apiVersion": "folder.grafana.app/v1",
+  "kind": "Folder",
+  "metadata": {
+    "name": "llm-observability"
+  },
+  "spec": {
+    "title": "LLM Observability",
+    "description": "Claude Platform and OpenRouter traces: spend, tokens, latency, errors."
+  }
+}

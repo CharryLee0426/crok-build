@@ -1,0 +1,2750 @@
+{
+  "apiVersion": "dashboard.grafana.app/v1beta1",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "llm-request-explorer",
+    "annotations": {
+      "grafana.app/folder": "llm-observability"
+    }
+  },
+  "spec": {
+    "title": "LLM Request Explorer",
+    "description": "Find single calls: slow, failed, expensive, cut off, or with huge prompts.",
+    "tags": [
+      "llm-observability",
+      "explorer"
+    ],
+    "timezone": "browser",
+    "editable": true,
+    "graphTooltip": 1,
+    "schemaVersion": 41,
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "refresh": "5m",
+    "timepicker": {
+      "refresh_intervals": [
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h"
+      ]
+    },
+    "links": [
+      {
+        "type": "dashboards",
+        "tags": [
+          "llm-observability"
+        ],
+        "asDropdown": false,
+        "title": "LLM dashboards",
+        "includeVars": false,
+        "keepTime": true,
+        "targetBlank": false
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "type": "datasource",
+          "name": "ds",
+          "label": "Traces",
+          "query": "tempo",
+          "regex": "",
+          "refresh": 1,
+          "hide": 0,
+          "current": {
+            "selected": true,
+            "text": "grafanacloud-narrowgrotto289-traces",
+            "value": "grafanacloud-traces"
+          }
+        },
+        {
+          "type": "custom",
+          "name": "source",
+          "label": "Source",
+          "query": "claude-platform,openrouter",
+          "multi": false,
+          "includeAll": true,
+          "current": {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          "options": [
+            {
+              "selected": false,
+              "text": "claude-platform",
+              "value": "claude-platform"
+            },
+            {
+              "selected": false,
+              "text": "openrouter",
+              "value": "openrouter"
+            }
+          ],
+          "allValue": ".*"
+        },
+        {
+          "type": "textbox",
+          "name": "model_re",
+          "label": "Model (regex)",
+          "description": "Filter by model, for example claude-opus.* or anthropic/.*",
+          "query": ".*",
+          "current": {
+            "text": ".*",
+            "value": ".*"
+          },
+          "options": [
+            {
+              "selected": true,
+              "text": ".*",
+              "value": ".*"
+            }
+          ]
+        },
+        {
+          "type": "custom",
+          "name": "min_duration",
+          "label": "Slower than",
+          "query": "0s,2s,5s,10s,30s,60s,120s",
+          "multi": false,
+          "includeAll": false,
+          "current": {
+            "selected": true,
+            "text": "0s",
+            "value": "0s"
+          },
+          "options": [
+            {
+              "selected": true,
+              "text": "0s",
+              "value": "0s"
+            },
+            {
+              "selected": false,
+              "text": "2s",
+              "value": "2s"
+            },
+            {
+              "selected": false,
+              "text": "5s",
+              "value": "5s"
+            },
+            {
+              "selected": false,
+              "text": "10s",
+              "value": "10s"
+            },
+            {
+              "selected": false,
+              "text": "30s",
+              "value": "30s"
+            },
+            {
+              "selected": false,
+              "text": "60s",
+              "value": "60s"
+            },
+            {
+              "selected": false,
+              "text": "120s",
+              "value": "120s"
+            }
+          ]
+        },
+        {
+          "type": "custom",
+          "name": "status",
+          "label": "Status",
+          "query": "Any : true,Errors only : status=error,Succeeded only : status!=error",
+          "multi": false,
+          "includeAll": false,
+          "current": {
+            "selected": true,
+            "text": "Any",
+            "value": "true"
+          },
+          "options": [
+            {
+              "selected": true,
+              "text": "Any",
+              "value": "true"
+            },
+            {
+              "selected": false,
+              "text": "Errors only",
+              "value": "status=error"
+            },
+            {
+              "selected": false,
+              "text": "Succeeded only",
+              "value": "status!=error"
+            }
+          ]
+        }
+      ]
+    },
+    "annotations": {
+      "list": []
+    },
+    "panels": [
+      {
+        "type": "row",
+        "title": "Search",
+        "collapsed": false,
+        "panels": [],
+        "id": 1,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "type": "text",
+        "title": "How to use",
+        "options": {
+          "mode": "markdown",
+          "content": "Set **Source**, **Model (regex)** (`.*` for all, `claude-opus.*` for one family), **Slower than** and **Status** at the top; the first table follows all four, the saved searches follow Source and Model. Click a **trace ID** to open the trace: each span's attributes hold tokens, cache use, the stop reason and, with full-content export, the prompt and the response.\n\nFor anything else open **Explore** (compass icon), pick the traces datasource and write TraceQL, for example `{ resource.service.name = \"claude-platform\" && span.gen_ai.usage.input_tokens > 150000 }`."
+        },
+        "id": 2,
+        "gridPos": {
+          "h": 4,
+          "w": 24,
+          "x": 0,
+          "y": 1
+        }
+      },
+      {
+        "type": "table",
+        "title": "Matching calls",
+        "description": "Every call that matches the filters, newest first (up to 100).",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&duration>=$min_duration&&$status}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.anthropic.request.id)",
+            "tableType": "spans",
+            "limit": 50,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 3,
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 5
+        }
+      },
+      {
+        "type": "row",
+        "title": "Saved searches",
+        "collapsed": false,
+        "panels": [],
+        "id": 4,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 15
+        }
+      },
+      {
+        "type": "table",
+        "title": "Failed calls",
+        "description": "Calls that ended with an error. The Error column says why.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&status=error}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.anthropic.request.id)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 5,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "type": "table",
+        "title": "Slowest calls (over 30 s)",
+        "description": "Calls that took longer than 30 seconds.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&duration>30s}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.anthropic.request.id)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 6,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      },
+      {
+        "type": "table",
+        "title": "Cut off by the token limit",
+        "description": "Responses that stopped because they reached max_tokens. Raise max_tokens or ask for shorter output.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&(span.anthropic.message.stop_reason=\"max_tokens\"||span.gen_ai.response.finish_reason=\"length\")}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.anthropic.request.id)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 7,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 0,
+          "y": 25
+        }
+      },
+      {
+        "type": "table",
+        "title": "Huge prompts (over 150K tokens)",
+        "description": "Calls whose prompt passed 150K tokens. Compaction or a fresh session usually helps.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&span.gen_ai.usage.input_tokens>150000}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.anthropic.request.id,span.gen_ai.usage.cache_read.input_tokens)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 8,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 12,
+          "y": 25
+        }
+      },
+      {
+        "type": "table",
+        "title": "Expensive OpenRouter calls (over $0.05)",
+        "description": "Single OpenRouter generations that cost more than 5 cents.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&span.gen_ai.usage.total_cost>0.05}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.anthropic.request.id)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 9,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 0,
+          "y": 34
+        }
+      },
+      {
+        "type": "table",
+        "title": "Claude cache misses on big prompts",
+        "description": "Claude requests over 20K input tokens that read almost nothing from the cache, so they paid full price for the prompt.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&span.gen_ai.usage.input_tokens>20000&&span.gen_ai.usage.cache_read.input_tokens<1000}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.anthropic.request.id,span.gen_ai.usage.cache_write.input_tokens)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 10,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 12,
+          "y": 34
+        }
+      }
+    ]
+  }
+}

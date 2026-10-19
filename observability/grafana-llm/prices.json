@@ -1,0 +1,19 @@
+{
+  "_comment": "Claude API list prices, USD per million tokens, used only to estimate Claude spend in Grafana: Claude Platform spans carry tokens, not cost. Same table as crates/codegen/xai-grok-models/src/pricing.rs. A five-minute cache write costs 1.25x input, a one-hour write 2x input. `match` is an anchored regex for gen_ai.response.model (a release-date suffix is allowed after it); keep it short, because Grafana Cloud's TraceQL parser fails on some queries over 1024 characters. OpenRouter spans report their own cost and need no table.",
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "read_on": "2026-10-14",
+  "claude": [
+    {"name": "Fable 5.1", "match": "claude-(fable|mythos)-5-1", "input": 10.0, "cache_read": 0.25, "output": 50.0},
+    {"name": "Opus 5.5", "match": "claude-opus-5-5", "input": 4.0, "cache_read": 0.20, "output": 20.0},
+    {"name": "Sonnet 5.5", "match": "claude-sonnet-5-5", "input": 2.0, "cache_read": 0.10, "output": 10.0},
+    {"name": "Haiku 5.5", "match": "claude-haiku-5-5", "input": 0.10, "cache_read": 0.01, "output": 0.50,
+     "long_context": {"above_input_tokens": 100000, "input": 0.50, "cache_read": 0.05, "output": 2.50}},
+    {"name": "Fable 5", "match": "claude-(fable|mythos)-5", "input": 10.0, "cache_read": 1.0, "output": 50.0},
+    {"name": "Opus 5, 4.5-4.8", "match": "claude-opus-(5|4-[5-8])", "input": 5.0, "cache_read": 0.50, "output": 25.0},
+    {"name": "Sonnet 5", "match": "claude-sonnet-5", "input": 2.0, "cache_read": 0.20, "output": 10.0},
+    {"name": "Sonnet 4.x", "match": "claude-sonnet-4(-[56])?", "input": 3.0, "cache_read": 0.30, "output": 15.0},
+    {"name": "Haiku 4.5", "match": "claude-haiku-4-5", "input": 1.0, "cache_read": 0.10, "output": 5.0},
+    {"name": "Opus 4, 4.1", "match": "claude-opus-4(-1)?", "input": 15.0, "cache_read": 1.50, "output": 75.0},
+    {"name": "Haiku 3.5", "match": "claude-3-5-haiku", "input": 0.80, "cache_read": 0.08, "output": 4.0}
+  ]
+}
