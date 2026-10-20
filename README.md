@@ -288,6 +288,47 @@ cargo fmt --all               # rustfmt.toml at the repo root
 swift test --package-path desktop/macOS   # desktop tests
 ```
 
+## Continuous integration
+
+Every pull request into `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml),
+which compiles each client:
+
+| Job | Runner | Builds |
+|-----|--------|--------|
+| TUI | `macos-26` | `cargo build --locked -p xai-grok-pager-bin` (debug), with DotSlash for `bin/protoc` |
+| Desktop (macOS 26 SDK) | `macos-26` | `swift build --configuration release` of `desktop/macOS` with the newest Xcode 26 |
+| Desktop (macOS 15 SDK) | `macos-15` | the same against the newest macOS 15 SDK, like the macOS 15 release image |
+| iOS | `macos-26` | `xcodebuild build` of `mobile/iOS` for iOS devices, unsigned, with the newest Xcode 26 |
+| Android | `ubuntu-latest` | `./gradlew :app:assembleDebug` in `mobile/Android` |
+
+The last job, **All builds**, passes only when every job above succeeded. The
+"Protect main" ruleset requires it with no bypass, so a pull request cannot merge
+while any client fails to compile. A new job only needs adding to that job's
+`needs` list; the ruleset stays as it is. Runs on `main` keep the build caches
+warm for pull requests. CI only compiles: tests, lints and packaging (signing,
+disk images) stay local.
+
+The ruleset is kept in
+[`.github/rulesets/protect-main.json`](.github/rulesets/protect-main.json):
+pull requests only into the default branch, no deletion or force push, and the
+**All builds** check from GitHub Actions. Apply it as a repository admin, to a
+new repository or after changing the file (name the repository: `gh api`'s
+`{owner}/{repo}` can resolve to the `upstream` remote):
+
+```sh
+gh api repos/CharryLee0426/crok-build/rulesets      # the ruleset's <id>
+gh api -X PUT repos/CharryLee0426/crok-build/rulesets/<id> --input .github/rulesets/protect-main.json
+gh api -X POST repos/<owner>/<repo>/rulesets --input .github/rulesets/protect-main.json   # a new repository
+```
+
+To repeat a job locally, run its command from the table. The macOS 15 SDK build
+is the one that needs more than that:
+
+```sh
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk \
+  swift build --package-path desktop/macOS --configuration release --build-system native
+```
+
 ## License
 
 First-party code in this repository is licensed under the **Apache License,
