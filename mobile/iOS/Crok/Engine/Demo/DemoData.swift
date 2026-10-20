@@ -172,6 +172,29 @@ extension DemoWorld {
             TranscriptEvent(id: "e-pager-2", seq: 2, key: "k2", kind: .user, text: "Show me every kind of Markdown you can write.", origin: "local", at: t - 26 * hour + 60_000),
             TranscriptEvent(id: "e-pager-3", seq: 3, key: "k3", kind: .assistant, text: DemoWorld.markdownShowcase, at: t - 26 * hour + 90_000),
         ]
+        // `-CrokDemoHistory <n>`: n earlier events above the showcase, as in a long session (several transcript pages).
+        let history = UserDefaults.standard.integer(forKey: "CrokDemoHistory")
+        if history > 0 {
+            let earlier = (0..<history).map { i -> TranscriptEvent in
+                let at = t - 30 * hour + Double(i) * minute
+                let id = "e-pager-h\(i)", seq = Double(i + 1), key = "h\(i)", step = i / 4 + 1
+                switch i % 4 {
+                case 0:
+                    return TranscriptEvent(id: id, seq: seq, key: key, kind: .user, text: "Step \(step): go on with the next part of the scroll model.", origin: "local", at: at)
+                case 1:
+                    return TranscriptEvent(id: id, seq: seq, key: key, kind: .tool, text: "src/scroll/model\(step).rs", title: "Edit model\(step).rs", toolKind: "edit", status: "completed", at: at)
+                case 2:
+                    return TranscriptEvent(id: id, seq: seq, key: key, kind: .assistant, text: "Step \(step) moves the anchor:\n\n```rust\nfn anchor(&self) -> Anchor {\n    self.rows.last().map(Anchor::End).unwrap_or_default()\n}\n```\n\nThe tests pass.", at: at)
+                default:
+                    return TranscriptEvent(id: id, seq: seq, key: key, kind: .assistant, text: "Done with step \(step).", at: at)
+                }
+            }
+            pager.events = earlier + pager.events.map { event in
+                var event = event
+                event.seq += Double(history)
+                return event
+            }
+        }
 
         // 6. Offline, a few days old.
         var notes = Session(

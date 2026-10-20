@@ -292,14 +292,16 @@ final class DemoWorld {
             self.updateEvent(s, id: tool, status: "completed")
             self.changed()
 
-            let reply = DemoWorld.streamedReply
+            // A prompt asking for the showcase gets it, streamed faster: a reply much taller than the screen.
+            let long = text.localizedCaseInsensitiveContains("showcase")
+            let reply = long ? DemoWorld.markdownShowcase : DemoWorld.streamedReply
             let answer = self.pushEvent(s, kind: .assistant, text: "")
             var shown = 0
             let words = reply.split(separator: " ", omittingEmptySubsequences: false)
             while shown < words.count {
-                try? await Task.sleep(for: .milliseconds(450))
+                try? await Task.sleep(for: .milliseconds(long ? 250 : 450))
                 guard !Task.isCancelled else { return }
-                shown = min(words.count, shown + 9)
+                shown = min(words.count, shown + (long ? 30 : 9))
                 self.updateEvent(s, id: answer, text: words.prefix(shown).joined(separator: " "))
                 self.changed()
             }

@@ -64,6 +64,8 @@ every screen runs unchanged.
 | `-CrokDemoApproveAfter 3` | with `-CrokDemoSignIn`: the demo approves the code after 3 s |
 | `-CrokAppearance light` / `dark` | force the appearance |
 | `-CrokPageSize 8` | transcript page size (default 50), to try paging |
+| `-CrokDemoLatency 400` | with `-CrokDemo`: every query's first answer comes after 400 ms, as over the network |
+| `-CrokDemoHistory 120` | with `-CrokDemo`: 120 earlier events above the Markdown showcase, as in a long session |
 | `-CrokResetState YES` | forget the Keychain credentials, drafts and caches at launch |
 | `-CrokNoBrowser YES` | do not open the browser sheet when a sign-in starts |
 | `-CrokServer http://127.0.0.1:3210` | sign in to that relay instead of the built-in one (also `CROK_RELAY_URL`) |
@@ -161,6 +163,14 @@ TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xc
 # reply streaming through an unclosed fence and an unclosed $$.
 TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
   -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/MarkdownUITests
+
+# The transcript's end with a last reply taller than the screen: it opens on the end (also over a slow network, and in a
+# long session, where the lazy stack can rest on a stale height estimate with a blank stretch under the last row), follows
+# such a reply streaming in (a demo prompt with "showcase" in it streams the showcase), and a short drag up inside the
+# reply brings the scroll-to-bottom button, which goes back to the end. Needs iOS 18+ (on iOS 17 the button still goes by
+# the bottom sentinel).
+TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
+  -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/TranscriptBottomUITests
 ```
 
 ### Checking against a real relay
