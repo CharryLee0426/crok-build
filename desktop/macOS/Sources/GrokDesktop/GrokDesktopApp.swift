@@ -64,36 +64,36 @@ private struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button(L10n.t("new_task", "New Task")) { store.newTask() }.keyboardShortcut("n")
-            Button(L10n.t("open_project", "Open Project…")) { store.addProject() }.keyboardShortcut("o", modifiers: [.command, .shift])
-            Button("Attach Photos & Files…") { store.features.attachments.chooseFiles() }.keyboardShortcut("u").disabled(!menu.hasProject)
-            Button("Attach Folder…") { store.features.attachments.chooseFolder() }.disabled(!menu.hasProject)
-            Button(L10n.t("search_tasks", "Search Tasks")) { store.showSearch.toggle() }.keyboardShortcut("k")
-            Button(L10n.t("commands", "Commands…")) { store.showCommandPalette = true }.keyboardShortcut("p", modifiers: [.command, .shift])
+            Button(L10n.t("new_task", "New Task"), action: inWindow { store.newTask() }).keyboardShortcut("n")
+            Button(L10n.t("open_project", "Open Project…"), action: inWindow { store.addProject() }).keyboardShortcut("o", modifiers: [.command, .shift])
+            Button("Attach Photos & Files…", action: inWindow { store.features.attachments.chooseFiles() }).keyboardShortcut("u").disabled(!menu.hasProject)
+            Button("Attach Folder…", action: inWindow { store.features.attachments.chooseFolder() }).disabled(!menu.hasProject)
+            Button(L10n.t("search_tasks", "Search Tasks"), action: inWindow { store.showSearch.toggle() }).keyboardShortcut("k")
+            Button(L10n.t("commands", "Commands…"), action: inWindow { store.showCommandPalette = true }).keyboardShortcut("p", modifiers: [.command, .shift])
         }
-        // In place of the standard Close, which closes the main window and so quits the app.
+        // In place of the standard Close: in the main window ⌘W closes the browser's tab, not the window.
         CommandGroup(replacing: .saveItem) {
             Button(L10n.t("close", "Close")) { store.closeFrontmost() }.keyboardShortcut("w")
         }
         CommandGroup(after: .appInfo) {
-            Button(L10n.t("check_for_updates", "Check for Updates…")) { store.checkForUpdates() }
+            Button(L10n.t("check_for_updates", "Check for Updates…"), action: inWindow { store.checkForUpdates() })
         }
         CommandGroup(replacing: .appSettings) {
-            Button(L10n.t("settings_ellipsis", "Settings…")) { store.showSettings = true }.keyboardShortcut(",")
+            Button(L10n.t("settings_ellipsis", "Settings…"), action: inWindow { store.showSettings = true }).keyboardShortcut(",")
         }
         CommandMenu("Task") {
-            Button(L10n.t("plan_mode", "Plan Mode")) { store.executeCommand(name: "plan") }.keyboardShortcut("p", modifiers: [.command, .option]).disabled(menu.isRunning)
-            Button("Goal…") { store.featurePanel = .goals }.disabled(!menu.hasProject)
-            Button("Subagents…") { store.featurePanel = .agents }.disabled(!menu.hasProject)
+            Button(L10n.t("plan_mode", "Plan Mode"), action: inWindow { store.executeCommand(name: "plan") }).keyboardShortcut("p", modifiers: [.command, .option]).disabled(menu.isRunning)
+            Button("Goal…", action: inWindow { store.featurePanel = .goals }).disabled(!menu.hasProject)
+            Button("Subagents…", action: inWindow { store.featurePanel = .agents }).disabled(!menu.hasProject)
             Divider()
             Button(L10n.t("stop", "Stop")) { store.cancel() }.keyboardShortcut(".").disabled(!menu.isRunning)
             Button("Import Harness Tasks") { store.syncHistory() }.disabled(!menu.hasProject || menu.isSyncing)
             Divider()
-            Button(L10n.t("side_panel", "Side Panel")) { store.toggleSidePanel() }.keyboardShortcut("j")
-            Button(L10n.t("files", "Files")) { store.showSidePanel(.files) }.disabled(!menu.hasProject)
-            Button("Side Chat") { store.showSidePanel(.sideChat); store.features.sideChat.requestFocus() }
-            Button(L10n.t("terminal", "Terminal")) { store.openTerminal() }.keyboardShortcut("`", modifiers: .control).disabled(!menu.hasProject)
-            Button(L10n.t("browser", "Browser")) { store.openBrowser() }.keyboardShortcut("b", modifiers: [.command, .option])
+            Button(L10n.t("side_panel", "Side Panel"), action: inWindow { store.toggleSidePanel() }).keyboardShortcut("j")
+            Button(L10n.t("files", "Files"), action: inWindow { store.showSidePanel(.files) }).disabled(!menu.hasProject)
+            Button("Side Chat", action: inWindow { store.showSidePanel(.sideChat); store.features.sideChat.requestFocus() })
+            Button(L10n.t("terminal", "Terminal"), action: inWindow { store.openTerminal() }).keyboardShortcut("`", modifiers: .control).disabled(!menu.hasProject)
+            Button(L10n.t("browser", "Browser"), action: inWindow { store.openBrowser() }).keyboardShortcut("b", modifiers: [.command, .option])
             Button("Reveal Project in Finder") { store.revealProject() }.disabled(!menu.hasProject)
             Button("Git Graph") { store.features.gitGraph.open() }.keyboardShortcut("g", modifiers: [.command, .option]).disabled(!menu.hasProject)
         }
@@ -101,20 +101,26 @@ private struct AppCommands: Commands {
             Button("Crok Build Guides") { store.executeCommand(name: "docs") }
             Button(L10n.t("tutorial", "Tutorial")) { store.executeCommand(name: "tutorial") }
             Divider()
-            Button(L10n.t("keyboard_shortcuts", "Keyboard Shortcuts")) { store.features.extras.openKeyboardShortcuts() }.keyboardShortcut("/")
+            Button(L10n.t("keyboard_shortcuts", "Keyboard Shortcuts"), action: inWindow { store.features.extras.openKeyboardShortcuts() }).keyboardShortcut("/")
             Divider()
             Button("Reveal Log File") { store.revealLog() }
         }
         CommandMenu("Extensions") {
-            Button("MCP Servers…") { store.featurePanel = .mcps }
-            Button("Skills…") { store.featurePanel = .skills }
-            Button("Plugins…") { store.featurePanel = .plugins }
-            Button("Workflows…") { store.featurePanel = .workflows }
-            Button("Agent Definitions…") { store.featurePanel = .agentDefinitions }
-            Button("Personas…") { store.featurePanel = .personas }
-            Button("Hooks…") { store.featurePanel = .hooks }
-            Button("Memory…") { store.featurePanel = .memory }
+            Button("MCP Servers…", action: inWindow { store.featurePanel = .mcps })
+            Button("Skills…", action: inWindow { store.featurePanel = .skills })
+            Button("Plugins…", action: inWindow { store.featurePanel = .plugins })
+            Button("Workflows…", action: inWindow { store.featurePanel = .workflows })
+            Button("Agent Definitions…", action: inWindow { store.featurePanel = .agentDefinitions })
+            Button("Personas…", action: inWindow { store.featurePanel = .personas })
+            Button("Hooks…", action: inWindow { store.featurePanel = .hooks })
+            Button("Memory…", action: inWindow { store.featurePanel = .memory })
         }
+    }
+
+    /// A command whose result is in the main window brings the window back first when its close
+    /// button has hidden it.
+    private func inWindow(_ action: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
+        { [store] in store.showMainWindow(); action() }
     }
 }
 
@@ -160,5 +166,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DesktopLog.shared.flush()
         return .terminateNow
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Closing windows never quits: the main window's close button hides it and the app keeps
+    /// running (`MainWindowKeeper`). Quit is ⌘Q.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    /// The Dock icon, or opening the app again, brings back the main window its close button hid.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        store?.showMainWindow() != true
+    }
 }

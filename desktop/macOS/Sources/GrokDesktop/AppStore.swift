@@ -98,8 +98,11 @@ final class AppStore: ObservableObject {
         }
         return model
     }()
-    /// The window the conversation is in, which ⌘W leaves open.
-    weak var mainWindow: NSWindow?
+    /// The window the conversation is in, which ⌘W leaves open and its close button only hides.
+    weak var mainWindow: NSWindow? {
+        didSet { if let mainWindow { mainWindowKeeper.keep(mainWindow) } }
+    }
+    private let mainWindowKeeper = MainWindowKeeper()
     /// The side panel beside the conversation: files, side chat, and terminal.
     @Published var showInspector = false
     @Published var sidePanelTab: SidePanelTab = .files {
@@ -1499,12 +1502,19 @@ final class AppStore: ObservableObject {
         if address.isEmpty { features.browser.focusAddress() } else { features.browser.open(address) }
     }
 
+    /// Brings the main window back after its close button hid it, or out of the Dock. Returns
+    /// whether it was off screen.
+    @discardableResult
+    func showMainWindow() -> Bool { mainWindowKeeper.show() }
+
     /// ⌘W closes what is in front. In the main window that is the browser's tab, while the browser
-    /// shows; the window itself stays, because closing it quits the app. Any other window closes.
+    /// shows; the window itself stays (its close button hides it). Any other window closes.
     func closeFrontmost() { closeFrontmost(NSApp.keyWindow) }
 
     func closeFrontmost(_ window: NSWindow?) {
-        guard let window, window !== mainWindow else { closeBrowserTab(); return }
+        // Nothing has the keyboard once the close button has hidden the main window, and its tabs stay.
+        guard let window = window ?? (mainWindow?.isVisible == true ? mainWindow : nil) else { return }
+        guard window !== mainWindow else { closeBrowserTab(); return }
         // A sheet or a popover has no close button, and asking one to close only sounds the alert.
         if window.styleMask.contains(.closable) { window.performClose(nil) }
     }

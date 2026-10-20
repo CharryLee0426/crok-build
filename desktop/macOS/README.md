@@ -426,6 +426,12 @@ both launch methods. See the [authentication guide](../../crates/codegen/xai-gro
 | Insert a new line | Shift-Return, Option-Return, or ⌃J |
 | Stop the current task | ⌘. |
 
+The window's close button hides the window and leaves the app running in the
+background, with its tasks, terminals and browser pages. Click the Dock icon, choose
+the app under **Window**, or use a menu command for the window, such as New Task or
+Settings, to bring it back as it was. In full screen it leaves full screen first.
+⌘Q quits.
+
 `/multiline` changes Return to insert a newline and ⌘Return to send. The side
 chat's field takes the same keys as the prompt. `/compact-mode`
 toggles a denser transcript layout. The full list, including the palette, theme
