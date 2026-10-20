@@ -31,13 +31,25 @@ as `release`).
    manifest, and only then installs it. For Crok Desktop that is the disk image of the SDK the
    installed app was linked against (`LC_BUILD_VERSION` of its executable: 26 or later takes the
    `macOS26-SDK` image, older the `macOS15-SDK` one), not the one for the macOS it runs on; a
-   release without it is reported as not installable here, already by `--check`. A tarball's
-   `crok` is renamed over the old binary; a disk image is mounted, its app copied beside the
-   installed bundle, its signature checked with `codesign`, and the bundle swapped in with two
-   renames once Crok Desktop has quit (the app waits as long as it takes and cancels with
-   SIGTERM). The old bundle is moved to the Trash under its version when macOS lets the updater
-   reach the Trash, and deleted otherwise. What happened after the quit is written to
-   `$CROK_HOME/updates/last-install.json`, which the reopened app reads and removes.
+   release without it is reported as not installable here, already by `--check`.
+4. It checks that the new code keeps the installed copy's permissions: the new app and the `crok`
+   inside it (or the tarball's `crok`) must meet the designated requirement of the code they
+   replace (`codesign --verify -R`), which is what macOS keeps its privacy permissions for (see
+   [the code signing certificate](#the-code-signing-certificate)). A release that does not is
+   refused before anything changes, unless `--allow-new-signature` is given. An installed copy
+   signed ad hoc names only its own build, so nothing can keep its permissions and nothing is
+   refused; `--check` reports which case applies as `permissionsCarryOver`.
+5. It installs into what is already there. A tarball's `crok` is renamed over the old binary at
+   the same path. A disk image is mounted, its app copied beside the installed bundle and its
+   signature checked with `codesign`; once Crok Desktop has quit (the app waits as long as it
+   takes and cancels with SIGTERM), the installed bundle's `Contents` and the new one's are
+   exchanged in one atomic rename (`renamex_np` with `RENAME_SWAP`; three renames on a volume
+   that cannot). The bundle folder stays, with its extended attributes and its place in the Dock
+   and Finder, and LaunchServices is told it changed (`lsregister -f`). The old contents are
+   deleted: kept in the Trash they would be a second app with Crok Desktop's identifier. Only if
+   macOS refuses changes inside the bundle is the whole bundle replaced at its path instead.
+   What happened after the quit is written to `$CROK_HOME/updates/last-install.json`, which the
+   reopened app reads and removes.
 
 The GitHub API is used only to show release notes, and only when it answers.
 
@@ -77,7 +89,8 @@ identifier "dev.chenli.crok.desktop" and certificate leaf = H"4d47861c871242056d
 ```
 
 which every later build signed by that certificate meets, so a permission given to one version
-holds for the next. `desktop/macOS/scripts/build-app.sh`, `make deploy`, `make build-test-tui`,
+holds for the next. `crok upgrade` checks that requirement against every release before it
+installs it, and refuses one that would not meet it. `desktop/macOS/scripts/build-app.sh`, `make deploy`, `make build-test-tui`,
 `make build-test-desktop` and the tarball in `publish.sh` all sign through it. The identifiers
 keep release and test permissions apart:
 
@@ -100,7 +113,8 @@ another Mac, copy the folder there (`ditto ~/.crok-codesign <the other Mac's hom
 Without it a Mac makes a certificate of its own, which is fine for local builds (they keep their
 permissions from build to build on that Mac) but not for a release. To change certificates on
 purpose, for example to a Developer ID one with `SIGN_IDENTITY`, replace `crok-codesign.pem`;
-users then allow the permissions once more.
+users then allow the permissions once more, and since the updater refuses such a release, say in
+its notes to install it from the disk image or with `crok upgrade --allow-new-signature`.
 
 The TUI in a terminal is not involved: there macOS asks for the terminal app's permissions
 (Ghostty, Terminal, iTerm…), which a crok update never changes. The apps' own permissions are

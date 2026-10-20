@@ -37,25 +37,35 @@ Settings offers to repair the link. The terminal in the side panel runs the app'
 **Crok Desktop › Check for Updates…** (also at the bottom of Settings) looks for
 a newer [GitHub release](https://github.com/CharryLee0426/crok-build/releases)
 of this fork. **Install and Relaunch** downloads the disk image for this copy,
-checks it, quits the app, swaps the new bundle into place and opens it again,
-which then says the new version is installed. The image follows the SDK the
+checks it, quits the app, installs the new version into this copy and opens it
+again, which then says the new version is installed. The update happens inside
+the installed bundle: `Crok Desktop.app` itself stays where it is, with what
+macOS attached to it, and only its `Contents` folder is exchanged for the new one
+in a single rename; the old version is deleted rather than left in the Trash as a
+second Crok Desktop. Before anything changes, the updater checks that the new app
+and its `crok` meet the installed copy's code requirement, the one macOS keeps
+Accessibility, Screen Recording, the microphone and its other permissions for, so
+an update keeps every permission you gave the app. A release signed by another
+certificate would lose them, and is refused (`crok upgrade --allow-new-signature`
+installs it anyway). The image follows the SDK the
 installed app was built with, whatever macOS it runs on: a copy from the macOS 26
 SDK image only takes the next macOS 26 SDK image, a copy from the macOS 15 SDK
 image only the next macOS 15 SDK one, and a release without that image is not
 offered (the sheet's subtitle names the SDK, and the image to install is shown
 under the release). If tasks are running when the update is ready, the sheet says
 how many stop and offers **Quit and Install**; or keep working, and the update
-installs whenever the app quits next. If the swap fails after the app has quit,
+installs whenever the app quits next. If the update fails after the app has quit,
 the old version opens again and Software Update shows why. The bundled `crok` is
 part of the bundle, so the `crok` command in Terminal is updated at the same
 moment; `crok` sessions already open keep running the old version until they are
 restarted.
 
 The same updater is `crok upgrade` in a terminal (`crok upgrade --check` only
-reports). Run from the app's `crok`, it upgrades the app; run from a standalone
-`crok` (for example `~/.local/bin/crok` from `make deploy`), it replaces that
-binary with the release's. It asks you to quit Crok Desktop first rather than
-replacing a running app. A source build inside a checkout is refused; use
+reports). Run from the app's `crok`, it updates the app in place, the same way;
+run from a standalone `crok` (for example `~/.local/bin/crok` from `make deploy`),
+it renames the release's binary over that one, at the same path, after the same
+signature check. It asks you to quit Crok Desktop first rather than updating a
+running app. A source build inside a checkout is refused; use
 `git pull` and `make deploy` there.
 
 What makes it safe without a server or a Developer ID: every release carries

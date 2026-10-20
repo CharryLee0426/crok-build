@@ -39,9 +39,11 @@ no official release: build it from this checkout.
   [authentication guide](crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).
 - **Updates from this fork's releases.** `crok upgrade` installs the latest
   [GitHub release](https://github.com/CharryLee0426/crok-build/releases) over
-  itself, or over the whole Crok Desktop when it is the app's bundled copy;
+  itself, or into Crok Desktop's own bundle when it is the app's bundled copy;
   **Crok Desktop › Check for Updates…** does the same from the app. Releases are
   signed, and the public key is built in (see [`release/README.md`](release/README.md)).
+  An update must meet the installed copy's code signature requirement, so the
+  permissions macOS gave it (Accessibility, Screen Recording…) carry over.
   grok's own `crok update` is off: it would install the official grok.
 - **Trace viewers.** `crok trace` and the in-TUI `/trace` show an agent's turns,
   tool calls, and reasoning in the terminal or as a self-contained HTML page.

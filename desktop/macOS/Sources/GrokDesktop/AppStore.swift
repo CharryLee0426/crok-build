@@ -87,7 +87,7 @@ final class AppStore: ObservableObject {
     /// What the harness reported about itself and the signed-in account.
     @Published var harnessMeta = HarnessMeta()
     lazy var features = DesktopFeatures(store: self)
-    /// Check for Updates: the bundled `crok upgrade`, which replaces this app and its crok together.
+    /// Check for Updates: the bundled `crok upgrade`, which updates this app and its crok together, in place.
     lazy var softwareUpdate: SoftwareUpdateModel = {
         let model = SoftwareUpdateModel()
         model.terminate = { [weak self] in self?.quitForUpdate() }
@@ -1433,7 +1433,7 @@ final class AppStore: ObservableObject {
     /// Asks AppKit to quit; returns only when the quit was refused or cancelled. Tests replace it.
     var terminateApp: @MainActor () -> Void = { NSApp.terminate(nil) }
 
-    /// Quits so `crok upgrade` can swap the bundle. AppKit refuses to quit while a sheet is attached
+    /// Quits so `crok upgrade` can update the bundle. AppKit refuses to quit while a sheet is attached
     /// to a window ("App termination blocked by modal sheet"), and Software Update is itself a sheet,
     /// so the sheets close first. Without this the helper waited forever for a quit that never came.
     func quitForUpdate() {

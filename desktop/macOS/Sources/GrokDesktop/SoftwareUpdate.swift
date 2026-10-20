@@ -2,9 +2,10 @@ import AppKit
 import SwiftUI
 
 /// Check for Updates: the bundled `crok upgrade --json` finds the latest GitHub release of the fork,
-/// downloads the disk image for this Mac, checks it against the release signature, and swaps the
-/// app bundle once Crok Desktop has quit. The TUI inside the bundle updates with the app, so the
-/// `crok` command and the desktop never drift apart.
+/// downloads the disk image for this Mac, checks it against the release signature, and installs it
+/// into this app bundle once Crok Desktop has quit: the bundle stays, only its contents change, and
+/// a new version that would not keep the permissions macOS gave this one is refused. The TUI inside
+/// the bundle updates with the app, so the `crok` command and the desktop never drift apart.
 ///
 /// The model drives the helper; the view shows its phase. The helper is injected so tests run
 /// without a release.
@@ -24,6 +25,9 @@ enum SoftwareUpdateEvent: Equatable {
         /// The macOS SDK this copy was linked against (`26.0`), and so the image it installs (`26`).
         var sdk: String? = nil
         var image: Int? = nil
+        /// This copy is signed by a certificate, so an update keeps the permissions macOS gave it
+        /// (or is refused); false for a copy signed ad hoc.
+        var permissionsCarryOver = false
     }
 
     case check(Check)
@@ -45,7 +49,8 @@ enum SoftwareUpdateEvent: Equatable {
             return .check(Check(current: current, latest: latest, page: object["page"] as? String ?? "",
                                 notes: object["notes"] as? String, updateAvailable: object["updateAvailable"] as? Bool ?? false,
                                 asset: object["asset"] as? String, unavailable: object["unavailable"] as? String,
-                                sdk: object["sdk"] as? String, image: (object["image"] as? NSNumber)?.intValue))
+                                sdk: object["sdk"] as? String, image: (object["image"] as? NSNumber)?.intValue,
+                                permissionsCarryOver: object["permissionsCarryOver"] as? Bool ?? false))
         case "progress":
             let bytes = (object["bytes"] as? NSNumber)?.int64Value ?? 0
             return .progress(bytes: bytes, total: (object["total"] as? NSNumber)?.int64Value)
@@ -179,7 +184,7 @@ final class SoftwareUpdateModel: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastChecked: Date?
     let currentVersion: String
-    /// Quits the app; the helper then swaps the bundle and opens the new one. Tests replace it.
+    /// Quits the app; the helper then updates the bundle and opens it again. Tests replace it.
     var terminate: @MainActor () -> Void = { NSApp.terminate(nil) }
     /// How many tasks are working. With none, a ready update quits at once; with some, the sheet
     /// asks first, since quitting stops them.
@@ -246,7 +251,7 @@ final class SoftwareUpdateModel: ObservableObject {
         DesktopLog.info("update.check", ["phase": String(describing: phase)])
     }
 
-    /// Downloads and stages the release, then quits so the helper can swap the bundle and relaunch.
+    /// Downloads and stages the release, then quits so the helper can update the bundle and relaunch.
     func install() {
         guard canInstall else { return }
         phase = .downloading(nil)
@@ -485,7 +490,11 @@ struct SoftwareUpdateSheet: View {
     private var detail: String? {
         switch model.phase {
         case .available(let check):
-            return check.unavailable ?? L10n.t("update_detail", "The new app and its crok command download from GitHub, are checked against the release signature, and replace this copy. Crok Desktop quits and opens again.")
+            if let unavailable = check.unavailable { return unavailable }
+            if check.permissionsCarryOver {
+                return L10n.t("update_detail_keeps_permissions", "The new version and its crok command download from GitHub, are checked against the release signature, and are installed into this copy, which keeps the permissions you gave it (Accessibility, Screen Recording and the rest). Crok Desktop quits and opens again.")
+            }
+            return L10n.t("update_detail", "The new version and its crok command download from GitHub, are checked against the release signature, and are installed into this copy. Crok Desktop quits and opens again.")
         case .failed(let message):
             return message
         case .waitingToQuit:

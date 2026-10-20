@@ -2482,6 +2482,7 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                     force: upgrade.force,
                     wait_for_pid: upgrade.wait_for_pid,
                     relaunch: upgrade.relaunch,
+                    allow_new_signature: upgrade.allow_new_signature,
                     verify_dir: upgrade.verify_dir,
                     current_release: env!("CROK_RELEASE_VERSION").to_string(),
                 })

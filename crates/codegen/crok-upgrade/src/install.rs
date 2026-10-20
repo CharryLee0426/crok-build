@@ -1,7 +1,9 @@
-//! Putting a verified download in place: a standalone binary is renamed over, a Crok Desktop
-//! bundle is staged beside the installed one and swapped in with two renames.
+//! Putting a verified download in place. A standalone binary is renamed over the old one, at the
+//! same path. Crok Desktop is updated inside its own bundle: the new app is staged beside it and
+//! its `Contents` exchanged with the installed one's in a single rename, so the bundle folder
+//! stays, with what macOS attached to it, and no second copy of the app is left anywhere.
 //!
-//! Nothing is ever overwritten in place. macOS kills a process whose signed executable
+//! No file is ever overwritten in place. macOS kills a process whose signed executable
 //! changes under it, and a rename leaves the running copy's files untouched.
 
 use std::path::{Path, PathBuf};
@@ -10,8 +12,27 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
-/// Replaces `target` with the `crok` executable inside the release tarball.
-pub fn install_binary(archive: &Path, target: &Path) -> Result<()> {
+/// The new `crok`, extracted beside the binary it replaces and run once. Dropping it removes it.
+pub struct StagedBinary {
+    file: tempfile::NamedTempFile,
+}
+
+impl StagedBinary {
+    pub fn path(&self) -> &Path {
+        self.file.path()
+    }
+
+    /// Renames the new binary over `target`.
+    pub fn install(self, target: &Path) -> Result<()> {
+        self.file
+            .persist(target)
+            .with_context(|| format!("replacing {}", target.display()))?;
+        Ok(())
+    }
+}
+
+/// Extracts the `crok` executable inside the release tarball beside `target`, and checks it runs.
+pub fn stage_binary(archive: &Path, target: &Path) -> Result<StagedBinary> {
     let dir = target
         .parent()
         .with_context(|| format!("{} has no parent folder", target.display()))?;
@@ -57,14 +78,12 @@ pub fn install_binary(archive: &Path, target: &Path) -> Result<()> {
             String::from_utf8_lossy(&probe.stderr).trim()
         );
     }
-    staged
-        .persist(target)
-        .with_context(|| format!("replacing {}", target.display()))?;
-    Ok(())
+    Ok(StagedBinary { file: staged })
 }
 
 /// A copy of the new app, staged in a hidden folder beside the installed bundle so the final
-/// move is a rename on the same volume. Dropping it removes whatever was not moved out.
+/// exchange is a rename on the same volume. Dropping it removes the folder, and with it the old
+/// contents once they have been exchanged for the new.
 pub struct StagedApp {
     _folder: tempfile::TempDir,
     pub app: PathBuf,
@@ -316,9 +335,76 @@ fn process_exists(_pid: u32) -> bool {
     false
 }
 
+/// How the new version was put in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Installed {
+    /// Into the installed bundle: the folder stayed and only its `Contents` changed.
+    InPlace,
+    /// macOS refused changes inside the bundle, so the whole bundle was replaced at its path.
+    Replaced,
+}
+
+/// Puts the staged app into the installed bundle. The bundle's `Contents` and the staged app's are
+/// exchanged in one atomic rename, so the bundle folder keeps its identity and what macOS attached
+/// to it, and the old contents end up in the staging folder, which goes when `staged` is dropped.
+/// The old version is not kept as a second app, which LaunchServices would know as another Crok
+/// Desktop. On failure the installed bundle is as it was.
+pub fn update_bundle(staged: &StagedApp, bundle: &Path) -> Result<Installed> {
+    let how = match exchange(&bundle.join("Contents"), &staged.app.join("Contents")) {
+        Ok(()) => Installed::InPlace,
+        // App Management can refuse changes inside an app bundle and still allow replacing the
+        // bundle as a whole; the permissions follow the signature either way.
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            let old = swap_app(staged, bundle)?;
+            let _ = std::fs::remove_dir_all(old);
+            Installed::Replaced
+        }
+        Err(error) => return Err(error).with_context(|| format!("updating {}", bundle.display())),
+    };
+    // A copy dragged in from a downloaded disk image keeps the quarantine flag on its folder,
+    // which would make macOS assess the new code as a fresh download.
+    clear_quarantine(bundle);
+    // Finder and the Dock refresh an app's icon and version from its modification time, and
+    // LaunchServices rereads the bundle's Info.plist when told that it changed.
+    let _ = Command::new("/usr/bin/touch").arg(bundle).status();
+    register(bundle);
+    Ok(how)
+}
+
+/// Swaps what two paths on one volume name: atomically where the volume can (`renamex_np` with
+/// `RENAME_SWAP`, which APFS does), otherwise with three renames that are undone on failure.
+fn exchange(a: &Path, b: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let from = std::ffi::CString::new(a.as_os_str().as_bytes())?;
+        let to = std::ffi::CString::new(b.as_os_str().as_bytes())?;
+        // SAFETY: both are NUL-terminated paths that outlive the call.
+        if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_SWAP) } == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if !matches!(error.raw_os_error(), Some(libc::ENOTSUP | libc::EINVAL)) {
+            return Err(error);
+        }
+    }
+    let aside = b.with_file_name(format!(".exchange-{}", std::process::id()));
+    std::fs::rename(a, &aside)?;
+    if let Err(error) = std::fs::rename(b, a) {
+        let _ = std::fs::rename(&aside, a);
+        return Err(error);
+    }
+    if let Err(error) = std::fs::rename(&aside, b) {
+        let _ = std::fs::rename(a, b);
+        let _ = std::fs::rename(&aside, a);
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// Moves the installed bundle aside and the staged app into its place. Returns where the old
 /// bundle went; on failure the old bundle is back where it was.
-pub fn swap_app(staged: &StagedApp, bundle: &Path) -> Result<PathBuf> {
+fn swap_app(staged: &StagedApp, bundle: &Path) -> Result<PathBuf> {
     let parent = bundle
         .parent()
         .with_context(|| format!("{} has no parent folder", bundle.display()))?;
@@ -332,35 +418,16 @@ pub fn swap_app(staged: &StagedApp, bundle: &Path) -> Result<PathBuf> {
         let _ = std::fs::rename(&old, bundle);
         return Err(error).with_context(|| format!("moving the new app to {}", bundle.display()));
     }
-    // Finder and the Dock refresh an app's icon and version from its modification time.
-    let _ = Command::new("/usr/bin/touch").arg(bundle).status();
     Ok(old)
 }
 
-/// The replaced bundle goes to the Trash under its version, as a way back; if the Trash is on
-/// another volume it is deleted.
-pub fn discard_old_app(old: &Path, bundle_name: &str, version: &str) {
-    let stem = bundle_name.strip_suffix(".app").unwrap_or(bundle_name);
-    if let Some(trash) = xai_dirs::home_dir().map(|home| home.join(".Trash"))
-        && trash.is_dir()
-    {
-        for attempt in 0..100 {
-            let name = if attempt == 0 {
-                format!("{stem} {version}.app")
-            } else {
-                format!("{stem} {version} {attempt}.app")
-            };
-            let destination = trash.join(name);
-            if destination.exists() {
-                continue;
-            }
-            if std::fs::rename(old, &destination).is_ok() {
-                return;
-            }
-            break;
-        }
+/// Tells LaunchServices that the app changed. Best effort.
+fn register(bundle: &Path) {
+    const LSREGISTER: &str =
+        "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+    if cfg!(target_os = "macos") && bundle.join("Contents/Info.plist").is_file() {
+        let _ = Command::new(LSREGISTER).arg("-f").arg(bundle).output();
     }
-    let _ = std::fs::remove_dir_all(old);
 }
 
 /// Opens the app, as a fresh process.
@@ -408,7 +475,7 @@ mod tests {
             builder.append_data(&mut header, "crok", &script[..]).unwrap();
             builder.into_inner().unwrap().finish().unwrap();
         }
-        install_binary(&archive, &target).unwrap();
+        stage_binary(&archive, &target).unwrap().install(&target).unwrap();
         assert!(std::fs::read_to_string(&target).unwrap().contains("9.9.9"));
         assert!(
             std::fs::read_dir(dir.path())
@@ -435,8 +502,84 @@ mod tests {
         }
         let target = dir.path().join("crok");
         std::fs::write(&target, b"old").unwrap();
-        assert!(install_binary(&archive, &target).is_err());
+        assert!(stage_binary(&archive, &target).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"old");
+    }
+
+    /// An installed bundle with one marker file, and a staged app beside it with another.
+    fn bundle_and_staged(dir: &Path) -> (PathBuf, StagedApp) {
+        let bundle = dir.join("Crok Desktop.app");
+        std::fs::create_dir_all(bundle.join("Contents/MacOS")).unwrap();
+        std::fs::write(bundle.join("Contents/MacOS/GrokDesktop"), b"old").unwrap();
+        let folder = tempfile::Builder::new().prefix(".crok-upgrade-").tempdir_in(dir).unwrap();
+        let app = folder.path().join("Crok Desktop.app");
+        std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
+        std::fs::write(app.join("Contents/MacOS/GrokDesktop"), b"new").unwrap();
+        let staged = StagedApp {
+            _folder: folder,
+            app,
+            version: "9.9.9".to_string(),
+        };
+        (bundle, staged)
+    }
+
+    #[test]
+    fn an_update_goes_into_the_installed_bundle_and_leaves_no_old_copy() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (bundle, staged) = bundle_and_staged(dir.path());
+        let inode = std::fs::metadata(&bundle).unwrap().ino();
+        if cfg!(target_os = "macos") {
+            let status = Command::new("/usr/bin/xattr")
+                .args(["-w", "dev.chenli.crok.unit-test", "kept"])
+                .arg(&bundle)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+
+        assert_eq!(update_bundle(&staged, &bundle).unwrap(), Installed::InPlace);
+        assert_eq!(std::fs::read(bundle.join("Contents/MacOS/GrokDesktop")).unwrap(), b"new");
+        assert_eq!(std::fs::metadata(&bundle).unwrap().ino(), inode);
+        if cfg!(target_os = "macos") {
+            let output = Command::new("/usr/bin/xattr")
+                .args(["-p", "dev.chenli.crok.unit-test"])
+                .arg(&bundle)
+                .output()
+                .unwrap();
+            assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "kept");
+        }
+        // The old contents wait in the staging folder until it is dropped.
+        assert_eq!(std::fs::read(staged.app.join("Contents/MacOS/GrokDesktop")).unwrap(), b"old");
+        drop(staged);
+        let left: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("Crok Desktop.app")]);
+    }
+
+    #[test]
+    fn a_failed_update_leaves_the_installed_bundle_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let (bundle, staged) = bundle_and_staged(dir.path());
+        std::fs::remove_dir_all(staged.app.join("Contents")).unwrap();
+        assert!(update_bundle(&staged, &bundle).is_err());
+        assert_eq!(std::fs::read(bundle.join("Contents/MacOS/GrokDesktop")).unwrap(), b"old");
+    }
+
+    #[test]
+    fn exchange_swaps_two_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a");
+        let b = dir.path().join("b");
+        for (path, marker) in [(&a, "from a"), (&b, "from b")] {
+            std::fs::create_dir(path).unwrap();
+            std::fs::write(path.join("marker"), marker).unwrap();
+        }
+        exchange(&a, &b).unwrap();
+        assert_eq!(std::fs::read_to_string(a.join("marker")).unwrap(), "from b");
+        assert_eq!(std::fs::read_to_string(b.join("marker")).unwrap(), "from a");
     }
 
     #[tokio::test]
