@@ -57,6 +57,51 @@ data class CrokColors(
     val glassTint: Color,
     val glassRim: Color,
     val avatars: List<Color>,
+    /** Code highlighting (relay/DESIGN.md §5 "Replies in Markdown", GitHub's colours). */
+    val syntax: SyntaxColors,
+)
+
+@Immutable
+data class SyntaxColors(
+    val comment: Color,
+    val keyword: Color,
+    val string: Color,
+    val number: Color,
+    val function: Color,
+    val type: Color,
+    val tag: Color,
+    val inserted: Color,
+    val insertedBackground: Color,
+    val deleted: Color,
+    val deletedBackground: Color,
+)
+
+val SyntaxLight = SyntaxColors(
+    comment = Color(0xFF6E7781),
+    keyword = Color(0xFFCF222E),
+    string = Color(0xFF0A3069),
+    number = Color(0xFF0550AE),
+    function = Color(0xFF8250DF),
+    type = Color(0xFF953800),
+    tag = Color(0xFF116329),
+    inserted = Color(0xFF116329),
+    insertedBackground = Color(0xFFDAFBE1),
+    deleted = Color(0xFF82071E),
+    deletedBackground = Color(0xFFFFEBE9),
+)
+
+val SyntaxDark = SyntaxColors(
+    comment = Color(0xFF8B949E),
+    keyword = Color(0xFFFF7B72),
+    string = Color(0xFFA5D6FF),
+    number = Color(0xFF79C0FF),
+    function = Color(0xFFD2A8FF),
+    type = Color(0xFFFFA657),
+    tag = Color(0xFF7EE787),
+    inserted = Color(0xFFAFF5B4),
+    insertedBackground = Color(0xFF033A16),
+    deleted = Color(0xFFFFDCD7),
+    deletedBackground = Color(0xFF67060C),
 )
 
 private val AvatarPalette = listOf(
@@ -100,6 +145,7 @@ val CrokLight = CrokColors(
     glassTint = Color(0xFFFAFAFA),
     glassRim = Color(0xFFFFFFFF),
     avatars = AvatarPalette,
+    syntax = SyntaxLight,
 )
 
 val CrokDark = CrokColors(
@@ -133,6 +179,7 @@ val CrokDark = CrokColors(
     glassTint = Color(0xFF242426),
     glassRim = Color(0xFFFFFFFF),
     avatars = AvatarPalette,
+    syntax = SyntaxDark,
 )
 
 private fun CrokColors.toMaterial(): ColorScheme {

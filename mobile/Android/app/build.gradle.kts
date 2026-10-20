@@ -121,6 +121,12 @@ dependencies {
     implementation(libs.kyant.shapes)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.gfm.tables)
+    implementation(libs.commonmark.gfm.strikethrough)
+    implementation(libs.commonmark.task.list.items)
+    implementation(libs.commonmark.autolink)
+    implementation(libs.jlatexmath.android)
 
     // Convex: the AAR with its own dependencies, and the JNA build that supports 16 KB memory pages.
     implementation("dev.convex:android-convexmobile:${libs.versions.convex.get()}@aar") { isTransitive = true }

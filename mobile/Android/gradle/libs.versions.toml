@@ -19,6 +19,10 @@ jna = "5.19.1"
 backdrop = "1.0.6"
 # Its continuous-corner ("squircle") shapes, which the glass refracts along; the version backdrop 1.0.6 is built with.
 kyantShapes = "1.2.0"
+# Markdown in agent replies (relay/DESIGN.md §5 "Replies in Markdown"): CommonMark with the GFM extensions, and LaTeX
+# math. commonmark-java's only newer-than-API-26 calls (List.of, Set.of, Map.of) are backported by D8 below API 30.
+commonmark = "0.30.0"
+jlatexmath = "0.2.0"
 junit = "4.13.2"
 robolectric = "4.17"
 roborazzi = "1.76.0"
@@ -47,6 +51,12 @@ gms-code-scanner = { module = "com.google.android.gms:play-services-code-scanner
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+commonmark = { module = "org.commonmark:commonmark", version.ref = "commonmark" }
+commonmark-gfm-tables = { module = "org.commonmark:commonmark-ext-gfm-tables", version.ref = "commonmark" }
+commonmark-gfm-strikethrough = { module = "org.commonmark:commonmark-ext-gfm-strikethrough", version.ref = "commonmark" }
+commonmark-task-list-items = { module = "org.commonmark:commonmark-ext-task-list-items", version.ref = "commonmark" }
+commonmark-autolink = { module = "org.commonmark:commonmark-ext-autolink", version.ref = "commonmark" }
+jlatexmath-android = { module = "ru.noties:jlatexmath-android", version.ref = "jlatexmath" }
 junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTestCore" }

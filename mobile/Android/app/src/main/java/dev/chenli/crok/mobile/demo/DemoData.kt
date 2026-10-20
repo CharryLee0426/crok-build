@@ -111,6 +111,9 @@ object DemoData {
 
     /** Waits on [WAITING_REQUEST]: crok asks to run `npm run build`. */
     const val WAITING_SESSION = "demo-s2"
+
+    /** A reply using every Markdown feature the apps render (relay/scripts/markdown-showcase.md). */
+    const val SHOWCASE_SESSION = "demo-s7"
     const val WAITING_REQUEST = "demo-request-1"
 
     /** Listed from the MacBook's disk, never opened on the relay: opening it loads the history from the computer. */
@@ -145,7 +148,11 @@ object DemoData {
         ),
         devices = devices(now),
         sessions = sessions(now),
-        events = mapOf(RUNNING_SESSION to runningEvents(now), WAITING_SESSION to waitingEvents(now)),
+        events = mapOf(
+            RUNNING_SESSION to runningEvents(now),
+            WAITING_SESSION to waitingEvents(now),
+            SHOWCASE_SESSION to showcaseEvents(now),
+        ),
         commands = listOf(
             DemoCommand(
                 id = "demo-cmd-1",
@@ -259,9 +266,9 @@ object DemoData {
                 pinned = true, eventSeq = 4, pending = buildRequest(now), preview = "Run npm run build to check the new theme?", unread = 1,
             ),
             session(
-                "demo-s7", "Group the session list by project", macbook, crokBuild,
-                cwd = "$crokBuild/.claude/worktrees/session-groups", lastActivityAt = now - 25 * MIN, gitBranch = "session-groups",
-                preview = "Sections, collapsing and reordering are in. Screenshots next?", unread = 1,
+                SHOWCASE_SESSION, "Render every Markdown feature", macbook, crokBuild,
+                cwd = "$crokBuild/.claude/worktrees/mobile-markdown", lastActivityAt = now - 25 * MIN, gitBranch = "mobile-markdown",
+                eventSeq = 3, preview = "Markdown showcase: text, code, tables and math.", unread = 1,
             ),
             session(
                 CATALOG_SESSION, "Plan the 1.6 release", macbook, crokBuild,
@@ -403,6 +410,24 @@ object DemoData {
                 now - 5 * MIN, title = "Run cargo test -p crok-remote relay_reconnect (20×)", toolKind = "execute", status = "in_progress",
             ),
             event(s, 10, EventKind.ASSISTANT, STREAMING_TEXT, now - MIN),
+        )
+    }
+
+    /**
+     * The shared Markdown showcase, verbatim: a copy of relay/scripts/markdown-showcase.md kept in the app's Java
+     * resources (DemoDataTest checks the two are identical).
+     */
+    val markdownShowcase: String by lazy {
+        DemoData::class.java.getResourceAsStream("/demo/markdown-showcase.md")!!.use { it.readBytes().decodeToString() }
+    }
+
+    fun showcaseEvents(now: Long): List<RelayEvent> {
+        val s = SHOWCASE_SESSION
+        val at = now - 25 * MIN
+        return listOf(
+            event(s, 1, EventKind.USER, "Show me every Markdown feature the phone can render.", at - 2 * MIN, origin = "local"),
+            event(s, 2, EventKind.ASSISTANT, markdownShowcase, at),
+            event(s, 3, EventKind.SYSTEM, "", at + 1_000, status = "end_turn"),
         )
     }
 

@@ -210,7 +210,7 @@ private fun AssistantBubble(item: TranscriptItem.Assistant, actions: TranscriptA
                 .combinedClickable(onClick = {}, onLongClick = { actions.onCopy(item.text) })
                 .padding(start = 12.dp, end = 12.dp, top = 9.dp, bottom = 6.dp),
         ) {
-            MarkdownText(text)
+            MarkdownText(text, onCopyCode = actions.onCopy)
             Row(Modifier.align(Alignment.End).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (item.streaming) {
                     CircularProgressIndicator(Modifier.size(10.dp), strokeWidth = 1.5.dp, color = colors.accent)
