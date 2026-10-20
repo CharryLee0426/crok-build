@@ -57,6 +57,7 @@ import {
   fakeStartingCommands,
   fakeStartingSession,
   FAKE_SLASH_COMMANDS,
+  markdownEvents,
 } from "./fixtures";
 
 export const SCREENS = [
@@ -74,6 +75,8 @@ export const SCREENS = [
   "session-commands-filter",
   "session-cards",
   "session-starting",
+  "session-markdown",
+  "session-markdown-streaming",
   "new-session",
   "new-session-sent",
   "new-session-failed",
@@ -303,7 +306,15 @@ function LinkPreview({ login, outcome, app = false }: { login: PendingLogin | nu
   );
 }
 
-function Screen({ name, target }: { name: string; target?: { deviceId: string; path: string } }) {
+function Screen({
+  name,
+  target,
+  showcase,
+}: {
+  name: string;
+  target?: { deviceId: string; path: string };
+  showcase?: string;
+}) {
   const now = Date.now();
   switch (name) {
     case "landing":
@@ -396,6 +407,15 @@ function Screen({ name, target }: { name: string; target?: { deviceId: string; p
           }))}
         />
       );
+    case "session-markdown":
+      return <SessionScreenPreview session={fakeSession(now)} events={markdownEvents(now, showcase ?? "")} />;
+    case "session-markdown-streaming":
+      return (
+        <SessionScreenPreview
+          session={fakeSession(now, { status: "running" })}
+          events={markdownEvents(now, showcase ?? "", true)}
+        />
+      );
     case "new-session":
       return <NewSessionPreview target={target} />;
     case "new-session-sent":
@@ -474,15 +494,18 @@ export function Preview({
   screen,
   lang,
   target,
+  showcase,
 }: {
   screen: string;
   lang: Lang | null;
   target?: { deviceId: string; path: string };
+  /** relay/scripts/markdown-showcase.md, for the session-markdown screens. */
+  showcase?: string;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
-  const content: ReactNode = <Screen key={screen} name={screen} target={target} />;
+  const content: ReactNode = <Screen key={screen} name={screen} target={target} showcase={showcase} />;
   if (!lang) return content;
   return (
     <I18nProvider initialLang={lang} initialChoice={lang} fixed>

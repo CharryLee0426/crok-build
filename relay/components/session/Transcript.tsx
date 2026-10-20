@@ -21,6 +21,8 @@ import {
   ToolKindIcon,
   XIcon,
 } from "../icons";
+// KaTeX's fonts and layout for the math in replies (lib/markdown.tsx), loaded with the transcript only.
+import "katex/dist/katex.min.css";
 
 /** Items of one author within this window merge into one group (Telegram's merge rule). */
 const GROUP_WINDOW_MS = 10 * 60 * 1000;
@@ -383,7 +385,7 @@ function TimeStamp({ at }: { at: number }) {
 const AssistantBubble = memo(function AssistantBubble({ event }: { event: TranscriptEvent }) {
   const body = useMemo(() => renderMarkdown(event.text), [event.text]);
   return (
-    <div className="md max-w-full rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-3 text-[15px] text-fg sm:max-w-[92%]">
+    <div className="md min-w-0 max-w-full rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-3 text-[15px] text-fg sm:max-w-[92%]">
       {body}
     </div>
   );

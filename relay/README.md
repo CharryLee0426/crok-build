@@ -118,6 +118,12 @@ node scripts/commands-e2e.mjs                   # new sessions from any device, 
 CROK_BIN=…/xai-grok-pager CROK_HOME=/tmp/crok-e2e E2E_PROJECT=~/crok-e2e-project node scripts/bridge-e2e.mjs   # project outside the temp folder
 ```
 
+Replies render as GitHub-flavoured Markdown with math (DESIGN.md §5 "Replies in Markdown"; `lib/markdown.tsx` on
+react-markdown, remark-gfm, remark-breaks, highlight.js through rehype-highlight, and KaTeX; `lib/math.ts` finds the
+math first, as the phone apps do). `node scripts/markdown-check.mjs` checks it without a browser or a backend: the math
+test vectors and `scripts/markdown-showcase.md` rendered to HTML. Under `npm run dev`, `/preview/session-markdown`
+(and `-streaming`, replies cut off mid-stream) shows the showcase; add `?theme=dark`.
+
 For the phone apps against a local relay: the iOS simulator reaches the Mac as `127.0.0.1`, the Android emulator as
 `10.0.2.2` (so build Android with `-PcrokRelayUrl=http://10.0.2.2:3210`, and set
 `npx convex env set CROK_WEB_URL http://10.0.2.2:3000` while testing from the emulator so its sign-in sheet can load the

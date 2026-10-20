@@ -515,6 +515,27 @@ export function fakeEvents(now: number): TranscriptEvent[] {
   return list.reverse(); // newest first, like sessions:events
 }
 
+/**
+ * The Markdown showcase (relay/scripts/markdown-showcase.md, read by the preview page) as a finished reply, or, with
+ * `streaming`, two replies caught mid-stream: one inside an unclosed `$$` and `**`, the last inside an unclosed fence.
+ */
+export function markdownEvents(now: number, showcase: string, streaming = false): TranscriptEvent[] {
+  const ask = ev(1, now - 4 * MIN, { kind: "user", text: "Show me everything a reply can render." });
+  if (!streaming) {
+    return [ask, ev(2, now - 3 * MIN, { kind: "assistant", text: showcase })].reverse();
+  }
+  const fence = showcase.indexOf("for f in *.log");
+  return [
+    ask,
+    ev(2, now - 3 * MIN, {
+      kind: "assistant",
+      text: "Half-way through a formula, **and a bold\n\n$$\n\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt",
+    }),
+    ev(3, now - 2.5 * MIN, { kind: "tool", title: "Read src/main.rs", toolKind: "read", status: "completed", text: "" }),
+    ev(4, now - 2 * MIN, { kind: "assistant", text: showcase.slice(0, fence + "for f in *.log; do".length) }),
+  ].reverse();
+}
+
 export function fakeCommands(now: number): PromptCommand[] {
   return [
     {
