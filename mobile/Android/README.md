@@ -209,6 +209,9 @@ into the session, `/model` / `/think` cards, commands sent as prompts), and stay
 the 20 s watchdog, `UNAUTHENTICATED` and its back-off, `REVOKED`, a mutation moved to the new client, the title states)
 on virtual time.
 `ReorderDragTest` drags Reorder mode's handles with touch input under Robolectric.
+`TranscriptBottomTest` opens the showcase session on a phone-sized window (its reply is taller than the screen): it opens
+on the reply's end, a short scroll up inside the reply brings the scroll-to-bottom button and the button goes back to the
+end, new items are followed from the end and counted (the reader left in place) from inside the reply.
 
 ### Screenshot tests
 

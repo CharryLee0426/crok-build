@@ -68,6 +68,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -107,8 +108,10 @@ import dev.chenli.crok.mobile.ui.common.GlassShapes
 import dev.chenli.crok.mobile.ui.common.GlassStyle
 import dev.chenli.crok.mobile.ui.common.glass
 import dev.chenli.crok.mobile.ui.common.glassBarColors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class SessionActions(
@@ -204,15 +207,37 @@ fun SessionContent(
     var planExpanded by rememberSaveable { mutableStateOf(false) }
     var menuOpen by rememberSaveable { mutableStateOf(menuInitiallyOpen) }
 
-    // Follow the newest item while the reader is at the bottom; count new ones while scrolled away.
+    // Follow the newest item while the reader is at the bottom; count new ones while scrolled away. At the bottom means
+    // the newest item's end is on screen: inside a reply taller than the screen, above its end, the reader is not.
     val newestKey = state.items.firstOrNull()?.key
-    val atBottom by remember { derivedStateOf { listState.firstVisibleItemIndex <= 1 } }
+    val bottomSlop = with(LocalDensity.current) { BottomSlop.roundToPx() }
+    val atBottom by remember(bottomSlop) {
+        derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= bottomSlop }
+    }
     var seenNewest by remember { mutableStateOf(newestKey) }
     var newCount by remember { mutableIntStateOf(0) }
+    var lastNewest by remember { mutableStateOf(newestKey) }
+    // Moving to a new item on its own: no scroll-to-bottom button meanwhile.
+    var following by remember { mutableStateOf(false) }
     LaunchedEffect(newestKey) {
+        val previous = lastNewest
+        lastNewest = newestKey
         if (newestKey == null) return@LaunchedEffect
-        if (listState.firstVisibleItemIndex <= 2) {
-            listState.animateScrollToItem(0)
+        // The list keeps its place by key, so new items land below the item that was at the bottom: whether the reader
+        // was at the bottom is judged on that item.
+        val bottom = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+        val wasAtBottom = following || bottom == null ||
+            (bottom.key == previous || bottom.key == newestKey) && listState.firstVisibleItemScrollOffset <= bottomSlop
+        if (wasAtBottom) {
+            following = true
+            try {
+                listState.animateScrollToItem(0)
+            } catch (stopped: CancellationException) {
+                // A newer item restarted this effect and carries on following; the reader's own scroll ends it.
+                if (isActive) following = false
+                throw stopped
+            }
+            following = false
             seenNewest = newestKey
             newCount = 0
         } else {
@@ -269,13 +294,15 @@ fun SessionContent(
                     onSend = {
                         menuOpen = false
                         actions.onSend()
+                        // What was sent shows at the bottom, as in Telegram.
+                        scope.launch { listState.scrollToItem(0) }
                     },
                 ),
             )
         },
         floating = { padding ->
             AnimatedVisibility(
-                visible = !atBottom && state.items.isNotEmpty(),
+                visible = !atBottom && !following && state.items.isNotEmpty(),
                 enter = scaleIn() + fadeIn(),
                 exit = scaleOut() + fadeOut(),
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = padding.calculateBottomPadding() + 12.dp),
@@ -490,6 +517,9 @@ fun PlanEntryRow(entry: PlanEntry) {
         )
     }
 }
+
+/** How far above the newest item's end still counts as at the bottom. */
+private val BottomSlop = 24.dp
 
 @Composable
 private fun ScrollToBottomButton(count: Int, onClick: () -> Unit) {
