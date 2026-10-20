@@ -7,7 +7,8 @@ sign-in), §3 (the API) and §5 "Phone apps".
 
 SwiftUI and Observation, Swift 6 language mode, iOS 17.0 or later (iPhone, iPad allowed). Bundle id
 `dev.chenli.crok.mobile`. Data comes from the relay with [ConvexMobile](https://github.com/get-convex/convex-swift)
-0.8.1.
+0.8.1. Replies render with [swift-markdown](https://github.com/swiftlang/swift-markdown) 0.9.0 (cmark-gfm) and
+[SwiftMath](https://github.com/mgriebling/SwiftMath) 1.7.3 (see "Replies in Markdown").
 
 ## Open and build
 
@@ -98,6 +99,29 @@ is called offline), and when `sessions:create` or `commands:setConfig` refuses, 
 The new fields are decoded leniently, so the app also works against a relay without them. Demo mode implements all of it
 (`Engine/Demo`): the MacBook offers four models, one with thinking levels whose ids differ from their values.
 
+## Replies in Markdown
+
+Agent replies follow relay/DESIGN.md §5 "Replies in Markdown", like the web and Android:
+
+- `Core/MathExtractor` finds math before parsing (`$…$`, `\(…\)` inline; `$$…$$` on its own lines, `\[…\]`
+  display; the pandoc rule keeps `$5 and $10` as dollars) and swaps it for placeholders; `Core/MarkdownDocument` parses
+  with swift-markdown (smart punctuation off), links bare URLs itself, and turns the tree into `MDBlock` / `MDInline`
+  values (single newlines are line breaks, only http/https/mailto links open, images become "🖼 alt" links and are
+  never fetched, raw HTML is text except `<br>`).
+- `UI/MarkdownText` draws them: headings, nested lists and quotes, task items ☐ / ☑, tables in a `TableGridLayout`
+  (columns up to 260 pt, wrapping cells, a sideways scroller only when the table is wider than the bubble), code blocks
+  with the language, a Copy button and highlighting, display math centred or scrolling sideways. Inline math is a
+  template image in the `Text` on the baseline (SwiftMath, cached by `MathRenderer`, Dynamic Type size); math wider than
+  60 % of the screen becomes a block; TeX SwiftMath cannot draw shows as its source.
+- `Core/SyntaxHighlighter` is a small regex highlighter (one alternation per language, identifiers by keyword sets)
+  for the languages and aliases DESIGN.md lists, coloured by `Theme.syntax` (GitHub's palette); an unknown or missing
+  language stays plain.
+- Streaming: blocks are `Equatable`, so while a reply grows only the blocks that changed are drawn again; parsed
+  replies, highlighted code and rendered math are cached. Parsing and highlighting the showcase takes about 3 ms on the
+  simulator (`MarkdownTimingTests`).
+- Demo mode's "Refactor the pager's scroll model" (on Studio) ends with `relay/scripts/markdown-showcase.md` verbatim;
+  `MarkdownDocumentTests` checks the copy in `Engine/Demo/DemoShowcase.swift` still matches the file.
+
 ## Staying connected
 
 `ConnectionKeeper` (`Core/ConnectionKeeper.swift`, run by `CrokEngine`) implements relay/DESIGN.md §5 "Staying
@@ -119,7 +143,8 @@ value the hub replays to a new screen.
 # sessions:groups and pending requests), the list's order rules and optimistic moves, search, the reveal pacer, the
 # query hub, prompts to sessions nobody runs and answering permission requests (demo relay), localization coverage,
 # the connection keeper and its wiring (fake backend, manual clock), the token source, the hub moving subscriptions to
-# a new client, the composer's commands and bot cards, new sessions, and decoding the new relay fields.
+# a new client, the composer's commands and bot cards, new sessions, decoding the new relay fields, and replies in
+# Markdown (the DESIGN.md math vectors, the parsed tree, the highlighter, timings).
 # ConvexMobile's library has no x86_64 simulator slice, hence ARCHS=arm64.
 xcodebuild test -project Crok.xcodeproj -scheme Crok -destination 'platform=iOS Simulator,name=iPhone 17' \
   ARCHS=arm64 -only-testing:CrokTests
@@ -131,6 +156,11 @@ xcodebuild test -project Crok.xcodeproj -scheme Crok -destination 'platform=iOS 
 # and, with TEST_RUNNER_CROK_SCREENSHOT_DIR, written as PNG files.
 TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
   -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/DemoTourUITests
+
+# The Markdown showcase from end to start in light and dark, its wide table and formula scrolled sideways, Copy, and a
+# reply streaming through an unclosed fence and an unclosed $$.
+TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
+  -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/MarkdownUITests
 ```
 
 ### Checking against a real relay
@@ -170,17 +200,19 @@ background.
 ```
 Crok/
   App/         CrokApp, RootView, AppModel (the persisted sign-in state machine), AppEnvironment (live / demo)
-  Core/        models, errors and the HTTP API client, Keychain, transcript builder, Markdown blocks, reveal pacer,
+  Core/        models, errors and the HTTP API client, Keychain, transcript builder, Markdown (math scanner, parsed
+               tree, highlighter), reveal pacer,
                connection state and the connection keeper, user codes, plan summary, relative time, avatars, the
                list's order rules and search, composer commands and bot cards, drafts, collapsed projects, list cache
   Engine/      CrokEngine (one per signed-in account), RelayAPI (facades), ConvexRelay + QueryHub + DeviceAuthProvider
                (ConvexMobile, replaceable clients, the token source), LiveQuery, Demo/ (in-memory relay, sample data)
   Features/    SignIn, Sessions (list, new-session picker and screen), Session (transcript, composer with the Menu and
                command list, bot cards, plan bar), Info, Settings (devices, link a computer, QR)
-  UI/          Theme (semantic colours, Liquid Glass surfaces), shared components, Markdown rendering
+  UI/          Theme (semantic colours, Liquid Glass surfaces, code colours), shared components, Markdown rendering
+               and math images
   Resources/   Assets (app icon, Crok mark, accent), Localizable.xcstrings, InfoPlist.xcstrings
 CrokTests/     unit tests
-CrokUITests/   demo tour, the live relay check and the live reconnect check
+CrokUITests/   demo tour, the Markdown showcase, the live relay check and the live reconnect check
 scripts/       make-icon.swift: renders the app icon and the mark from desktop/macOS/Resources/GrokMark.svg
 ```
 

@@ -164,10 +164,13 @@ extension DemoWorld {
         var pager = Session(
             detail: detail(
                 "s-pager", title: "Refactor the pager's scroll model", cwd: "/home/charlie/xai-grok-pager", device: "studio",
-                app: .tui, status: .idle, online: false, last: t - 26 * hour, created: t - 30 * hour),
-            events: [], commands: [], preview: "Moved the anchor logic into ScrollModel.", previewKind: .assistant)
+                app: .tui, status: .idle, online: false, last: t - 26 * hour + 90_000, created: t - 30 * hour),
+            events: [], commands: [], preview: "Markdown showcase", previewKind: .assistant)
         pager.events = [
             TranscriptEvent(id: "e-pager-1", seq: 1, key: "k1", kind: .assistant, text: "Moved the anchor logic into `ScrollModel`.", at: t - 26 * hour),
+            // Every Markdown feature the reply renderer draws (relay/scripts/markdown-showcase.md).
+            TranscriptEvent(id: "e-pager-2", seq: 2, key: "k2", kind: .user, text: "Show me every kind of Markdown you can write.", origin: "local", at: t - 26 * hour + 60_000),
+            TranscriptEvent(id: "e-pager-3", seq: 3, key: "k3", kind: .assistant, text: DemoWorld.markdownShowcase, at: t - 26 * hour + 90_000),
         ]
 
         // 6. Offline, a few days old.

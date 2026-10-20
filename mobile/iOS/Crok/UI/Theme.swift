@@ -31,6 +31,37 @@ enum Theme {
     static let card = dynamic(0xFFFFFF, 0x1D1E1D, lightAlpha: 0.75)
     static let codeBackground = dynamic(0xF0F2F0, 0x2F322F)
     static let hairline = dynamic(0x000000, 0xFFFFFF, lightAlpha: 0.08, darkAlpha: 0.10)
+    /// Tables in replies: the grid lines and the header row's tint.
+    static let tableBorder = dynamic(0x000000, 0xFFFFFF, lightAlpha: 0.14, darkAlpha: 0.16)
+    static let tableHeader = dynamic(0xF0F2F0, 0x2F322F)
+
+    /// Code highlighting, GitHub's colours (relay/DESIGN.md §5 "Replies in Markdown").
+    static func syntax(_ token: CodeToken) -> Color {
+        switch token {
+        case .comment: syntaxComment
+        case .keyword, .meta: syntaxKeyword
+        case .string, .regex: syntaxString
+        case .number, .literal, .property, .variable: syntaxNumber
+        case .function, .section: syntaxFunction
+        case .type, .builtin: syntaxType
+        case .tag: syntaxTag
+        case .inserted: syntaxInserted
+        case .deleted: syntaxDeleted
+        }
+    }
+
+    private static let syntaxComment = dynamic(0x6E7781, 0x8B949E)
+    private static let syntaxKeyword = dynamic(0xCF222E, 0xFF7B72)
+    private static let syntaxString = dynamic(0x0A3069, 0xA5D6FF)
+    private static let syntaxNumber = dynamic(0x0550AE, 0x79C0FF)
+    private static let syntaxFunction = dynamic(0x8250DF, 0xD2A8FF)
+    private static let syntaxType = dynamic(0x953800, 0xFFA657)
+    private static let syntaxTag = dynamic(0x116329, 0x7EE787)
+    private static let syntaxInserted = dynamic(0x116329, 0xAFF5B4)
+    private static let syntaxDeleted = dynamic(0x82071E, 0xFFDCD7)
+    /// The faint row behind a diff's added and removed lines.
+    static let diffInsertedBackground = dynamic(0xDAFBE1, 0x033A16)
+    static let diffDeletedBackground = dynamic(0xFFEBE9, 0x67060C)
     /// System notices in the transcript.
     static let noticeBackground = dynamic(0x000000, 0xFFFFFF, lightAlpha: 0.07, darkAlpha: 0.09)
     static let noticeText = dynamic(0x55585A, 0xA9ACAE)

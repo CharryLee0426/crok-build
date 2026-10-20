@@ -223,32 +223,6 @@ final class TextRevealPacerTests: XCTestCase {
     }
 }
 
-final class MarkdownBlocksTests: XCTestCase {
-    func testSplitsProseAndCode() {
-        let text = "Intro **bold**\n\n```swift\nlet a = 1\n```\nAfter"
-        XCTAssertEqual(
-            MarkdownBlocks.parse(text),
-            [.prose("Intro **bold**"), .code(language: "swift", code: "let a = 1"), .prose("After")])
-    }
-
-    func testUnclosedFenceRunsToTheEnd() {
-        XCTAssertEqual(
-            MarkdownBlocks.parse("Here:\n```\nline 1\nline 2"),
-            [.prose("Here:"), .code(language: nil, code: "line 1\nline 2")])
-    }
-
-    func testClassifiesLines() {
-        XCTAssertEqual(MarkdownBlocks.classify("## Title"), .heading(level: 2, text: "Title"))
-        XCTAssertEqual(MarkdownBlocks.classify("- item"), .bullet(indent: 0, text: "item"))
-        XCTAssertEqual(MarkdownBlocks.classify("  * nested"), .bullet(indent: 1, text: "nested"))
-        XCTAssertEqual(MarkdownBlocks.classify("3. third"), .numbered(indent: 0, number: "3", text: "third"))
-        XCTAssertEqual(MarkdownBlocks.classify("> quoted"), .quote("quoted"))
-        XCTAssertEqual(MarkdownBlocks.classify("---"), .rule)
-        XCTAssertEqual(MarkdownBlocks.classify(""), .blank)
-        XCTAssertEqual(MarkdownBlocks.classify("#hashtag"), .text("#hashtag"))
-    }
-}
-
 final class ServerURLTests: XCTestCase {
     func testNormalizes() {
         XCTAssertEqual(ServerURL.normalize("happy-otter-123.convex.cloud"), "https://happy-otter-123.convex.cloud")

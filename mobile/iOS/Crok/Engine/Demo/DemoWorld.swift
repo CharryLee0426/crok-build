@@ -571,6 +571,12 @@ final class DemoWorld {
         await clock.advance(by: .seconds(5))
         ```
 
+        The retry delay doubles each time, so the $n$-th retry waits
+
+        $$
+        d_n = 2^n \\cdot d_0, \\qquad d_0 = 250\\,\\mathrm{ms}
+        $$
+
         Ran the test 50 times in a row: all green.
         """
 
