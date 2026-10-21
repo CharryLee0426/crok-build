@@ -22,7 +22,12 @@ TEST_DESKTOP_ICON = $(TEST_DESKTOP_DIR)/CrokDesktopTestIcon.icns
 # Clones the main checkout's cargo cache into a linked worktree before its first build (see bin/crok-build-cache).
 SEED_CACHE = -@"$(CURDIR)/bin/crok-build-cache" seed --quiet --profile release --target-dir "$(CARGO_TARGET_DIR)"
 
-.PHONY: build deploy build-desktop deploy-desktop dmg-desktop build-test-tui build-test-desktop import-grok-config cache-status cache-prune cache-hooks help
+.PHONY: build deploy build-desktop deploy-desktop dmg-desktop build-test-tui build-test-desktop clients-prod clients-test import-grok-config cache-status cache-prune cache-hooks help
+
+# The relay crok signs in to (relay/environments/<name>.env, read by crates/codegen/crok-remote/build.rs): production
+# for every build here except the test builds (crok-test, Crok Desktop Test), which use the dev relay.
+CROK_RELAY_ENV ?= prod
+TEST_RELAY_ENV ?= dev
 
 # The Agent Observability destination built into crok (crates/codegen/xai-grok-agento11y/build.rs), so an
 # install reports with nothing to set up: this Mac's ~/.crok/agento11y.env when it has one. Empty builds none.
@@ -39,7 +44,7 @@ SIGN_TUI = if [ "$$(uname -s)" = Darwin ]; then "$(CURDIR)/release/codesign.sh" 
 # The default build and deploy commands only operate on the CLI/TUI.
 build:
 	$(SEED_CACHE)
-	$(CARGO) build -p xai-grok-pager-bin --release --target-dir "$(CARGO_TARGET_DIR)"
+	CROK_RELAY_ENV=$(CROK_RELAY_ENV) $(CARGO) build -p xai-grok-pager-bin --release --target-dir "$(CARGO_TARGET_DIR)"
 
 deploy: build
 	@mkdir -p "$(BINDIR)"
@@ -54,7 +59,7 @@ deploy: build
 # Test artifacts stay under this checkout. bin/crok-test refuses to launch from another workspace.
 build-test-tui:
 	$(SEED_CACHE)
-	$(CARGO) build -p xai-grok-pager-bin --release --target-dir "$(CARGO_TARGET_DIR)"
+	CROK_RELAY_ENV=$(TEST_RELAY_ENV) $(CARGO) build -p xai-grok-pager-bin --release --target-dir "$(CARGO_TARGET_DIR)"
 	@mkdir -p "$(TEST_TUI_DIR)"
 	@set -e; \
 		tmp_binary=$$(mktemp "$(TEST_TUI_BINARY).XXXXXX"); \
@@ -104,6 +109,16 @@ build-test-desktop: build-test-tui
 	CROK_BINARY="$(TEST_TUI_BINARY)" ./desktop/macOS/scripts/build-app.sh
 	@printf 'Launch with: open "%s"\n' "$(TEST_DESKTOP_APP)"
 
+# The relay's web app and functions plus both phone apps for one environment: prod (crok.chenli.dev, Convex production,
+# "-prod" phone builds) or test (crok-relay.vercel.app, Convex dev, "-debug" phone builds). See relay/environments.
+clients-prod:
+	relay/scripts/deploy.sh prod
+	mobile/scripts/build-apps.sh prod
+
+clients-test:
+	relay/scripts/deploy.sh test
+	mobile/scripts/build-apps.sh test
+
 # One-time (re-runnable) copy of the official grok's settings, sessions, and desktop state into crok's.
 import-grok-config:
 	./bin/crok-import-grok
@@ -125,12 +140,15 @@ help:
 		'make build-desktop      Build the harness and package the macOS desktop app.' \
 		'make deploy-desktop     Build and install the desktop app to ~/Applications.' \
 		'make dmg-desktop        Build the desktop app and its .dmg installer in desktop/macOS/dist.' \
-		'make build-test-tui     Build the workspace-only TUI used by crok-test.' \
-		'make build-test-desktop Build the TESTING-badged desktop app in target/test-builds.' \
+		'make build-test-tui     Build the workspace-only TUI used by crok-test (dev relay).' \
+		'make build-test-desktop Build the TESTING-badged desktop app in target/test-builds (dev relay).' \
+		'make clients-prod       Deploy the prod relay web + functions; build the -prod phone apps.' \
+		'make clients-test       Deploy the dev relay web + functions; build the -debug phone apps.' \
 		'make import-grok-config Copy ~/.grok settings, sessions, and Grok Desktop state into crok.' \
 		'make cache-status       Size and stale part of every cargo target dir of this repository.' \
 		'make cache-prune        Delete superseded and unused cargo build products in all of them.' \
 		'make cache-hooks        Seed new worktrees from this cache and prune automatically (git hooks).' \
 		'' \
-		'Overrides: CARGO, RUSTUP, CARGO_TARGET_DIR, PREFIX, BINDIR, DESKTOP_INSTALL_DIR, CROK_AGENTO11Y_BUILTIN_ENV.' \
+		'Overrides: CARGO, RUSTUP, CARGO_TARGET_DIR, PREFIX, BINDIR, DESKTOP_INSTALL_DIR, CROK_AGENTO11Y_BUILTIN_ENV,' \
+		'           CROK_RELAY_ENV (prod), TEST_RELAY_ENV (dev).' \
 		'Set CROK_BINARY to reuse an existing harness when building the desktop app.'

@@ -433,6 +433,13 @@ time with `CROK_REMOTE_DEFAULT_URL`), and so do the phone apps (`CROK_RELAY_URL`
 the Android build) and the web app (`NEXT_PUBLIC_CONVEX_URL`). `--server` (hidden), `[remote] url` and
 `CROK_REMOTE_URL` remain for development against a local relay.
 
+There are two relays, prod and dev (`relay/environments/*.env`, README "Two environments"). crok picks one at build
+time (`CROK_RELAY_ENV`, prod unless a test build says dev, in `crok-remote/build.rs`), iOS by configuration (Release →
+prod, Debug → dev), Android by build type (release → prod, debug → dev). Each crok environment keeps its sign-in in its
+own file (`remote/credentials.json` for prod, `credentials-dev.json` for dev), so a release and a test build share one
+`$CROK_HOME`; a sign-in to the other environment's relay is never used (crok moves it to that environment's file, the
+phones forget it and show "This build uses a different relay. Sign in again.").
+
 ## 5. Clients
 
 ### crok (CLI and TUI)

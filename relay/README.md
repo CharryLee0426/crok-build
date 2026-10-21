@@ -12,6 +12,40 @@ The other pieces live elsewhere in the repo: the computer side in `crates/codege
 `crates/codegen/xai-grok-shell/src/remote_control` (used by the `crok` TUI and Crok Desktop), and the phone apps in
 `mobile/iOS` and `mobile/Android`.
 
+## Two environments
+
+The relay runs twice, and every client is built for exactly one of them. `environments/prod.env` and
+`environments/dev.env` say where each one is; crok's build, the phone builds and the scripts below read them.
+
+| | **prod** | **test** (dev relay) |
+|---|---|---|
+| Convex | production deployment `tacit-finch-29` | development deployment `limitless-badger-727` |
+| Clerk | "Crok Remote" production instance, `clerk.crok.chenli.dev` | its development instance, `glorious-skunk-713.clerk.accounts.dev` |
+| Web | Vercel `crok-relay-prod`, https://crok.chenli.dev | Vercel `crok-relay`, https://crok-relay.vercel.app |
+| crok, Crok Desktop | releases and every build not marked as a test: `make build`, `make deploy`, `make dmg-desktop`, `release/publish.sh` | `make build-test-tui` / `build-test-desktop` (crok-test, Crok Desktop Test), or `CROK_RELAY_ENV=dev` |
+| Phones | `mobile/scripts/build-apps.sh prod`: iOS Release + Android release, `*-prod` in `~/Desktop/Crok mobile e2e builds` | `mobile/scripts/build-apps.sh test`: iOS Debug + Android debug, `*-debug` there |
+| Functions + web | `scripts/deploy.sh prod` | `scripts/deploy.sh test` |
+
+`make clients-prod` / `make clients-test` run the deploy and the phone builds together. crok picks the relay at build
+time (`CROK_RELAY_ENV`, default `prod`; `crok version --json` shows it under `remote`), and keeps each environment's
+sign-in in its own file (`~/.crok/remote/credentials.json` for prod, `credentials-dev.json` for test builds), so the
+release and the test build on one Mac stay signed in side by side. A build that finds a sign-in to the other relay
+does not use it: crok moves it to that environment's file, the phone apps sign out and ask again.
+
+`scripts/deploy.sh` pushes the functions from the commit checked out (`--working-tree` for uncommitted changes) with
+the deployment's `CROK_WEB_URL` and `CLERK_JWT_ISSUER_DOMAIN` set from the environment file and a device signing key
+made if there is none, then deploys the web from a copy outside the repository (the Vercel CLI sends a checkout's
+commit metadata, and the Hobby plan refuses co-authored commits as "Not authorized"). Before deploying it checks the
+Vercel project's Production variables: `NEXT_PUBLIC_CONVEX_URL` must be the environment's deployment and
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` a `pk_live_` key for prod, `pk_test_` for test, with `CLERK_SECRET_KEY` beside it.
+`scripts/vercel-keys.sh prod|test` puts them there straight from `clerk env pull` (and, for prod, a Convex deploy key
+as `CONVEX_DEPLOY_KEY`) without printing them; run it after `clerk deploy` or a key rotation, then deploy the web.
+
+Both Vercel projects are connected to this repository with Root Directory `relay`. `crok-relay-prod` builds only
+production deployments (its Ignored Build Step skips previews, which Clerk production keys would refuse anyway), so
+merging into `main` redeploys https://crok.chenli.dev; its build pushes the functions too when the project has a
+production `CONVEX_DEPLOY_KEY`.
+
 ## 1. Convex
 
 ```sh
