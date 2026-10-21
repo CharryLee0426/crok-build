@@ -45,7 +45,10 @@ class AppGraph(val context: Context) {
     val foreground = AppForeground()
     val apiFactory: DeviceAuthApiFactory = HttpDeviceAuthApi.Factory
 
-    /** The relay this build signs in to (`RELAY_URL` in app/build.gradle.kts; `-PcrokRelayUrl` for development). */
+    /**
+     * The relay this build signs in to (`RELAY_URL` in app/build.gradle.kts): the development relay in debug builds, the
+     * production one in release builds; `-PcrokRelayEnv` / `-PcrokRelayUrl` pick another.
+     */
     val relayUrl: String = BuildConfig.RELAY_URL
 
     /** How this phone shows up in the Devices list and on the approval page. */

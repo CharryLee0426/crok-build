@@ -22,6 +22,7 @@
     <string name="signin_error_expired">代码已过期。请重新开始以获取新代码。</string>
     <string name="signin_error_revoked">这台手机已在另一台设备上被退出登录。</string>
     <string name="signin_error_not_configured">该服务器尚未设置设备登录。</string>
+    <string name="signin_error_relay_changed">此版本使用不同的中继，请重新登录。</string>
     <string name="signin_no_browser">没有浏览器能打开登录页面。请在任意设备上打开 %1$s 并输入代码。</string>
 
     <!-- Waiting for approval -->

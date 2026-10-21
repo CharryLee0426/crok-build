@@ -22,6 +22,7 @@
     <string name="signin_error_expired">Le code a expiré. Recommencez pour en obtenir un nouveau.</string>
     <string name="signin_error_revoked">Ce téléphone a été déconnecté depuis un autre appareil.</string>
     <string name="signin_error_not_configured">Le serveur n’est pas encore configuré pour la connexion des appareils.</string>
+    <string name="signin_error_relay_changed">Cette version utilise un autre relais. Reconnectez-vous.</string>
     <string name="signin_no_browser">Aucun navigateur ne peut ouvrir la page de connexion. Ouvrez %1$s sur n’importe quel appareil et saisissez le code.</string>
 
     <!-- Waiting for approval -->

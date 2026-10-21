@@ -134,11 +134,54 @@ class AuthControllerTest {
 
     @Test
     fun anExpiredPendingSignInIsDropped() = runTest {
-        store.savePending(PendingSignIn("https://r", "crd_secret", "BCDF-GHJK", null, expiresAt = 5_000))
+        store.savePending(PendingSignIn(RELAY, "crd_secret", "BCDF-GHJK", null, expiresAt = 5_000))
         val auth = AuthController(store, factory, backgroundScope, RELAY) { 6_000 }
         auth.restore()
         assertEquals(AuthState.SignedOut(SignInError.Expired), auth.state.value)
         assertNull(store.loadPending())
+    }
+
+    /** A release build (production relay) installed over a debug one (development relay) must not use its sign-in. */
+    @Test
+    fun aSignInFromAnotherRelayIsForgotten() = runTest {
+        store.saveCredentials(StoredCredentials("https://limitless-badger-727.convex.cloud", "dev-1", "crr_refresh"))
+        val auth = AuthController(store, factory, backgroundScope, "https://tacit-finch-29.convex.cloud") { testScheduler.currentTime }
+        auth.restore()
+        assertEquals(AuthState.SignedOut(SignInError.RelayChanged), auth.state.value)
+        assertNull(store.loadCredentials())
+        assertNull(kv.get("credentials.v1"))
+        // Nothing goes to either relay: the sign-in is only forgotten here.
+        assertNull(api.loggedOut)
+        // And the next start is a plain signed-out one.
+        val next = AuthController(store, factory, backgroundScope, "https://tacit-finch-29.convex.cloud") { testScheduler.currentTime }
+        next.restore()
+        assertEquals(AuthState.SignedOut(), next.state.value)
+    }
+
+    @Test
+    fun aSignInFromTheSameRelayIsKeptWhateverItsTrailingSlash() = runTest {
+        store.saveCredentials(StoredCredentials("$RELAY/", "dev-1", "crr_refresh"))
+        val auth = controller()
+        auth.restore()
+        assertEquals("dev-1", (auth.state.value as AuthState.SignedIn).credentials.deviceId)
+
+        store.saveCredentials(StoredCredentials(RELAY, "dev-1", "crr_refresh"))
+        val slashed = AuthController(store, factory, backgroundScope, "$RELAY/") { testScheduler.currentTime }
+        slashed.restore()
+        assertTrue(slashed.state.value is AuthState.SignedIn)
+        assertNotNull(store.loadCredentials())
+    }
+
+    @Test
+    fun aPendingSignInOnAnotherRelayIsDropped() = runTest {
+        store.savePending(PendingSignIn("https://other.example", "crd_secret", "BCDF-GHJK", null, expiresAt = 600_000))
+        val auth = controller()
+        auth.restore()
+        assertEquals(AuthState.SignedOut(SignInError.RelayChanged), auth.state.value)
+        assertNull(store.loadPending())
+        // It does not keep polling the other relay.
+        advanceTimeBy(10_000)
+        assertEquals(AuthState.SignedOut(SignInError.RelayChanged), auth.state.value)
     }
 
     @Test
@@ -226,7 +269,7 @@ class AuthControllerTest {
 
     @Test
     fun signOutUnlinksAndWipes() = runTest {
-        store.saveCredentials(StoredCredentials("https://r", "dev-1", "crr_refresh"))
+        store.saveCredentials(StoredCredentials(RELAY, "dev-1", "crr_refresh"))
         val auth = controller()
         auth.restore()
         assertTrue(auth.state.value is AuthState.SignedIn)
@@ -239,7 +282,7 @@ class AuthControllerTest {
 
     @Test
     fun revokedSignsOutWithAReason() = runTest {
-        store.saveCredentials(StoredCredentials("https://r", "dev-1", "crr_refresh"))
+        store.saveCredentials(StoredCredentials(RELAY, "dev-1", "crr_refresh"))
         val auth = controller()
         auth.restore()
         auth.onRevoked()
@@ -249,7 +292,7 @@ class AuthControllerTest {
 
     @Test
     fun aLostKeyReadsAsSignedOut() = runTest {
-        store.saveCredentials(StoredCredentials("https://r", "dev-1", "crr_refresh"))
+        store.saveCredentials(StoredCredentials(RELAY, "dev-1", "crr_refresh"))
         val other = AuthStore(kv, FakeBox(key = 0x11), BytesCodec.Jvm)
         assertNull(other.loadCredentials())
         assertNull(kv.get("credentials.v1"))
@@ -257,7 +300,7 @@ class AuthControllerTest {
 
     @Test
     fun demoNeverMixesWithARealAccount() = runTest {
-        store.saveCredentials(StoredCredentials("https://r", "dev-1", "crr_refresh"))
+        store.saveCredentials(StoredCredentials(RELAY, "dev-1", "crr_refresh"))
         val auth = controller()
         auth.restore()
         auth.enterDemo(StoredCredentials("demo", "demo-phone", "demo"))
@@ -276,7 +319,7 @@ class AuthControllerTest {
 
     @Test
     fun savesTokensAndUser() = runTest {
-        store.saveCredentials(StoredCredentials("https://r", "dev-1", "crr_refresh"))
+        store.saveCredentials(StoredCredentials(RELAY, "dev-1", "crr_refresh"))
         val auth = controller()
         auth.restore()
         auth.saveTokens("jwt-9", 99)

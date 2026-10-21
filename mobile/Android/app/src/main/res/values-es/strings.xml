@@ -22,6 +22,7 @@
     <string name="signin_error_expired">El código caducó. Empieza de nuevo para obtener otro.</string>
     <string name="signin_error_revoked">Se cerró la sesión de este teléfono desde otro dispositivo.</string>
     <string name="signin_error_not_configured">El servidor aún no está preparado para el inicio de sesión de dispositivos.</string>
+    <string name="signin_error_relay_changed">Esta compilación usa otro relé. Vuelve a iniciar sesión.</string>
     <string name="signin_no_browser">Ningún navegador puede abrir la página de inicio de sesión. Abre %1$s en cualquier dispositivo e introduce el código.</string>
 
     <!-- Waiting for approval -->

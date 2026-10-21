@@ -31,8 +31,17 @@ To run on a phone, pick your team under Signing & Capabilities (the project leav
 ## The relay URL
 
 Nobody types the relay's address: it is built in. The app reads it from the `CrokRelayURL` Info.plist key, set from
-`CROK_RELAY_URL` in `Config/Shared.xcconfig` for Debug and Release alike: `https://limitless-badger-727.convex.cloud`.
-`//` starts a comment in xcconfig files, so the file writes it as `https:/$()/limitless-badger-727.convex.cloud`.
+`CROK_RELAY_URL` per configuration, mirroring `relay/environments/` (the one place the relays are named):
+
+| Configuration | Relay | `CROK_RELAY_URL` in |
+|---|---|---|
+| Debug | dev: `https://limitless-badger-727.convex.cloud` (`relay/environments/dev.env`) | `Config/Debug.xcconfig` |
+| Release | production: `https://tacit-finch-29.convex.cloud` (`relay/environments/prod.env`) | `Config/Release.xcconfig` |
+
+`//` starts a comment in xcconfig files, so the files write the address as `https:/$()/….convex.cloud`. Keep them in
+step with `relay/environments/`. `mobile/scripts/build-apps.sh` builds both kinds for the Desktop folder and passes
+`CROK_RELAY_URL` from those files on the xcodebuild command line: `build-apps.sh test` makes the Debug build
+(`Crok-iOS-debug.app`, dev relay), `build-apps.sh prod` the Release build (`Crok-iOS-prod.app`, production relay).
 
 To point a build at another relay (a local `npx convex dev` in `relay/`, which the simulator reaches on the Mac's
 localhost; `NSAllowsLocalNetworking` permits plain HTTP there):
@@ -42,8 +51,10 @@ localhost; `NSAllowsLocalNetworking` permits plain HTTP there):
   environment variable (`SIMCTL_CHILD_CROK_RELAY_URL=… xcrun simctl launch …`). The launch argument wins;
 - at build time: `xcodebuild … CROK_RELAY_URL=http://127.0.0.1:3210` (no `$()` needed on the command line).
 
-Either applies to new sign-ins only: a signed-in phone keeps the relay it signed in to (shown in Settings › About)
-until it signs out. **Advanced › Device name** on the welcome screen sets the name this phone signs in under (iOS only
+A sign-in belongs to the relay that issued it (shown in Settings › About). At launch the app forgets a saved sign-in
+(or a code still waiting for approval) from any other relay than the one this launch uses, and says "This build uses a
+different relay. Sign in again." on the welcome screen: a Release build installed over a Debug one never keeps talking
+to the dev relay, and a launch without the `-CrokServer` an earlier launch had signs in again. **Advanced › Device name** on the welcome screen sets the name this phone signs in under (iOS only
 reveals the user-assigned device name with a special entitlement, so the default is often just "iPhone").
 
 ## Demo mode

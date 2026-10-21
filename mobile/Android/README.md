@@ -30,16 +30,27 @@ held back on purpose.
 
 ## The relay
 
-Nobody types the relay's address: like crok itself, the app has it built in. `BuildConfig.RELAY_URL` is
-`https://limitless-badger-727.convex.cloud` in debug and release builds alike (`builtInRelayUrl` in
-`app/build.gradle.kts`), and the sign-in screens have no server field.
+Nobody types the relay's address: like crok itself, the app has it built in, and the sign-in screens have no server
+field. `BuildConfig.RELAY_URL` comes from the `CONVEX_URL` line of `relay/environments/<env>.env`
+(`app/build.gradle.kts`):
 
+| Build type | Relay | Environment file |
+|---|---|---|
+| debug | development, `https://limitless-badger-727.convex.cloud` | `relay/environments/dev.env` |
+| release | production, `https://tacit-finch-29.convex.cloud` | `relay/environments/prod.env` |
+
+- `-PcrokRelayEnv=prod|dev` (or `crokRelayEnv` in `gradle.properties`) picks one environment for both build types.
+- `mobile/scripts/build-apps.sh prod` builds the release APK on the production relay and puts it on the Desktop as
+  `crok-android-prod.apk`; `mobile/scripts/build-apps.sh test` builds the debug APK on the development relay as
+  `crok-android-debug.apk` (both in `~/Desktop/Crok mobile e2e builds/`).
 - Development only: `./gradlew :app:assembleDebug -PcrokRelayUrl=http://10.0.2.2:3210` (the emulator's alias for the
-  host's `npx convex dev`), or `crokRelayUrl` in `gradle.properties`. The build refuses a value that is not an
-  `http(s)://host[:port]` URL.
+  host's `npx convex dev`), or `crokRelayUrl` in `gradle.properties`. It wins over the environment. The build refuses a
+  value that is not an `http(s)://host[:port]` URL.
 - Debug builds allow plain HTTP only to `10.0.2.2`, `127.0.0.1` and `localhost` (`src/debug/res/xml/
   network_security_config.xml`); release builds are HTTPS only.
-- A signed-in phone keeps using the relay it signed in to (stored with its credentials); Settings › About shows it.
+- A sign-in belongs to the relay that issued it (stored with its credentials; Settings › About shows it). A build that
+  finds a sign-in from another relay, such as a release build installed over a debug one, forgets it at start and asks
+  to sign in again ("This build uses a different relay").
 
 The relay's web app must have `CROK_WEB_URL` set so `deviceAuth:start` returns an approval link; without it the
 Waiting screen tells the person to enter the code on the web app by hand.

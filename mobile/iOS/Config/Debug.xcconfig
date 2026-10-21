@@ -1,4 +1,9 @@
-// Debug builds use the built-in relay from Shared.xcconfig, like Release. For a local `npx convex dev` in relay/,
-// launch with `-CrokServer http://127.0.0.1:3210`, or build with `CROK_RELAY_URL=http://127.0.0.1:3210` on the
-// xcodebuild command line.
 #include "Shared.xcconfig"
+
+// Debug builds sign in to the dev relay: CONVEX_URL in relay/environments/dev.env, the relay test builds of crok and
+// Crok Desktop use too. Keep the two in step; mobile/scripts/build-apps.sh passes CROK_RELAY_URL from that file on the
+// xcodebuild command line anyway. `//` starts a comment in xcconfig files, hence the `$()` between the slashes.
+//
+// For a local `npx convex dev` in relay/, launch with `-CrokServer http://127.0.0.1:3210`, or build with
+// `CROK_RELAY_URL=http://127.0.0.1:3210` on the xcodebuild command line (no escaping needed there).
+CROK_RELAY_URL = https:/$()/limitless-badger-727.convex.cloud

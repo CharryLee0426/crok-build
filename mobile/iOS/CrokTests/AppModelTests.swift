@@ -212,7 +212,8 @@ final class AppModelTests: XCTestCase {
         XCTAssertNotNil(model.notice)
     }
 
-    /// The built-in relay comes from Config/Shared.xcconfig through the Info.plist (with the `$()` trick for `//`).
+    /// The built-in relay comes from Config/Debug.xcconfig or Config/Release.xcconfig through the Info.plist (with the
+    /// `$()` trick for `//`).
     func testTheAppHasARelayBuiltIn() {
         let url = AppInfo.bundledRelayURL
         XCTAssertNotNil(ServerURL.normalize(url), url)
@@ -267,6 +268,59 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(environment.store.credentials)
         XCTAssertNotNil(model.notice)
         XCTAssertTrue(environment.auth.logoutTokens.isEmpty, "a revoked device has nothing to unlink")
+    }
+
+    /// A Release build (production relay) installed over a Debug one (dev relay), or the other way round: the saved
+    /// sign-in belongs to the other relay, so it is forgotten instead of kept.
+    func testASignInFromAnotherRelayIsForgottenAtLaunch() async {
+        let environment = TestEnvironment(auth: FakeAuthService(polls: [.approved(Self.approval)]))
+        let model = makeModel(environment)
+        model.restore()
+        await model.startSignIn()
+        await model.pollOnce()
+        XCTAssertEqual(environment.store.credentials?.serverURL, "http://relay.test")
+        environment.drafts.setDraft("half a prompt", for: "s1")
+        await model.engine?.shutdown()
+
+        environment.relayURL = "https://tacit-finch-29.convex.cloud"
+        let relaunched = makeModel(environment)
+        relaunched.restore()
+        XCTAssertEqual(relaunched.phase, .welcome)
+        XCTAssertNil(relaunched.engine)
+        XCTAssertEqual(relaunched.notice, "This build uses a different relay. Sign in again.")
+        XCTAssertNil(environment.store.credentials)
+        XCTAssertEqual(environment.drafts.draft(for: "s1"), "", "drafts belong to the account")
+        XCTAssertTrue(environment.auth.logoutTokens.isEmpty, "nothing is sent to either relay")
+    }
+
+    func testASignInFromTheSameRelayStaysSignedIn() async {
+        let environment = TestEnvironment(auth: FakeAuthService())
+        environment.store.credentials = StoredCredentials(
+            serverURL: "http://relay.test/", deviceId: "dev1", refreshToken: "crr_refresh",
+            user: AccountUser(name: "Ada", email: nil, imageUrl: nil), deviceName: "Test iPhone", signedInAt: 1)
+        let model = makeModel(environment)
+        model.restore()
+        XCTAssertEqual(model.phase, .signedIn, "the address is compared normalized")
+        XCTAssertNil(model.notice)
+        XCTAssertNotNil(environment.store.credentials)
+        await model.signOutLocally(notice: nil)
+    }
+
+    func testAPendingSignInFromAnotherRelayIsDropped() async {
+        let environment = TestEnvironment(auth: FakeAuthService())
+        let model = makeModel(environment)
+        model.restore()
+        await model.startSignIn()
+        XCTAssertEqual(environment.store.pending?.serverURL, "http://relay.test")
+
+        environment.relayURL = "https://limitless-badger-727.convex.cloud"
+        let relaunched = makeModel(environment)
+        relaunched.restore()
+        XCTAssertEqual(relaunched.phase, .welcome)
+        XCTAssertNil(relaunched.pending)
+        XCTAssertNil(environment.store.pending)
+        XCTAssertEqual(relaunched.notice, "This build uses a different relay. Sign in again.")
+        model.cancelSignIn()
     }
 }
 

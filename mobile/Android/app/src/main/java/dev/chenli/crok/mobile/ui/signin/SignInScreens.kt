@@ -94,6 +94,7 @@ fun signInErrorText(error: SignInError): String = when (error) {
     SignInError.Expired -> stringResource(R.string.signin_error_expired)
     SignInError.Revoked -> stringResource(R.string.signin_error_revoked)
     SignInError.NotConfigured -> stringResource(R.string.signin_error_not_configured)
+    SignInError.RelayChanged -> stringResource(R.string.signin_error_relay_changed)
     is SignInError.Other -> stringResource(R.string.error_generic, error.message)
 }
 

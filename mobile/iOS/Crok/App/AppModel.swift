@@ -62,11 +62,18 @@ final class AppModel {
 
     // MARK: Server
 
-    /// The relay new sign-ins use. It is built into the app (`CROK_RELAY_URL` in Config/Shared.xcconfig); developers
-    /// point a build elsewhere with `-CrokServer` or `CROK_RELAY_URL` at launch. A signed-in phone keeps the relay it
-    /// signed in to (`StoredCredentials.serverURL`).
+    /// The relay this launch signs in to. It is built into the app (`CROK_RELAY_URL`: the dev relay in Debug builds,
+    /// the production relay in Release builds); developers point a build elsewhere with `-CrokServer` or
+    /// `CROK_RELAY_URL` at launch. A saved sign-in from any other relay is forgotten at launch (`restore()`), so a
+    /// Release build installed over a Debug one never keeps talking to the dev relay.
     var serverURL: String? {
         ServerURL.normalize(environment.relayURL)
+    }
+
+    /// Whether a saved sign-in or code came from another relay than `serverURL`.
+    private func isFromAnotherRelay(_ server: String) -> Bool {
+        guard let current = serverURL else { return false }
+        return ServerURL.normalize(server) != current
     }
 
     // MARK: Restore
@@ -75,11 +82,21 @@ final class AppModel {
     func restore() {
         let store = environment.store
         if let saved = store.credentials {
+            if isFromAnotherRelay(saved.serverURL) {
+                forgetLocalState()
+                notice = String(localized: "This build uses a different relay. Sign in again.")
+                phase = .welcome
+                return
+            }
             enterSignedIn(saved, initialToken: nil)
             return
         }
         if let waiting = store.pending {
-            if waiting.isExpired(now: now()) {
+            if isFromAnotherRelay(waiting.serverURL) {
+                store.pending = nil
+                notice = String(localized: "This build uses a different relay. Sign in again.")
+                phase = .welcome
+            } else if waiting.isExpired(now: now()) {
                 store.pending = nil
                 notice = String(localized: "The sign-in code expired. Start again.")
                 phase = .welcome
@@ -241,13 +258,18 @@ final class AppModel {
         let engine = self.engine
         self.engine = nil
         credentials = nil
+        forgetLocalState()
+        self.notice = notice
+        phase = .welcome
+        await engine?.shutdown()
+    }
+
+    /// The Keychain records, drafts and caches a signed-in account leaves on this phone.
+    private func forgetLocalState() {
         environment.store.wipe()
         environment.drafts.removeAll()
         CollapsedProjectsStore(defaults: environment.drafts.defaults).removeAll()
         environment.sessionCache?.clear()
-        self.notice = notice
-        phase = .welcome
-        await engine?.shutdown()
     }
 }
 

@@ -24,7 +24,8 @@ enum AppInfo {
     }
 
     /// The relay deployment baked in at build time: `CrokRelayURL` in the Info.plist, from `CROK_RELAY_URL` in
-    /// Config/Shared.xcconfig (or `CROK_RELAY_URL=…` on the xcodebuild command line).
+    /// Config/Debug.xcconfig (dev relay) or Config/Release.xcconfig (production relay), or `CROK_RELAY_URL=…` on the
+    /// xcodebuild command line.
     static var bundledRelayURL: String {
         let raw = Bundle.main.object(forInfoDictionaryKey: "CrokRelayURL") as? String ?? ""
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)

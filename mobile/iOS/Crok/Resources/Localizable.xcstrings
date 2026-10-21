@@ -7067,6 +7067,40 @@
         }
       }
     },
+    "This build uses a different relay. Sign in again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Build verwendet ein anderes Relay. Melde dich erneut an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión usa otro relay. Vuelve a iniciar sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version utilise un autre relais. Reconnectez-vous."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドは別のリレーを使っています。もう一度サインインしてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本使用的是另一个中继，请重新登录。"
+          }
+        }
+      }
+    },
     "This code expired. Start the sign-in again on the computer.": {
       "localizations": {
         "de": {
