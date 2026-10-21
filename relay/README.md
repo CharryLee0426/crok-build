@@ -44,7 +44,11 @@ as `CONVEX_DEPLOY_KEY`) without printing them; run it after `clerk deploy` or a 
 Both Vercel projects are connected to this repository with Root Directory `relay`. `crok-relay-prod` builds only
 production deployments (its Ignored Build Step skips previews, which Clerk production keys would refuse anyway), so
 merging into `main` redeploys https://crok.chenli.dev; its build pushes the functions too when the project has a
-production `CONVEX_DEPLOY_KEY`.
+production `CONVEX_DEPLOY_KEY`. `crok-relay` builds every push: `main` as its production site,
+https://crok-relay.vercel.app, and every other branch (`charlie/dev`, pull requests) as a Preview of the test web, always
+against the dev deployment (`scripts/vercel-build.sh` falls back to `environments/dev.env` and never fronts production
+from a Preview). Both of its targets need the Clerk development keys, which `scripts/vercel-keys.sh test` sets for
+Production and Preview, and `scripts/deploy.sh test` checks they are there.
 
 ## 1. Convex
 

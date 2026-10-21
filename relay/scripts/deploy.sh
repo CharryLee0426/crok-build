@@ -26,9 +26,11 @@ usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' 
 say() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
+# The Vercel targets whose builds need the environment's variables: the test project also builds every other branch
+# as a Preview, the production one skips previews (its Ignored Build Step).
 case "${1:-}" in
-    prod|production) env_name=prod ;;
-    test|dev|debug) env_name=dev ;;
+    prod|production) env_name=prod; vercel_targets="production" ;;
+    test|dev|debug) env_name=dev; vercel_targets="production preview" ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; exit 2 ;;
 esac
@@ -121,18 +123,20 @@ if [[ "$web" == 1 ]]; then
     say "Vercel project $project"
     project_json="$(vercel api "/v9/projects/$project" --scope "$scope")" || fail "cannot read the Vercel project $project in $scope (vercel login?)"
     read -r project_id org_id root_dir < <(/usr/bin/python3 -c 'import json,sys; p=json.load(sys.stdin); print(p["id"], p["accountId"], p.get("rootDirectory") or ".")' <<<"$project_json")
-    # The build needs these for the production target, and the Clerk keys must be the environment's own instance.
-    # The listing carries no values; only the two public ones (the Convex address, the publishable key) are read, one
-    # at a time, and only the address is ever printed.
+    # Builds for each of $vercel_targets need these, and the Clerk keys must be the environment's own instance. The
+    # listing carries no values; only the two public Production ones (the Convex address, the publishable key) are
+    # read, one at a time, and only the address is ever printed.
+    # shellcheck disable=SC2086 # one argument per target
     env_ids="$(vercel api "/v9/projects/$project_id/env" --scope "$scope" --raw | /usr/bin/python3 -c '
 import json, sys
-envs = [e for e in json.load(sys.stdin).get("envs", []) if "production" in (e.get("target") or [])]
-ids = {e["key"]: e["id"] for e in envs}
-missing = [k for k in ("NEXT_PUBLIC_CONVEX_URL", "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY") if k not in ids]
-for key in missing:
-    print(f"deploy: {key} is not set for Production", file=sys.stderr)
+envs = json.load(sys.stdin).get("envs", [])
+keys = ("NEXT_PUBLIC_CONVEX_URL", "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY")
+missing = [(k, t) for t in sys.argv[1:] for k in keys if not any(e["key"] == k and t in (e.get("target") or []) for e in envs)]
+for key, target in missing:
+    print(f"deploy: {key} is not set for {target.capitalize()}", file=sys.stderr)
+ids = {e["key"]: e["id"] for e in envs if "production" in (e.get("target") or [])}
 print(ids.get("NEXT_PUBLIC_CONVEX_URL", "-"), ids.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "-"))
-sys.exit(1 if missing else 0)')" || fail "set $project's Production variables first (relay/scripts/vercel-keys.sh $env_name)"
+sys.exit(1 if missing else 0)' $vercel_targets)" || fail "set $project's variables first (relay/scripts/vercel-keys.sh $env_name)"
     read -r url_id publishable_id <<<"$env_ids"
     env_value() {
         vercel api "/v1/projects/$project_id/env/$1" --scope "$scope" --raw \
