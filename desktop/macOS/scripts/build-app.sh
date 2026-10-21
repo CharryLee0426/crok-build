@@ -52,8 +52,12 @@ case "$icon_style" in
     *) printf 'DESKTOP_ICON_STYLE must be standard or test.\n' >&2; exit 1 ;;
 esac
 swift "$script_dir/make-icon.swift" "${icon_arguments[@]}"
-swift build --package-path "$package_dir" --configuration release
-binary_dir="$(swift build --package-path "$package_dir" --configuration release --show-bin-path)"
+# SwiftPM's native build system honours SDKROOT (the macOS 15 SDK image) and records the SDK it linked against.
+# Swift Build, SwiftPM's default from Xcode 27, compiles against the toolchain's own SDK whatever SDKROOT says
+# and stamps sdk 14.0, which macOS draws without Liquid Glass.
+swift_build=(swift build --package-path "$package_dir" --configuration release --build-system "${SWIFT_BUILD_SYSTEM:-native}")
+"${swift_build[@]}"
+binary_dir="$("${swift_build[@]}" --show-bin-path)"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 replace_executable "$binary_dir/GrokDesktop" "$app_dir/Contents/MacOS/GrokDesktop"
 

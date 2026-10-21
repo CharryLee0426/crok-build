@@ -297,7 +297,7 @@ swift test --package-path desktop/macOS   # desktop tests
 ## Continuous integration
 
 Every pull request into `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml),
-which compiles each client:
+which compiles each client and checks the release notes:
 
 | Job | Runner | Builds |
 |-----|--------|--------|
@@ -306,13 +306,20 @@ which compiles each client:
 | Desktop (macOS 15 SDK) | `macos-15` | the same against the newest macOS 15 SDK, like the macOS 15 release image |
 | iOS | `macos-26` | `xcodebuild build` of `mobile/iOS` for iOS devices, unsigned, with the newest Xcode 26 |
 | Android | `ubuntu-latest` | `./gradlew :app:assembleDebug` in `mobile/Android` |
+| Release notes | `ubuntu-latest` | `release/notes/check.sh --unreleased`: a `VERSION` with no release yet needs its notes in `release/notes/v<version>/` |
 
 The last job, **All builds**, passes only when every job above succeeded. The
 "Protect main" ruleset requires it with no bypass, so a pull request cannot merge
 while any client fails to compile. A new job only needs adding to that job's
 `needs` list; the ruleset stays as it is. Runs on `main` keep the build caches
-warm for pull requests. CI only compiles: tests, lints and packaging (signing,
-disk images) stay local.
+warm for pull requests. CI only compiles: tests and lints stay local.
+
+Merging a pull request that bumps `VERSION` releases that version:
+[`.github/workflows/release.yml`](.github/workflows/release.yml) builds the
+production TUI, both Crok Desktop disk images, the iOS app and the Android APK,
+signs and checks them, and publishes them as one GitHub release with notes in six
+languages. [`release/README.md`](release/README.md) ("Releases from GitHub
+Actions") has the details and the one-time `release/ci-secrets.sh` setup.
 
 The ruleset is kept in
 [`.github/rulesets/protect-main.json`](.github/rulesets/protect-main.json):

@@ -72,6 +72,9 @@ harness="$target_dir/release/xai-grok-pager"
 
 say() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'release: %s\n' "$*" >&2; exit 1; }
+# File names and the checks every build in a release passes, shared with .github/workflows/release.yml.
+# shellcheck source=release/lib.sh
+source "$repo/release/lib.sh"
 
 say "Crok release $version ($tag) for $github_repo"
 [[ "$(uname -s)" == Darwin ]] || fail "releases are built on macOS"
@@ -96,7 +99,6 @@ fi
 # would make every user allow them again.
 signer_pem="$repo/release/crok-codesign.pem"
 [[ -f "$signer_pem" ]] || fail "missing $signer_pem, the certificate releases are signed by"
-fingerprint() { /usr/bin/openssl x509 -noout -fingerprint -sha1 | cut -d = -f 2 | tr -d : | tr '[:upper:]' '[:lower:]'; }
 signer="$(fingerprint < "$signer_pem")"
 if [[ "$skip_build" == 0 && -z "${SIGN_IDENTITY:-}" ]]; then
     local_signer="$({ release/codesign.sh --certificate 2>/dev/null || true; } | fingerprint 2>/dev/null || true)"
@@ -105,36 +107,13 @@ if [[ "$skip_build" == 0 && -z "${SIGN_IDENTITY:-}" ]]; then
     fi
 fi
 if [[ "$skip_build" == 0 ]]; then
-    grep -Eq '^[[:space:]]*(export[[:space:]]+)?AGENTO11Y_ENDPOINT=.' "$agento11y_env" 2>/dev/null \
-        || fail "no Agent Observability destination to build in: $agento11y_env is missing or sets no AGENTO11Y_ENDPOINT (crates/codegen/xai-grok-agento11y/setup.sh writes it; CROK_AGENTO11Y_BUILTIN_ENV names another)"
+    check_agento11y_env "$agento11y_env"
 fi
-# The endpoint host a crok reports to with nothing set up; empty for a build without one.
-built_destination() {
-    "$1" version --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("agentObservability") or "")'
-}
-check_destination() {
-    local host
-    host="$(built_destination "$1")"
-    [[ -n "$host" ]] || fail "$1 has no Agent Observability destination built in"
-    printf '%s reports to %s\n' "$1" "$host"
-}
-# Every crok in a release signs in to the production relay, never the dev one test builds use.
-check_relay() {
-    local relay
-    relay="$("$1" version --json | /usr/bin/python3 -c 'import json,sys; r=json.load(sys.stdin).get("remote") or {}; print(r.get("env",""), r.get("url",""))')"
-    [[ "$relay" == "prod "* ]] || fail "$1 signs in to the relay '$relay', not production (relay/environments/prod.env)"
-    printf '%s signs in to %s\n' "$1" "${relay#prod }"
-}
-check_signer() {
-    codesign --verify --strict -R="certificate leaf = H\"$signer\"" "$1" 2>/dev/null \
-        || fail "$1 is not signed by the certificate in release/crok-codesign.pem"
-}
-
 mkdir -p "$out"
 if [[ "$skip_build" == 0 ]]; then
     say "Building the TUI"
     "${make_cmd[@]}" build
-    built_release="$("$harness" version --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("release",""))')"
+    built_release="$(crok_version_field "$harness" release)"
     [[ "$built_release" == "$version" ]] || fail "the built crok carries release $built_release, not $version (VERSION changed after the build?)"
     check_destination "$harness"
     check_relay "$harness"
@@ -155,12 +134,7 @@ if [[ "$skip_build" == 0 ]]; then
             DESKTOP_REGISTER_APP=0 "${make_cmd[@]}" dmg-desktop CROK_BINARY="$harness"
         fi
         app="desktop/macOS/dist/Crok Desktop.app"
-        linked_sdk="$(otool -l "$app/Contents/MacOS/GrokDesktop" | awk '/LC_BUILD_VERSION/ {f=1} f && /sdk/ {print $2; exit}')"
-        case "$sdk:$linked_sdk" in
-            26:26*|26:27*|26:28*) ;;
-            15:15*) ;;
-            *) fail "the macOS $sdk image was linked against SDK $linked_sdk" ;;
-        esac
+        check_linked_sdk "$sdk" "$app/Contents/MacOS/GrokDesktop"
         image="$(ls desktop/macOS/dist/Crok-Desktop-"$version"-*.dmg)"
         mv -f "$image" "$out/Crok-Desktop-$version-$arch-macOS$sdk-SDK.dmg"
         rm -rf "$out/apps/macOS$sdk-SDK.app"

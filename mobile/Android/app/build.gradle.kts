@@ -48,6 +48,16 @@ fun relayUrlFor(defaultEnv: String): String {
 
 fun quoted(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
+/**
+ * The key release APKs are signed with: the keystore `CROK_ANDROID_KEYSTORE` names (PKCS12 or JKS), its password
+ * `CROK_ANDROID_KEYSTORE_PASSWORD` and the key `CROK_ANDROID_KEY_ALIAS` (`CROK_ANDROID_KEY_PASSWORD`, else the
+ * keystore's password). The release workflow (.github/workflows/release.yml) always passes one, so each published APK
+ * installs over the one before. Without it, release builds are signed with the debug key, so `assembleRelease` still
+ * makes an installable APK.
+ */
+fun environment(name: String): String? = providers.environmentVariable(name).orNull?.takeIf { it.isNotEmpty() }
+val releaseKeystore: String? = environment("CROK_ANDROID_KEYSTORE")
+
 android {
     namespace = "dev.chenli.crok.mobile"
     compileSdk = 36
@@ -61,6 +71,22 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                val keystorePassword = environment("CROK_ANDROID_KEYSTORE_PASSWORD")
+                val alias = environment("CROK_ANDROID_KEY_ALIAS")
+                require(keystorePassword != null && alias != null) {
+                    "CROK_ANDROID_KEYSTORE is set, so CROK_ANDROID_KEYSTORE_PASSWORD and CROK_ANDROID_KEY_ALIAS must be too"
+                }
+                storeFile = file(releaseKeystore)
+                storePassword = keystorePassword
+                keyAlias = alias
+                keyPassword = environment("CROK_ANDROID_KEY_PASSWORD") ?: keystorePassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("String", "RELAY_URL", quoted(relayUrlFor("dev")))
@@ -72,8 +98,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "RELAY_URL", quoted(relayUrlFor("prod")))
             buildConfigField("boolean", "DEMO_ALLOWED", "false")
-            // Signed with the debug key so `assembleRelease` produces an installable APK; use a real key to ship.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

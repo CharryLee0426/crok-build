@@ -733,12 +733,19 @@ the build machine: a disk image built on Apple silicon runs only on Apple silico
 
 ### Publishing a release
 
-[`release/publish.sh`](../../release/publish.sh) builds both disk images and the
-standalone `crok` tarball from the repository's `VERSION`, writes and signs
-`SHA256SUMS.txt`, verifies the folder the way `crok upgrade` will, tags
-`desktop-v<version>`, and creates the GitHub release with the notes you pass.
-[`release/README.md`](../../release/README.md) describes the files, the key and
-the checks. Write the notes in English first, then translate all of them into the
-app's other interface languages, 简体中文, 日本語, Español, Français and Deutsch,
-each in a collapsed `<details>` block after the English; the notes of
-`desktop-v1.4.0` show the layout.
+A pull request that bumps `VERSION` releases that version when it merges into
+`main`: [`.github/workflows/release.yml`](../../.github/workflows/release.yml)
+builds both disk images, the standalone `crok` tarball and the iOS and Android
+apps, writes and signs `SHA256SUMS.txt`, verifies the files the way `crok
+upgrade` will, tags `desktop-v<version>` and creates the GitHub release.
+[`release/publish.sh`](../../release/publish.sh) still makes the Mac files of a
+release on a Mac. [`release/README.md`](../../release/README.md) describes the
+files, the keys, the workflow and the checks.
+
+The notes go in the same pull request, in `release/notes/v<version>/`. Write them
+in English first (`en.md`), then translate all of them into the app's other
+interface languages, 简体中文, 日本語, Español, Français and Deutsch (`zh.md`,
+`ja.md`, `es.md`, `fr.md`, `de.md`), with headings one level down: the release
+shows each translation in a collapsed `<details>` block after the English.
+`release/notes/check.sh` checks them, and CI runs it on the pull request; the
+last release's folder shows the layout.

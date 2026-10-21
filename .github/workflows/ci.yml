@@ -1,5 +1,7 @@
 # Compiles every client before a pull request can merge into main: the crok TUI, Crok Desktop against
-# the macOS 26 and macOS 15 SDKs (the two release images), the iOS app and the Android app.
+# the macOS 26 and macOS 15 SDKs (the two release images), the iOS app and the Android app. A pull
+# request that bumps VERSION also needs that release's notes, since merging it releases that version
+# (release.yml).
 #
 # Branch protection (.github/rulesets/protect-main.json) requires one check, "All builds" (the last job),
 # so jobs can be added, renamed or split without touching the ruleset. See "Continuous integration" in
@@ -46,19 +48,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install DotSlash
-        # The proto build scripts run bin/protoc, a DotSlash file that fetches the pinned protoc
-        # (README.md, "Building from source").
-        env:
-          DOTSLASH_VERSION: v0.5.9
-          DOTSLASH_SHA256: eef15be1b554de7b1409cb0c69c24f2cd04f19c0f101ad69fcdf9d66d4d51639
-        run: |
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/dotslash.tar.gz" \
-            "https://github.com/facebook/dotslash/releases/download/$DOTSLASH_VERSION/dotslash-macos-arm64.$DOTSLASH_VERSION.tar.gz"
-          echo "$DOTSLASH_SHA256  $RUNNER_TEMP/dotslash.tar.gz" | shasum -a 256 -c -
-          mkdir -p "$RUNNER_TEMP/bin"
-          tar -xzf "$RUNNER_TEMP/dotslash.tar.gz" -C "$RUNNER_TEMP/bin" dotslash
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          PATH="$RUNNER_TEMP/bin:$PATH" bin/protoc --version
+        # The proto build scripts run bin/protoc, a DotSlash file that fetches the pinned protoc.
+        run: .github/scripts/install-dotslash.sh
 
       - name: Build crok
         # A debug build compiles and links the same crates as `make build` without downloading the
@@ -158,12 +149,26 @@ jobs:
       - name: Build Crok for Android
         run: ./gradlew :app:assembleDebug
 
-  # The one required check. It fails unless every build above succeeded, so a failed, skipped or
-  # cancelled build cannot pass for a green one.
+  release-notes:
+    name: Release notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the notes of an unreleased VERSION
+        # Merging a VERSION that has no release yet makes that release (release.yml), which needs its
+        # notes in every language; an already released VERSION needs nothing.
+        run: release/notes/check.sh --unreleased
+
+  # The one required check. It fails unless every job above succeeded, so a failed, skipped or
+  # cancelled job cannot pass for a green one.
   all-builds:
     name: All builds
     if: ${{ !cancelled() }}
-    needs: [tui, desktop, ios, android]
+    needs: [tui, desktop, ios, android, release-notes]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -173,9 +178,10 @@ jobs:
           DESKTOP: ${{ needs.desktop.result }}
           IOS: ${{ needs.ios.result }}
           ANDROID: ${{ needs.android.result }}
+          RELEASE_NOTES: ${{ needs.release-notes.result }}
         run: |
           status=0
-          for job in TUI DESKTOP IOS ANDROID; do
+          for job in TUI DESKTOP IOS ANDROID RELEASE_NOTES; do
             echo "$job: ${!job}"
             [[ "${!job}" == success ]] || status=1
           done

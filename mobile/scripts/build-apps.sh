@@ -8,11 +8,13 @@
 # from each result. Output (OUT, default "~/Desktop/Crok mobile e2e builds"):
 #
 #   Crok-iOS-<suffix>.app          iOS Simulator app (arm64)
+#   Crok-iOS-<suffix>-unsigned.ipa iOS device app, not signed (with --ios-device): a sideloading tool or
+#                                  `codesign` signs it with the installer's own Apple ID
 #   crok-android-<suffix>.apk      Android APK (release: R8-minified, signed with the debug key)
 #   README.txt                     what is there, from which commit, and how to install it (README-builds.txt when
 #                                  README.txt holds notes this script did not write)
 #
-# Options: --ios-only, --android-only. Builds happen under target/mobile/ in the repository.
+# Options: --ios-only, --android-only, --ios-device. Builds happen under target/mobile/ in the repository.
 set -euo pipefail
 
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
@@ -28,10 +30,12 @@ esac
 shift
 ios=1
 android=1
+ios_device=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --ios-only) android=0 ;;
         --android-only) ios=0 ;;
+        --ios-device) ios_device=1 ;;
         -h|--help) usage; exit 0 ;;
         *) fail "unknown option $1" ;;
     esac
@@ -74,6 +78,25 @@ if [[ "$ios" == 1 ]]; then
     rm -rf "$out/Crok-iOS-$suffix.app"
     ditto "$app" "$out/Crok-iOS-$suffix.app"
     printf 'Crok-iOS-%s.app signs in to %s\n' "$suffix" "$built_url"
+
+    if [[ "$ios_device" == 1 ]]; then
+        say "iOS $ios_config (devices, unsigned)"
+        log="$build_root/ios-device-build.log"
+        xcodebuild build -project "$repo/mobile/iOS/Crok.xcodeproj" -scheme Crok -configuration "$ios_config" \
+            -destination 'generic/platform=iOS' -derivedDataPath "$build_root/ios-device" \
+            CODE_SIGNING_ALLOWED=NO CROK_RELAY_URL="$convex_url" > "$log" 2>&1 \
+            || { grep -E 'error:|BUILD FAILED' "$log" | tail -n 20 >&2; fail "the iOS device build failed (log: $log)"; }
+        app="$build_root/ios-device/Build/Products/$ios_config-iphoneos/Crok.app"
+        built_url="$(/usr/bin/plutil -extract CrokRelayURL raw "$app/Info.plist")"
+        [[ "$built_url" == "$convex_url" ]] || fail "the iOS device app was built for $built_url, not $convex_url"
+        # An .ipa is a zip of Payload/<name>.app.
+        payload="$build_root/ios-ipa"
+        rm -rf "$payload" "$out/Crok-iOS-$suffix-unsigned.ipa"
+        mkdir -p "$payload/Payload"
+        ditto "$app" "$payload/Payload/Crok.app"
+        ditto -c -k --sequesterRsrc --keepParent "$payload/Payload" "$out/Crok-iOS-$suffix-unsigned.ipa"
+        printf 'Crok-iOS-%s-unsigned.ipa signs in to %s\n' "$suffix" "$built_url"
+    fi
 fi
 
 if [[ "$android" == 1 ]]; then
@@ -117,6 +140,7 @@ if [[ -f "$readme" ]] && [[ "$(head -n 1 "$readme")" != "$readme_title" ]]; then
         printf '  relay      %s\n' "$(stamp "$s" relay)"
         printf '  web        %s (sign-in, approvals, devices, sessions)\n' "$(stamp "$s" web)"
         [[ -d "$out/Crok-iOS-$s.app" ]] && printf '  iOS        Crok-iOS-%s.app (%s, Simulator, arm64)\n' "$s" "$(stamp "$s" ios)"
+        [[ -f "$out/Crok-iOS-$s-unsigned.ipa" ]] && printf '             Crok-iOS-%s-unsigned.ipa (%s, devices, not signed)\n' "$s" "$(stamp "$s" ios)"
         [[ -f "$out/crok-android-$s.apk" ]] && printf '  Android    crok-android-%s.apk (%s)\n' "$s" "$(stamp "$s" android)"
     done
     cat <<'TEXT'
@@ -137,4 +161,4 @@ see the test builds (crok-test, Crok Desktop Test). The web app of the same rela
 TEXT
 } > "$readme"
 
-say "Done: $(ls "$out" | grep -E -- "^(Crok-iOS|crok-android)-$suffix\\.(app|apk)$" | tr '\n' ' ')in $out"
+say "Done: $(ls "$out" | grep -E -- "^(Crok-iOS|crok-android)-$suffix(-unsigned)?\\.(app|ipa|apk)$" | tr '\n' ' ')in $out"
