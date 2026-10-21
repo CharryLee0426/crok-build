@@ -1,18 +1,58 @@
 package dev.chenli.crok.mobile.logic
 
+import org.commonmark.ext.autolink.AutolinkExtension
+import org.commonmark.ext.gfm.strikethrough.Strikethrough
+import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
+import org.commonmark.ext.gfm.tables.TableBlock
+import org.commonmark.ext.gfm.tables.TableCell
+import org.commonmark.ext.gfm.tables.TableRow
+import org.commonmark.ext.gfm.tables.TablesExtension
+import org.commonmark.ext.task.list.items.TaskListItemMarker
+import org.commonmark.ext.task.list.items.TaskListItemsExtension
+import org.commonmark.node.BlockQuote
+import org.commonmark.node.BulletList
+import org.commonmark.node.Code
+import org.commonmark.node.Emphasis
+import org.commonmark.node.FencedCodeBlock
+import org.commonmark.node.HardLineBreak
+import org.commonmark.node.Heading
+import org.commonmark.node.HtmlBlock
+import org.commonmark.node.HtmlInline
+import org.commonmark.node.Image
+import org.commonmark.node.IndentedCodeBlock
+import org.commonmark.node.Link
+import org.commonmark.node.ListBlock
+import org.commonmark.node.ListItem
+import org.commonmark.node.Node
+import org.commonmark.node.OrderedList
+import org.commonmark.node.Paragraph
+import org.commonmark.node.SoftLineBreak
+import org.commonmark.node.StrongEmphasis
+import org.commonmark.node.Text
+import org.commonmark.node.ThematicBreak
+import org.commonmark.parser.Parser
+
 /**
- * A small Markdown reader for assistant replies: paragraphs, headings, fenced code, lists, quotes, rules, and inline
- * bold / italic / strikethrough / code / links. Tolerant of half-streamed text: an unclosed fence runs to the end, an
- * unclosed `**` stays literal.
+ * An assistant reply as the app renders it (relay/DESIGN.md §5 "Replies in Markdown"): CommonMark + GFM parsed by
+ * commonmark-java, with math found first by [MathExtractor]. Links keep only URLs that may open (http, https, mailto);
+ * images become links that are never fetched; raw HTML stays literal text except `<br>`.
  */
 sealed interface MdBlock {
     data class Paragraph(val inlines: List<MdInline>) : MdBlock
     data class Heading(val level: Int, val inlines: List<MdInline>) : MdBlock
     data class Code(val language: String?, val text: String) : MdBlock
-    data class ListItem(val marker: String, val ordered: Boolean, val depth: Int, val inlines: List<MdInline>) : MdBlock
-    data class Quote(val inlines: List<MdInline>) : MdBlock
+    data class ListBlock(val ordered: Boolean, val start: Int, val tight: Boolean, val items: List<MdListItem>) : MdBlock
+    data class Quote(val blocks: List<MdBlock>) : MdBlock
     data object Rule : MdBlock
+    data class Table(val alignments: List<MdAlign>, val header: List<List<MdInline>>, val rows: List<List<List<MdInline>>>) : MdBlock
+    /** Display math on its own line. */
+    data class Math(val tex: String, val source: String) : MdBlock
 }
+
+/** A list item; [checked] is null for an ordinary item, true / false for a task item. */
+data class MdListItem(val checked: Boolean?, val blocks: List<MdBlock>)
+
+enum class MdAlign { Start, Center, End }
 
 sealed interface MdInline {
     data class Text(val text: String) : MdInline
@@ -21,300 +61,43 @@ sealed interface MdInline {
     data class Strike(val children: List<MdInline>) : MdInline
     data class Code(val text: String) : MdInline
     data class Link(val children: List<MdInline>, val url: String) : MdInline
+    /** Math in the text; [display] when it was written as display math but sits inside other inline markup. */
+    data class Math(val tex: String, val source: String, val display: Boolean = false) : MdInline
 }
 
 object Markdown {
-    private val headingRe = Regex("^(#{1,6})\\s+(.*)$")
-    private val ruleRe = Regex("^\\s{0,3}([-*_])(\\s*\\1){2,}\\s*$")
-    private val bulletRe = Regex("^(\\s*)([-*+])\\s+(.*)$")
-    private val orderedRe = Regex("^(\\s*)(\\d{1,9})([.)])\\s+(.*)$")
-    private val fenceRe = Regex("^\\s{0,3}(`{3,}|~{3,})\\s*([^`\\s]*).*$")
+    private val parser: Parser = Parser.builder()
+        .extensions(
+            listOf(
+                TablesExtension.create(),
+                StrikethroughExtension.create(),
+                TaskListItemsExtension.create(),
+                AutolinkExtension.create(),
+            ),
+        )
+        .build()
+
+    private val BREAK_TAG = Regex("^<br\\s*/?>$", RegexOption.IGNORE_CASE)
+    private val BREAK_TAGS = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
 
     fun parse(text: String): List<MdBlock> {
-        val blocks = ArrayList<MdBlock>()
-        val lines = text.replace("\r\n", "\n").split('\n')
-        val paragraph = StringBuilder()
-        val quote = StringBuilder()
-
-        fun flushParagraph() {
-            if (paragraph.isNotEmpty()) {
-                blocks += MdBlock.Paragraph(parseInline(paragraph.toString().trimEnd()))
-                paragraph.clear()
-            }
-        }
-
-        fun flushQuote() {
-            if (quote.isNotEmpty()) {
-                blocks += MdBlock.Quote(parseInline(quote.toString().trimEnd()))
-                quote.clear()
-            }
-        }
-
-        var i = 0
-        while (i < lines.size) {
-            val line = lines[i]
-            val fence = fenceRe.matchEntire(line)
-            if (fence != null) {
-                flushParagraph()
-                flushQuote()
-                val marker = fence.groupValues[1]
-                val language = fence.groupValues[2].ifBlank { null }
-                val body = ArrayList<String>()
-                i++
-                while (i < lines.size) {
-                    val candidate = lines[i].trim()
-                    if (candidate.startsWith(marker.take(3)) && candidate.trimStart(marker[0]).isBlank() &&
-                        candidate.length >= marker.length
-                    ) {
-                        break
-                    }
-                    body += lines[i]
-                    i++
-                }
-                blocks += MdBlock.Code(language, body.joinToString("\n"))
-                i++ // skip the closing fence (or step past the end)
-                continue
-            }
-            if (line.isBlank()) {
-                flushParagraph()
-                flushQuote()
-                i++
-                continue
-            }
-            if (line.trimStart().startsWith("|")) {
-                // Tables read best monospaced on a phone.
-                flushParagraph()
-                flushQuote()
-                val table = ArrayList<String>()
-                while (i < lines.size && lines[i].trimStart().startsWith("|")) {
-                    table += lines[i].trim()
-                    i++
-                }
-                blocks += MdBlock.Code(null, table.joinToString("\n"))
-                continue
-            }
-            val heading = headingRe.matchEntire(line.trimStart())
-            if (heading != null && line.length - line.trimStart().length < 4) {
-                flushParagraph()
-                flushQuote()
-                blocks += MdBlock.Heading(heading.groupValues[1].length, parseInline(heading.groupValues[2].trimEnd('#', ' ')))
-                i++
-                continue
-            }
-            if (ruleRe.matches(line)) {
-                flushParagraph()
-                flushQuote()
-                blocks += MdBlock.Rule
-                i++
-                continue
-            }
-            val bullet = bulletRe.matchEntire(line)
-            if (bullet != null) {
-                flushParagraph()
-                flushQuote()
-                val depth = bullet.groupValues[1].replace("\t", "  ").length / 2
-                blocks += MdBlock.ListItem("•", ordered = false, depth = depth, inlines = parseInline(taskBox(bullet.groupValues[3])))
-                i++
-                continue
-            }
-            val ordered = orderedRe.matchEntire(line)
-            if (ordered != null) {
-                flushParagraph()
-                flushQuote()
-                val depth = ordered.groupValues[1].replace("\t", "  ").length / 2
-                blocks += MdBlock.ListItem(
-                    marker = ordered.groupValues[2] + ".",
-                    ordered = true,
-                    depth = depth,
-                    inlines = parseInline(ordered.groupValues[4]),
-                )
-                i++
-                continue
-            }
-            if (line.trimStart().startsWith(">")) {
-                flushParagraph()
-                if (quote.isNotEmpty()) quote.append('\n')
-                quote.append(line.trimStart().removePrefix(">").removePrefix(" "))
-                i++
-                continue
-            }
-            flushQuote()
-            // A line continuing a list item belongs to it.
-            val previous = blocks.lastOrNull()
-            if (paragraph.isEmpty() && previous is MdBlock.ListItem && line.startsWith("  ")) {
-                blocks[blocks.size - 1] = previous.copy(inlines = previous.inlines + MdInline.Text("\n") + parseInline(line.trim()))
-                i++
-                continue
-            }
-            if (paragraph.isNotEmpty()) paragraph.append('\n')
-            paragraph.append(line.trimEnd())
-            i++
-        }
-        flushParagraph()
-        flushQuote()
-        return blocks
+        val math = MathExtractor.extract(text)
+        return Converter(math).blocks(parser.parse(math.text))
     }
 
-    private fun taskBox(text: String): String = when {
-        text.startsWith("[ ] ") -> "☐ " + text.substring(4)
-        text.startsWith("[x] ") || text.startsWith("[X] ") -> "☑ " + text.substring(4)
-        else -> text
-    }
-
-    fun parseInline(text: String): List<MdInline> {
-        val out = ArrayList<MdInline>()
-        val buffer = StringBuilder()
-
-        fun flush() {
-            if (buffer.isNotEmpty()) {
-                out += MdInline.Text(buffer.toString())
-                buffer.clear()
-            }
+    /** Inline Markdown of one line (what a table cell or heading holds). */
+    fun parseInline(text: String): List<MdInline> =
+        when (val block = parse(text).singleOrNull()) {
+            is MdBlock.Paragraph -> block.inlines
+            is MdBlock.Heading -> block.inlines
+            null -> emptyList()
+            else -> listOf(MdInline.Text(text))
         }
 
-        var i = 0
-        while (i < text.length) {
-            val c = text[i]
-            when {
-                c == '\\' && i + 1 < text.length && text[i + 1] in ESCAPABLE -> {
-                    buffer.append(text[i + 1])
-                    i += 2
-                }
-                c == '`' -> {
-                    var ticks = 0
-                    while (i + ticks < text.length && text[i + ticks] == '`') ticks++
-                    val fence = "`".repeat(ticks)
-                    val end = text.indexOf(fence, i + ticks)
-                    if (end < 0) {
-                        buffer.append(fence)
-                        i += ticks
-                    } else {
-                        flush()
-                        out += MdInline.Code(text.substring(i + ticks, end).let { if (it.startsWith(" ") && it.endsWith(" ") && it.isNotBlank()) it.substring(1, it.length - 1) else it })
-                        i = end + ticks
-                    }
-                }
-                (c == '*' || c == '_') && text.startsWith("$c$c", i) -> {
-                    val marker = "$c$c"
-                    val end = findClosing(text, marker, i + 2)
-                    if (end < 0 || (c == '_' && !wordBoundaryBefore(text, i))) {
-                        buffer.append(marker)
-                        i += 2
-                    } else {
-                        flush()
-                        out += MdInline.Bold(parseInline(text.substring(i + 2, end)))
-                        i = end + 2
-                    }
-                }
-                c == '~' && text.startsWith("~~", i) -> {
-                    val end = findClosing(text, "~~", i + 2)
-                    if (end < 0) {
-                        buffer.append("~~")
-                        i += 2
-                    } else {
-                        flush()
-                        out += MdInline.Strike(parseInline(text.substring(i + 2, end)))
-                        i = end + 2
-                    }
-                }
-                (c == '*' || c == '_') -> {
-                    val opensWord = i + 1 < text.length && !text[i + 1].isWhitespace()
-                    val end = if (opensWord && (c == '*' || wordBoundaryBefore(text, i))) findSingleClosing(text, c, i + 1) else -1
-                    if (end < 0) {
-                        buffer.append(c)
-                        i++
-                    } else {
-                        flush()
-                        out += MdInline.Italic(parseInline(text.substring(i + 1, end)))
-                        i = end + 1
-                    }
-                }
-                c == '[' -> {
-                    val close = findBracketClose(text, i)
-                    if (close > 0 && close + 1 < text.length && text[close + 1] == '(') {
-                        val urlEnd = text.indexOf(')', close + 2)
-                        if (urlEnd > 0) {
-                            val url = text.substring(close + 2, urlEnd).trim().substringBefore(' ')
-                            flush()
-                            out += MdInline.Link(parseInline(text.substring(i + 1, close)), url)
-                            i = urlEnd + 1
-                            continue
-                        }
-                    }
-                    buffer.append(c)
-                    i++
-                }
-                (c == 'h') && wordBoundaryBefore(text, i) && (text.startsWith("https://", i) || text.startsWith("http://", i)) -> {
-                    var end = i
-                    while (end < text.length && !text[end].isWhitespace() && text[end] != '<' && text[end] != '>') end++
-                    while (end > i && text[end - 1] in ".,;:!?)'\"") end--
-                    val url = text.substring(i, end)
-                    flush()
-                    out += MdInline.Link(listOf(MdInline.Text(url)), url)
-                    i = end
-                }
-                else -> {
-                    buffer.append(c)
-                    i++
-                }
-            }
-        }
-        flush()
-        return out
-    }
-
-    private const val ESCAPABLE = "\\`*_{}[]()#+-.!|~>"
-
-    private fun wordBoundaryBefore(text: String, index: Int): Boolean =
-        index == 0 || !text[index - 1].isLetterOrDigit()
-
-    private fun findClosing(text: String, marker: String, from: Int): Int {
-        var index = text.indexOf(marker, from)
-        while (index >= 0) {
-            if (index > from && !text[index - 1].isWhitespace()) return index
-            index = text.indexOf(marker, index + 1)
-        }
-        return -1
-    }
-
-    private fun findSingleClosing(text: String, marker: Char, from: Int): Int {
-        var index = from
-        while (index < text.length) {
-            val ch = text[index]
-            if (ch == '`') {
-                val end = text.indexOf('`', index + 1)
-                if (end < 0) return -1
-                index = end + 1
-                continue
-            }
-            if (ch == marker) {
-                val doubled = index + 1 < text.length && text[index + 1] == marker
-                if (doubled) {
-                    index += 2
-                    continue
-                }
-                val afterOk = marker == '*' || index + 1 >= text.length || !text[index + 1].isLetterOrDigit()
-                if (index > from && !text[index - 1].isWhitespace() && afterOk) return index
-            }
-            if (ch == '\n') return -1
-            index++
-        }
-        return -1
-    }
-
-    private fun findBracketClose(text: String, open: Int): Int {
-        var depth = 0
-        for (index in open until text.length) {
-            when (text[index]) {
-                '[' -> depth++
-                ']' -> {
-                    depth--
-                    if (depth == 0) return index
-                }
-                '\n' -> return -1
-            }
-        }
-        return -1
+    /** Whether a link may open: only the web and mail, never paths or schemes that run something. */
+    fun isOpenable(url: String): Boolean {
+        val lower = url.trim().lowercase()
+        return lower.startsWith("https://") || lower.startsWith("http://") || lower.startsWith("mailto:")
     }
 
     /** Plain text of inlines, for previews and accessibility. */
@@ -327,7 +110,180 @@ object Markdown {
                 is MdInline.Italic -> append(plain(inline.children))
                 is MdInline.Strike -> append(plain(inline.children))
                 is MdInline.Link -> append(plain(inline.children))
+                is MdInline.Math -> append(inline.tex)
             }
+        }
+    }
+
+    private class Converter(private val math: MathExtraction) {
+        fun blocks(parent: Node): List<MdBlock> {
+            val out = ArrayList<MdBlock>()
+            var node = parent.firstChild
+            while (node != null) {
+                block(node, out)
+                node = node.next
+            }
+            return out
+        }
+
+        private fun block(node: Node, out: MutableList<MdBlock>) {
+            when (node) {
+                is Paragraph -> paragraph(inlines(node), out)
+                is Heading -> out += MdBlock.Heading(node.level.coerceIn(1, 6), inlines(node))
+                is FencedCodeBlock -> out += MdBlock.Code(
+                    node.info?.trim()?.split(' ', '\t')?.firstOrNull()?.takeIf { it.isNotEmpty() }?.let(math::restore),
+                    math.restore(node.literal.orEmpty()).removeSuffix("\n"),
+                )
+                is IndentedCodeBlock -> out += MdBlock.Code(null, math.restore(node.literal.orEmpty()).removeSuffix("\n"))
+                is ListBlock -> out += MdBlock.ListBlock(
+                    ordered = node is OrderedList,
+                    start = (node as? OrderedList)?.markerStartNumber ?: 1,
+                    tight = node.isTight,
+                    items = generateSequence(node.firstChild) { it.next }.filterIsInstance<ListItem>().map(::listItem).toList(),
+                )
+                is BlockQuote -> out += MdBlock.Quote(blocks(node))
+                is ThematicBreak -> out += MdBlock.Rule
+                is HtmlBlock -> {
+                    val literal = math.restore(node.literal.orEmpty()).trimEnd('\n')
+                    out += MdBlock.Paragraph(merge(listOf(MdInline.Text(literal.replace(BREAK_TAGS, "\n")))))
+                }
+                is TableBlock -> out += table(node)
+                else -> out += blocks(node)
+            }
+        }
+
+        /** A paragraph, split where a display formula sits on its own line. */
+        private fun paragraph(inlines: List<MdInline>, out: MutableList<MdBlock>) {
+            var run = ArrayList<MdInline>()
+            fun flush() {
+                val trimmed = trimBreaks(run)
+                if (trimmed.isNotEmpty()) out += MdBlock.Paragraph(trimmed)
+                run = ArrayList()
+            }
+            for (inline in inlines) {
+                if (inline is MdInline.Math && inline.display) {
+                    flush()
+                    out += MdBlock.Math(inline.tex, inline.source)
+                } else {
+                    run += inline
+                }
+            }
+            flush()
+        }
+
+        private fun listItem(item: ListItem): MdListItem {
+            var checked: Boolean? = null
+            val marker = generateSequence(item.firstChild) { it.next }.filterIsInstance<TaskListItemMarker>().firstOrNull()
+                ?: (item.firstChild as? Paragraph)?.firstChild as? TaskListItemMarker
+            if (marker != null) {
+                checked = marker.isChecked
+                marker.unlink()
+            }
+            return MdListItem(checked, blocks(item))
+        }
+
+        private fun table(node: TableBlock): MdBlock.Table {
+            val rows = ArrayList<TableRow>()
+            fun collect(parent: Node) {
+                var child = parent.firstChild
+                while (child != null) {
+                    if (child is TableRow) rows += child else collect(child)
+                    child = child.next
+                }
+            }
+            collect(node)
+            val cells = rows.map { row -> generateSequence(row.firstChild) { it.next }.filterIsInstance<TableCell>().toList() }
+            val headerCells = cells.firstOrNull().orEmpty()
+            val columns = headerCells.size.coerceAtLeast(1)
+            val alignments = (0 until columns).map { index ->
+                when (headerCells.getOrNull(index)?.alignment) {
+                    TableCell.Alignment.CENTER -> MdAlign.Center
+                    TableCell.Alignment.RIGHT -> MdAlign.End
+                    else -> MdAlign.Start
+                }
+            }
+            fun row(row: List<TableCell>) = (0 until columns).map { index -> row.getOrNull(index)?.let(::inlines).orEmpty() }
+            return MdBlock.Table(alignments, row(headerCells), cells.drop(1).map(::row))
+        }
+
+        fun inlines(parent: Node): List<MdInline> {
+            val out = ArrayList<MdInline>()
+            var node = parent.firstChild
+            while (node != null) {
+                inline(node, out)
+                node = node.next
+            }
+            return merge(out)
+        }
+
+        private fun inline(node: Node, out: MutableList<MdInline>) {
+            when (node) {
+                is Text -> text(node.literal.orEmpty(), out)
+                is StrongEmphasis -> out += MdInline.Bold(nested(node))
+                is Emphasis -> out += MdInline.Italic(nested(node))
+                is Strikethrough -> out += MdInline.Strike(nested(node))
+                is Code -> out += MdInline.Code(math.restore(node.literal.orEmpty()))
+                is Link -> {
+                    val url = math.restore(node.destination.orEmpty())
+                    val children = nested(node)
+                    if (isOpenable(url)) out += MdInline.Link(children, url.trim()) else out += children
+                }
+                is Image -> {
+                    val url = math.restore(node.destination.orEmpty())
+                    val alt = plain(nested(node)).trim()
+                    val label = MdInline.Text("🖼 " + alt.ifEmpty { url })
+                    out += if (isOpenable(url)) MdInline.Link(listOf(label), url.trim()) else label
+                }
+                is SoftLineBreak, is HardLineBreak -> out += MdInline.Text("\n")
+                is HtmlInline -> {
+                    val literal = math.restore(node.literal.orEmpty())
+                    out += MdInline.Text(if (BREAK_TAG.matches(literal.trim())) "\n" else literal)
+                }
+                is TaskListItemMarker -> Unit
+                else -> {
+                    var child = node.firstChild
+                    while (child != null) {
+                        inline(child, out)
+                        child = child.next
+                    }
+                }
+            }
+        }
+
+        /** Inline children of emphasis or a link; only a paragraph's own display formulas become blocks. */
+        private fun nested(node: Node): List<MdInline> = inlines(node)
+
+        private fun text(literal: String, out: MutableList<MdInline>) {
+            for (piece in math.split(literal)) {
+                when (piece) {
+                    is String -> out += MdInline.Text(piece)
+                    is MathSpan -> out += MdInline.Math(piece.tex, piece.source, piece.display)
+                }
+            }
+        }
+
+        private fun merge(inlines: List<MdInline>): List<MdInline> {
+            val out = ArrayList<MdInline>(inlines.size)
+            for (inline in inlines) {
+                val last = out.lastOrNull()
+                if (inline is MdInline.Text && inline.text.isEmpty()) continue
+                if (inline is MdInline.Text && last is MdInline.Text) out[out.size - 1] = MdInline.Text(last.text + inline.text) else out += inline
+            }
+            return out
+        }
+
+        /** Drops the line breaks a display formula leaves at the edges of the text around it. */
+        private fun trimBreaks(inlines: List<MdInline>): List<MdInline> {
+            val out = merge(inlines).toMutableList()
+            (out.firstOrNull() as? MdInline.Text)?.let { first ->
+                val text = first.text.trimStart('\n')
+                if (text.isEmpty()) out.removeAt(0) else out[0] = MdInline.Text(text)
+            }
+            (out.lastOrNull() as? MdInline.Text)?.let { last ->
+                val text = last.text.trimEnd('\n')
+                if (text.isEmpty()) out.removeAt(out.size - 1) else out[out.size - 1] = MdInline.Text(text)
+            }
+            return if (out.all { it is MdInline.Text && it.text.isBlank() }) emptyList() else out
         }
     }
 }

@@ -59,12 +59,22 @@ final class SessionViewModel {
     var actionError: RelayError?
     /// The pending request this phone just answered, until the computer takes the answer (the request's id changes).
     private(set) var answeringRequestId: String?
+    /// The transcript follows its end (no scroll-to-bottom button). iOS 18+: `follower.follows`; iOS 17: the bottom
+    /// sentinel is on screen.
     var isAtBottom = true {
         didSet { if isAtBottom { newWhileAway = 0 } }
     }
     /// Bumped whenever the transcript's content grows (new items, or a revealing reply getting longer), so the view
     /// can keep the bottom in sight.
-    private(set) var contentTick = 0
+    private(set) var contentTick = 0 {
+        didSet {
+            follower.contentChanged()
+            blankRepairs = 0
+        }
+    }
+    /// Bumped when the view should put the transcript's end back in sight at once (iOS 18+: something moved the end
+    /// while following, or the view rests past it).
+    private(set) var pinTick = 0
     var draft: String {
         didSet {
             scheduleDraftSave()
@@ -80,8 +90,22 @@ final class SessionViewModel {
     @ObservationIgnored private var markReadTask: Task<Void, Never>?
     @ObservationIgnored private var draftTask: Task<Void, Never>?
     @ObservationIgnored private var isVisible = false
-    /// When the bottom of the transcript was last on screen; `.distantPast` once the person scrolls up.
+    /// iOS 17: when the bottom of the transcript was last on screen; `.distantPast` once the person scrolls up.
     @ObservationIgnored private var bottomSeenAt = Date()
+    /// iOS 18+: whether the transcript follows its end, from the scroll view's geometry and phase.
+    @ObservationIgnored private var follower = BottomFollower()
+    /// The scroll view reports its geometry (iOS 18+), so the follower decides.
+    @ObservationIgnored private var tracksGeometry = false
+    /// iOS 18+: what the blank-stretch check compares (`scheduleBlankCheck`).
+    @ObservationIgnored private var contentOverflows = false
+    @ObservationIgnored private var sentinelBottom: Double?
+    @ObservationIgnored private var visibleBottom: Double?
+    @ObservationIgnored private var blankCheck: Task<Void, Never>?
+    /// Ends the button's or a send's scroll animation for the follower if the scroll phase never does.
+    @ObservationIgnored private var followAnimation: Task<Void, Never>?
+    /// Blank-stretch repairs since the content last changed or the person last scrolled.
+    @ObservationIgnored private var blankRepairs = 0
+    private static let maxBlankRepairs = 3
     @ObservationIgnored private var revealTicker: Task<Void, Never>?
     /// The config commands bot cards wait on, by card id.
     @ObservationIgnored private var configWatches: [String: LiveQuery<CommandRecord?>] = [:]
@@ -143,6 +167,8 @@ final class SessionViewModel {
     func tearDown() {
         disappear()
         revealTicker?.cancel()
+        blankCheck?.cancel()
+        followAnimation?.cancel()
         detail.stop()
         commands.stop()
         slashCommands.stop()
@@ -235,20 +261,91 @@ final class SessionViewModel {
 
     // MARK: Following the bottom
 
-    /// The bottom sentinel appeared or disappeared.
+    /// iOS 18+: the scroll view's geometry moved (`distance`: how far the transcript's end is below the visible bottom
+    /// edge, 0 when it all fits; `overflows`: the content is taller than the visible area).
+    func scrollGeometryChanged(distanceFromBottom distance: Double, overflows: Bool) {
+        tracksGeometry = true
+        contentOverflows = overflows
+        applyFollower(pin: follower.geometryChanged(distance: distance))
+        scheduleBlankCheck()
+    }
+
+    /// iOS 18+: the person started or stopped moving the transcript, or a programmatic scroll started or ended.
+    func scrollPhaseChanged(_ phase: BottomFollower.Phase) {
+        tracksGeometry = true
+        if phase == .user { blankRepairs = 0 }
+        applyFollower(pin: follower.phaseChanged(phase))
+        scheduleBlankCheck()
+    }
+
+    /// iOS 18+: where the last row really ends on screen (global y, the bottom sentinel plus the stack's bottom
+    /// padding), or nil while the lazy stack has no sentinel.
+    func sentinelMoved(to y: Double?) {
+        sentinelBottom = y
+        scheduleBlankCheck()
+    }
+
+    /// iOS 18+: where the visible part of the transcript ends on screen (global y): the composer's top.
+    func visibleBottomMoved(to y: Double) {
+        visibleBottom = y
+        scheduleBlankCheck()
+    }
+
+    /// The lazy stack can come to rest with its estimated height taller than its rows: the scroll view sits at the end
+    /// of the estimate, which its geometry reports as the end, with a blank stretch under the last row until a touch
+    /// makes it measure again. Once nothing has moved for a moment, put the real end back at the bottom.
+    private func scheduleBlankCheck() {
+        blankCheck?.cancel()
+        guard showsBlankStretch, blankRepairs < Self.maxBlankRepairs else { return }
+        blankCheck = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self, !Task.isCancelled, self.showsBlankStretch else { return }
+            self.blankRepairs += 1
+            self.pinTick &+= 1
+        }
+    }
+
+    /// Content taller than the screen, at rest, and the last row's end on screen well above the composer.
+    private var showsBlankStretch: Bool {
+        guard follower.phase == .idle, contentOverflows, let sentinelBottom, let visibleBottom else { return false }
+        return visibleBottom - sentinelBottom > BottomFollower.slop
+    }
+
+    /// The scroll-to-bottom button or a send is taking the transcript to its end: follow it from now on.
+    func followBottom() {
+        guard tracksGeometry else { return }
+        follower.follow()
+        applyFollower(pin: false)
+        followAnimation?.cancel()
+        followAnimation = Task { [weak self] in
+            // The scroll phase may never report the animation's end.
+            try? await Task.sleep(for: .milliseconds(600))
+            guard let self, !Task.isCancelled else { return }
+            self.applyFollower(pin: self.follower.animationEnded())
+            self.scheduleBlankCheck()
+        }
+    }
+
+    private func applyFollower(pin: Bool) {
+        if isAtBottom != follower.follows { isAtBottom = follower.follows }
+        if pin { pinTick &+= 1 }
+    }
+
+    /// iOS 17: the bottom sentinel appeared or disappeared.
     func bottomVisibility(_ visible: Bool) {
         isAtBottom = visible
         if visible || bottomSeenAt != .distantPast { bottomSeenAt = Date() }
     }
 
-    /// The person dragged the transcript down (to read older items): stop following the bottom.
+    /// iOS 17: the person dragged the transcript down (to read older items): stop following the bottom.
     func userScrolledUp() {
         bottomSeenAt = .distantPast
     }
 
-    /// Follow the bottom: it is on screen, or it was until content pushed it off a moment ago.
+    /// Follow the bottom. iOS 18+: the follower says so. iOS 17: the sentinel is on screen, or was until content pushed
+    /// it off a moment ago.
     var shouldFollowBottom: Bool {
-        isAtBottom || Date().timeIntervalSince(bottomSeenAt) < 1.0
+        tracksGeometry ? follower.follows : isAtBottom || Date().timeIntervalSince(bottomSeenAt) < 1.0
     }
 
     private func startRevealTicker() {

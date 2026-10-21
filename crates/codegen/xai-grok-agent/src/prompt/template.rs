@@ -327,6 +327,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_base_template_introduces_crok() {
+        let prompt = render_base(&default_renderer(), &default_placeholders());
+        assert!(
+            prompt.starts_with("You are Crok. You are an interactive CLI tool"),
+            "identity line: {:?}",
+            prompt.lines().next()
+        );
+        assert!(
+            !prompt.contains("Grok"),
+            "the base prompt must not name Grok"
+        );
+    }
+
     // ── Determinism ─────────────────────────────────────────────────
 
     #[test]

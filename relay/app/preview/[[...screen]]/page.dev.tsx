@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { notFound } from "next/navigation";
 import { Preview } from "@/components/preview/Preview";
 import { isLang } from "@/lib/i18n";
@@ -21,6 +23,11 @@ export default async function PreviewPage({
   const lang = isLang(query.lang) ? query.lang : null;
   const device = typeof query.device === "string" ? query.device : null;
   const path = typeof query.path === "string" ? query.path : null;
+  const name = screen?.join("/") ?? "index";
+  // The session-markdown screens show the Markdown showcase the phone apps' demo data uses too.
+  const showcase = name.startsWith("session-markdown")
+    ? readFileSync(join(process.cwd(), "scripts/markdown-showcase.md"), "utf8")
+    : undefined;
   return (
     <>
       {theme ? (
@@ -30,9 +37,10 @@ export default async function PreviewPage({
         />
       ) : null}
       <Preview
-        screen={screen?.join("/") ?? "index"}
+        screen={name}
         lang={lang}
         target={device && path ? { deviceId: device, path } : undefined}
+        showcase={showcase}
       />
     </>
   );

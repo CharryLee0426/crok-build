@@ -10,6 +10,7 @@ use crate::assets::{self, Target};
 use crate::install;
 use crate::release::{self, Source};
 use crate::report::Reporter;
+use crate::signature::{self, Permissions};
 use crate::sshsig::TrustedKeys;
 
 /// After Crok Desktop quits, how long another copy opened from the same bundle (from the Dock, a
@@ -28,6 +29,9 @@ pub struct Options {
     pub wait_for_pid: Option<u32>,
     /// Open the app again once it is installed.
     pub relaunch: bool,
+    /// Install a release signed by a certificate other than the installed copy's, which loses
+    /// the permissions macOS gave this copy.
+    pub allow_new_signature: bool,
     /// Check a release folder's manifest and signature instead of upgrading.
     pub verify_dir: Option<PathBuf>,
     /// The release version this build carries.
@@ -91,6 +95,9 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
         "sdk": wanted.as_ref().and_then(|wanted| wanted.linked_sdk).map(|(major, minor)| format!("{major}.{minor}")),
         "image": wanted.as_ref().and_then(|wanted| wanted.image).map(assets::DiskImage::sdk),
         "unavailable": no_asset_reason,
+        // This copy is signed by a certificate, so an update either keeps the permissions macOS
+        // gave it or is refused.
+        "permissionsCarryOver": signature::carries_over(target.path()),
     }));
     let current_text = current.to_string();
     if update_available {
@@ -164,8 +171,15 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
     match &target {
         Target::Binary { path } => {
             reporter.status("install", msg("upgrade.installing", "Installing…", &[]));
-            install::install_binary(&download, path)?;
-            reporter.event(json!({ "event": "installed", "version": version_text, "path": path }));
+            let staged = install::stage_binary(&download, path)?;
+            let permissions = keep_permissions(signature::compare(path, staged.path()), options, &version_text, reporter)?;
+            staged.install(path)?;
+            reporter.event(json!({
+                "event": "installed",
+                "version": version_text,
+                "path": path,
+                "permissions": permissions.label(),
+            }));
             reporter.text(msg(
                 "upgrade.installed_binary",
                 "Installed crok release {version} at {path}.",
@@ -175,17 +189,19 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
         Target::App { bundle } => {
             reporter.status("install", msg("upgrade.installing", "Installing…", &[]));
             let staged = install::stage_app(&download, bundle, &version_text)?;
+            let permissions =
+                keep_permissions(signature::compare_app(bundle, &staged.app), options, &version_text, reporter)?;
             let previous = install::bundle_version(bundle).unwrap_or_else(|_| "previous".to_string());
-            reporter.event(json!({ "event": "ready", "version": version_text }));
-            if let Some(pid) = options.wait_for_pid {
+            reporter.event(json!({ "event": "ready", "version": version_text, "permissions": permissions.label() }));
+            let installed = if let Some(pid) = options.wait_for_pid {
                 // Crok Desktop installs the update whenever it quits, however long that takes;
                 // it cancels with SIGTERM.
                 reporter.status("waiting", msg("upgrade.waiting", "Waiting for Crok Desktop to quit…", &[]));
                 install::wait_for_exit(pid, None).await?;
                 // Nobody reads this output any more. What happens next is written down for the
-                // app's next launch, and the app is opened again even when the swap failed, so
+                // app's next launch, and the app is opened again even when the update failed, so
                 // the person is never left without it.
-                let outcome = swap_when_closed(&staged, bundle, &previous).await;
+                let outcome = install_when_closed(&staged, bundle).await;
                 install::record_result(&install::InstallResult {
                     version: version_text.clone(),
                     previous: previous.clone(),
@@ -196,23 +212,47 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
                     reporter.status("relaunch", msg("upgrade.relaunching", "Opening Crok Desktop…", &[]));
                     let _ = install::relaunch(bundle);
                 }
-                outcome?;
+                outcome?
             } else {
                 if !install::running_pids(bundle).is_empty() {
                     bail!("{}", desktop_running());
                 }
-                swap_when_closed(&staged, bundle, &previous).await?;
+                let installed = install_when_closed(&staged, bundle).await?;
                 if options.relaunch {
                     reporter.status("relaunch", msg("upgrade.relaunching", "Opening Crok Desktop…", &[]));
                     install::relaunch(bundle)?;
                 }
-            }
-            reporter.event(json!({ "event": "installed", "version": version_text, "path": bundle }));
+                installed
+            };
+            reporter.event(json!({
+                "event": "installed",
+                "version": version_text,
+                "path": bundle,
+                "inPlace": installed == install::Installed::InPlace,
+                "permissions": permissions.label(),
+            }));
             reporter.text(msg(
                 "upgrade.installed_app",
                 "Installed Crok Desktop {version} at {path}. Its crok command is updated with it.",
                 &[("version", &version_text), ("path", &bundle.display().to_string())],
             ));
+            reporter.text(match permissions {
+                Permissions::Kept => msg(
+                    "upgrade.permissions_kept",
+                    "macOS keeps the permissions it gave Crok Desktop (Accessibility, Screen Recording and the rest): the new version is signed by the same certificate.",
+                    &[],
+                ),
+                Permissions::NothingToKeep => msg(
+                    "upgrade.permissions_ad_hoc",
+                    "The replaced copy of Crok Desktop was signed ad hoc, so macOS asks once more for the permissions it gave it (Accessibility, Screen Recording and the rest).",
+                    &[],
+                ),
+                Permissions::Lost { .. } => msg(
+                    "upgrade.permissions_lost",
+                    "The new version is signed by another certificate, so macOS asks once more for the permissions it gave Crok Desktop (Accessibility, Screen Recording and the rest).",
+                    &[],
+                ),
+            });
         }
     }
     let _ = std::fs::remove_dir_all(&cache);
@@ -223,18 +263,41 @@ async fn run_inner(options: &Options, reporter: &mut Reporter) -> Result<()> {
     Ok(())
 }
 
-/// Moves the staged app into place once no copy of the installed one runs any more.
-async fn swap_when_closed(staged: &install::StagedApp, bundle: &Path, previous: &str) -> Result<()> {
+/// Puts the staged app into the installed bundle once no copy of the installed one runs any more.
+async fn install_when_closed(staged: &install::StagedApp, bundle: &Path) -> Result<install::Installed> {
     if !install::wait_for_bundle_to_close(bundle, OTHER_COPIES_TIMEOUT).await {
         bail!("{}", desktop_running());
     }
-    let old = install::swap_app(staged, bundle)?;
-    let bundle_name = bundle
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "Crok Desktop.app".to_string());
-    install::discard_old_app(&old, &bundle_name, previous);
-    Ok(())
+    install::update_bundle(staged, bundle)
+}
+
+/// Refuses new code that would lose the permissions macOS gave the installed copy, unless the
+/// person asked for it with `--allow-new-signature`.
+fn keep_permissions(
+    permissions: Permissions,
+    options: &Options,
+    version: &str,
+    reporter: &mut Reporter,
+) -> Result<Permissions> {
+    if let Permissions::Lost { requirement, reason } = &permissions {
+        reporter.event(json!({
+            "event": "permissions",
+            "permissions": permissions.label(),
+            "requirement": requirement,
+            "reason": reason,
+        }));
+        if !options.allow_new_signature {
+            bail!(
+                "{}",
+                msg(
+                    "upgrade.signature_changed",
+                    "Release {version} is not signed by the certificate this copy is signed by, so macOS would ask again for every permission it gave this copy (Accessibility, Screen Recording and the rest). Nothing was installed. To install it anyway, run `crok upgrade --allow-new-signature`, or install it from the release page.",
+                    &[("version", version)],
+                )
+            );
+        }
+    }
+    Ok(permissions)
 }
 
 /// The release file this installation takes.

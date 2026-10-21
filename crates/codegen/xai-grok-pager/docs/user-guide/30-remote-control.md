@@ -33,7 +33,8 @@ to the Crok app can approve it too: **Settings** → **Link a computer**, then s
 Only approve a sign-in you just started yourself. The code works for ten minutes.
 
 There is no address to enter: crok comes with its relay built in. The link is kept in
-`$CROK_HOME/remote/credentials.json`, readable only by you.
+`$CROK_HOME/remote/credentials.json`, readable only by you. Test builds (crok-test, Crok Desktop Test) sign in to a
+separate test relay and keep their link in `credentials-dev.json`, so they never touch your real sign-in.
 
 ## What Is Shared
 

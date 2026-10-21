@@ -96,23 +96,19 @@ private struct SessionContent: View {
                     }
                     Color.clear
                         .frame(height: 1)
+                        .modifier(BottomSentinel(model: model, endPadding: Self.endPadding))
+                        // Outermost, so the lazy stack finds it for `scrollTo` before it has laid it out.
                         .id(Self.bottomID)
-                        .onAppear { model.bottomVisibility(true) }
-                        .onDisappear { model.bottomVisibility(false) }
                 }
                 .padding(.horizontal, 10)
-                .padding(.bottom, 10)
+                .padding(.bottom, Self.endPadding)
                 // A readable column on iPad and in landscape.
                 .frame(maxWidth: Self.readableWidth)
                 .frame(maxWidth: .infinity)
             }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 12).onChanged { drag in
-                    // A finger moving down scrolls toward older items.
-                    if drag.translation.height > 12 { model.userScrolledUp() }
-                })
+            .modifier(BottomTracking(model: model))
             .background(Theme.canvas.ignoresSafeArea())
             .overlay {
                 if model.isRemoved {
@@ -128,6 +124,7 @@ private struct SessionContent: View {
             .overlay(alignment: .bottomTrailing) {
                 if !model.isAtBottom && !model.items.isEmpty {
                     ScrollToBottomButton(count: model.newWhileAway) {
+                        model.followBottom()
                         withAnimation(.snappy) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
                     }
                     .padding(.trailing, 14)
@@ -142,11 +139,16 @@ private struct SessionContent: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ComposerView(model: model, focused: $composerFocused) {
+                    model.followBottom()
                     withAnimation(.snappy) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
                 }
+                .modifier(VisibleBottomEdge(model: model))
             }
             .onChange(of: model.contentTick) { _, _ in
                 if model.shouldFollowBottom { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+            }
+            .onChange(of: model.pinTick) { _, _ in
+                proxy.scrollTo(Self.bottomID, anchor: .bottom)
             }
             .onChange(of: composerFocused) { _, focused in
                 guard focused, model.shouldFollowBottom else { return }
@@ -192,6 +194,8 @@ private struct SessionContent: View {
     }
 
     static let bottomID = "transcript-bottom"
+    /// Space under the last row, after the bottom sentinel.
+    static let endPadding: CGFloat = 10
     static let readableWidth: CGFloat = 760
 
     private func topSpacing(for item: TranscriptItem) -> CGFloat {
@@ -267,6 +271,96 @@ private struct HistoryPlaceholder: View {
         .padding(24)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(computerOnline ? "historyLoading" : "historyOffline")
+    }
+}
+
+/// Where the transcript's end is and who moves it. iOS 18+: from the scroll view's geometry and phase, for
+/// `BottomFollower`; exact inside a reply taller than the screen too. iOS 17: from the bottom sentinel coming and going
+/// (`BottomSentinel`) and the drag that scrolls toward older items.
+private struct BottomTracking: ViewModifier {
+    let model: SessionViewModel
+
+    struct Geometry: Equatable {
+        /// How far the content's end is below the visible bottom edge; 0 when it all fits.
+        var distance: Double
+        var overflows: Bool
+    }
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content
+                .onScrollGeometryChange(for: Geometry.self) { geometry in
+                    // `containerSize` is the visible area: the scroll view less its safe areas (the bars above, the
+                    // composer below). Content shorter than that is all in sight: `defaultScrollAnchor` bottom-aligns it
+                    // by adding to the top inset. Taller content: the top inset is the bars, and the visible area ends
+                    // at offset + top inset + its height.
+                    let content = geometry.contentSize.height, visible = geometry.containerSize.height
+                    guard content > visible else { return Geometry(distance: 0, overflows: false) }
+                    let distance = content - (geometry.contentOffset.y + geometry.contentInsets.top + visible)
+                    return Geometry(distance: distance.rounded(), overflows: true)
+                } action: { _, geometry in
+                    model.scrollGeometryChanged(distanceFromBottom: geometry.distance, overflows: geometry.overflows)
+                }
+                .onScrollPhaseChange { _, phase in
+                    model.scrollPhaseChanged(BottomFollower.Phase(phase))
+                }
+        } else {
+            content.simultaneousGesture(
+                DragGesture(minimumDistance: 12).onChanged { drag in
+                    // A finger moving down scrolls toward older items.
+                    if drag.translation.height > 12 { model.userScrolledUp() }
+                })
+        }
+    }
+}
+
+/// The 1 pt view after the last row. iOS 18+: reports where the last row really ends on screen (it, plus the stack's
+/// bottom padding), which `VisibleBottomEdge` compares with the composer's top to catch a blank stretch under the end
+/// that the scroll geometry cannot see. iOS 17: tells the model when it comes and goes; a lazy stack keeps it a while
+/// after it leaves the screen, so inside a tall last reply this still reads as at the bottom.
+private struct BottomSentinel: ViewModifier {
+    let model: SessionViewModel
+    let endPadding: CGFloat
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content
+                .onGeometryChange(for: Double.self) { ($0.frame(in: .global).maxY + endPadding).rounded() } action: {
+                    model.sentinelMoved(to: $0)
+                }
+                .onDisappear { model.sentinelMoved(to: nil) }
+        } else {
+            content
+                .onAppear { model.bottomVisibility(true) }
+                .onDisappear { model.bottomVisibility(false) }
+        }
+    }
+}
+
+/// iOS 18+: the composer's top, where the visible part of the transcript ends on screen.
+private struct VisibleBottomEdge: ViewModifier {
+    let model: SessionViewModel
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.onGeometryChange(for: Double.self) { $0.frame(in: .global).minY.rounded() } action: {
+                model.visibleBottomMoved(to: $0)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+@available(iOS 18, *)
+extension BottomFollower.Phase {
+    init(_ phase: ScrollPhase) {
+        switch phase {
+        case .idle: self = .idle
+        case .tracking, .interacting, .decelerating: self = .user
+        case .animating: self = .animating
+        @unknown default: self = .idle
+        }
     }
 }
 

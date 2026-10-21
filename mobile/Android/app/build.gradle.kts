@@ -5,21 +5,58 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
-/** The relay every build signs in to: nobody types its address (relay/DESIGN.md §4). */
-val builtInRelayUrl = "https://limitless-badger-727.convex.cloud"
+/**
+ * The relay each build signs in to; nobody types its address (relay/DESIGN.md §4). Debug builds use the development
+ * relay and release builds the production one, both read from relay/environments/<env>.env (its CONVEX_URL line).
+ * `-PcrokRelayEnv=prod|dev` picks one environment for both build types (mobile/scripts/build-apps.sh passes it).
+ */
+val relayEnvironments = rootProject.layout.projectDirectory.dir("../../relay/environments")
+
+fun environmentRelayUrl(env: String): String {
+    val regular = relayEnvironments.file("$env.env")
+    val file = regular.asFile
+    // Read through the providers API, so the configuration cache notices when the file changes.
+    val text = providers.fileContents(regular).asText.orNull
+    require(text != null) { "No relay environment \"$env\": ${file.path} is missing" }
+    val url = text.lines()
+        .map { it.trim() }
+        .firstOrNull { it.startsWith("CONVEX_URL=") }
+        ?.removePrefix("CONVEX_URL=")?.trim()?.trimEnd('/')
+    require(!url.isNullOrEmpty()) { "${file.path} has no CONVEX_URL line" }
+    return url
+}
+
+val relayEnvOverride: String? = providers.gradleProperty("crokRelayEnv").orNull?.trim()?.takeIf { it.isNotEmpty() }
+require(relayEnvOverride == null || relayEnvOverride in setOf("prod", "dev")) {
+    "crokRelayEnv must be prod or dev, not \"$relayEnvOverride\""
+}
 
 /**
  * For development only: `-PcrokRelayUrl=http://10.0.2.2:3210` (the emulator's alias for the host's `npx convex dev`) or
- * another deployment. Empty means [builtInRelayUrl].
+ * another deployment. It wins over the environment for both build types.
  */
-val relayUrl: String = providers.gradleProperty("crokRelayUrl").orNull?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
-    ?: builtInRelayUrl
+val relayUrlOverride: String? = providers.gradleProperty("crokRelayUrl").orNull?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
 
-require(Regex("^https?://[^\\s/]+(:\\d+)?$").matches(relayUrl)) {
-    "crokRelayUrl must be a deployment URL such as https://<deployment>.convex.cloud, not \"$relayUrl\""
+/** The relay a build type signs in to: `-PcrokRelayUrl`, else `-PcrokRelayEnv`, else the build type's environment. */
+fun relayUrlFor(defaultEnv: String): String {
+    val url = relayUrlOverride ?: environmentRelayUrl(relayEnvOverride ?: defaultEnv)
+    require(Regex("^https?://[^\\s/]+(:\\d+)?$").matches(url)) {
+        "The relay must be a deployment URL such as https://<deployment>.convex.cloud, not \"$url\""
+    }
+    return url
 }
 
 fun quoted(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+/**
+ * The key release APKs are signed with: the keystore `CROK_ANDROID_KEYSTORE` names (PKCS12 or JKS), its password
+ * `CROK_ANDROID_KEYSTORE_PASSWORD` and the key `CROK_ANDROID_KEY_ALIAS` (`CROK_ANDROID_KEY_PASSWORD`, else the
+ * keystore's password). The release workflow (.github/workflows/release.yml) always passes one, so each published APK
+ * installs over the one before. Without it, release builds are signed with the debug key, so `assembleRelease` still
+ * makes an installable APK.
+ */
+fun environment(name: String): String? = providers.environmentVariable(name).orNull?.takeIf { it.isNotEmpty() }
+val releaseKeystore: String? = environment("CROK_ANDROID_KEYSTORE")
 
 android {
     namespace = "dev.chenli.crok.mobile"
@@ -34,19 +71,34 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                val keystorePassword = environment("CROK_ANDROID_KEYSTORE_PASSWORD")
+                val alias = environment("CROK_ANDROID_KEY_ALIAS")
+                require(keystorePassword != null && alias != null) {
+                    "CROK_ANDROID_KEYSTORE is set, so CROK_ANDROID_KEYSTORE_PASSWORD and CROK_ANDROID_KEY_ALIAS must be too"
+                }
+                storeFile = file(releaseKeystore)
+                storePassword = keystorePassword
+                keyAlias = alias
+                keyPassword = environment("CROK_ANDROID_KEY_PASSWORD") ?: keystorePassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
-            buildConfigField("String", "RELAY_URL", quoted(relayUrl))
+            buildConfigField("String", "RELAY_URL", quoted(relayUrlFor("dev")))
             buildConfigField("boolean", "DEMO_ALLOWED", "true")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            buildConfigField("String", "RELAY_URL", quoted(relayUrl))
+            buildConfigField("String", "RELAY_URL", quoted(relayUrlFor("prod")))
             buildConfigField("boolean", "DEMO_ALLOWED", "false")
-            // Signed with the debug key so `assembleRelease` produces an installable APK; use a real key to ship.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 
@@ -121,6 +173,12 @@ dependencies {
     implementation(libs.kyant.shapes)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.gfm.tables)
+    implementation(libs.commonmark.gfm.strikethrough)
+    implementation(libs.commonmark.task.list.items)
+    implementation(libs.commonmark.autolink)
+    implementation(libs.jlatexmath.android)
 
     // Convex: the AAR with its own dependencies, and the JNA build that supports 16 KB memory pages.
     implementation("dev.convex:android-convexmobile:${libs.versions.convex.get()}@aar") { isTransitive = true }

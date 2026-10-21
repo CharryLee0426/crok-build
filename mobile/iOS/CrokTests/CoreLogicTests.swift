@@ -170,6 +170,111 @@ final class ConnectionStatusTests: XCTestCase {
     }
 }
 
+final class BottomFollowerTests: XCTestCase {
+    func testFollowsUntilThePersonScrollsAwayEvenInsideATallLastReply() {
+        var follower = BottomFollower()
+        XCTAssertFalse(follower.phaseChanged(.user))
+        // 190 pt up: still inside the last reply, but its end is off screen.
+        for distance in stride(from: 0.0, through: 190, by: 10) {
+            XCTAssertFalse(follower.geometryChanged(distance: distance), "no pins while the finger moves")
+        }
+        XCTAssertFalse(follower.follows)
+        XCTAssertFalse(follower.phaseChanged(.idle))
+        XCTAssertFalse(follower.follows, "away from the end once the fling stops")
+        XCTAssertFalse(follower.geometryChanged(distance: 480), "a reply growing below the reader moves nothing")
+        XCTAssertFalse(follower.follows)
+    }
+
+    func testScrollingBackWithinTheSlopFollowsAgain() {
+        var follower = BottomFollower()
+        _ = follower.phaseChanged(.user)
+        _ = follower.geometryChanged(distance: 300)
+        XCTAssertFalse(follower.follows)
+        _ = follower.geometryChanged(distance: BottomFollower.slop - 4)
+        XCTAssertTrue(follower.follows)
+        XCTAssertFalse(follower.phaseChanged(.idle))
+        XCTAssertTrue(follower.follows)
+    }
+
+    func testPinsWhenTheEndMovesWhileFollowing() {
+        var follower = BottomFollower()
+        XCTAssertFalse(follower.geometryChanged(distance: 0))
+        XCTAssertTrue(follower.geometryChanged(distance: 640), "rows measured taller than estimated: back to the end")
+        XCTAssertTrue(follower.follows)
+        XCTAssertFalse(follower.geometryChanged(distance: 0))
+    }
+
+    func testPinsWhenRestingPastTheEnd() {
+        var follower = BottomFollower()
+        _ = follower.phaseChanged(.user)
+        _ = follower.geometryChanged(distance: 900)
+        _ = follower.phaseChanged(.idle)
+        XCTAssertFalse(follower.follows)
+        XCTAssertTrue(follower.geometryChanged(distance: -300), "a blank stretch under the end (the estimate shrank)")
+        XCTAssertTrue(follower.follows)
+    }
+
+    func testTheButtonFollowsAndCorrectsALandingShortOfTheEnd() {
+        var follower = BottomFollower()
+        _ = follower.phaseChanged(.user)
+        _ = follower.geometryChanged(distance: 2_000)
+        _ = follower.phaseChanged(.idle)
+        follower.follow()
+        XCTAssertTrue(follower.follows)
+        XCTAssertFalse(follower.phaseChanged(.animating))
+        XCTAssertFalse(follower.geometryChanged(distance: 900), "no pins while the button's scroll animates")
+        XCTAssertFalse(follower.geometryChanged(distance: 120))
+        XCTAssertTrue(follower.phaseChanged(.idle), "landed 120 pt short: pin the rest of the way")
+        XCTAssertFalse(follower.geometryChanged(distance: 0))
+        XCTAssertTrue(follower.follows)
+    }
+
+    func testTheButtonsAnimationIsNotDriftEvenWhenThePhaseNeverReportsIt() {
+        var follower = BottomFollower()
+        _ = follower.phaseChanged(.user)
+        _ = follower.geometryChanged(distance: 2_867)
+        _ = follower.phaseChanged(.idle)
+        follower.follow()
+        // The animated scroll moves the geometry while the phase still says idle.
+        XCTAssertFalse(follower.geometryChanged(distance: 2_865), "no pin cuts the button's animation short")
+        XCTAssertFalse(follower.geometryChanged(distance: 900))
+        XCTAssertFalse(follower.geometryChanged(distance: 8))
+        XCTAssertFalse(follower.animationEnded(), "landed at the end")
+        XCTAssertTrue(follower.follows)
+        XCTAssertFalse(follower.animationEnded(), "only once")
+
+        follower.follow()
+        _ = follower.geometryChanged(distance: 300)
+        XCTAssertTrue(follower.animationEnded(), "landed short: pin the rest of the way")
+    }
+
+    func testPinsThatKeepMissingStopUntilNewContent() {
+        var follower = BottomFollower()
+        var pins = 0
+        // A layout that answers every pin with another wrong place.
+        for step in 0..<40 {
+            if follower.geometryChanged(distance: step % 2 == 0 ? 204 : 955) { pins += 1 }
+        }
+        XCTAssertEqual(pins, BottomFollower.maxMissedPins, "a layout that cannot settle does not spin")
+        XCTAssertFalse(follower.follows, "away from the end: the scroll-to-bottom button shows")
+        follower.follow()
+        _ = follower.geometryChanged(distance: 300)
+        XCTAssertTrue(follower.animationEnded(), "the button: pins try again")
+        XCTAssertFalse(follower.geometryChanged(distance: 0))
+        XCTAssertEqual(follower.missedPins, 0, "reaching the end clears the count")
+    }
+
+    func testNewContentLetsPinsTryAgainWhileFollowing() {
+        var follower = BottomFollower()
+        for _ in 0..<(BottomFollower.maxMissedPins - 1) { _ = follower.geometryChanged(distance: 500) }
+        follower.contentChanged()
+        for _ in 0..<(BottomFollower.maxMissedPins - 1) {
+            XCTAssertTrue(follower.geometryChanged(distance: 500), "a reply growing faster than pins land")
+        }
+        XCTAssertTrue(follower.follows)
+    }
+}
+
 final class TextRevealPacerTests: XCTestCase {
     func testRevealsGraduallyAndNeverPastTheText() {
         var pacer = TextRevealPacer(shown: 0, length: 0)
@@ -220,32 +325,6 @@ final class TextRevealPacerTests: XCTestCase {
         var pacer = TextRevealPacer(shown: 100, length: 100)
         pacer.receive(length: 40, at: 1)
         XCTAssertEqual(pacer.shownCount, 40)
-    }
-}
-
-final class MarkdownBlocksTests: XCTestCase {
-    func testSplitsProseAndCode() {
-        let text = "Intro **bold**\n\n```swift\nlet a = 1\n```\nAfter"
-        XCTAssertEqual(
-            MarkdownBlocks.parse(text),
-            [.prose("Intro **bold**"), .code(language: "swift", code: "let a = 1"), .prose("After")])
-    }
-
-    func testUnclosedFenceRunsToTheEnd() {
-        XCTAssertEqual(
-            MarkdownBlocks.parse("Here:\n```\nline 1\nline 2"),
-            [.prose("Here:"), .code(language: nil, code: "line 1\nline 2")])
-    }
-
-    func testClassifiesLines() {
-        XCTAssertEqual(MarkdownBlocks.classify("## Title"), .heading(level: 2, text: "Title"))
-        XCTAssertEqual(MarkdownBlocks.classify("- item"), .bullet(indent: 0, text: "item"))
-        XCTAssertEqual(MarkdownBlocks.classify("  * nested"), .bullet(indent: 1, text: "nested"))
-        XCTAssertEqual(MarkdownBlocks.classify("3. third"), .numbered(indent: 0, number: "3", text: "third"))
-        XCTAssertEqual(MarkdownBlocks.classify("> quoted"), .quote("quoted"))
-        XCTAssertEqual(MarkdownBlocks.classify("---"), .rule)
-        XCTAssertEqual(MarkdownBlocks.classify(""), .blank)
-        XCTAssertEqual(MarkdownBlocks.classify("#hashtag"), .text("#hashtag"))
     }
 }
 

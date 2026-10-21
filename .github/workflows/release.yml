@@ -1,0 +1,246 @@
+# Releases Crok when a pull request that bumps VERSION merges into main: the crok TUI and Crok Desktop,
+# built against the macOS 26 and macOS 15 SDKs as two disk images, the production iOS app and the
+# production Android APK, all in one GitHub release with notes in English, 简体中文, 日本語, Español,
+# Français and Deutsch (release/notes/v<version>/).
+#
+# A merge that leaves VERSION at a released number makes no release. Every build is signed and checked
+# the way release/publish.sh does it on a Mac, and SHA256SUMS.txt over all the files is signed with the
+# release key, so `crok upgrade` and Check for Updates… install from it. The signing material lives in the
+# "release" environment, which only main may use; release/ci-secrets.sh sets it up. See "Releases" in
+# release/README.md.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Build and check everything, but create no tag and no release
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# One release at a time, and never cancelled halfway: a later merge waits for the one before.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      release: ${{ steps.plan.outputs.release }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Decide what to release
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: .github/scripts/release/plan.sh
+
+  tui:
+    name: TUI
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      # A release build from scratch gains nothing from incremental state (the release profile turns it on).
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode 26
+        run: .github/scripts/select-xcode.sh
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install
+          cargo --version
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Release builds share nothing with CI's debug builds, so they keep a cache of their own.
+          shared-key: release
+
+      - name: Install DotSlash
+        run: .github/scripts/install-dotslash.sh
+
+      - name: Import the code signing identity
+        env:
+          CROK_CODESIGN_KEYCHAIN: ${{ secrets.CROK_CODESIGN_KEYCHAIN }}
+          CROK_CODESIGN_PASSWORD: ${{ secrets.CROK_CODESIGN_PASSWORD }}
+        run: .github/scripts/release/import-codesign.sh
+
+      - name: Build crok and the standalone tarball
+        env:
+          CROK_AGENTO11Y_ENV: ${{ secrets.CROK_AGENTO11Y_ENV }}
+        run: .github/scripts/release/build-tui.sh "$RUNNER_TEMP/out"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-tui
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 7
+
+  desktop:
+    name: Desktop (macOS ${{ matrix.sdk }} SDK)
+    needs: [plan, tui]
+    runs-on: ${{ matrix.runner }}
+    environment: release
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sdk: "26"
+            runner: macos-26
+          # Only the macOS 15 image has a macOS 15 SDK (in its Xcode 16).
+          - sdk: "15"
+            runner: macos-15
+    env:
+      SDK: ${{ matrix.sdk }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode 26 and the macOS ${{ matrix.sdk }} SDK
+        run: .github/scripts/select-xcode.sh "$SDK"
+
+      - name: Import the code signing identity
+        env:
+          CROK_CODESIGN_KEYCHAIN: ${{ secrets.CROK_CODESIGN_KEYCHAIN }}
+          CROK_CODESIGN_PASSWORD: ${{ secrets.CROK_CODESIGN_PASSWORD }}
+        run: .github/scripts/release/import-codesign.sh
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-tui
+          path: ${{ runner.temp }}/tui
+
+      - name: Build the disk image
+        run: .github/scripts/release/build-desktop.sh "$SDK" "$RUNNER_TEMP/tui" "$RUNNER_TEMP/out"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-desktop-macos${{ matrix.sdk }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 7
+
+  ios:
+    name: iOS
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode 26
+        run: .github/scripts/select-xcode.sh
+
+      - name: Build the production iOS app
+        # Unsigned: signing for devices needs an Apple team, which the person installing it brings.
+        run: .github/scripts/release/build-ios.sh "$RUNNER_TEMP/out"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-ios
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 7
+
+  android:
+    name: Android
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      - name: Build the production Android APK
+        env:
+          CROK_ANDROID_KEYSTORE_BASE64: ${{ secrets.CROK_ANDROID_KEYSTORE_BASE64 }}
+          CROK_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.CROK_ANDROID_KEYSTORE_PASSWORD }}
+          CROK_ANDROID_KEY_ALIAS: ${{ secrets.CROK_ANDROID_KEY_ALIAS }}
+        run: .github/scripts/release/build-android.sh "$RUNNER_TEMP/out"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-android
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [plan, tui, desktop, ios, android]
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      # Credentials stay for this job only: it pushes the release tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release
+
+      - name: Check every file, sign the manifest and join the notes
+        env:
+          CROK_RELEASE_SIGNING_KEY: ${{ secrets.CROK_RELEASE_SIGNING_KEY }}
+        run: .github/scripts/release/assemble.sh "$RUNNER_TEMP/release" "$RUNNER_TEMP/release-notes.md"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ needs.plan.outputs.version }}
+          path: |
+            ${{ runner.temp }}/release-notes.md
+            ${{ runner.temp }}/release/SHA256SUMS.txt
+            ${{ runner.temp }}/release/SHA256SUMS.txt.sig
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Tag and publish
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release/create-release.sh "$RUNNER_TEMP/release" "$RUNNER_TEMP/release-notes.md"

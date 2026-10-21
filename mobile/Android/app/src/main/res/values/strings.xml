@@ -24,6 +24,7 @@
     <string name="signin_error_expired">The code expired. Start again to get a new one.</string>
     <string name="signin_error_revoked">This phone was signed out from another device.</string>
     <string name="signin_error_not_configured">The server isn’t set up for device sign-in yet.</string>
+    <string name="signin_error_relay_changed">This build uses a different relay. Sign in again.</string>
     <string name="signin_no_browser">No browser can open the sign-in page. Open %1$s on any device and enter the code.</string>
 
     <!-- Waiting for approval -->

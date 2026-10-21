@@ -13,6 +13,7 @@ pub mod install;
 pub mod release;
 mod report;
 mod run;
+pub mod signature;
 pub mod sshsig;
 
 pub use run::{Options, run};

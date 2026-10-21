@@ -22,6 +22,7 @@
     <string name="signin_error_expired">コードの有効期限が切れました。もう一度始めて新しいコードを取得してください。</string>
     <string name="signin_error_revoked">このスマホは別のデバイスからサインアウトされました。</string>
     <string name="signin_error_not_configured">このサーバーはまだデバイスのサインインに対応していません。</string>
+    <string name="signin_error_relay_changed">このビルドは別のリレーを使います。もう一度サインインしてください。</string>
     <string name="signin_no_browser">サインインページを開けるブラウザがありません。任意のデバイスで %1$s を開き、コードを入力してください。</string>
 
     <!-- Waiting for approval -->

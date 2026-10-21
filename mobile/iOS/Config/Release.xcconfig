@@ -1,2 +1,6 @@
-// Release builds use the built-in relay from Shared.xcconfig.
 #include "Shared.xcconfig"
+
+// Release builds sign in to the production relay: CONVEX_URL in relay/environments/prod.env, the relay Crok releases
+// use too. Keep the two in step; mobile/scripts/build-apps.sh passes CROK_RELAY_URL from that file on the xcodebuild
+// command line anyway. `//` starts a comment in xcconfig files, hence the `$()` between the slashes.
+CROK_RELAY_URL = https:/$()/tacit-finch-29.convex.cloud

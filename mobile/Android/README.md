@@ -8,6 +8,8 @@ by QR code. The design, the API contract and the Telegram pattern table are in [
 - Kotlin, Jetpack Compose, Material 3 (Crok palette, no dynamic colour), minSdk 26, target/compileSdk 36.
 - Data: the official Convex Android client (`dev.convex:android-convexmobile` 0.8.0, with JNA 5.19.1 for 16 KB page
   devices) over WebSocket; sign-in and token refresh over Convex's HTTP API.
+- Replies in Markdown: `org.commonmark` 0.30.0 (CommonMark + GFM tables, strikethrough, task lists, autolinks) and
+  `ru.noties:jlatexmath-android` 0.2.0 for LaTeX math; code highlighting is built in.
 - Six languages: English, 简体中文, 日本語, Español, Français, Deutsch (`res/values-*/strings.xml`).
 
 ## Build
@@ -28,16 +30,27 @@ held back on purpose.
 
 ## The relay
 
-Nobody types the relay's address: like crok itself, the app has it built in. `BuildConfig.RELAY_URL` is
-`https://limitless-badger-727.convex.cloud` in debug and release builds alike (`builtInRelayUrl` in
-`app/build.gradle.kts`), and the sign-in screens have no server field.
+Nobody types the relay's address: like crok itself, the app has it built in, and the sign-in screens have no server
+field. `BuildConfig.RELAY_URL` comes from the `CONVEX_URL` line of `relay/environments/<env>.env`
+(`app/build.gradle.kts`):
 
+| Build type | Relay | Environment file |
+|---|---|---|
+| debug | development, `https://limitless-badger-727.convex.cloud` | `relay/environments/dev.env` |
+| release | production, `https://tacit-finch-29.convex.cloud` | `relay/environments/prod.env` |
+
+- `-PcrokRelayEnv=prod|dev` (or `crokRelayEnv` in `gradle.properties`) picks one environment for both build types.
+- `mobile/scripts/build-apps.sh prod` builds the release APK on the production relay and puts it on the Desktop as
+  `crok-android-prod.apk`; `mobile/scripts/build-apps.sh test` builds the debug APK on the development relay as
+  `crok-android-debug.apk` (both in `~/Desktop/Crok mobile e2e builds/`).
 - Development only: `./gradlew :app:assembleDebug -PcrokRelayUrl=http://10.0.2.2:3210` (the emulator's alias for the
-  host's `npx convex dev`), or `crokRelayUrl` in `gradle.properties`. The build refuses a value that is not an
-  `http(s)://host[:port]` URL.
+  host's `npx convex dev`), or `crokRelayUrl` in `gradle.properties`. It wins over the environment. The build refuses a
+  value that is not an `http(s)://host[:port]` URL.
 - Debug builds allow plain HTTP only to `10.0.2.2`, `127.0.0.1` and `localhost` (`src/debug/res/xml/
   network_security_config.xml`); release builds are HTTPS only.
-- A signed-in phone keeps using the relay it signed in to (stored with its credentials); Settings › About shows it.
+- A sign-in belongs to the relay that issued it (stored with its credentials; Settings › About shows it). A build that
+  finds a sign-in from another relay, such as a release build installed over a debug one, forgets it at start and asks
+  to sign in again ("This build uses a different relay").
 
 The relay's web app must have `CROK_WEB_URL` set so `deviceAuth:start` returns an approval link; without it the
 Waiting screen tells the person to enter the code on the web app by hand.
@@ -122,6 +135,32 @@ glass is a translucent frosted surface with a drawn rim (`GlassLevel`). The 2.x 
 Multiplatform 1.12, which needs compileSdk 37, so it waits like the AndroidX updates above. Accent: Telegram blue
 (`#3390EC` light, `#3E88F7` dark); the person's own bubbles are `#E1EFFD` (light) and `#2B5278` with white text (dark).
 
+## Replies in Markdown
+
+Agent replies render as full GitHub-flavoured Markdown with math, natively and the same way as the web and iOS
+(relay/DESIGN.md §5, "Replies in Markdown"); thoughts, tool output and prompts stay plain.
+
+- `logic/MathExtractor` finds math before parsing (`$…$`, `\(…\)` inline; `$$…$$`, `\[…\]` display; code untouched;
+  a single `$` follows the pandoc rule so money and shell variables stay text) and swaps in placeholders.
+  `logic/Markdown` parses with commonmark-java and maps the tree onto the app's own `MdBlock` / `MdInline` model:
+  headings, paragraphs (a single newline stays a line break), nested lists and quotes holding any blocks, task items,
+  rules, code, tables with alignment, display math. Only `http`, `https` and `mailto` links open; images become
+  "🖼 alt" links and are never fetched; raw HTML stays text except `<br>`.
+- `logic/SyntaxHighlighter`: one regex alternation per language (the contract's list of languages and aliases),
+  identifiers classified by keyword sets, GitHub's light and dark colours (`SyntaxColors` in the theme). An unknown or
+  missing language is plain monospace. Results are cached per text.
+- `ui/session/MarkdownText`: code blocks with a language + Copy header, scrolling sideways; tables in a custom layout
+  (each column as wide as its widest cell up to 260 dp, cells wrap beyond, tinted bold header, hairline grid) that
+  scrolls sideways when wider than the bubble; display math centred, or scrolling when wider. Inline math sits on the
+  text's baseline (`InlineTextContent`); a formula wider than 60 % of the window is lifted out as a display block.
+- `ui/session/MathImages`: JLatexMath draws each formula white on transparent, trimmed to its ink and tinted with the
+  text colour when drawn; bitmaps are cached. JLatexMath's start-up (~0.4 s: fonts, symbol tables) runs in the
+  background the first time a reply has math, and formulas show their TeX source until it is done. TeX it cannot parse
+  shows as its source, monospaced and muted. Release builds keep JLatexMath's classes (`proguard-rules.pro`; it loads
+  them by name).
+- commonmark-java 0.30.0 calls `List.of` / `Set.of` / `Map.of` (API 30); D8 backports them for minSdk 26 (the dex
+  holds `$$ExternalSyntheticBackport` helpers and no direct calls). Nothing else it uses is newer than API 26.
+
 ## Staying connected
 
 A phone's socket dies while the app is suspended or the network changes, and the Convex client does not always notice
@@ -143,7 +182,9 @@ killed:
 ## Demo mode
 
 Debug builds can run on built-in demo data (three computers, several projects, sessions in every state including ones
-listed from disk and one waiting on a permission request, a reply that streams and finishes), with no relay:
+listed from disk and one waiting on a permission request, a reply that streams and finishes, and "Render every Markdown
+feature" with the shared showcase reply, `relay/scripts/markdown-showcase.md`, copied verbatim into
+`src/main/resources/demo/`), with no relay:
 
 - tap **Try the demo** on the Welcome screen, or
 - `adb shell am start -n dev.chenli.crok.mobile/.MainActivity --ez crokDemo true`
@@ -162,7 +203,10 @@ no models and cannot start sessions), `/model` and `/think` and device sign-outs
 ```
 
 Unit tests (JVM) cover the transcript building (grouping, day headers, optimistic prompts, ticks, `mine`), user codes,
-plan summary, relative times, the Markdown reader and its AnnotatedString rendering, streaming-reveal pacing, the
+plan summary, relative times, Markdown (`MarkdownTest`: the tree mapping, links, images, HTML, streaming text;
+`MathExtractorTest`: DESIGN.md's math test vectors and placeholders; `SyntaxHighlighterTest`: languages, aliases,
+tokens, and the showcase's parse + highlight time per streaming frame; `MathImagesTest`: JLatexMath under
+Robolectric; `DemoDataTest`: the showcase copy matches the relay's), streaming-reveal pacing, the
 project sections (tabs, 5 + "Show more", collapse, search, freezing, the folder line), the ordering rules (the relay's
 `reorderWithin`, pinned first, Move up / Move down, sort by recent), the HTTP API reply and error decoding, the wire
 models (float64 numbers, `sessions:groups`, `pending`, stored info), the session screen's state (header status,
@@ -176,6 +220,9 @@ into the session, `/model` / `/think` cards, commands sent as prompts), and stay
 the 20 s watchdog, `UNAUTHENTICATED` and its back-off, `REVOKED`, a mutation moved to the new client, the title states)
 on virtual time.
 `ReorderDragTest` drags Reorder mode's handles with touch input under Robolectric.
+`TranscriptBottomTest` opens the showcase session on a phone-sized window (its reply is taller than the screen): it opens
+on the reply's end, a short scroll up inside the reply brings the scroll-to-bottom button and the button goes back to the
+end, new items are followed from the end and counted (the reader left in place) from inside the reply.
 
 ### Screenshot tests
 
@@ -185,6 +232,10 @@ on virtual time.
 ```sh
 ./gradlew :app:recordRoborazziDebug --tests '*ScreenshotTest*'   # → app/build/outputs/roborazzi/*.png
 ```
+
+`MarkdownScreenshotTest` renders the showcase session on a phone-wide window tall enough for the whole reply (light
+and dark, `30-` / `31-markdown-*.png`) and replies cut off mid-stream plus an inline formula too wide for the line
+(`32-markdown-streaming.png`).
 
 ### Relay integration test
 
@@ -211,8 +262,8 @@ app/src/main/java/dev/chenli/crok/mobile/
   engine/      CrokEngine (per-account facades), RelayConnection (staying connected), RelayTransport + ConvexTransport,
                TranscriptPager, ConnectionState (+ NetworkMonitor, AppForeground)
   demo/        DemoData + DemoTransport (in-memory relay for demo mode and screenshots)
-  logic/       pure logic: Transcript, ComposerCommands (command list, matching, bot cards), Markdown, RevealPacer, SessionList
-               (sections), SessionOrder, PlanSummary, RelativeTime, UserCode
+  logic/       pure logic: Transcript, ComposerCommands (command list, matching, bot cards), Markdown, MathExtractor,
+               SyntaxHighlighter, RevealPacer, SessionList (sections), SessionOrder, PlanSummary, RelativeTime, UserCode
   ui/          CrokRoot (navigation), theme, common components, signin/, sessions/, session/, settings/
 ```
 

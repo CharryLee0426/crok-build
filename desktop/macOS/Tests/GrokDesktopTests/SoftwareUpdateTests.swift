@@ -31,6 +31,12 @@ final class SoftwareUpdateTests: XCTestCase {
         }
         XCTAssertNil(older.sdk)
         XCTAssertNil(older.image)
+        // Only a copy signed by a certificate keeps its permissions; older helpers do not say.
+        XCTAssertFalse(check.permissionsCarryOver)
+        guard case .check(let signed)? = SoftwareUpdateEvent.parse(Self.checkLine.replacingOccurrences(of: #""unavailable":null"#, with: #""unavailable":null,"permissionsCarryOver":true"#)) else {
+            return XCTFail("check event with permissionsCarryOver")
+        }
+        XCTAssertTrue(signed.permissionsCarryOver)
 
         XCTAssertEqual(SoftwareUpdateEvent.parse(#"{"event":"progress","bytes":1048576,"total":4194304}"#), .progress(bytes: 1_048_576, total: 4_194_304))
         XCTAssertEqual(SoftwareUpdateEvent.parse(#"{"event":"progress","bytes":5,"total":null}"#), .progress(bytes: 5, total: nil))
@@ -303,7 +309,7 @@ final class SoftwareUpdateTests: XCTestCase {
         defer { L10n.setLanguage(.auto) }
         for language in AppLanguage.allCases where language != .auto {
             L10n.setLanguage(language)
-            for key in ["check_for_updates", "software_update", "update_checking", "update_up_to_date", "update_available", "update_detail",
+            for key in ["check_for_updates", "software_update", "update_checking", "update_up_to_date", "update_available", "update_detail", "update_detail_keeps_permissions",
                         "install_and_relaunch", "update_downloading", "update_quit_to_install", "update_quit_detail", "quit_and_install",
                         "release_notes", "check_again", "update_unavailable_dev", "update_failed_title", "last_checked",
                         "update_quit_running", "update_installed"] {

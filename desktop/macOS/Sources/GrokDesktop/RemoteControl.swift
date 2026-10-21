@@ -47,8 +47,9 @@ struct RemoteAccount: Equatable, Sendable {
     }
 }
 
-/// This Mac's link to the relay, from `$CROK_HOME/remote/credentials.json`. The file also holds the
-/// long-lived refresh token; it is never decoded, so nothing here can show or log it.
+/// This Mac's link to the relay, from `$CROK_HOME/remote/credentials.json` (`credentials-dev.json` when the
+/// bundled crok is a test build for the dev relay). The file also holds the long-lived refresh token; it is
+/// never decoded, so nothing here can show or log it.
 struct RemoteLink: Equatable, Sendable {
     var server: String
     var deviceID: String
@@ -56,8 +57,19 @@ struct RemoteLink: Equatable, Sendable {
     var account: RemoteAccount
     var linkedAt: Date?
 
-    static func file(home: URL) -> URL {
-        home.appendingPathComponent("remote", isDirectory: true).appendingPathComponent("credentials.json")
+    static let credentialsFileInfoKey = "CrokRemoteCredentialsFile"
+
+    static func file(home: URL, bundle: Bundle = .main) -> URL {
+        home.appendingPathComponent("remote", isDirectory: true).appendingPathComponent(fileName(bundle: bundle))
+    }
+
+    /// The sign-in file of the relay the bundled crok signs in to, which build-app.sh asks it for
+    /// (`crok version --json`); `credentials.json` when the bundle does not say or says something odd.
+    static func fileName(bundle: Bundle = .main) -> String {
+        guard let name = (bundle.object(forInfoDictionaryKey: credentialsFileInfoKey) as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              name.hasPrefix("credentials"), name.hasSuffix(".json"), !name.contains("/") else { return "credentials.json" }
+        return name
     }
 
     /// The link the file describes; nil when there is none (signed out) or it cannot be read.

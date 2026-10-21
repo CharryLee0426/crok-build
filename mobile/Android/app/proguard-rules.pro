@@ -5,6 +5,10 @@
 -dontwarn java.awt.**
 -dontwarn com.sun.jna.**
 
+# JLatexMath loads its symbol tables, fonts and alphabet registrations by name at run time.
+-keep class org.scilab.forge.jlatexmath.** { *; }
+-keep class ru.noties.jlatexmath.** { *; }
+
 # kotlinx.serialization: keep the generated serializers of the app's wire models.
 -keepattributes *Annotation*, InnerClasses
 -keepclassmembers class dev.chenli.crok.mobile.** {

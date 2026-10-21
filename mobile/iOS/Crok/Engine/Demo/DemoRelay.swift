@@ -55,12 +55,18 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         broadcast(.socket(connected: false), .socket(connected: true), .synced)
     }
 
-    /// Emits `compute(world)` now and after every change, skipping repeats.
+    /// How long a query's first answer takes, as over a network (`-CrokDemoLatency <ms>`; 0 = at once).
+    private static var firstAnswerLatency: Duration {
+        .milliseconds(max(0, UserDefaults.standard.integer(forKey: "CrokDemoLatency")))
+    }
+
+    /// Emits `compute(world)` now (or after `firstAnswerLatency`) and after every change, skipping repeats.
     private func observe<T: Sendable & Equatable>(_ compute: @escaping @MainActor (DemoWorld) throws -> T) -> RelayStream<T> {
         let world = self.world
         return AsyncThrowingStream { continuation in
             let id = UUID()
             Task { @MainActor in
+                if Self.firstAnswerLatency > .zero { try? await Task.sleep(for: Self.firstAnswerLatency) }
                 var last: T?
                 let emit: @MainActor () -> Void = {
                     do {

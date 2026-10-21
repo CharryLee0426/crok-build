@@ -1389,7 +1389,7 @@ impl xai_grok_compaction::CompactionItem for ConversationItem {
     fn attachment_refs(&self) -> Vec<xai_grok_compaction::CompactionFileRef> {
         // grok-build `UserItem`s carry only `Text`/`Image { url }` content parts
         // There is no id-and-name attachment-ref concept like the chat harness's `GrokTurn` has
-        // The full-replace path does not read this; revisit if image attachments need to survive into the `<grok_user_queries>` preamble
+        // The full-replace path does not read this; revisit if image attachments need to survive into the `<crok_user_queries>` preamble
         Vec::new()
     }
 }

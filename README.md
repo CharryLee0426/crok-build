@@ -39,9 +39,11 @@ no official release: build it from this checkout.
   [authentication guide](crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).
 - **Updates from this fork's releases.** `crok upgrade` installs the latest
   [GitHub release](https://github.com/CharryLee0426/crok-build/releases) over
-  itself, or over the whole Crok Desktop when it is the app's bundled copy;
+  itself, or into Crok Desktop's own bundle when it is the app's bundled copy;
   **Crok Desktop › Check for Updates…** does the same from the app. Releases are
   signed, and the public key is built in (see [`release/README.md`](release/README.md)).
+  An update must meet the installed copy's code signature requirement, so the
+  permissions macOS gave it (Accessibility, Screen Recording…) carry over.
   grok's own `crok update` is off: it would install the official grok.
 - **Trace viewers.** `crok trace` and the in-TUI `/trace` show an agent's turns,
   tool calls, and reasoning in the terminal or as a self-contained HTML page.
@@ -122,6 +124,12 @@ Add `export PATH="$PWD/bin:$PATH"` to the current shell once if you want to type
 run when the current directory is outside the workspace. The compiled test TUI
 stays under `target/test-builds/`; the small `bin/crok-test` file is the only
 repository file added to the command path.
+
+Test builds (`crok-test`, Crok Desktop Test) sign in to the **dev** remote
+control relay; every other build (`make build`, `make deploy`, the desktop app,
+releases) uses the **prod** relay. `CROK_RELAY_ENV=dev|prod` overrides it, and
+`relay/README.md` ("Two environments") has the whole picture, including the
+web app and the phone apps (`make clients-prod`, `make clients-test`).
 
 ### Build cache and disk space
 
@@ -284,6 +292,54 @@ cargo test -p xai-grok-config # per-crate tests
 cargo clippy -p <crate>       # lint config: clippy.toml at the repo root
 cargo fmt --all               # rustfmt.toml at the repo root
 swift test --package-path desktop/macOS   # desktop tests
+```
+
+## Continuous integration
+
+Every pull request into `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml),
+which compiles each client and checks the release notes:
+
+| Job | Runner | Builds |
+|-----|--------|--------|
+| TUI | `macos-26` | `cargo build --locked -p xai-grok-pager-bin` (debug), with DotSlash for `bin/protoc` |
+| Desktop (macOS 26 SDK) | `macos-26` | `swift build --configuration release` of `desktop/macOS` with the newest Xcode 26 |
+| Desktop (macOS 15 SDK) | `macos-15` | the same against the newest macOS 15 SDK, like the macOS 15 release image |
+| iOS | `macos-26` | `xcodebuild build` of `mobile/iOS` for iOS devices, unsigned, with the newest Xcode 26 |
+| Android | `ubuntu-latest` | `./gradlew :app:assembleDebug` in `mobile/Android` |
+| Release notes | `ubuntu-latest` | `release/notes/check.sh --unreleased`: a `VERSION` with no release yet needs its notes in `release/notes/v<version>/` |
+
+The last job, **All builds**, passes only when every job above succeeded. The
+"Protect main" ruleset requires it with no bypass, so a pull request cannot merge
+while any client fails to compile. A new job only needs adding to that job's
+`needs` list; the ruleset stays as it is. Runs on `main` keep the build caches
+warm for pull requests. CI only compiles: tests and lints stay local.
+
+Merging a pull request that bumps `VERSION` releases that version:
+[`.github/workflows/release.yml`](.github/workflows/release.yml) builds the
+production TUI, both Crok Desktop disk images, the iOS app and the Android APK,
+signs and checks them, and publishes them as one GitHub release with notes in six
+languages. [`release/README.md`](release/README.md) ("Releases from GitHub
+Actions") has the details and the one-time `release/ci-secrets.sh` setup.
+
+The ruleset is kept in
+[`.github/rulesets/protect-main.json`](.github/rulesets/protect-main.json):
+pull requests only into the default branch, no deletion or force push, and the
+**All builds** check from GitHub Actions. Apply it as a repository admin, to a
+new repository or after changing the file (name the repository: `gh api`'s
+`{owner}/{repo}` can resolve to the `upstream` remote):
+
+```sh
+gh api repos/CharryLee0426/crok-build/rulesets      # the ruleset's <id>
+gh api -X PUT repos/CharryLee0426/crok-build/rulesets/<id> --input .github/rulesets/protect-main.json
+gh api -X POST repos/<owner>/<repo>/rulesets --input .github/rulesets/protect-main.json   # a new repository
+```
+
+To repeat a job locally, run its command from the table. The macOS 15 SDK build
+is the one that needs more than that:
+
+```sh
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk \
+  swift build --package-path desktop/macOS --configuration release --build-system native
 ```
 
 ## License

@@ -35,6 +35,18 @@
   --avatar-l: 40%;
   --avatar-s: 20%;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 6px 24px rgb(0 0 0 / 0.07);
+  /* Syntax colours in code blocks (GitHub's; relay/DESIGN.md §5 "Replies in Markdown"). */
+  --hl-comment: #6e7781;
+  --hl-keyword: #cf222e;
+  --hl-string: #0a3069;
+  --hl-number: #0550ae;
+  --hl-function: #8250df;
+  --hl-type: #953800;
+  --hl-tag: #116329;
+  --hl-inserted: #116329;
+  --hl-inserted-bg: #dafbe1;
+  --hl-deleted: #82071e;
+  --hl-deleted-bg: #ffebe9;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -66,6 +78,17 @@
     --avatar-l: 34%;
     --avatar-s: 16%;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.45);
+    --hl-comment: #8b949e;
+    --hl-keyword: #ff7b72;
+    --hl-string: #a5d6ff;
+    --hl-number: #79c0ff;
+    --hl-function: #d2a8ff;
+    --hl-type: #ffa657;
+    --hl-tag: #7ee787;
+    --hl-inserted: #aff5b4;
+    --hl-inserted-bg: #033a16;
+    --hl-deleted: #ffdcd7;
+    --hl-deleted-bg: #67060c;
   }
 }
 
@@ -97,6 +120,17 @@
   --avatar-l: 34%;
   --avatar-s: 16%;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.45);
+  --hl-comment: #8b949e;
+  --hl-keyword: #ff7b72;
+  --hl-string: #a5d6ff;
+  --hl-number: #79c0ff;
+  --hl-function: #d2a8ff;
+  --hl-type: #ffa657;
+  --hl-tag: #7ee787;
+  --hl-inserted: #aff5b4;
+  --hl-inserted-bg: #033a16;
+  --hl-deleted: #ffdcd7;
+  --hl-deleted-bg: #67060c;
 }
 
 @theme inline {
@@ -217,12 +251,20 @@
   }
 }
 
-/* Assistant Markdown (lib/markdown.tsx renders plain React elements; these give them typography). */
+/*
+ * Assistant Markdown (lib/markdown.tsx; relay/DESIGN.md §5 "Replies in Markdown"). Wide content never leaves the
+ * bubble: code, tables and display math scroll sideways in their own box, prose wraps anywhere, and the bubble itself
+ * scrolls as a last resort (an unbreakable inline formula).
+ */
 .md {
   overflow-wrap: anywhere;
   line-height: 1.6;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
-.md > * + * {
+.md > * + *,
+.md li > * + *,
+.md blockquote > * + * {
   margin-top: 0.7em;
 }
 .md h1,
@@ -249,6 +291,9 @@
 .md h6 {
   font-size: 1em;
 }
+.md h6 {
+  color: var(--muted);
+}
 .md > :first-child {
   margin-top: 0;
 }
@@ -259,6 +304,12 @@
 .md ul {
   list-style: disc;
 }
+.md ul ul {
+  list-style: circle;
+}
+.md ul ul ul {
+  list-style: square;
+}
 .md ol {
   list-style: decimal;
 }
@@ -268,6 +319,15 @@
 .md li > ul,
 .md li > ol {
   margin-top: 0.2em;
+}
+.md ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.2em;
+}
+.md .md-task {
+  display: inline-block;
+  width: 1.3em;
+  color: var(--muted);
 }
 .md a {
   color: var(--accent-text);
@@ -281,21 +341,6 @@
   border-radius: 5px;
   padding: 0.1em 0.35em;
 }
-.md pre {
-  font-family: var(--font-mono);
-  font-size: 0.84em;
-  line-height: 1.5;
-  background: var(--code);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.75em 0.9em;
-  overflow-x: auto;
-}
-.md pre code {
-  background: none;
-  padding: 0;
-  font-size: inherit;
-}
 .md blockquote {
   border-left: 3px solid var(--line-strong);
   padding-left: 0.8em;
@@ -305,23 +350,187 @@
   border: 0;
   border-top: 1px solid var(--line);
 }
-.md table {
-  display: block;
+.md .footnotes {
+  font-size: 0.88em;
+  color: var(--muted);
+}
+.md .footnotes > h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Code blocks: a slim header (language, Copy), then monospace that never wraps and scrolls sideways. */
+.md .md-code {
+  background: var(--code);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.md .md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.9em;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.md .md-code-lang {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.md .md-code-copy {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 6px;
+  padding: 0.15rem 0.45rem;
+  color: var(--muted);
+}
+.md .md-code-copy:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+.md pre {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  line-height: 1.5;
+  padding: 0.75em 0.9em;
   overflow-x: auto;
+  overflow-wrap: normal;
+  white-space: pre;
+}
+.md pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* Tables scroll in their own box; a column wraps at word boundaries up to 28em (`.md-cell`), never per character. */
+.md .md-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.md table {
+  width: max-content;
   border-collapse: collapse;
   font-size: 0.92em;
+  overflow-wrap: normal;
+  word-break: normal;
 }
+/* GFM column alignment arrives as an inline text-align, which wins over this default. */
 .md th,
 .md td {
   border: 1px solid var(--line);
   padding: 0.35em 0.6em;
   text-align: left;
+  vertical-align: top;
 }
 .md th {
   background: var(--surface-2);
   font-weight: 600;
 }
+.md .md-cell {
+  max-width: 28em;
+  overflow-wrap: break-word;
+}
 
+/* Math (KaTeX): inline on the text's baseline; display centred in its own sideways scroller, start-aligned if wider. */
+.md .katex {
+  font-size: 1.08em;
+}
+.md .md-math-display {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.15em 0;
+  text-align: center;
+}
+.md .md-math-display .katex-display {
+  margin: 0;
+}
+.md .md-math-display .katex {
+  font-size: 1.16em;
+}
+.md .md-math-source {
+  color: var(--muted);
+}
+
+/* highlight.js classes on the shared token palette. */
+.md .hljs-comment,
+.md .hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+.md .hljs-keyword,
+.md .hljs-meta,
+.md .hljs-doctag,
+.md .hljs-template-tag,
+.md .hljs-bullet {
+  color: var(--hl-keyword);
+}
+.md .hljs-string,
+.md .hljs-regexp,
+.md .hljs-meta .hljs-string,
+.md .hljs-code,
+.md .hljs-link {
+  color: var(--hl-string);
+}
+.md .hljs-number,
+.md .hljs-literal,
+.md .hljs-attr,
+.md .hljs-attribute,
+.md .hljs-property,
+.md .hljs-variable,
+.md .hljs-template-variable,
+.md .hljs-symbol,
+.md .hljs-selector-id,
+.md .hljs-selector-class,
+.md .hljs-selector-attr,
+.md .hljs-selector-pseudo {
+  color: var(--hl-number);
+}
+.md .hljs-title,
+.md .hljs-title.function_,
+.md .hljs-section,
+.md .language-diff .hljs-meta {
+  color: var(--hl-function);
+}
+.md .hljs-type,
+.md .hljs-built_in,
+.md .hljs-title.class_,
+.md .hljs-title.class_.inherited__ {
+  color: var(--hl-type);
+}
+.md .hljs-name,
+.md .hljs-selector-tag {
+  color: var(--hl-tag);
+}
+.md .hljs-addition {
+  color: var(--hl-inserted);
+  background: var(--hl-inserted-bg);
+}
+.md .hljs-deletion {
+  color: var(--hl-deleted);
+  background: var(--hl-deleted-bg);
+}
+.md .hljs-emphasis {
+  font-style: italic;
+}
+.md .hljs-strong {
+  font-weight: 600;
+}
 /* Thin, quiet scrollbars inside panes. */
 .scroll-quiet {
   scrollbar-width: thin;

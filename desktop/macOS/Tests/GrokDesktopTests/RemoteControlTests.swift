@@ -118,6 +118,31 @@ final class RemoteControlTests: XCTestCase {
         XCTAssertNil(RemoteLink.read(RemoteLink.file(home: home)))
     }
 
+    /// A test build's crok signs in to the dev relay and keeps that sign-in in `credentials-dev.json`;
+    /// build-app.sh writes the name into the app, so Settings reads the file its crok writes.
+    func testTheLinkFileIsTheOneTheBundledCrokUses() throws {
+        func bundle(_ name: Any?) throws -> Bundle {
+            let url = directory.appendingPathComponent("App-\(UUID().uuidString).app", isDirectory: true)
+            let contents = url.appendingPathComponent("Contents", isDirectory: true)
+            try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            var info: [String: Any] = ["CFBundleIdentifier": "dev.chenli.crok.desktop.tests.\(UUID().uuidString)"]
+            if let name { info[RemoteLink.credentialsFileInfoKey] = name }
+            try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+                .write(to: contents.appendingPathComponent("Info.plist"))
+            return try XCTUnwrap(Bundle(url: url))
+        }
+        let home = directory.appendingPathComponent("home")
+        XCTAssertEqual(RemoteLink.file(home: home, bundle: try bundle(nil)).lastPathComponent, "credentials.json")
+        XCTAssertEqual(RemoteLink.file(home: home, bundle: try bundle("credentials.json")).lastPathComponent, "credentials.json")
+        let dev = RemoteLink.file(home: home, bundle: try bundle("credentials-dev.json"))
+        XCTAssertEqual(dev, home.appendingPathComponent("remote/credentials-dev.json"))
+        for odd: Any in ["../config.toml", "credentials/../../x.json", "", 7] {
+            XCTAssertEqual(RemoteLink.fileName(bundle: try bundle(odd)), "credentials.json", "\(odd)")
+        }
+        // The test runner's own bundle says nothing, so the tests read credentials.json.
+        XCTAssertEqual(RemoteLink.file(home: home).lastPathComponent, "credentials.json")
+    }
+
     func testTheBridgeStatusParsesAndTheBestLinkWins() {
         let status = RemoteBridgeStatus(params: ["state": "connected", "account": "Ada (ada@example.com)", "device": "Mac", "server": "https://x"])
         XCTAssertEqual(status, RemoteBridgeStatus(state: .connected, account: "Ada (ada@example.com)", device: "Mac", server: "https://x"))

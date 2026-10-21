@@ -191,10 +191,14 @@ pub struct UpgradeArgs {
     /// Install the latest release even when this build is not older.
     #[arg(long)]
     pub force: bool,
-    /// Internal: wait for this process (Crok Desktop) to quit before the app bundle is replaced.
+    /// Install a release signed by a certificate other than this copy's. macOS then asks again
+    /// for the permissions it gave this copy (Accessibility, Screen Recording and the rest).
+    #[arg(long)]
+    pub allow_new_signature: bool,
+    /// Internal: wait for this process (Crok Desktop) to quit before the app bundle is updated.
     #[arg(long, hide = true, value_name = "PID")]
     pub wait_for_pid: Option<u32>,
-    /// Internal: open Crok Desktop again after the bundle is replaced.
+    /// Internal: open Crok Desktop again after the bundle is updated.
     #[arg(long, hide = true)]
     pub relaunch: bool,
     /// Check a release folder's SHA256SUMS.txt and signature with the built-in key, before publishing.

@@ -433,6 +433,13 @@ time with `CROK_REMOTE_DEFAULT_URL`), and so do the phone apps (`CROK_RELAY_URL`
 the Android build) and the web app (`NEXT_PUBLIC_CONVEX_URL`). `--server` (hidden), `[remote] url` and
 `CROK_REMOTE_URL` remain for development against a local relay.
 
+There are two relays, prod and dev (`relay/environments/*.env`, README "Two environments"). crok picks one at build
+time (`CROK_RELAY_ENV`, prod unless a test build says dev, in `crok-remote/build.rs`), iOS by configuration (Release →
+prod, Debug → dev), Android by build type (release → prod, debug → dev). Each crok environment keeps its sign-in in its
+own file (`remote/credentials.json` for prod, `credentials-dev.json` for dev), so a release and a test build share one
+`$CROK_HOME`; a sign-in to the other environment's relay is never used (crok moves it to that environment's file, the
+phones forget it and show "This build uses a different relay. Sign in again.").
+
 ## 5. Clients
 
 ### crok (CLI and TUI)
@@ -526,6 +533,109 @@ keyboards** under a bot message (iOS `ChatMessageInlineKeyboard…`; And `BotBut
 - Any other `/text` goes to the computer as a prompt: the session's commands (`/compact`) and unknown ones alike
   (crok answers "unknown command" there).
 
+### Replies in Markdown (web, iOS, Android alike)
+
+Agent replies are GitHub-flavoured Markdown with LaTeX math. Every client renders the whole of it natively (no web
+view on the phones) and the same way. Thoughts, tool output and the person's own prompts stay plain text.
+
+**Parsing.** A real CommonMark + GFM parser: web `react-markdown` + `remark-gfm` + `remark-breaks`, iOS
+`swift-markdown` (cmark-gfm), Android `commonmark-java` with its GFM tables, strikethrough, task-list and autolink
+extensions. A single newline inside a paragraph stays a line break, as in the terminal and Crok Desktop. Half-streamed
+text renders sensibly: an unclosed fence runs to the end, an unclosed `**` or `$` stays literal.
+
+**What renders.** Headings 1–6; paragraphs; bold, italic, strikethrough, inline code; links and bare URLs (only
+`http`, `https` and `mailto` open, in the system browser; anything else, often a path on the computer, is plain text);
+blockquotes and lists nested to any depth and holding any blocks (ordered lists keep their start number); task items
+as ☐ / ☑; rules; fenced and indented code; tables; math. Images are **not fetched** (an agent could leak data through
+an image URL): `![alt](url)` shows as a link "🖼 alt" (the URL when there is no alt). Raw HTML shows as its literal
+text, except `<br>` (any case, `<br/>`, `<br />`), which is a line break, as people write in table cells.
+
+**Code blocks.** A slim header with the language as written (nothing when there is none) and a Copy button (localized
+"Copy", "Copied" for 1.5 s); monospace body that never wraps. Highlighting applies when the fence names a language the
+client knows (aliases below); an unknown or missing language is plain monospace, nothing is guessed. The web uses
+highlight.js (via `rehype-highlight`); each phone has a small built-in highlighter of the same design (a list of regex
+rules per language run as one alternation, identifiers classified by keyword sets), with the same languages, token
+classes and colours. Languages and aliases the phones know: `swift`; `kotlin` `kt` `kts`; `java`; `rust` `rs`; `go` `golang`;
+`c` `h`; `cpp` `c++` `cc` `cxx` `hpp` `objc` `objective-c` `m` `mm`; `csharp` `cs` `c#`; `javascript` `js` `jsx` `mjs`
+`cjs`; `typescript` `ts` `tsx` `mts`; `python` `py` `python3`; `ruby` `rb`; `php`; `bash` `sh` `shell` `zsh` `console`
+`shellsession`; `powershell` `ps1` `pwsh`; `json` `jsonc` `json5`; `yaml` `yml`; `toml`; `ini` `cfg` `conf` `properties`;
+`sql`; `html` `xml` `svg` `plist` `xhtml` `vue`; `css` `scss` `less`; `diff` `patch`; `markdown` `md`;
+`dockerfile` `docker`; `makefile` `make` `mk`; `lua`; `dart`; `scala`; `graphql` `gql`. The web additionally knows what
+highlight.js "common" ships plus `dockerfile`, `powershell`, `dart`, `scala`, `graphql`.
+
+Token classes (the web maps highlight.js classes onto them): comment, keyword, string, number, literal
+(`true`/`false`/`nil`/`null`/`None`…), function (a name before `(`), type (built-in types and capitalized names in
+languages that capitalize types), builtin, property / attribute, tag (markup tags), variable (`$x` in shells, PHP),
+meta (preprocessor, decorators, annotations, shebangs), regex, inserted / deleted (diff `+` / `-` lines, with a faint
+background), section (diff `@@` hunks, Markdown headings). Everything else is the code colour. Colours (GitHub's):
+
+| token | light | dark |
+|---|---|---|
+| comment (italic) | `#6E7781` | `#8B949E` |
+| keyword, meta | `#CF222E` | `#FF7B72` |
+| string, regex | `#0A3069` | `#A5D6FF` |
+| number, literal, property, variable | `#0550AE` | `#79C0FF` |
+| function, section | `#8250DF` | `#D2A8FF` |
+| type, builtin | `#953800` | `#FFA657` |
+| tag | `#116329` | `#7EE787` |
+| inserted (text / background) | `#116329` / `#DAFBE1` | `#AFF5B4` / `#033A16` |
+| deleted (text / background) | `#82071E` / `#FFEBE9` | `#FFDCD7` / `#67060C` |
+
+**Math.** Delimiters: `$…$` and `\(…\)` inline; `$$…$$` and `\[…\]` display. Math is found **before** Markdown parsing
+(otherwise `\(` would lose its backslash and `_` / `*` in TeX would become emphasis) by one scanner every client
+implements the same way:
+
+1. Fenced code (a line whose content after leading spaces, `>` markers and a list marker starts with 3+ backticks or
+   tildes, up to the matching closing fence or the end) and inline code spans (a run of N backticks to the next run of
+   exactly N, not across a blank line) are copied untouched. A backslash escape (`\$`, `\\`, `` \` ``) is copied as is,
+   except `\(` and `\[`, which open math.
+2. `$$` opens display math up to the next `$$` (single newlines allowed, not a blank line). It is a display block when
+   the `$$` starts its line (after spaces, `>` markers or a list marker) and only spaces follow the closing `$$`;
+   otherwise it is inline math.
+3. `\[` … `\]` is always display math, `\(` … `\)` always inline (same span rules as `$$`).
+4. A single `$` (not part of `$$`) opens inline math only if the next character is not whitespace; it closes at the
+   next `$` on the same line that has no whitespace before it, is not escaped and is not followed by a digit. If there
+   is no such closer, the `$` is literal. The search for the closer stops at a backtick, so a closer is never taken
+   from inside a later code span (``price $5, see `$x$` `` has no math). So `$x^2$` and `$x$-axis` are math; `$5 and $10`, `$HOME and $PATH`,
+   `$ x $` are not. (The pandoc rule: dollars in prose about money or shells stay dollars.)
+5. The TeX is the trimmed text between the delimiters. On continuation lines of a multi-line span inside a blockquote,
+   as many leading `>` markers as the opening line had are dropped. Empty spans are not math.
+6. Each span is replaced by a placeholder the Markdown parser treats as an ordinary word: inline
+   `U+E000 <index> U+E001`, display `U+E002 <index> U+E003` (index in decimal). The renderer swaps them back: inline
+   math flows in the text on the baseline; a display placeholder ends the line it is in and renders as its own centred
+   block. Wherever a placeholder lands somewhere math cannot render (code, a link URL, raw HTML), the original source
+   (with its delimiters) is put back.
+7. TeX the renderer cannot handle shows as its source, monospaced and muted, never as an error.
+
+Rendering: web KaTeX (`trust: false`; a thrown error falls back to rule 7); iOS SwiftMath; Android JLatexMath (`ru.noties`
+`jlatexmath-android`). Math takes the text colour and the body font size (display slightly larger).
+
+Test vectors (every client's unit tests check these; `I(x)` = inline math with TeX `x`, `D(x)` = display):
+
+| input | math found |
+|---|---|
+| `Euler: $e^{i\pi}+1=0$.` | `I(e^{i\pi}+1=0)` |
+| `costs $5 and $10` | none |
+| `echo $HOME and $PATH` | none |
+| `$ x $` · `$x$5` | none |
+| ``price $5, see `$x$` `` | none |
+| `the $x$-axis` | `I(x)` |
+| `\$5 and \$6` | none (renders `$5 and $6`) |
+| `` `$x$` `` and a fenced block containing `$y$` | none |
+| `\(a^2\) and \[b^2\]` | `I(a^2)`, `D(b^2)` |
+| `$$\n\int_0^1 x\,dx\n$$` | `D(\int_0^1 x\,dx)` |
+| `a $$x$$ b` | `I(x)` |
+| `> $$\n> a\n> $$` | `D(a)` inside the quote |
+| the table row `\| $a\|b$ \| c \|` (pipes escaped here only for this table) | `I(a\|b)` in the first cell |
+| `$$\n\frac{a}{` (still streaming) | none, text unchanged |
+
+**Wide content never leaves the bubble.** Code blocks, tables and display math each sit in their own horizontal
+scroller inside the bubble (left-aligned; display math centred when it fits). Table cells wrap at word boundaries up
+to a cap (web 28em, phones 260 pt/dp per column) and the table scrolls beyond the bubble's width; header cells are
+bold on a tinted row, columns keep the GFM alignment, cells have hairline borders. Long words and URLs in prose wrap
+anywhere. Inline math wider than 60 % of the screen is shown as a display block instead; on the web the bubble itself
+scrolls sideways as a last resort, so nothing can paint outside it.
+
 ### Look
 
 - Accent: Telegram blue — light `#3390EC`, dark `#3E88F7` (links, buttons, switches, selection, unread badges, the Menu
@@ -573,7 +683,7 @@ Built from Telegram's patterns (structure and UX only; Telegram's code is GPL an
 | Send / Stop / Blocked button | Stop while `status == running`, blocked while offline | iOS `ChatTextInputPanelNode` `displayStop`, `TypingDraftStop.swift`; And `BotForumHelper.SteamingSendButtonState`, `ChatActivityEnterView.setBlockedByStreaming` |
 | Smoothed streaming text | reveal speed from the observed chunk rate, finish within 0.3 s at turn end | iOS `StreamingTextReveal/Sources/TextRevealController.swift` |
 | Pinned bar | the session's plan ("3/7 · Write tests"), tap to expand | Telegram's pinned-message bar |
-| Scroll-to-bottom button with a counter | counts new items only while scrolled up | iOS `ChatHistoryNavigationButtonNode.swift`; And `ChatActivityBlurredRoundPageDownButton.java` |
+| Scroll-to-bottom button with a counter | counts new items only while scrolled up; "at the bottom" is measured, not per item: the newest item's end near the visible bottom edge (24 pt/dp on the phones, 80 px on the web) (inside a reply taller than the screen, above its end, is scrolled up). At the bottom the transcript follows its end (new items, a growing reply, rows measured late) and never rests with a blank stretch under the last message (iOS checks the last row's real position: a lazy stack can rest on a stale height estimate); scrolling away stops following, coming back, the button or a send resumes it | iOS `ChatHistoryNavigationButtonNode.swift`; And `ChatActivityBlurredRoundPageDownButton.java` |
 | Per-session composer draft | survives app kill | iOS `ChatInterfaceState.swift`; And `ChatActivity.saveDraft` |
 | QR login | Settings › Link a computer: scan the QR `crok remote login` prints, confirm | iOS `AuthTransfer.swift`, `QrCodeScanScreen.swift`; And `SessionsActivity.ScanQRCodeView` |
 | Active sessions | Settings › Devices: this device, computers, phones; online / last seen; sign out one; "Sign out all other devices" | iOS `RecentSessionsController.swift`, `RecentSessionScreen.swift`; And `SessionsActivity.java`, `SessionCell.java` |

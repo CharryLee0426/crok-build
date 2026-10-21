@@ -17,6 +17,13 @@ packages:
   ConvexMobile:
     url: https://github.com/get-convex/convex-swift
     exactVersion: "0.8.1"
+  # Replies in Markdown (relay/DESIGN.md §5): cmark-gfm parsing and native LaTeX math.
+  Markdown:
+    url: https://github.com/swiftlang/swift-markdown
+    exactVersion: "0.9.0"
+  SwiftMath:
+    url: https://github.com/mgriebling/SwiftMath
+    exactVersion: "1.7.3"
 
 settings:
   base:
@@ -38,6 +45,10 @@ targets:
     dependencies:
       - package: ConvexMobile
         product: ConvexMobile
+      - package: Markdown
+        product: Markdown
+      - package: SwiftMath
+        product: SwiftMath
     info:
       path: Crok/Info.plist
       properties:

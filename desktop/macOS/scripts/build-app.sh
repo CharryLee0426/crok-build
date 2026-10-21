@@ -52,8 +52,12 @@ case "$icon_style" in
     *) printf 'DESKTOP_ICON_STYLE must be standard or test.\n' >&2; exit 1 ;;
 esac
 swift "$script_dir/make-icon.swift" "${icon_arguments[@]}"
-swift build --package-path "$package_dir" --configuration release
-binary_dir="$(swift build --package-path "$package_dir" --configuration release --show-bin-path)"
+# SwiftPM's native build system honours SDKROOT (the macOS 15 SDK image) and records the SDK it linked against.
+# Swift Build, SwiftPM's default from Xcode 27, compiles against the toolchain's own SDK whatever SDKROOT says
+# and stamps sdk 14.0, which macOS draws without Liquid Glass.
+swift_build=(swift build --package-path "$package_dir" --configuration release --build-system "${SWIFT_BUILD_SYSTEM:-native}")
+"${swift_build[@]}"
+binary_dir="$("${swift_build[@]}" --show-bin-path)"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 replace_executable "$binary_dir/GrokDesktop" "$app_dir/Contents/MacOS/GrokDesktop"
 
@@ -115,6 +119,11 @@ if [[ -n "$state_file" ]]; then
     /usr/bin/plutil -insert GrokDesktopStateFile -string "$state_file" "$app_dir/Contents/Info.plist"
 fi
 /usr/bin/plutil -replace GrokDesktopTestBuild -bool "$test_build_bool" "$app_dir/Contents/Info.plist"
+# Settings › Remote control reads the sign-in file of the relay the bundled crok signs in to: credentials.json for
+# production, credentials-dev.json for a test build (crates/codegen/crok-remote/src/credentials.rs).
+remote_credentials="$("$grok_source" version --json 2>/dev/null \
+    | /usr/bin/python3 -c 'import json,sys; print((json.load(sys.stdin).get("remote") or {}).get("credentials") or "")' 2>/dev/null || true)"
+/usr/bin/plutil -replace CrokRemoteCredentialsFile -string "${remote_credentials:-credentials.json}" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleShortVersionString -string "$version" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleVersion -string "$version" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -lint "$app_dir/Contents/Info.plist"

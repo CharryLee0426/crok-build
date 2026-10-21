@@ -30,6 +30,8 @@ sealed interface SignInError {
     data object Expired : SignInError
     data object Revoked : SignInError
     data object NotConfigured : SignInError
+    /** The saved sign-in was made on another relay than the one this build uses (a prod build over a debug one). */
+    data object RelayChanged : SignInError
     data class Other(val message: String) : SignInError
 }
 
@@ -67,13 +69,24 @@ class AuthController(
     private var pollJob: Job? = null
     private val pollNudge = Channel<Unit>(Channel.CONFLATED)
 
-    /** Reads what was persisted: signed in, still waiting for approval (resumes polling), or signed out. */
+    /**
+     * Reads what was persisted: signed in, still waiting for approval (resumes polling), or signed out. A sign-in made on
+     * another relay than this build's (a release build installed over a debug one, which use different relays) is
+     * forgotten here, so a build never talks to another environment's relay.
+     */
     fun restore() {
-        store.loadCredentials()?.let {
+        val relay = ConvexHttpApi.normalizeServerUrl(relayUrl)
+        val credentials = store.loadCredentials()
+        val pending = store.loadPending()
+        if (listOfNotNull(credentials?.serverUrl, pending?.serverUrl).any { ConvexHttpApi.normalizeServerUrl(it) != relay }) {
+            store.clear()
+            _state.value = AuthState.SignedOut(SignInError.RelayChanged)
+            return
+        }
+        credentials?.let {
             _state.value = AuthState.SignedIn(it)
             return
         }
-        val pending = store.loadPending()
         when {
             pending == null -> _state.value = AuthState.SignedOut()
             clock() >= pending.expiresAt -> {

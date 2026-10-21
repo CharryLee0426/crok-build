@@ -7,7 +7,8 @@ sign-in), §3 (the API) and §5 "Phone apps".
 
 SwiftUI and Observation, Swift 6 language mode, iOS 17.0 or later (iPhone, iPad allowed). Bundle id
 `dev.chenli.crok.mobile`. Data comes from the relay with [ConvexMobile](https://github.com/get-convex/convex-swift)
-0.8.1.
+0.8.1. Replies render with [swift-markdown](https://github.com/swiftlang/swift-markdown) 0.9.0 (cmark-gfm) and
+[SwiftMath](https://github.com/mgriebling/SwiftMath) 1.7.3 (see "Replies in Markdown").
 
 ## Open and build
 
@@ -30,8 +31,17 @@ To run on a phone, pick your team under Signing & Capabilities (the project leav
 ## The relay URL
 
 Nobody types the relay's address: it is built in. The app reads it from the `CrokRelayURL` Info.plist key, set from
-`CROK_RELAY_URL` in `Config/Shared.xcconfig` for Debug and Release alike: `https://limitless-badger-727.convex.cloud`.
-`//` starts a comment in xcconfig files, so the file writes it as `https:/$()/limitless-badger-727.convex.cloud`.
+`CROK_RELAY_URL` per configuration, mirroring `relay/environments/` (the one place the relays are named):
+
+| Configuration | Relay | `CROK_RELAY_URL` in |
+|---|---|---|
+| Debug | dev: `https://limitless-badger-727.convex.cloud` (`relay/environments/dev.env`) | `Config/Debug.xcconfig` |
+| Release | production: `https://tacit-finch-29.convex.cloud` (`relay/environments/prod.env`) | `Config/Release.xcconfig` |
+
+`//` starts a comment in xcconfig files, so the files write the address as `https:/$()/….convex.cloud`. Keep them in
+step with `relay/environments/`. `mobile/scripts/build-apps.sh` builds both kinds for the Desktop folder and passes
+`CROK_RELAY_URL` from those files on the xcodebuild command line: `build-apps.sh test` makes the Debug build
+(`Crok-iOS-debug.app`, dev relay), `build-apps.sh prod` the Release build (`Crok-iOS-prod.app`, production relay).
 
 To point a build at another relay (a local `npx convex dev` in `relay/`, which the simulator reaches on the Mac's
 localhost; `NSAllowsLocalNetworking` permits plain HTTP there):
@@ -41,8 +51,10 @@ localhost; `NSAllowsLocalNetworking` permits plain HTTP there):
   environment variable (`SIMCTL_CHILD_CROK_RELAY_URL=… xcrun simctl launch …`). The launch argument wins;
 - at build time: `xcodebuild … CROK_RELAY_URL=http://127.0.0.1:3210` (no `$()` needed on the command line).
 
-Either applies to new sign-ins only: a signed-in phone keeps the relay it signed in to (shown in Settings › About)
-until it signs out. **Advanced › Device name** on the welcome screen sets the name this phone signs in under (iOS only
+A sign-in belongs to the relay that issued it (shown in Settings › About). At launch the app forgets a saved sign-in
+(or a code still waiting for approval) from any other relay than the one this launch uses, and says "This build uses a
+different relay. Sign in again." on the welcome screen: a Release build installed over a Debug one never keeps talking
+to the dev relay, and a launch without the `-CrokServer` an earlier launch had signs in again. **Advanced › Device name** on the welcome screen sets the name this phone signs in under (iOS only
 reveals the user-assigned device name with a special entitlement, so the default is often just "iPhone").
 
 ## Demo mode
@@ -63,6 +75,8 @@ every screen runs unchanged.
 | `-CrokDemoApproveAfter 3` | with `-CrokDemoSignIn`: the demo approves the code after 3 s |
 | `-CrokAppearance light` / `dark` | force the appearance |
 | `-CrokPageSize 8` | transcript page size (default 50), to try paging |
+| `-CrokDemoLatency 400` | with `-CrokDemo`: every query's first answer comes after 400 ms, as over the network |
+| `-CrokDemoHistory 120` | with `-CrokDemo`: 120 earlier events above the Markdown showcase, as in a long session |
 | `-CrokResetState YES` | forget the Keychain credentials, drafts and caches at launch |
 | `-CrokNoBrowser YES` | do not open the browser sheet when a sign-in starts |
 | `-CrokServer http://127.0.0.1:3210` | sign in to that relay instead of the built-in one (also `CROK_RELAY_URL`) |
@@ -98,6 +112,29 @@ is called offline), and when `sessions:create` or `commands:setConfig` refuses, 
 The new fields are decoded leniently, so the app also works against a relay without them. Demo mode implements all of it
 (`Engine/Demo`): the MacBook offers four models, one with thinking levels whose ids differ from their values.
 
+## Replies in Markdown
+
+Agent replies follow relay/DESIGN.md §5 "Replies in Markdown", like the web and Android:
+
+- `Core/MathExtractor` finds math before parsing (`$…$`, `\(…\)` inline; `$$…$$` on its own lines, `\[…\]`
+  display; the pandoc rule keeps `$5 and $10` as dollars) and swaps it for placeholders; `Core/MarkdownDocument` parses
+  with swift-markdown (smart punctuation off), links bare URLs itself, and turns the tree into `MDBlock` / `MDInline`
+  values (single newlines are line breaks, only http/https/mailto links open, images become "🖼 alt" links and are
+  never fetched, raw HTML is text except `<br>`).
+- `UI/MarkdownText` draws them: headings, nested lists and quotes, task items ☐ / ☑, tables in a `TableGridLayout`
+  (columns up to 260 pt, wrapping cells, a sideways scroller only when the table is wider than the bubble), code blocks
+  with the language, a Copy button and highlighting, display math centred or scrolling sideways. Inline math is a
+  template image in the `Text` on the baseline (SwiftMath, cached by `MathRenderer`, Dynamic Type size); math wider than
+  60 % of the screen becomes a block; TeX SwiftMath cannot draw shows as its source.
+- `Core/SyntaxHighlighter` is a small regex highlighter (one alternation per language, identifiers by keyword sets)
+  for the languages and aliases DESIGN.md lists, coloured by `Theme.syntax` (GitHub's palette); an unknown or missing
+  language stays plain.
+- Streaming: blocks are `Equatable`, so while a reply grows only the blocks that changed are drawn again; parsed
+  replies, highlighted code and rendered math are cached. Parsing and highlighting the showcase takes about 3 ms on the
+  simulator (`MarkdownTimingTests`).
+- Demo mode's "Refactor the pager's scroll model" (on Studio) ends with `relay/scripts/markdown-showcase.md` verbatim;
+  `MarkdownDocumentTests` checks the copy in `Engine/Demo/DemoShowcase.swift` still matches the file.
+
 ## Staying connected
 
 `ConnectionKeeper` (`Core/ConnectionKeeper.swift`, run by `CrokEngine`) implements relay/DESIGN.md §5 "Staying
@@ -119,7 +156,8 @@ value the hub replays to a new screen.
 # sessions:groups and pending requests), the list's order rules and optimistic moves, search, the reveal pacer, the
 # query hub, prompts to sessions nobody runs and answering permission requests (demo relay), localization coverage,
 # the connection keeper and its wiring (fake backend, manual clock), the token source, the hub moving subscriptions to
-# a new client, the composer's commands and bot cards, new sessions, and decoding the new relay fields.
+# a new client, the composer's commands and bot cards, new sessions, decoding the new relay fields, and replies in
+# Markdown (the DESIGN.md math vectors, the parsed tree, the highlighter, timings).
 # ConvexMobile's library has no x86_64 simulator slice, hence ARCHS=arm64.
 xcodebuild test -project Crok.xcodeproj -scheme Crok -destination 'platform=iOS Simulator,name=iPhone 17' \
   ARCHS=arm64 -only-testing:CrokTests
@@ -131,6 +169,19 @@ xcodebuild test -project Crok.xcodeproj -scheme Crok -destination 'platform=iOS 
 # and, with TEST_RUNNER_CROK_SCREENSHOT_DIR, written as PNG files.
 TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
   -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/DemoTourUITests
+
+# The Markdown showcase from end to start in light and dark, its wide table and formula scrolled sideways, Copy, and a
+# reply streaming through an unclosed fence and an unclosed $$.
+TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
+  -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/MarkdownUITests
+
+# The transcript's end with a last reply taller than the screen: it opens on the end (also over a slow network, and in a
+# long session, where the lazy stack can rest on a stale height estimate with a blank stretch under the last row), follows
+# such a reply streaming in (a demo prompt with "showcase" in it streams the showcase), and a short drag up inside the
+# reply brings the scroll-to-bottom button, which goes back to the end. Needs iOS 18+ (on iOS 17 the button still goes by
+# the bottom sentinel).
+TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
+  -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/TranscriptBottomUITests
 ```
 
 ### Checking against a real relay
@@ -170,17 +221,19 @@ background.
 ```
 Crok/
   App/         CrokApp, RootView, AppModel (the persisted sign-in state machine), AppEnvironment (live / demo)
-  Core/        models, errors and the HTTP API client, Keychain, transcript builder, Markdown blocks, reveal pacer,
+  Core/        models, errors and the HTTP API client, Keychain, transcript builder, Markdown (math scanner, parsed
+               tree, highlighter), reveal pacer,
                connection state and the connection keeper, user codes, plan summary, relative time, avatars, the
                list's order rules and search, composer commands and bot cards, drafts, collapsed projects, list cache
   Engine/      CrokEngine (one per signed-in account), RelayAPI (facades), ConvexRelay + QueryHub + DeviceAuthProvider
                (ConvexMobile, replaceable clients, the token source), LiveQuery, Demo/ (in-memory relay, sample data)
   Features/    SignIn, Sessions (list, new-session picker and screen), Session (transcript, composer with the Menu and
                command list, bot cards, plan bar), Info, Settings (devices, link a computer, QR)
-  UI/          Theme (semantic colours, Liquid Glass surfaces), shared components, Markdown rendering
+  UI/          Theme (semantic colours, Liquid Glass surfaces, code colours), shared components, Markdown rendering
+               and math images
   Resources/   Assets (app icon, Crok mark, accent), Localizable.xcstrings, InfoPlist.xcstrings
 CrokTests/     unit tests
-CrokUITests/   demo tour, the live relay check and the live reconnect check
+CrokUITests/   demo tour, the Markdown showcase, the live relay check and the live reconnect check
 scripts/       make-icon.swift: renders the app icon and the mark from desktop/macOS/Resources/GrokMark.svg
 ```
 
