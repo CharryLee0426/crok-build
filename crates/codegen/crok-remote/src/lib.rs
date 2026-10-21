@@ -1,7 +1,7 @@
 //! Remote control: this computer's link to the crok relay (a Convex deployment, see `relay/DESIGN.md`).
 //!
 //! - [`login`] signs the computer in with the device flow and [`credentials`] keeps the result in
-//!   `$CROK_HOME/remote/credentials.json` (0600).
+//!   `$CROK_HOME/remote/credentials.json` (0600; `credentials-dev.json` in test builds, see `relay/environments`).
 //! - [`link`] is the network side of a running crok process: it holds the WebSocket to the relay on its own thread,
 //!   mirrors sessions there and hands commands from phones back to the agent.
 //! - [`cli`] is `crok remote login | logout | status`.

@@ -2266,6 +2266,13 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                         "release": env!("CROK_RELEASE_VERSION"),
                         // The Agent Observability endpoint built in, or null (release/publish.sh checks it).
                         "agentObservability": xai_grok_agento11y::built_in_host(),
+                        // The relay built in (prod or dev) and its sign-in file: release/publish.sh checks the
+                        // environment, Crok Desktop's build-app.sh copies the file name into the app.
+                        "remote": {
+                            "env": crok_remote::settings::BUILT_IN_ENV,
+                            "url": crok_remote::settings::BUILT_IN_URL,
+                            "credentials": crok_remote::credentials::file_name(),
+                        },
                     });
                     println!("{}", serde_json::to_string(&payload)?);
                 } else {

@@ -125,6 +125,12 @@ run when the current directory is outside the workspace. The compiled test TUI
 stays under `target/test-builds/`; the small `bin/crok-test` file is the only
 repository file added to the command path.
 
+Test builds (`crok-test`, Crok Desktop Test) sign in to the **dev** remote
+control relay; every other build (`make build`, `make deploy`, the desktop app,
+releases) uses the **prod** relay. `CROK_RELAY_ENV=dev|prod` overrides it, and
+`relay/README.md` ("Two environments") has the whole picture, including the
+web app and the phone apps (`make clients-prod`, `make clients-test`).
+
 ### Build cache and disk space
 
 Cargo never deletes anything from `target/`. Each Cargo.lock bump, feature

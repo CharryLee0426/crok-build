@@ -115,6 +115,11 @@ if [[ -n "$state_file" ]]; then
     /usr/bin/plutil -insert GrokDesktopStateFile -string "$state_file" "$app_dir/Contents/Info.plist"
 fi
 /usr/bin/plutil -replace GrokDesktopTestBuild -bool "$test_build_bool" "$app_dir/Contents/Info.plist"
+# Settings › Remote control reads the sign-in file of the relay the bundled crok signs in to: credentials.json for
+# production, credentials-dev.json for a test build (crates/codegen/crok-remote/src/credentials.rs).
+remote_credentials="$("$grok_source" version --json 2>/dev/null \
+    | /usr/bin/python3 -c 'import json,sys; print((json.load(sys.stdin).get("remote") or {}).get("credentials") or "")' 2>/dev/null || true)"
+/usr/bin/plutil -replace CrokRemoteCredentialsFile -string "${remote_credentials:-credentials.json}" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleShortVersionString -string "$version" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -replace CFBundleVersion -string "$version" "$app_dir/Contents/Info.plist"
 /usr/bin/plutil -lint "$app_dir/Contents/Info.plist"

@@ -19,11 +19,19 @@ const ENABLED_ENVS: [&str; 2] = ["CROK_REMOTE_CONTROL", "GROK_REMOTE_CONTROL"];
 /// their own and must not appear as hosts.
 const BRIDGE_ENVS: [&str; 2] = ["CROK_REMOTE_BRIDGE", "GROK_REMOTE_BRIDGE"];
 
-/// The relay built into this binary: crok's own, unless the build names another (`CROK_REMOTE_DEFAULT_URL`).
-pub const BUILT_IN_URL: &str = match option_env!("CROK_REMOTE_DEFAULT_URL") {
-    Some(url) => url,
-    None => "https://limitless-badger-727.convex.cloud",
-};
+// `BUILT_IN_ENV`, `BUILT_IN_URL` and `ENVIRONMENTS`: the relay built into this binary, from
+// `relay/environments/<CROK_RELAY_ENV>.env` (production unless a test build says `dev`), or a relay of one's own
+// named by `CROK_REMOTE_DEFAULT_URL` at build time. See build.rs.
+include!(concat!(env!("OUT_DIR"), "/relay_environment.rs"));
+
+/// The environment (`prod`, `dev`) whose relay `url` is, if it is one of them.
+pub fn environment_of(url: &str) -> Option<&'static str> {
+    let url = normalize_url(url);
+    ENVIRONMENTS
+        .iter()
+        .find(|(_, known)| normalize_url(known) == url)
+        .map(|(name, _)| *name)
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RemoteSettings {
@@ -192,6 +200,29 @@ mod tests {
     #[test]
     fn a_relay_is_built_in() {
         assert!(validate_url(BUILT_IN_URL).is_ok());
+        assert!(["prod", "dev", "custom"].contains(&BUILT_IN_ENV));
+        if BUILT_IN_ENV != "custom" {
+            assert_eq!(environment_of(BUILT_IN_URL), Some(BUILT_IN_ENV));
+        }
+    }
+
+    #[test]
+    fn both_environments_are_built_in() {
+        let url_of = |env: &str| {
+            ENVIRONMENTS
+                .iter()
+                .find(|(name, _)| *name == env)
+                .map(|(_, url)| *url)
+        };
+        let (Some(prod), Some(dev)) = (url_of("prod"), url_of("dev")) else {
+            panic!("relay/environments needs prod and dev: {ENVIRONMENTS:?}");
+        };
+        assert_ne!(prod, dev);
+        for (name, url) in ENVIRONMENTS {
+            assert!(validate_url(url).is_ok(), "{name}: {url}");
+            assert_eq!(environment_of(&format!("{url}/")), Some(*name));
+        }
+        assert_eq!(environment_of("http://127.0.0.1:3210"), None);
     }
 
     #[test]
