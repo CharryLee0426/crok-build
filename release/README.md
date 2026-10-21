@@ -111,8 +111,9 @@ keep release and test permissions apart:
 | `crok-test` and the test app's `crok` | `dev.chenli.crok.test` |
 
 The identity is made on first use in `~/.crok-codesign` (`CROK_CODESIGN_DIR`): a keychain of its
-own, which is never added to the keychain search list, and the password that unlocks it. Its
-public certificate is [`crok-codesign.pem`](crok-codesign.pem). `publish.sh` checks before
+own, which is never added to a Mac's keychain search list (the release workflow adds it on its
+runners, see [Releases from GitHub Actions](#releases-from-github-actions)), and the password
+that unlocks it. Its public certificate is [`crok-codesign.pem`](crok-codesign.pem). `publish.sh` checks before
 building that this Mac's identity is that certificate, and before signing the manifest that both
 apps, their `crok` and the tarball's `crok` are signed by it; otherwise it publishes nothing.
 
@@ -154,6 +155,17 @@ otherwise it stops and the run says why, so a merge that leaves `VERSION` alone 
 The checks are the ones `publish.sh` makes, from the same [`lib.sh`](lib.sh). Build jobs keep their
 files as workflow artifacts for 7 days, and the Publish job keeps the notes and the signed manifest
 for 30. A run that failed after tagging can be re-run: a tag naming the same commit is reused.
+
+**Code signing on the runners.** The TUI and both Desktop jobs first run
+[`import-codesign.sh`](../.github/scripts/release/import-codesign.sh). It unpacks the keychain from
+the secrets, checks that its certificate is `crok-codesign.pem`, adds the keychain to the runner's
+keychain search list, and signs a throwaway copy of `/usr/bin/true` with `codesign.sh`, so a keychain
+that cannot sign stops the run before any build. The search list matters on macOS 26: there codesign
+found no identity in the keychain `--keychain` named while it was off the list (2.0.0's first run
+failed that way after its 46-minute TUI build), where macOS 27 signs from it all the same. A Mac on
+macOS 26 may need its `~/.crok-codesign` keychain on the list the same way to sign. If the step says
+the folder holds no "Crok Code Signing" identity, the `CROK_CODESIGN_KEYCHAIN` secret has the
+certificate but not its key: run `release/ci-secrets.sh` again on the Mac that has `~/.crok-codesign`.
 
 **Notes.** A release's notes are committed with its `VERSION` bump, in `release/notes/v<version>/`:
 `en.md`, then `zh.md`, `ja.md`, `es.md`, `fr.md` and `de.md`, each the full notes in that language
