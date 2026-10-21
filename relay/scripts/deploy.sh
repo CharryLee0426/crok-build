@@ -121,33 +121,29 @@ if [[ "$web" == 1 ]]; then
     say "Vercel project $project"
     project_json="$(vercel api "/v9/projects/$project" --scope "$scope")" || fail "cannot read the Vercel project $project in $scope (vercel login?)"
     read -r project_id org_id root_dir < <(/usr/bin/python3 -c 'import json,sys; p=json.load(sys.stdin); print(p["id"], p["accountId"], p.get("rootDirectory") or ".")' <<<"$project_json")
-    # The build needs these for the production target; the Clerk keys must be the environment's own instance. The
-    # listing goes to the private work folder, is read for three names, and is deleted; nothing is printed.
-    vercel api "/v9/projects/$project_id/env?decrypt=true" --scope "$scope" > "$work/vercel-env.json" \
-        || fail "cannot read $project's environment variables"
-    read -r -d '' check_env <<'PY' || true
+    # The build needs these for the production target, and the Clerk keys must be the environment's own instance.
+    # The listing carries no values; only the two public ones (the Convex address, the publishable key) are read, one
+    # at a time, and only the address is ever printed.
+    env_ids="$(vercel api "/v9/projects/$project_id/env" --scope "$scope" --raw | /usr/bin/python3 -c '
 import json, sys
-path, convex_url, key_prefix = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(path) as listing:
-    envs = [e for e in json.load(listing).get("envs", []) if "production" in (e.get("target") or [])]
-by_key = {e["key"]: e for e in envs}
-problems = []
-for key in ("NEXT_PUBLIC_CONVEX_URL", "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY"):
-    if key not in by_key:
-        problems.append(f"{key} is not set for Production")
-url = (by_key.get("NEXT_PUBLIC_CONVEX_URL") or {}).get("value")
-if url is not None and url.rstrip("/") != convex_url:
-    problems.append(f"NEXT_PUBLIC_CONVEX_URL is {url}, not {convex_url}")
-publishable = (by_key.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY") or {}).get("value")
-if publishable is not None and not publishable.startswith(key_prefix):
-    problems.append(f"NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is not a {key_prefix}… key")
-for problem in problems:
-    print(f"deploy: {problem}", file=sys.stderr)
-sys.exit(1 if problems else 0)
-PY
-    /usr/bin/python3 -c "$check_env" "$work/vercel-env.json" "$convex_url" "$key_prefix" \
-        || { rm -f "$work/vercel-env.json"; fail "fix $project's environment variables (relay/README.md, \"Two environments\")"; }
-    rm -f "$work/vercel-env.json"
+envs = [e for e in json.load(sys.stdin).get("envs", []) if "production" in (e.get("target") or [])]
+ids = {e["key"]: e["id"] for e in envs}
+missing = [k for k in ("NEXT_PUBLIC_CONVEX_URL", "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY") if k not in ids]
+for key in missing:
+    print(f"deploy: {key} is not set for Production", file=sys.stderr)
+print(ids.get("NEXT_PUBLIC_CONVEX_URL", "-"), ids.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "-"))
+sys.exit(1 if missing else 0)')" || fail "set $project's Production variables first (relay/scripts/vercel-keys.sh $env_name)"
+    read -r url_id publishable_id <<<"$env_ids"
+    env_value() {
+        vercel api "/v1/projects/$project_id/env/$1" --scope "$scope" --raw \
+            | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("value") or "")'
+    }
+    built_url="$(env_value "$url_id")"
+    [[ "${built_url%/}" == "$convex_url" ]] \
+        || fail "$project's NEXT_PUBLIC_CONVEX_URL is ${built_url:-unreadable}, not $convex_url (relay/scripts/vercel-keys.sh $env_name)"
+    [[ "$(env_value "$publishable_id")" == "$key_prefix"* ]] \
+        || fail "$project's NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is not a ${key_prefix}… key (relay/scripts/vercel-keys.sh $env_name)"
+    printf 'Production variables: NEXT_PUBLIC_CONVEX_URL=%s, Clerk %s… keys\n' "$built_url" "$key_prefix"
     case "$root_dir" in
         relay) deploy_dir="$work" ;;
         .) deploy_dir="$src" ;;
