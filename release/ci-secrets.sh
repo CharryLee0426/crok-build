@@ -69,8 +69,8 @@ if [[ ! -f "$android_dir/release.p12" ]]; then
         trap 'rm -rf "$staging"' EXIT
         chmod 700 "$staging"
         (umask 077 && /usr/bin/openssl rand -hex 24 | tr -d '\n' > "$staging/password")
-        keytool -genkeypair -keystore "$staging/release.p12" -storetype PKCS12 -storepass:file "$staging/password" \
-            -alias "$android_alias" -keyalg RSA -keysize 3072 -validity 10950 -dname "CN=Crok, O=crok-build" > /dev/null 2>&1 \
+        (umask 077 && keytool -genkeypair -keystore "$staging/release.p12" -storetype PKCS12 -storepass:file "$staging/password" \
+            -alias "$android_alias" -keyalg RSA -keysize 3072 -validity 10950 -dname "CN=Crok, O=crok-build" > /dev/null 2>&1) \
             || fail "keytool could not make the Android key (it needs a JDK: /usr/libexec/java_home -V)"
         mv "$staging" "$android_dir"
         trap - EXIT
