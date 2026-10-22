@@ -172,7 +172,7 @@
       {
         "type": "stat",
         "title": "Spend",
-        "description": "Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed.",
+        "description": "Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. The rest is what crok worked out per call: the provider's cost when it reports one, else the model's standard API price. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much).",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -364,7 +364,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.total_cost)",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil&&span.gen_ai.usage.total_cost!=nil}|sum_over_time(span.gen_ai.usage.total_cost)",
             "metricsQueryType": "range",
             "step": "1m"
           },
@@ -375,7 +375,205 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.crok.cost.usd)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "O",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00001+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens))*-0.000009+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "P",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00001+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000004+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens))*-0.0000036+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00002",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "R",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000004+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00002",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "S",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens))*-0.0000018+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.000012",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "T",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.000012",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "U",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.0000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens))*-0.00000018+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.0000012",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "V",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.0000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.0000012",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "W",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000005+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens))*-0.0000045+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00003",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "X",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.000005+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00003",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Y",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00000066+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens))*-0.000000638+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00000198",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Z",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00000066+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.00000198",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q26",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens))*-0.000000147+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.0000006",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q27",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.0000006",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q28",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.0000014+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens))*-0.00000114+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.0000044",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q29",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.0000014+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.0000044",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q30",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens))*-0.00000012+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.0000005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q31",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))*0.0000005",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -450,7 +648,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|sum_over_time(span.gen_ai.usage.input_tokens))+({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|sum_over_time(span.gen_ai.usage.output_tokens))",
+            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))+({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -523,7 +721,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens))",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))",
             "metricsQueryType": "instant"
           }
         ],
@@ -1535,7 +1733,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|sum_over_time(span.gen_ai.usage.input_tokens) by(resource.service.name))+({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|sum_over_time(span.gen_ai.usage.output_tokens) by(resource.service.name))",
+            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(resource.service.name))+({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(resource.service.name))",
             "metricsQueryType": "range"
           },
           {
@@ -1545,7 +1743,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.provider.name))+({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.provider.name))",
+            "query": "({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.provider.name))+({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.provider.name))",
             "metricsQueryType": "range"
           }
         ],
@@ -1573,7 +1771,7 @@
       {
         "type": "timeseries",
         "title": "Spend over time",
-        "description": "Spend in each time bucket by model (claude-* models through Claude Platform, provider/model ids through OpenRouter, the rest as crok reported them). The legend total is the spend over the range. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed.",
+        "description": "Spend in each time bucket by model (claude-* models through Claude Platform, provider/model ids through OpenRouter, the rest as crok reported them). The legend total is the spend over the range. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. The rest is what crok worked out per call: the provider's cost when it reports one, else the model's standard API price. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much).",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -1598,7 +1796,8 @@
             "color": {
               "mode": "palette-classic"
             },
-            "decimals": 3
+            "decimals": 3,
+            "displayName": "${__field.labels.Metric}"
           },
           "overrides": []
         },
@@ -1631,6 +1830,53 @@
             "options": {
               "regex": "^server$",
               "renamePattern": "Haiku 5.5: extra for prompts over 100K"
+            }
+          },
+          {
+            "id": "seriesToRows",
+            "options": {}
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Time": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Metric": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Value": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Time"
+                }
+              ]
+            }
+          },
+          {
+            "id": "partitionByValues",
+            "options": {
+              "fields": [
+                "Metric"
+              ],
+              "keepFields": false,
+              "naming": {
+                "asLabels": true
+              }
             }
           }
         ],
@@ -1762,7 +2008,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil&&span.gen_ai.usage.total_cost!=nil}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)",
             "metricsQueryType": "range"
           },
           {
@@ -1772,7 +2018,187 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "O",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00001+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.000009+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00005",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "P",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00001+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00005",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "Q",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000004+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.0000036+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00002",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "R",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000004+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00002",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "S",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.0000018+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.000012",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "T",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.000012",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "U",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.0000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.00000018+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000012",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "V",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.0000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000012",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "W",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000005+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.0000045+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00003",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "X",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000005+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00003",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "Y",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000066+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.000000638+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00000198",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "Z",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000066+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00000198",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "Q26",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.000000147+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000006",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "Q27",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000006",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "Q28",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.0000014+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.00000114+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000044",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "Q29",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.0000014+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000044",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "Q30",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.00000012+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000005",
+            "metricsQueryType": "range"
+          },
+          {
+            "refId": "Q31",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000005",
             "metricsQueryType": "range"
           }
         ],
@@ -1787,7 +2213,7 @@
       {
         "type": "table",
         "title": "Spend by model",
-        "description": "Spend over the time range for each model, largest first. Claude Haiku 5.5 prompts over 100K tokens pay five times the base rates; that extra has its own bar. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed.",
+        "description": "Spend over the time range for each model, largest first. Claude Haiku 5.5 prompts over 100K tokens pay five times the base rates; that extra has its own bar. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. The rest is what crok worked out per call: the provider's cost when it reports one, else the model's standard API price. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much).",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -2059,7 +2485,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil&&span.gen_ai.usage.total_cost!=nil}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)",
             "metricsQueryType": "range",
             "step": "1m"
           },
@@ -2070,7 +2496,205 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "O",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00001+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.000009+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "P",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00001+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000004+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.0000036+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00002",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "R",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000004+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00002",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "S",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.0000018+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.000012",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "T",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.000012",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "U",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.0000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.00000018+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000012",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "V",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.0000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000012",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "W",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000005+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.0000045+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00003",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "X",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.000005+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00003",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Y",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000066+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.000000638+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00000198",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Z",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000066+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.00000198",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q26",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.000000147+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000006",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q27",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000006",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q28",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.0000014+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.00000114+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000044",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q29",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.0000014+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000044",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q30",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(span.gen_ai.request.model))*-0.00000012+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000005",
+            "metricsQueryType": "range",
+            "step": "1m"
+          },
+          {
+            "refId": "Q31",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))*0.0000005",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -2636,7 +3260,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))+({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))",
+            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))+({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -2851,7 +3475,7 @@
       {
         "type": "table",
         "title": "Latest LLM calls",
-        "description": "The most recent calls. Cost is what OpenRouter billed; Cost (crok) is what crok reported. Click a trace ID to open the whole trace.",
+        "description": "The most recent calls. Cost is what OpenRouter billed; Cost (crok) is what crok reported, empty for crok 2.0.0 and older (the spend panels price those calls from their tokens). Click a trace ID to open the whole trace.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"

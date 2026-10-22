@@ -2720,7 +2720,7 @@
       {
         "type": "table",
         "title": "Expensive calls (over $0.05)",
-        "description": "Single calls that cost more than 5 cents: billed by OpenRouter, or as crok worked out (Claude calls are priced on the dashboards, not per span).",
+        "description": "Single calls that cost more than 5 cents: billed by OpenRouter, or as crok worked out (Claude calls and those of crok 2.0.0 and older are priced on the dashboards, not per span).",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"

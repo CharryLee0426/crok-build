@@ -9,13 +9,14 @@ Providers that export nothing (OpenAI Codex, GLM, DeepSeek, xAI, local models) a
 itself: its Agent Observability bridge (`crates/codegen/xai-grok-agento11y`, on by default, same
 stack) sends a span of every model call, with crok's own figure for what the call cost. The
 dashboards read those spans for every provider except Claude and OpenRouter, which would count
-twice. Nothing to set up for them.
+twice. crok 2.0.0 and older send no figure; the dashboards price their calls from their tokens.
+Nothing to set up for them.
 
 | File | What it is |
 | --- | --- |
 | `setup.sh` | The guided setup, one subcommand per step. Made for agents to run; people can run it too. |
 | `build_dashboards.py` | Builds the six dashboards and the history recording rules for a stack (standard library only). |
-| `prices.json` | Claude list prices used to estimate Claude spend. Same table as `xai-grok-models::pricing`. |
+| `prices.json` | Claude list prices used to estimate Claude spend, and Codex, DeepSeek and GLM prices for the calls of crok 2.0.0 and older. Same tables as `xai-grok-models::pricing`. |
 | `dashboards/` | The last built dashboards as gcx manifests (folder `llm-observability`). |
 | `rules/llm-history.json` | The last built recording-rule group (Grafana provisioning API format). |
 | `backfill.py` | Fetches Claude and OpenRouter usage from their APIs for the time the recording rules did not record (standard library only). |
@@ -71,7 +72,8 @@ Rules:
 - **OpenRouter**: billed spend by model, API key, upstream provider, user and session; tokens;
   latency; finish reasons; errors; latest generations. Filters: model and API key (regex).
 - **Codex, GLM and DeepSeek** (`llm-crok`): what crok reported for providers without traces of
-  their own. Spend (crok's figure per call), tokens, provider cache hit rate, errors, cancelled
+  their own. Spend (crok's figure per call; for crok 2.0.0 and older, the call's tokens at
+  `prices.json` rates), tokens, provider cache hit rate, errors, cancelled
   and rate-limited calls, unpriced calls; week over week and 14 days per day by provider and
   model; spend by model, provider and agent; token kinds; duration, time to first token (the SDK's
   Prometheus histogram) and output speed; finish reasons, failure categories, backend, agent,
@@ -83,7 +85,7 @@ Rules:
 - **LLM Spend History**: spend, requests, tokens and error rate per day and for any range up to the
   metrics retention (opens on 14 days, as long as the free tier keeps metrics), by provider, Claude
   price group and crok-reported model; week over week: totals, a table per provider (last 7 days,
-  the 7 before, change) and each day against the same weekday a week earlier. Fed by 46 recording
+  the 7 before, change) and each day against the same weekday a week earlier. Fed by 64 recording
   rules (group `llm-history`) from the day they are installed, plus, after `setup.sh backfill`,
   daily totals from the providers' usage APIs for the time before and any window the rules missed.
 
@@ -129,7 +131,15 @@ Checked against Grafana Cloud Traces (Tempo) on 2026-10-15. If Grafana changes t
   where a long attribute name crosses that mark. The builder refuses queries over 1000 characters.
 - TraceQL arithmetic is an inner join: a side with no data (a model nobody called) empties the
   whole result, and series of different models cannot be added. Each Claude price group is its
-  own query; Grafana adds them.
+  own query; Grafana adds them. The join is made at every time step, so a range query also loses
+  each step in which one side has no spans (checked 2026-10-22).
+- `sum_over_time(span.x)` comes out **too low when some of the spans it selects lack `x`**, and
+  differently in instant and range queries (checked 2026-10-22 against the spans themselves: a day
+  of OpenRouter's billed cost read $0.19 or $0.21 instead of $0.23; crok's tokens were low too).
+  The builder adds `&& span.x != nil` to the filter of every such sum (`guarded`), which gives the
+  exact figures. Claude's price queries are left as they are: Claude Platform puts every usage
+  attribute on every request span, zeros and failed requests included, and five guarded terms
+  would not fit the parser. Arithmetic inside `sum_over_time` does not parse.
 - The Tempo datasource ignores legendFormat and overwrites each frame's refId with the series
   name. Series are named by their group-by values; a query that needs a fixed name groups by an
   attribute with one known value (see `CONSTANT_GROUPS`) and a regex renames it.
@@ -168,8 +178,16 @@ Checked against Grafana Cloud Traces (Tempo) on 2026-10-15. If Grafana changes t
   included), `output_tokens`, `cache_read_input_tokens`, `cache_write_input_tokens`,
   `reasoning_tokens`, `error.category`, and crok's additions `crok.cost.usd`, `crok.cost.source`,
   `crok.backend` and `crok.cancelled`. The SDK sets a token attribute only when it is not zero,
-  so a missing one is zero. crok 2.0.0 and older send no `crok.*` attributes: their calls show
-  tokens and requests but no spend ("Unpriced calls").
+  so a missing one is zero.
+- crok 2.0.0 and older send no `crok.*` attributes; newer crok always sends `crok.backend`, so
+  `span.crok.backend = nil` picks the older calls out. Their spend is their tokens at the
+  `prices.json` `crok` rates (the same as crok's own table), for the models those releases call
+  through Codex, DeepSeek and GLM. Because of the per-step join, each price group is two queries
+  whose spans carry every attribute they add up: calls that read from the prompt cache (input,
+  cache read, output) and calls that did not (input, output). DeepSeek is priced at its off-peak
+  rate (TraceQL cannot tell a call's hour; peak hours, 35 of 168 a week, cost twice as much).
+  Time series panels add up the series of the same model (`summed_by_name`). In the history the
+  older calls' spend starts when these rules were installed (2026-10-22).
 - crok marks a call the user interrupted as an error span too. `crok.cancelled = true` is set on
   those alone, so failures are `status = error && span.crok.cancelled = nil`, which keeps older
   crok's failures and every Claude Platform and OpenRouter span.
@@ -191,6 +209,9 @@ Checked against Grafana Cloud Traces (Tempo) on 2026-10-15. If Grafana changes t
 - New Claude model or price: edit `prices.json` (`match` is an anchored regex for
   `gen_ai.response.model`; keep it short), then `setup.sh dashboards`. The "Unpriced model
   requests" tile counts requests to models the table misses.
+- New price for a Codex, DeepSeek or GLM model: change `crates/codegen/xai-grok-models/src/pricing.rs`
+  (newer crok) and the `crok` table in `prices.json` (calls of crok 2.0.0 and older), then
+  `setup.sh dashboards`. Only models those releases can call need a row there.
 - Different service names: set `CLAUDE_SERVICE` / `OPENROUTER_SERVICE` / `CROK_SERVICE`.
 - crok's Claude or OpenRouter calls do not reach those providers' own exports (no Claude Console
   destination, or a crok build that keeps its Claude calls out of it): set `CROK_SKIP_PROVIDERS`

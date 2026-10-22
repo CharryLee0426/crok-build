@@ -144,7 +144,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens)",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens)",
             "metricsQueryType": "instant"
           }
         },
@@ -202,7 +202,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.output_tokens)",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens)",
             "metricsQueryType": "instant"
           }
         },
@@ -374,7 +374,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.input_tokens)",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens)",
             "metricsQueryType": "instant"
           }
         },
@@ -432,7 +432,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.output_tokens)",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens)",
             "metricsQueryType": "instant"
           }
         },
@@ -490,7 +490,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens)",
             "metricsQueryType": "instant"
           }
         },
@@ -548,7 +548,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.total_cost)",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil&&span.gen_ai.usage.total_cost!=nil}|sum_over_time(span.gen_ai.usage.total_cost)",
             "metricsQueryType": "instant"
           }
         },
@@ -1416,7 +1416,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"openai\"}|sum_over_time(span.gen_ai.usage.input_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"openai\"&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -1474,7 +1474,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"openai\"}|sum_over_time(span.gen_ai.usage.output_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"openai\"&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -1532,7 +1532,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"openai\"}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"openai\"&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -1590,7 +1590,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"openai\"}|sum_over_time(span.crok.cost.usd) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"openai\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -1762,7 +1762,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"zai\"}|sum_over_time(span.gen_ai.usage.input_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"zai\"&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -1820,7 +1820,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"zai\"}|sum_over_time(span.gen_ai.usage.output_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"zai\"&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -1878,7 +1878,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"zai\"}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"zai\"&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -1936,7 +1936,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"zai\"}|sum_over_time(span.crok.cost.usd) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"zai\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -2108,7 +2108,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"deepseek\"}|sum_over_time(span.gen_ai.usage.input_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"deepseek\"&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -2166,7 +2166,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"deepseek\"}|sum_over_time(span.gen_ai.usage.output_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"deepseek\"&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -2224,7 +2224,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"deepseek\"}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"deepseek\"&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -2282,7 +2282,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"deepseek\"}|sum_over_time(span.crok.cost.usd) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name=~\"deepseek\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -2454,7 +2454,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter|openai|zai|deepseek\"}|sum_over_time(span.gen_ai.usage.input_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter|openai|zai|deepseek\"&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -2512,7 +2512,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter|openai|zai|deepseek\"}|sum_over_time(span.gen_ai.usage.output_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter|openai|zai|deepseek\"&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -2570,7 +2570,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter|openai|zai|deepseek\"}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter|openai|zai|deepseek\"&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -2628,7 +2628,7 @@
               "uid": "grafanacloud-traces"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter|openai|zai|deepseek\"}|sum_over_time(span.crok.cost.usd) by(name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter|openai|zai|deepseek\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(name)",
             "metricsQueryType": "instant"
           }
         },
@@ -2654,6 +2654,1050 @@
         "source": "llm-observability",
         "provider": "other",
         "price_group": "crok"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-ac7f49a628eb",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-6 Astra, older crok, part 1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.00001+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name))*-0.000009+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.00005",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-6 Astra, older crok, part 1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-644573103319",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-6 Astra, older crok, part 2",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.00001+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-6-astra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.00005",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-6 Astra, older crok, part 2"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-6325417a590b",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-5.6 Sol, older crok, part 1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.000004+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name))*-0.0000036+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.00002",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-5.6 Sol, older crok, part 1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-6c8236593259",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-5.6 Sol, older crok, part 2",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.000004+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-sol`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.00002",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-5.6 Sol, older crok, part 2"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-21b44e58f935",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-5.6 Terra, older crok, part 1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name))*-0.0000018+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.000012",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-5.6 Terra, older crok, part 1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-67735a3b6571",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-5.6 Terra, older crok, part 2",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-terra`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.000012",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-5.6 Terra, older crok, part 2"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-d7f4ffa74636",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-5.6 Luna, older crok, part 1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.0000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name))*-0.00000018+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.0000012",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-5.6 Luna, older crok, part 1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-79e57365d37c",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-5.6 Luna, older crok, part 2",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.0000002+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.6-luna`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.0000012",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-5.6 Luna, older crok, part 2"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-21f091d14ce6",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-5.5, older crok, part 1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.000005+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name))*-0.0000045+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.00003",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-5.5, older crok, part 1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-1a4bd3202c96",
+      "title": "llm_spend_usd provider=codex, price_group=GPT-5.5, older crok, part 2",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.000005+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`gpt-5\\.5`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.00003",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "codex",
+        "price_group": "GPT-5.5, older crok, part 2"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-80916da3d05e",
+      "title": "llm_spend_usd provider=deepseek, price_group=DeepSeek V4 Pro, older crok, part 1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.00000066+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name))*-0.000000638+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.00000198",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "deepseek",
+        "price_group": "DeepSeek V4 Pro, older crok, part 1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-002df6686ddd",
+      "title": "llm_spend_usd provider=deepseek, price_group=DeepSeek V4 Pro, older crok, part 2",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.00000066+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-v4-pro`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.00000198",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "deepseek",
+        "price_group": "DeepSeek V4 Pro, older crok, part 2"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-6ba00777987c",
+      "title": "llm_spend_usd provider=deepseek, price_group=DeepSeek V4 Flash, older crok, part 1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name))*-0.000000147+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.0000006",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "deepseek",
+        "price_group": "DeepSeek V4 Flash, older crok, part 1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-6471ed9803b8",
+      "title": "llm_spend_usd provider=deepseek, price_group=DeepSeek V4 Flash, older crok, part 2",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`deepseek-(v4-)?flash(-vision-exp)?`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.0000006",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "deepseek",
+        "price_group": "DeepSeek V4 Flash, older crok, part 2"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-3313bd87f67b",
+      "title": "llm_spend_usd provider=glm, price_group=GLM-5.3, older crok, part 1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.0000014+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name))*-0.00000114+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.0000044",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "glm",
+        "price_group": "GLM-5.3, older crok, part 1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-e678b1366932",
+      "title": "llm_spend_usd provider=glm, price_group=GLM-5.3, older crok, part 2",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.0000014+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.0000044",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "glm",
+        "price_group": "GLM-5.3, older crok, part 2"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-3d285a69e5fd",
+      "title": "llm_spend_usd provider=glm, price_group=GLM-5.3 Flash, older crok, part 1",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name))*-0.00000012+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.0000005",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "glm",
+        "price_group": "GLM-5.3 Flash, older crok, part 1"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-dd7d103e4cc8",
+      "title": "llm_spend_usd provider=glm, price_group=GLM-5.3 Flash, older crok, part 2",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name))*0.00000015+({resource.service.name=\"crok\"&&span.crok.backend=nil&&span.gen_ai.request.model=~`glm-5\\.3-flash`&&span.gen_ai.usage.cache_read_input_tokens=nil&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name))*0.0000005",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "glm",
+        "price_group": "GLM-5.3 Flash, older crok, part 2"
       },
       "noDataState": "OK",
       "execErrState": "Error",

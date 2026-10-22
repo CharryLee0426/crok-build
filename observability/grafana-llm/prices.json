@@ -15,5 +15,18 @@
     {"name": "Haiku 4.5", "match": "claude-haiku-4-5", "input": 1.0, "cache_read": 0.10, "output": 5.0},
     {"name": "Opus 4, 4.1", "match": "claude-opus-4(-1)?", "input": 15.0, "cache_read": 1.50, "output": 75.0},
     {"name": "Haiku 3.5", "match": "claude-3-5-haiku", "input": 0.80, "cache_read": 0.08, "output": 4.0}
+  ],
+  "crok_comment": "Standard API list prices, USD per million tokens, for the calls of crok 2.0.0 and older: they carry tokens but no cost of their own (crok.cost.usd), so the dashboards price them here. Newer crok prices every call itself with the same table, crates/codegen/xai-grok-models/src/pricing.rs, so keep the two alike. Only the priced models those releases call through Codex (ChatGPT sign-in), DeepSeek and GLM are listed: every one costs each dashboard two more queries. `provider` is gen_ai.provider.name, `match` an anchored regex for gen_ai.request.model. These providers bill cache writes as input and crok's spans of them carry none. DeepSeek charges half its price off-peak (`off_peak`); TraceQL cannot tell the hour of a call, so these calls are priced at the off-peak rate, which holds 133 of a week's 168 hours (peak is 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday). The Codex models' 272K context window stays under OpenAI's long-context tier (prompts over 272K), so that tier never applies.",
+  "crok_read_on": "2026-10-14",
+  "crok": [
+    {"name": "GPT-6 Astra", "provider": "openai", "match": "gpt-6-astra", "input": 10.0, "cache_read": 1.0, "output": 50.0},
+    {"name": "GPT-5.6 Sol", "provider": "openai", "match": "gpt-5\\.6-sol", "input": 4.0, "cache_read": 0.40, "output": 20.0},
+    {"name": "GPT-5.6 Terra", "provider": "openai", "match": "gpt-5\\.6-terra", "input": 2.0, "cache_read": 0.20, "output": 12.0},
+    {"name": "GPT-5.6 Luna", "provider": "openai", "match": "gpt-5\\.6-luna", "input": 0.20, "cache_read": 0.02, "output": 1.20},
+    {"name": "GPT-5.5", "provider": "openai", "match": "gpt-5\\.5", "input": 5.0, "cache_read": 0.50, "output": 30.0},
+    {"name": "DeepSeek V4 Pro", "provider": "deepseek", "match": "deepseek-v4-pro", "input": 1.32, "cache_read": 0.044, "output": 3.96, "off_peak": 0.5},
+    {"name": "DeepSeek V4 Flash", "provider": "deepseek", "match": "deepseek-(v4-)?flash(-vision-exp)?", "input": 0.30, "cache_read": 0.006, "output": 1.20, "off_peak": 0.5},
+    {"name": "GLM-5.3", "provider": "zai", "match": "glm-5\\.3", "input": 1.40, "cache_read": 0.26, "output": 4.40},
+    {"name": "GLM-5.3 Flash", "provider": "zai", "match": "glm-5\\.3-flash", "input": 0.15, "cache_read": 0.03, "output": 0.50}
   ]
 }

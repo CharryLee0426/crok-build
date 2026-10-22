@@ -83,7 +83,7 @@
       {
         "type": "stat",
         "title": "Spend",
-        "description": "Claude (estimated at list prices) plus OpenRouter (billed) plus what crok reported. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
+        "description": "Claude (estimated at list prices) plus OpenRouter (billed) plus what crok reported. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much). Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
           "type": "datasource",
           "uid": "-- Mixed --"
@@ -344,7 +344,7 @@
       {
         "type": "stat",
         "title": "Codex, GLM, DeepSeek",
-        "description": "What crok reported for the providers without traces of their own. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
+        "description": "What crok reported for the providers without traces of their own. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much). Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
           "type": "datasource",
           "uid": "-- Mixed --"
@@ -1204,7 +1204,7 @@
       {
         "type": "table",
         "title": "Spend by provider, week over week",
-        "description": "Spend per provider in the last 7 days and the 7 before; Change is how much more (below zero: less). codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "description": "Spend per provider in the last 7 days and the 7 before; Change is how much more (below zero: less). codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much). Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
         "datasource": {
           "type": "prometheus",
           "uid": "${prom}"
@@ -1864,7 +1864,7 @@
       {
         "type": "timeseries",
         "title": "Spend per day",
-        "description": "Spend in each UTC day, by provider. The legend total is the spend over the range. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
+        "description": "Spend in each UTC day, by provider. The legend total is the spend over the range. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much). Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
           "type": "datasource",
           "uid": "-- Mixed --"
@@ -2777,7 +2777,7 @@
       {
         "type": "timeseries",
         "title": "Codex, GLM, DeepSeek spend per day by model",
-        "description": "What crok reported in each UTC day, by provider and model. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
+        "description": "What crok reported in each UTC day, by provider and model. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much). Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
           "type": "prometheus",
           "uid": "${prom}"
