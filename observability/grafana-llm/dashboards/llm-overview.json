@@ -9,7 +9,7 @@
   },
   "spec": {
     "title": "LLM Overview",
-    "description": "Start here: requests, spend, tokens, latency and errors of every LLM call that Claude Platform and OpenRouter traced.",
+    "description": "Start here: requests, spend, tokens, latency and errors of every LLM call that Claude Platform and OpenRouter traced, and that crok reported itself for Codex, GLM, DeepSeek and other providers without traces of their own.",
     "tags": [
       "llm-observability",
       "overview"
@@ -60,6 +60,20 @@
             "text": "grafanacloud-narrowgrotto289-traces",
             "value": "grafanacloud-traces"
           }
+        },
+        {
+          "type": "datasource",
+          "name": "prom",
+          "label": "Metrics",
+          "query": "prometheus",
+          "regex": "",
+          "refresh": 1,
+          "hide": 0,
+          "current": {
+            "selected": true,
+            "text": "grafanacloud-narrowgrotto289-prom",
+            "value": "grafanacloud-prom"
+          }
         }
       ]
     },
@@ -83,7 +97,7 @@
       {
         "type": "stat",
         "title": "Requests",
-        "description": "LLM API calls in the time range: Claude Messages API requests plus OpenRouter generations. Grafana Cloud runs a TraceQL metrics query over 25 hours at most, so keep the time range at 24 hours or less.",
+        "description": "LLM API calls in the time range: Claude Messages API requests, OpenRouter generations and the calls crok reported for providers without traces of their own. Grafana Cloud runs a TraceQL metrics query over 25 hours at most, so keep the time range at 24 hours or less.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -142,7 +156,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|count_over_time()",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|count_over_time()",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -353,6 +367,17 @@
             "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.total_cost)",
             "metricsQueryType": "range",
             "step": "1m"
+          },
+          {
+            "refId": "N",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.crok.cost.usd)",
+            "metricsQueryType": "range",
+            "step": "1m"
           }
         ],
         "id": 3,
@@ -425,7 +450,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|sum_over_time(span.gen_ai.usage.input_tokens))+({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|sum_over_time(span.gen_ai.usage.output_tokens))",
+            "query": "({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|sum_over_time(span.gen_ai.usage.input_tokens))+({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|sum_over_time(span.gen_ai.usage.output_tokens))",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -513,7 +538,7 @@
       {
         "type": "stat",
         "title": "Error rate",
-        "description": "Share of calls whose span ended with an error status: rate limits, overloads, invalid requests, upstream failures. Covers the time range up to about 15 minutes ago.",
+        "description": "Share of calls whose span ended with an error status: rate limits, overloads, invalid requests, upstream failures. A call the user interrupted in crok is not counted as failed. Covers the time range up to about 15 minutes ago.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -570,7 +595,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&status=error}|count_over_time())/({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|count_over_time())",
+            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&status=error&&span.crok.cancelled=nil}|count_over_time())/({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|count_over_time())",
             "metricsQueryType": "instant"
           }
         ],
@@ -634,7 +659,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|quantile_over_time(duration,.95)",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|quantile_over_time(duration,.95)",
             "metricsQueryType": "instant"
           }
         ],
@@ -648,7 +673,7 @@
       },
       {
         "type": "row",
-        "title": "Traffic",
+        "title": "Week over week (recorded history, any time range)",
         "collapsed": false,
         "panels": [],
         "id": 8,
@@ -660,9 +685,681 @@
         }
       },
       {
+        "type": "stat",
+        "title": "Spend, week over week",
+        "description": "Spend in the last 7 days and how much more (or less, below zero) than the 7 days before. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "A"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Last 7 days"
+                },
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 2
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "B"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "vs the 7 days before"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value_and_name",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_spend_usd{}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_spend_usd{}[7d])) / sum (sum_over_time(llm_spend_usd{}[7d] offset 7d)) - 1",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          }
+        ],
+        "id": 9,
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 6
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Requests, week over week",
+        "description": "Calls in the last 7 days, compared with the 7 days before. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "A"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Last 7 days"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "B"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "vs the 7 days before"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value_and_name",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_requests{}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_requests{}[7d])) / sum (sum_over_time(llm_requests{}[7d] offset 7d)) - 1",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          }
+        ],
+        "id": 10,
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 6
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Tokens, week over week",
+        "description": "Input plus output tokens in the last 7 days, compared with the 7 days before. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "A"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Last 7 days"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "decimals",
+                  "value": 1
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "B"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "vs the 7 days before"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value_and_name",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d])) / sum (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d] offset 7d)) - 1",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          }
+        ],
+        "id": 11,
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 6
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Error rate, week over week",
+        "description": "Failed calls divided by all calls (a call the user interrupted in crok is not a failure). Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "A"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Last 7 days"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 1
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "B"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "The 7 days before"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 1
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value_and_name",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_errors{}[7d])) / sum (sum_over_time(llm_requests{}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_errors{}[7d] offset 7d)) / sum (sum_over_time(llm_requests{}[7d] offset 7d))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          }
+        ],
+        "id": 12,
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 6
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Spend per day by provider (last 14 days)",
+        "description": "Spend in each UTC day of the last 14 days, by provider (codex, glm and deepseek as crok reported them). From the recorded history, whatever the time range above. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 70,
+              "lineWidth": 1,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "none",
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "decimals": 2
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "sum"
+            ],
+            "showLegend": true,
+            "sortBy": "Total",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^openai((?: .*)?)$",
+              "renamePattern": "codex$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^zai((?: .*)?)$",
+              "renamePattern": "glm$1"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_spend_usd{}[1d] offset -1d))",
+            "legendFormat": "{{provider}}",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "timeFrom": "14d",
+        "id": 13,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 10
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Requests per day by provider (last 14 days)",
+        "description": "Calls in each UTC day of the last 14 days, by provider. From the recorded history.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 70,
+              "lineWidth": 1,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "none",
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "sum"
+            ],
+            "showLegend": true,
+            "sortBy": "Total",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^openai((?: .*)?)$",
+              "renamePattern": "codex$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^zai((?: .*)?)$",
+              "renamePattern": "glm$1"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_requests{}[1d] offset -1d))",
+            "legendFormat": "{{provider}}",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "timeFrom": "14d",
+        "id": 14,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 10
+        }
+      },
+      {
+        "type": "row",
+        "title": "Traffic",
+        "collapsed": false,
+        "panels": [],
+        "id": 15,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 18
+        }
+      },
+      {
         "type": "timeseries",
         "title": "Requests per minute",
-        "description": "Calls per minute, by source.",
+        "description": "Calls per minute: Claude Platform and OpenRouter by source, crok's reports by provider.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -714,6 +1411,20 @@
               "regex": "^nil$",
               "renamePattern": "(not set)"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^openai((?: .*)?)$",
+              "renamePattern": "codex$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^zai((?: .*)?)$",
+              "renamePattern": "glm$1"
+            }
           }
         ],
         "targets": [
@@ -726,14 +1437,24 @@
             "queryType": "traceql",
             "query": "({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|rate() by(resource.service.name))*60",
             "metricsQueryType": "range"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|rate() by(span.gen_ai.provider.name))*60",
+            "metricsQueryType": "range"
           }
         ],
-        "id": 9,
+        "id": 16,
         "gridPos": {
           "h": 8,
           "w": 12,
           "x": 0,
-          "y": 6
+          "y": 19
         }
       },
       {
@@ -790,6 +1511,20 @@
               "regex": "^nil$",
               "renamePattern": "(not set)"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^openai((?: .*)?)$",
+              "renamePattern": "codex$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^zai((?: .*)?)$",
+              "renamePattern": "glm$1"
+            }
           }
         ],
         "targets": [
@@ -802,14 +1537,24 @@
             "queryType": "traceql",
             "query": "({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|sum_over_time(span.gen_ai.usage.input_tokens) by(resource.service.name))+({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|sum_over_time(span.gen_ai.usage.output_tokens) by(resource.service.name))",
             "metricsQueryType": "range"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.provider.name))+({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.provider.name))",
+            "metricsQueryType": "range"
           }
         ],
-        "id": 10,
+        "id": 17,
         "gridPos": {
           "h": 8,
           "w": 12,
           "x": 12,
-          "y": 6
+          "y": 19
         }
       },
       {
@@ -817,18 +1562,18 @@
         "title": "Spend",
         "collapsed": false,
         "panels": [],
-        "id": 11,
+        "id": 18,
         "gridPos": {
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 14
+          "y": 27
         }
       },
       {
         "type": "timeseries",
         "title": "Spend over time",
-        "description": "Spend in each time bucket by model (claude-* models through Claude Platform, provider/model ids through OpenRouter). The legend total is the spend over the range. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed.",
+        "description": "Spend in each time bucket by model (claude-* models through Claude Platform, provider/model ids through OpenRouter, the rest as crok reported them). The legend total is the spend over the range. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -1019,14 +1764,24 @@
             "queryType": "traceql",
             "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)",
             "metricsQueryType": "range"
+          },
+          {
+            "refId": "N",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
+            "metricsQueryType": "range"
           }
         ],
-        "id": 12,
+        "id": 19,
         "gridPos": {
           "h": 9,
           "w": 14,
           "x": 0,
-          "y": 15
+          "y": 28
         }
       },
       {
@@ -1307,14 +2062,25 @@
             "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)",
             "metricsQueryType": "range",
             "step": "1m"
+          },
+          {
+            "refId": "N",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
+            "metricsQueryType": "range",
+            "step": "1m"
           }
         ],
-        "id": 13,
+        "id": 20,
         "gridPos": {
           "h": 9,
           "w": 10,
           "x": 14,
-          "y": 15
+          "y": 28
         }
       },
       {
@@ -1322,18 +2088,18 @@
         "title": "Latency and reliability",
         "collapsed": false,
         "panels": [],
-        "id": 14,
+        "id": 21,
         "gridPos": {
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 24
+          "y": 37
         }
       },
       {
         "type": "timeseries",
         "title": "Latency p50 / p95",
-        "description": "Call duration percentiles by source. p50 is the median.",
+        "description": "Call duration percentiles by source (crok's reports by provider). p50 is the median.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -1427,6 +2193,20 @@
               "regex": "^(\\{p=0\\.99\\}|0\\.99)$",
               "renamePattern": "(not set) p99"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^openai((?: .*)?)$",
+              "renamePattern": "codex$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^zai((?: .*)?)$",
+              "renamePattern": "glm$1"
+            }
           }
         ],
         "targets": [
@@ -1439,20 +2219,30 @@
             "queryType": "traceql",
             "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|quantile_over_time(duration,.5,.95) by(resource.service.name)",
             "metricsQueryType": "range"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|quantile_over_time(duration,.5,.95) by(span.gen_ai.provider.name)",
+            "metricsQueryType": "range"
           }
         ],
-        "id": 15,
+        "id": 22,
         "gridPos": {
           "h": 8,
           "w": 12,
           "x": 0,
-          "y": 25
+          "y": 38
         }
       },
       {
         "type": "timeseries",
         "title": "Errors",
-        "description": "Failed calls by source and error type, for example rate_limit_error or overloaded_error. Empty is good.",
+        "description": "Failed calls by source and error type, for example rate_limit_error or overloaded_error; crok's reports by provider and error category (rate_limit, server_error, auth_error, client_error, timeout, sdk_error for a connection that failed). Empty is good.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -1510,6 +2300,20 @@
               "regex": "^\\{[^=]+=\"?([^\",]*)\"?, [^=]+=\"?([^\"]*)\"?\\}$",
               "renamePattern": "$1 · $2"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^openai((?: .*)?)$",
+              "renamePattern": "codex$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^zai((?: .*)?)$",
+              "renamePattern": "glm$1"
+            }
           }
         ],
         "targets": [
@@ -1522,14 +2326,24 @@
             "queryType": "traceql",
             "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil))&&status=error}|count_over_time() by(resource.service.name,span.error.type)",
             "metricsQueryType": "range"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&status=error&&span.crok.cancelled=nil}|count_over_time() by(span.gen_ai.provider.name,span.error.category)",
+            "metricsQueryType": "range"
           }
         ],
-        "id": 16,
+        "id": 23,
         "gridPos": {
           "h": 8,
           "w": 12,
           "x": 12,
-          "y": 25
+          "y": 38
         }
       },
       {
@@ -1537,12 +2351,12 @@
         "title": "Models",
         "collapsed": false,
         "panels": [],
-        "id": 17,
+        "id": 24,
         "gridPos": {
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 33
+          "y": 46
         }
       },
       {
@@ -1677,17 +2491,17 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|count_over_time() by(span.gen_ai.request.model)",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|count_over_time() by(span.gen_ai.request.model)",
             "metricsQueryType": "range",
             "step": "1m"
           }
         ],
-        "id": 18,
+        "id": 25,
         "gridPos": {
           "h": 8,
           "w": 8,
           "x": 0,
-          "y": 34
+          "y": 47
         }
       },
       {
@@ -1822,17 +2636,17 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))+({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))",
+            "query": "({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))+({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))",
             "metricsQueryType": "range",
             "step": "1m"
           }
         ],
-        "id": 19,
+        "id": 26,
         "gridPos": {
           "h": 8,
           "w": 8,
           "x": 8,
-          "y": 34
+          "y": 47
         }
       },
       {
@@ -2009,16 +2823,16 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|quantile_over_time(duration,.95) by(span.gen_ai.request.model)",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|quantile_over_time(duration,.95) by(span.gen_ai.request.model)",
             "metricsQueryType": "instant"
           }
         ],
-        "id": 20,
+        "id": 27,
         "gridPos": {
           "h": 8,
           "w": 8,
           "x": 16,
-          "y": 34
+          "y": 47
         }
       },
       {
@@ -2026,18 +2840,18 @@
         "title": "Latest calls",
         "collapsed": false,
         "panels": [],
-        "id": 21,
+        "id": 28,
         "gridPos": {
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 42
+          "y": 55
         }
       },
       {
         "type": "table",
         "title": "Latest LLM calls",
-        "description": "The most recent calls. Click a trace ID to open the whole trace.",
+        "description": "The most recent calls. Cost is what OpenRouter billed; Cost (crok) is what crok reported. Click a trace ID to open the whole trace.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -2050,7 +2864,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
             "tableType": "spans",
             "limit": 20,
             "spss": 100
@@ -2089,12 +2903,48 @@
             {
               "matcher": {
                 "id": "byName",
+                "options": "gen_ai.provider.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
                 "options": "gen_ai.request.model"
               },
               "properties": [
                 {
                   "id": "displayName",
                   "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.agent.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Agent"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.backend"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Backend"
                 }
               ]
             },
@@ -2119,6 +2969,18 @@
                 {
                   "id": "displayName",
                   "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read_input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read (crok)"
                 }
               ]
             },
@@ -2161,6 +3023,18 @@
             {
               "matcher": {
                 "id": "byName",
+                "options": "crok.cost.usd"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost (crok)"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
                 "options": "anthropic.message.stop_reason"
               },
               "properties": [
@@ -2179,6 +3053,18 @@
                 {
                   "id": "displayName",
                   "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reasons"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reasons"
                 }
               ]
             },
@@ -2209,6 +3095,30 @@
             {
               "matcher": {
                 "id": "byName",
+                "options": "error.category"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error category"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cancelled"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cancelled"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
                 "options": "anthropic.request.id"
               },
               "properties": [
@@ -2226,7 +3136,7 @@
               "properties": [
                 {
                   "id": "displayName",
-                  "value": "Provider"
+                  "value": "Upstream provider"
                 }
               ]
             },
@@ -2239,6 +3149,30 @@
                 {
                   "id": "displayName",
                   "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.surface"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Surface"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.host"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Machine"
                 }
               ]
             },
@@ -2270,6 +3204,22 @@
               "matcher": {
                 "id": "byName",
                 "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cost.usd"
               },
               "properties": [
                 {
@@ -2385,12 +3335,12 @@
             }
           ]
         },
-        "id": 22,
+        "id": 29,
         "gridPos": {
           "h": 10,
           "w": 24,
           "x": 0,
-          "y": 43
+          "y": 56
         }
       }
     ]

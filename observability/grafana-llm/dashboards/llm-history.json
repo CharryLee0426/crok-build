@@ -9,7 +9,7 @@
   },
   "spec": {
     "title": "LLM Spend History",
-    "description": "Spend, requests and tokens by day and month, from totals that recording rules copy out of the traces every 10 minutes. Starts on the day the rules were installed.",
+    "description": "Spend, requests and tokens by day and week over week, from totals that recording rules copy out of the traces every 10 minutes: Claude Platform, OpenRouter, and crok's own reports for Codex, GLM and DeepSeek. Starts on the day the rules were installed. Opens on the last 14 days, as long as Grafana Cloud's free tier keeps metrics.",
     "tags": [
       "llm-observability",
       "history"
@@ -19,7 +19,7 @@
     "graphTooltip": 1,
     "schemaVersion": 41,
     "time": {
-      "from": "now-30d",
+      "from": "now-14d",
       "to": "now"
     },
     "refresh": "5m",
@@ -83,10 +83,10 @@
       {
         "type": "stat",
         "title": "Spend",
-        "description": "Claude (estimated at list prices) plus OpenRouter (billed). Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "description": "Claude (estimated at list prices) plus OpenRouter (billed) plus what crok reported. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
-          "type": "prometheus",
-          "uid": "${prom}"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
@@ -111,9 +111,9 @@
         "options": {
           "reduceOptions": {
             "calcs": [
-              "lastNotNull"
+              "sum"
             ],
-            "fields": "",
+            "fields": "/^Value$/",
             "values": false
           },
           "colorMode": "value",
@@ -131,11 +131,32 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum(sum_over_time(llm_spend_usd{}[$__range]))",
+            "expr": "sum (sum_over_time(llm_spend_usd{}[1d] offset -1d))",
             "legendFormat": "__auto",
-            "instant": true,
-            "range": false,
-            "editorMode": "code"
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d",
+            "format": "table"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
           }
         ],
         "id": 2,
@@ -149,10 +170,10 @@
       {
         "type": "stat",
         "title": "Claude, estimated",
-        "description": "Claude spend from tokens at list prices. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "description": "Claude spend from tokens at list prices. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
-          "type": "prometheus",
-          "uid": "${prom}"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
@@ -177,9 +198,9 @@
         "options": {
           "reduceOptions": {
             "calcs": [
-              "lastNotNull"
+              "sum"
             ],
-            "fields": "",
+            "fields": "/^Value$/",
             "values": false
           },
           "colorMode": "value",
@@ -197,17 +218,38 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum(sum_over_time(llm_spend_usd{provider=\"claude\"}[$__range]))",
+            "expr": "sum (sum_over_time(llm_spend_usd{provider=\"claude\"}[1d] offset -1d))",
             "legendFormat": "__auto",
-            "instant": true,
-            "range": false,
-            "editorMode": "code"
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d",
+            "format": "table"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
           }
         ],
         "id": 3,
         "gridPos": {
           "h": 4,
-          "w": 4,
+          "w": 3,
           "x": 4,
           "y": 1
         }
@@ -215,10 +257,10 @@
       {
         "type": "stat",
         "title": "OpenRouter, billed",
-        "description": "The cost OpenRouter reported. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "description": "The cost OpenRouter reported. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
-          "type": "prometheus",
-          "uid": "${prom}"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
@@ -243,9 +285,9 @@
         "options": {
           "reduceOptions": {
             "calcs": [
-              "lastNotNull"
+              "sum"
             ],
-            "fields": "",
+            "fields": "/^Value$/",
             "values": false
           },
           "colorMode": "value",
@@ -263,33 +305,54 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum(sum_over_time(llm_spend_usd{provider=\"openrouter\"}[$__range]))",
+            "expr": "sum (sum_over_time(llm_spend_usd{provider=\"openrouter\"}[1d] offset -1d))",
             "legendFormat": "__auto",
-            "instant": true,
-            "range": false,
-            "editorMode": "code"
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d",
+            "format": "table"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
           }
         ],
         "id": 4,
         "gridPos": {
           "h": 4,
-          "w": 4,
-          "x": 8,
+          "w": 3,
+          "x": 7,
           "y": 1
         }
       },
       {
         "type": "stat",
-        "title": "Requests",
-        "description": "Calls to both providers. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "title": "Codex, GLM, DeepSeek",
+        "description": "What crok reported for the providers without traces of their own. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
-          "type": "prometheus",
-          "uid": "${prom}"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
-            "unit": "short",
-            "noValue": "0",
+            "unit": "currencyUSD",
+            "noValue": "$0",
             "color": {
               "mode": "thresholds"
             },
@@ -301,16 +364,17 @@
                   "value": null
                 }
               ]
-            }
+            },
+            "decimals": 2
           },
           "overrides": []
         },
         "options": {
           "reduceOptions": {
             "calcs": [
-              "lastNotNull"
+              "sum"
             ],
-            "fields": "",
+            "fields": "/^Value$/",
             "values": false
           },
           "colorMode": "value",
@@ -328,28 +392,49 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum(sum_over_time(llm_requests{}[$__range]))",
+            "expr": "sum (sum_over_time(llm_spend_usd{provider=~\"codex|glm|deepseek|other\"}[1d] offset -1d))",
             "legendFormat": "__auto",
-            "instant": true,
-            "range": false,
-            "editorMode": "code"
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d",
+            "format": "table"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
           }
         ],
         "id": 5,
         "gridPos": {
           "h": 4,
           "w": 4,
-          "x": 12,
+          "x": 10,
           "y": 1
         }
       },
       {
         "type": "stat",
-        "title": "Tokens",
-        "description": "Input plus output tokens. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "title": "Requests",
+        "description": "Calls to every provider. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
-          "type": "prometheus",
-          "uid": "${prom}"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
@@ -373,9 +458,9 @@
         "options": {
           "reduceOptions": {
             "calcs": [
-              "lastNotNull"
+              "sum"
             ],
-            "fields": "",
+            "fields": "/^Value$/",
             "values": false
           },
           "colorMode": "value",
@@ -393,25 +478,132 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum(sum_over_time(llm_tokens{direction=~\"input|output\"}[$__range]))",
+            "expr": "sum (sum_over_time(llm_requests{}[1d] offset -1d))",
             "legendFormat": "__auto",
-            "instant": true,
-            "range": false,
-            "editorMode": "code"
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d",
+            "format": "table"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
           }
         ],
         "id": 6,
         "gridPos": {
           "h": 4,
-          "w": 4,
-          "x": 16,
+          "w": 3,
+          "x": 14,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Tokens",
+        "description": "Input plus output tokens. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
+        "datasource": {
+          "type": "datasource",
+          "uid": "-- Mixed --"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "/^Value$/",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_tokens{direction=~\"input|output\"}[1d] offset -1d))",
+            "legendFormat": "__auto",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d",
+            "format": "table"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
+          }
+        ],
+        "id": 7,
+        "gridPos": {
+          "h": 4,
+          "w": 3,
+          "x": 17,
           "y": 1
         }
       },
       {
         "type": "stat",
         "title": "Error rate",
-        "description": "Failed calls divided by all calls. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "description": "Failed calls divided by all calls, from the traces only: the usage APIs do not count failures. A call the user interrupted in crok is not a failure. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
           "type": "prometheus",
           "uid": "${prom}"
@@ -467,14 +659,60 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum(sum_over_time(llm_errors{}[$__range])) / sum(sum_over_time(llm_requests{}[$__range]))",
-            "legendFormat": "__auto",
-            "instant": true,
-            "range": false,
-            "editorMode": "code"
+            "expr": "sum (sum_over_time(llm_errors{}[1d] offset -1d))",
+            "legendFormat": "errors",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_requests{}[1d] offset -1d))",
+            "legendFormat": "requests",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d"
           }
         ],
-        "id": 7,
+        "transformations": [
+          {
+            "id": "joinByField",
+            "options": {
+              "byField": "Time",
+              "mode": "outer"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "mode": "reduceFields",
+              "reducers": [
+                "sum"
+              ]
+            }
+          },
+          {
+            "id": "calculateField",
+            "options": {
+              "mode": "binary",
+              "binary": {
+                "left": "errors",
+                "operator": "/",
+                "right": "requests"
+              },
+              "alias": "Error rate",
+              "replaceFields": true
+            }
+          }
+        ],
+        "maxDataPoints": 5000,
+        "id": 8,
         "gridPos": {
           "h": 4,
           "w": 4,
@@ -484,10 +722,10 @@
       },
       {
         "type": "row",
-        "title": "By day",
+        "title": "Week over week",
         "collapsed": false,
         "panels": [],
-        "id": 8,
+        "id": 9,
         "gridPos": {
           "h": 1,
           "w": 24,
@@ -496,9 +734,860 @@
         }
       },
       {
+        "type": "stat",
+        "title": "Spend, week over week",
+        "description": "Spend in the last 7 days and how much more (or less, below zero) than the 7 days before. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "A"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Last 7 days"
+                },
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 2
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "B"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "vs the 7 days before"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value_and_name",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_spend_usd{}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_spend_usd{}[7d])) / sum (sum_over_time(llm_spend_usd{}[7d] offset 7d)) - 1",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          }
+        ],
+        "id": 10,
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 6
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Requests, week over week",
+        "description": "Calls in the last 7 days, compared with the 7 days before. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "A"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Last 7 days"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "B"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "vs the 7 days before"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value_and_name",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_requests{}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_requests{}[7d])) / sum (sum_over_time(llm_requests{}[7d] offset 7d)) - 1",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          }
+        ],
+        "id": 11,
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 6
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Tokens, week over week",
+        "description": "Input plus output tokens in the last 7 days, compared with the 7 days before. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "A"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Last 7 days"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "decimals",
+                  "value": 1
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "B"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "vs the 7 days before"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value_and_name",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d])) / sum (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d] offset 7d)) - 1",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          }
+        ],
+        "id": 12,
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 6
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Error rate, week over week",
+        "description": "Failed calls divided by all calls (a call the user interrupted in crok is not a failure). Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "A"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Last 7 days"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 1
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byFrameRefID",
+                "options": "B"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "The 7 days before"
+                },
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 1
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value_and_name",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_errors{}[7d])) / sum (sum_over_time(llm_requests{}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_errors{}[7d] offset 7d)) / sum (sum_over_time(llm_requests{}[7d] offset 7d))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code"
+          }
+        ],
+        "id": 13,
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 6
+        }
+      },
+      {
+        "type": "table",
+        "title": "Spend by provider, week over week",
+        "description": "Spend per provider in the last 7 days and the 7 before; Change is how much more (below zero: less). codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 2,
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Change"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "sortBy": [
+            {
+              "displayName": "Last 7 days",
+              "desc": true
+            }
+          ],
+          "footer": {
+            "show": true,
+            "reducer": [
+              "sum"
+            ],
+            "fields": [
+              "Last 7 days",
+              "The 7 days before"
+            ],
+            "countRows": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true
+              },
+              "renameByName": {
+                "Value #A": "Last 7 days",
+                "Value #B": "The 7 days before",
+                "Value #C": "Change",
+                "provider": "Provider"
+              }
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_spend_usd{}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code",
+            "format": "table"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_spend_usd{}[7d] offset 7d))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code",
+            "format": "table"
+          },
+          {
+            "refId": "C",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_spend_usd{}[7d])) / sum by (provider) (sum_over_time(llm_spend_usd{}[7d] offset 7d)) - 1",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code",
+            "format": "table"
+          }
+        ],
+        "id": 14,
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 10
+        }
+      },
+      {
+        "type": "table",
+        "title": "Requests by provider, week over week",
+        "description": "Calls per provider in the last 7 days and the 7 before. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Change"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "sortBy": [
+            {
+              "displayName": "Last 7 days",
+              "desc": true
+            }
+          ],
+          "footer": {
+            "show": true,
+            "reducer": [
+              "sum"
+            ],
+            "fields": [
+              "Last 7 days",
+              "The 7 days before"
+            ],
+            "countRows": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true
+              },
+              "renameByName": {
+                "Value #A": "Last 7 days",
+                "Value #B": "The 7 days before",
+                "Value #C": "Change",
+                "provider": "Provider"
+              }
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_requests{}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code",
+            "format": "table"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_requests{}[7d] offset 7d))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code",
+            "format": "table"
+          },
+          {
+            "refId": "C",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_requests{}[7d])) / sum by (provider) (sum_over_time(llm_requests{}[7d] offset 7d)) - 1",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code",
+            "format": "table"
+          }
+        ],
+        "id": 15,
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 10
+        }
+      },
+      {
+        "type": "table",
+        "title": "Tokens by provider, week over week",
+        "description": "Input plus output tokens per provider in the last 7 days and the 7 before. Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not depend on the time range's length.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 1,
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Change"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "sortBy": [
+            {
+              "displayName": "Last 7 days",
+              "desc": true
+            }
+          ],
+          "footer": {
+            "show": true,
+            "reducer": [
+              "sum"
+            ],
+            "fields": [
+              "Last 7 days",
+              "The 7 days before"
+            ],
+            "countRows": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true
+              },
+              "renameByName": {
+                "Value #A": "Last 7 days",
+                "Value #B": "The 7 days before",
+                "Value #C": "Change",
+                "provider": "Provider"
+              }
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d]))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code",
+            "format": "table"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d] offset 7d))",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code",
+            "format": "table"
+          },
+          {
+            "refId": "C",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d])) / sum by (provider) (sum_over_time(llm_tokens{direction=~\"input|output\"}[7d] offset 7d)) - 1",
+            "legendFormat": "__auto",
+            "instant": true,
+            "range": false,
+            "editorMode": "code",
+            "format": "table"
+          }
+        ],
+        "id": 16,
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 10
+        }
+      },
+      {
         "type": "timeseries",
-        "title": "Spend per day",
-        "description": "Spend in each UTC day, by provider. The legend total is the spend over the range. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "title": "Spend per day, and 7 days earlier",
+        "description": "Bars: spend in each UTC day. Dashed line: the same weekday a week earlier, so each day reads against last week's. Recorded history only (no backfill). Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
           "type": "prometheus",
           "uid": "${prom}"
@@ -515,7 +1604,7 @@
               "barAlignment": 0,
               "gradientMode": "none",
               "stacking": {
-                "mode": "normal",
+                "mode": "none",
                 "group": "A"
               },
               "axisSoftMin": 0
@@ -525,7 +1614,45 @@
             },
             "decimals": 2
           },
-          "overrides": []
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "7 days earlier"
+              },
+              "properties": [
+                {
+                  "id": "custom.drawStyle",
+                  "value": "line"
+                },
+                {
+                  "id": "custom.lineStyle",
+                  "value": {
+                    "fill": "dash",
+                    "dash": [
+                      8,
+                      6
+                    ]
+                  }
+                },
+                {
+                  "id": "custom.showPoints",
+                  "value": "always"
+                },
+                {
+                  "id": "custom.fillOpacity",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "text"
+                  }
+                }
+              ]
+            }
+          ]
         },
         "options": {
           "legend": {
@@ -559,30 +1686,188 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum by (provider) (sum_over_time(llm_spend_usd{}[$__interval] offset -$__interval))",
-            "legendFormat": "{{provider}}",
+            "expr": "sum (sum_over_time(llm_spend_usd{}[1d] offset -1d))",
+            "legendFormat": "That day",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_spend_usd{}[1d] offset 6d))",
+            "legendFormat": "7 days earlier",
             "instant": false,
             "range": true,
             "editorMode": "code",
             "interval": "1d"
           }
         ],
-        "interval": "1d",
-        "id": 9,
+        "maxDataPoints": 5000,
+        "id": 17,
         "gridPos": {
-          "h": 9,
+          "h": 8,
           "w": 12,
           "x": 0,
-          "y": 6
+          "y": 18
         }
       },
       {
         "type": "timeseries",
-        "title": "Claude spend per day by price group",
-        "description": "Estimated Claude spend in each day, by model price group. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "title": "Requests per day, and 7 days earlier",
+        "description": "Bars: calls in each UTC day. Dashed line: the same weekday a week earlier. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
           "type": "prometheus",
           "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 70,
+              "lineWidth": 1,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "none",
+              "stacking": {
+                "mode": "none",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "decimals": 0
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "7 days earlier"
+              },
+              "properties": [
+                {
+                  "id": "custom.drawStyle",
+                  "value": "line"
+                },
+                {
+                  "id": "custom.lineStyle",
+                  "value": {
+                    "fill": "dash",
+                    "dash": [
+                      8,
+                      6
+                    ]
+                  }
+                },
+                {
+                  "id": "custom.showPoints",
+                  "value": "always"
+                },
+                {
+                  "id": "custom.fillOpacity",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "sum"
+            ],
+            "showLegend": true,
+            "sortBy": "Total",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_requests{}[1d] offset -1d))",
+            "legendFormat": "That day",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum (sum_over_time(llm_requests{}[1d] offset 6d))",
+            "legendFormat": "7 days earlier",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "id": 18,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 18
+        }
+      },
+      {
+        "type": "row",
+        "title": "By day",
+        "collapsed": false,
+        "panels": [],
+        "id": 19,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 26
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Spend per day",
+        "description": "Spend in each UTC day, by provider. The legend total is the spend over the range. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
+        "datasource": {
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
@@ -604,7 +1889,150 @@
             "color": {
               "mode": "palette-classic"
             },
-            "decimals": 2
+            "decimals": 2,
+            "displayName": "${__field.labels.provider}"
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "sum"
+            ],
+            "showLegend": true,
+            "sortBy": "Total",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Time": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "provider": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Value": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Time"
+                }
+              ]
+            }
+          },
+          {
+            "id": "partitionByValues",
+            "options": {
+              "fields": [
+                "provider"
+              ],
+              "keepFields": false,
+              "naming": {
+                "asLabels": true
+              }
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider) (sum_over_time(llm_spend_usd{}[1d] offset -1d))",
+            "legendFormat": "__auto",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d",
+            "format": "table"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "id": 20,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 0,
+          "y": 27
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Claude spend per day by price group",
+        "description": "Estimated Claude spend in each day, by model price group. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
+        "datasource": {
+          "type": "datasource",
+          "uid": "-- Mixed --"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 70,
+              "lineWidth": 1,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "none",
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "decimals": 2,
+            "displayName": "${__field.labels.price_group}"
           },
           "overrides": []
         },
@@ -631,6 +2059,65 @@
               "regex": "^nil$",
               "renamePattern": "(not set)"
             }
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Time": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "price_group": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Value": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Time"
+                }
+              ]
+            }
+          },
+          {
+            "id": "partitionByValues",
+            "options": {
+              "fields": [
+                "price_group"
+              ],
+              "keepFields": false,
+              "naming": {
+                "asLabels": true
+              }
+            }
           }
         ],
         "targets": [
@@ -640,30 +2127,31 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum by (price_group) (sum_over_time(llm_spend_usd{provider=\"claude\"}[$__interval] offset -$__interval))",
-            "legendFormat": "{{price_group}}",
+            "expr": "sum by (price_group) (sum_over_time(llm_spend_usd{provider=\"claude\"}[1d] offset -1d))",
+            "legendFormat": "__auto",
             "instant": false,
             "range": true,
             "editorMode": "code",
-            "interval": "1d"
+            "interval": "1d",
+            "format": "table"
           }
         ],
-        "interval": "1d",
-        "id": 10,
+        "maxDataPoints": 5000,
+        "id": 21,
         "gridPos": {
           "h": 9,
           "w": 12,
           "x": 12,
-          "y": 6
+          "y": 27
         }
       },
       {
         "type": "timeseries",
         "title": "Requests per day",
-        "description": "Calls in each day, by provider. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "description": "Calls in each day, by provider. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
-          "type": "prometheus",
-          "uid": "${prom}"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
@@ -684,7 +2172,8 @@
             },
             "color": {
               "mode": "palette-classic"
-            }
+            },
+            "displayName": "${__field.labels.provider}"
           },
           "overrides": []
         },
@@ -711,6 +2200,65 @@
               "regex": "^nil$",
               "renamePattern": "(not set)"
             }
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Time": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "provider": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Value": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Time"
+                }
+              ]
+            }
+          },
+          {
+            "id": "partitionByValues",
+            "options": {
+              "fields": [
+                "provider"
+              ],
+              "keepFields": false,
+              "naming": {
+                "asLabels": true
+              }
+            }
           }
         ],
         "targets": [
@@ -720,30 +2268,31 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum by (provider) (sum_over_time(llm_requests{}[$__interval] offset -$__interval))",
-            "legendFormat": "{{provider}}",
+            "expr": "sum by (provider) (sum_over_time(llm_requests{}[1d] offset -1d))",
+            "legendFormat": "__auto",
             "instant": false,
             "range": true,
             "editorMode": "code",
-            "interval": "1d"
+            "interval": "1d",
+            "format": "table"
           }
         ],
-        "interval": "1d",
-        "id": 11,
+        "maxDataPoints": 5000,
+        "id": 22,
         "gridPos": {
           "h": 8,
           "w": 12,
           "x": 0,
-          "y": 15
+          "y": 36
         }
       },
       {
         "type": "timeseries",
         "title": "Tokens per day",
-        "description": "Input and output tokens in each day, by provider. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "description": "Input and output tokens in each day, by provider. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
-          "type": "prometheus",
-          "uid": "${prom}"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
@@ -764,7 +2313,8 @@
             },
             "color": {
               "mode": "palette-classic"
-            }
+            },
+            "displayName": "${__field.labels.provider} ${__field.labels.direction}"
           },
           "overrides": []
         },
@@ -791,6 +2341,70 @@
               "regex": "^nil$",
               "renamePattern": "(not set)"
             }
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Time": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "provider": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "direction": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Value": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Time"
+                }
+              ]
+            }
+          },
+          {
+            "id": "partitionByValues",
+            "options": {
+              "fields": [
+                "provider",
+                "direction"
+              ],
+              "keepFields": false,
+              "naming": {
+                "asLabels": true
+              }
+            }
           }
         ],
         "targets": [
@@ -800,21 +2414,22 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum by (provider, direction) (sum_over_time(llm_tokens{direction=~\"input|output\"}[$__interval] offset -$__interval))",
-            "legendFormat": "{{provider}} {{direction}}",
+            "expr": "sum by (provider, direction) (sum_over_time(llm_tokens{direction=~\"input|output\"}[1d] offset -1d))",
+            "legendFormat": "__auto",
             "instant": false,
             "range": true,
             "editorMode": "code",
-            "interval": "1d"
+            "interval": "1d",
+            "format": "table"
           }
         ],
-        "interval": "1d",
-        "id": 12,
+        "maxDataPoints": 5000,
+        "id": 23,
         "gridPos": {
           "h": 8,
           "w": 12,
           "x": 12,
-          "y": 15
+          "y": 36
         }
       },
       {
@@ -822,21 +2437,21 @@
         "title": "Where the money went",
         "collapsed": false,
         "panels": [],
-        "id": 13,
+        "id": 24,
         "gridPos": {
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 23
+          "y": 44
         }
       },
       {
         "type": "table",
         "title": "Spend by price group",
-        "description": "Spend over the time range for each Claude price group and for OpenRouter, largest first. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "description": "Spend over the time range for each Claude price group, for OpenRouter, and for each model crok reported, largest first. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
-          "type": "prometheus",
-          "uid": "${prom}"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
@@ -851,7 +2466,23 @@
             {
               "matcher": {
                 "id": "byName",
-                "options": "Field"
+                "options": "provider"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 110
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "price_group"
               },
               "properties": [
                 {
@@ -860,14 +2491,14 @@
                 },
                 {
                   "id": "custom.width",
-                  "value": 230
+                  "value": 200
                 }
               ]
             },
             {
               "matcher": {
                 "id": "byName",
-                "options": "Last * (sum)"
+                "options": "Value (sum)"
               },
               "properties": [
                 {
@@ -914,30 +2545,34 @@
         },
         "transformations": [
           {
-            "id": "renameByRegex",
+            "id": "organize",
             "options": {
-              "regex": "^nil$",
-              "renamePattern": "(not set)"
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
             }
           },
           {
-            "id": "reduce",
-            "options": {
-              "reducers": [
-                "lastNotNull"
-              ],
-              "mode": "seriesToRows"
-            }
+            "id": "merge",
+            "options": {}
           },
           {
             "id": "groupBy",
             "options": {
               "fields": {
-                "Field": {
+                "provider": {
                   "operation": "groupby",
                   "aggregations": []
                 },
-                "Last *": {
+                "price_group": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Value": {
                   "operation": "aggregate",
                   "aggregations": [
                     "sum"
@@ -951,7 +2586,7 @@
             "options": {
               "sort": [
                 {
-                  "field": "Last * (sum)",
+                  "field": "Value (sum)",
                   "desc": true
                 }
               ]
@@ -965,28 +2600,31 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum by (provider, price_group) (sum_over_time(llm_spend_usd[$__range]))",
-            "legendFormat": "{{provider}} · {{price_group}}",
-            "instant": true,
-            "range": false,
-            "editorMode": "code"
+            "expr": "sum by (provider, price_group) (label_replace(sum_over_time(llm_spend_usd{}[1d] offset -1d), \"price_group\", \"$1\", \"name\", `\"?streamText (.+?)\"?`))",
+            "legendFormat": "__auto",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d",
+            "format": "table"
           }
         ],
-        "id": 14,
+        "maxDataPoints": 5000,
+        "id": 25,
         "gridPos": {
           "h": 8,
           "w": 12,
           "x": 0,
-          "y": 24
+          "y": 45
         }
       },
       {
         "type": "timeseries",
         "title": "Claude cache reads per day",
-        "description": "Share of Claude input tokens read from the prompt cache, per day. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed.",
+        "description": "Share of Claude input tokens read from the prompt cache, per day. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
-          "type": "prometheus",
-          "uid": "${prom}"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "fieldConfig": {
           "defaults": {
@@ -1032,10 +2670,82 @@
         },
         "transformations": [
           {
-            "id": "renameByRegex",
+            "id": "organize",
             "options": {
-              "regex": "^nil$",
-              "renamePattern": "(not set)"
+              "excludeByName": {
+                "ms": true
+              },
+              "renameByName": {
+                "Value #A": "Value",
+                "B": "Value"
+              }
+            }
+          },
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Time": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "direction": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Value": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "groupingToMatrix",
+            "options": {
+              "columnField": "direction",
+              "rowField": "Time",
+              "valueField": "Value (sum)"
+            }
+          },
+          {
+            "id": "convertFieldType",
+            "options": {
+              "conversions": [
+                {
+                  "targetField": "Time\\direction",
+                  "destinationType": "time"
+                }
+              ]
+            }
+          },
+          {
+            "id": "calculateField",
+            "options": {
+              "mode": "binary",
+              "binary": {
+                "left": "cache_read",
+                "operator": "/",
+                "right": "input"
+              },
+              "alias": "cache hit rate",
+              "replaceFields": true
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Time\\direction"
+                }
+              ]
             }
           }
         ],
@@ -1046,21 +2756,117 @@
               "type": "prometheus",
               "uid": "${prom}"
             },
-            "expr": "sum(sum_over_time(llm_tokens{provider=\"claude\",direction=\"cache_read\"}[$__interval] offset -$__interval)) / sum(sum_over_time(llm_tokens{provider=\"claude\",direction=\"input\"}[$__interval] offset -$__interval))",
-            "legendFormat": "cache hit rate",
+            "expr": "sum by (direction) (sum_over_time(llm_tokens{provider=\"claude\",direction=~\"cache_read|input\"}[1d] offset -1d))",
+            "legendFormat": "__auto",
+            "instant": false,
+            "range": true,
+            "editorMode": "code",
+            "interval": "1d",
+            "format": "table"
+          }
+        ],
+        "maxDataPoints": 5000,
+        "id": 26,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 45
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Codex, GLM, DeepSeek spend per day by model",
+        "description": "What crok reported in each UTC day, by provider and model. codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, else the standard API price); codex is every OpenAI call crok makes. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 70,
+              "lineWidth": 1,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "none",
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "decimals": 2
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "sum"
+            ],
+            "showLegend": true,
+            "sortBy": "Total",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^openai((?: .*)?)$",
+              "renamePattern": "codex$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^zai((?: .*)?)$",
+              "renamePattern": "glm$1"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "sum by (provider, model) (label_replace(sum_over_time(llm_spend_usd{provider=~\"codex|glm|deepseek|other\"}[1d] offset -1d), \"model\", \"$1\", \"name\", `\"?streamText (.+?)\"?`))",
+            "legendFormat": "{{provider}} · {{model}}",
             "instant": false,
             "range": true,
             "editorMode": "code",
             "interval": "1d"
           }
         ],
-        "interval": "1d",
-        "id": 15,
+        "maxDataPoints": 5000,
+        "id": 27,
         "gridPos": {
           "h": 8,
-          "w": 12,
-          "x": 12,
-          "y": 24
+          "w": 24,
+          "x": 0,
+          "y": 53
         }
       }
     ]

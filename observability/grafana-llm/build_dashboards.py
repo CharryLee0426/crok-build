@@ -2,8 +2,11 @@
 """Build the LLM observability dashboards for a Grafana Cloud traces (Tempo) datasource.
 
 The dashboards read the OpenTelemetry spans that Claude Platform (service.name "claude-platform")
-and OpenRouter Broadcast (service.name "openrouter") send to Grafana Cloud, through TraceQL. They
-come out as gcx resource manifests: push them with
+and OpenRouter Broadcast (service.name "openrouter") send to Grafana Cloud, plus the span crok sends
+of every call itself (service.name "crok", through its Agent Observability bridge) for providers
+that export nothing of their own: OpenAI Codex, GLM, DeepSeek and the rest. crok's spans of Claude
+and OpenRouter calls are left out, because those providers' own spans already count them. The
+dashboards come out as gcx resource manifests: push them with
 
     gcx resources push -p observability/grafana-llm/dashboards
 
@@ -17,7 +20,10 @@ What the queries rely on, checked against Grafana Cloud Traces on 2026-10-15:
 - Claude Platform puts the same token counts on `anthropic.messages.create` and on each of its
   `anthropic.model_request` children. Only the request span (kind = server) is counted.
 - Claude spans carry tokens but no cost, so Claude spend is estimated from prices.json. OpenRouter
-  spans carry the billed cost in `gen_ai.usage.total_cost`.
+  spans carry the billed cost in `gen_ai.usage.total_cost`. crok puts its own figure on its spans
+  (`crok.cost.usd`): the provider's cost when it reports one, else the standard API price.
+- crok's spans set a token attribute only when it is not zero, and `crok.cancelled` only on a call
+  the user interrupted, so "missing" means zero or "not cancelled" (`=nil`).
 - TraceQL arithmetic is an inner join: a side with no data (a model nobody called) empties the
   whole result. So each Claude price group is its own query, and Grafana adds them up.
 - The Tempo datasource ignores legendFormat and overwrites each frame's refId with the series
@@ -53,28 +59,47 @@ CACHE_1H = 2.0
 # Spans-table columns: attribute -> header.
 COLUMNS = {
     "service.name": "Source",
+    "gen_ai.provider.name": "Provider",
     "gen_ai.request.model": "Model",
+    "gen_ai.agent.name": "Agent",
+    "crok.backend": "Backend",
     "gen_ai.usage.input_tokens": "Input tokens",
     "gen_ai.usage.cache_read.input_tokens": "Cache read",
+    "gen_ai.usage.cache_read_input_tokens": "Cache read (crok)",
     "gen_ai.usage.cache_write.input_tokens": "Cache write",
     "gen_ai.usage.output_tokens": "Output tokens",
     "gen_ai.usage.total_cost": "Cost",
+    "crok.cost.usd": "Cost (crok)",
     "anthropic.message.stop_reason": "Stop reason",
     "gen_ai.response.finish_reason": "Finish reason",
+    "gen_ai.response.finish_reasons": "Finish reasons",
     "gen_ai.request.reasoning.level": "Effort",
     "error.type": "Error",
+    "error.category": "Error category",
+    "crok.cancelled": "Cancelled",
     "anthropic.request.id": "Request ID",
-    "trace.metadata.openrouter.provider_name": "Provider",
+    "trace.metadata.openrouter.provider_name": "Upstream provider",
     "trace.metadata.openrouter.api_key_name": "API key",
+    "agento11y.tag.surface": "Surface",
+    "agento11y.tag.host": "Machine",
     "user.id": "User",
     "session.id": "Session",
 }
+
+# The providers crok reports for, by the history's provider label and the span's gen_ai.provider.name.
+# codex is every OpenAI call crok makes (ChatGPT sign-in, or an OpenAI API key); glm is Z.ai and
+# BigModel. Any other provider crok reports for (xAI, a local model) is "other" in the history.
+CROK_PROVIDERS = [("codex", "openai"), ("glm", "zai"), ("deepseek", "deepseek")]
+# The history series of everything crok reports for.
+CROK_HISTORY_SEL = f'provider=~"{"|".join(label for label, _ in CROK_PROVIDERS)}|other"'
 
 
 class Ctx:
     def __init__(self, args: argparse.Namespace, prices: dict):
         self.claude = args.claude_service
         self.openrouter = args.openrouter_service
+        self.crok = args.crok_service
+        self.crok_skip = args.crok_skip_providers
         self.ds_uid = args.datasource_uid
         self.ds_name = args.datasource_name or args.datasource_uid
         self.folder = args.folder_uid
@@ -98,8 +123,31 @@ class Ctx:
                   "&&span.trace.metadata.openrouter.api_key_name=~`$key_re`")
         return f
 
+    def crok_req(self, providers: str = "") -> str:
+        """crok's spans of calls to providers that export none: one per call, failed and cancelled
+        ones too. `providers` narrows them to a gen_ai.provider.name regex."""
+        f = f'resource.service.name="{self.crok}"'
+        if providers:
+            return f + f'&&span.gen_ai.provider.name=~"{providers}"'
+        return f + (f'&&span.gen_ai.provider.name!~"{self.crok_skip}"' if self.crok_skip else "")
+
+    def crok_others(self) -> str:
+        """crok's spans of providers that are neither skipped nor in CROK_PROVIDERS."""
+        names = "|".join(n for n in [self.crok_skip, *(span for _, span in CROK_PROVIDERS)] if n)
+        return f'resource.service.name="{self.crok}"&&span.gen_ai.provider.name!~"{names}"'
+
+    @staticmethod
+    def failed(req: str) -> str:
+        """Failed calls among `req`. crok marks a call the user interrupted as an error too, with
+        `crok.cancelled`; it is set on nothing else, so `=nil` also keeps older crok's failures."""
+        return f"{req}&&status=error&&span.crok.cancelled=nil"
+
     def any_req(self) -> str:
-        return f"({self.claude_req()})||({self.or_req()})"
+        return f"({self.claude_req()})||({self.or_req()})||({self.crok_req()})"
+
+    def any_failed(self) -> str:
+        # Claude Platform and OpenRouter spans never carry crok.cancelled, so one filter fits all three.
+        return self.failed(f"({self.any_req()})")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -230,6 +278,13 @@ NOT_SET = {"id": "renameByRegex", "options": {"regex": "^nil$", "renamePattern":
 
 # A series grouped by two attributes is named like {a="x", b="y"}.
 TWO_LABELS = {"id": "renameByRegex", "options": {"regex": '^\\{[^=]+="?([^",]*)"?, [^=]+="?([^"]*)"?\\}$', "renamePattern": "$1 · $2"}}
+
+
+def provider_names() -> list[dict]:
+    """crok's provider names as the dashboards call them (openai -> codex, zai -> glm), for series
+    named by gen_ai.provider.name alone or followed by a space (`openai p95`, `zai · rate_limit`)."""
+    return [{"id": "renameByRegex", "options": {"regex": f"^{span}((?: .*)?)$", "renamePattern": f"{label}$1"}}
+            for label, span in CROK_PROVIDERS if label != span]
 
 
 def quantile_names(drop_p: bool = False) -> list[dict]:
@@ -386,8 +441,9 @@ def pie(title, targets, desc="", unit="short"):
 def table(title, query, desc="", limit=20):
     overrides = [{"matcher": {"id": "byName", "options": attr}, "properties": [{"id": "displayName", "value": header}]}
                  for attr, header in COLUMNS.items()]
-    overrides.append({"matcher": {"id": "byName", "options": "gen_ai.usage.total_cost"},
-                      "properties": [{"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 4}]})
+    for attr in ("gen_ai.usage.total_cost", "crok.cost.usd"):
+        overrides.append({"matcher": {"id": "byName", "options": attr},
+                          "properties": [{"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 4}]})
     overrides.append({"matcher": {"id": "byName", "options": "traceIdHidden"},
                       "properties": [{"id": "displayName", "value": "Trace ID"}, {"id": "custom.width", "value": 130}]})
     # The root service and name of a Claude trace started by your own app read "<root span not yet
@@ -484,6 +540,12 @@ def datasource_var(ctx: Ctx) -> dict:
             "current": {"selected": True, "text": ctx.ds_name, "value": ctx.ds_uid}}
 
 
+def prom_var(ctx: Ctx) -> dict:
+    """The Prometheus datasource the history rules record into."""
+    return {"type": "datasource", "name": "prom", "label": "Metrics", "query": "prometheus", "regex": "", "refresh": 1,
+            "hide": 0, "current": {"selected": True, "text": ctx.prom_name, "value": ctx.prom_uid}}
+
+
 def textbox_var(name: str, label: str, description: str) -> dict:
     """A free-text regex filter, `.*` for everything.
 
@@ -527,17 +589,25 @@ SPEND_NOTE = ("Claude spend is estimated from tokens at standard Claude API list
 def overview(ctx: Ctx) -> Board:
     b = Board(ctx, "llm-overview", "LLM Overview",
               "Start here: requests, spend, tokens, latency and errors of every LLM call that Claude Platform and "
-              "OpenRouter traced.", ["overview"])
+              "OpenRouter traced, and that crok reported itself for Codex, GLM, DeepSeek and other providers without "
+              "traces of their own.", ["overview"])
+    b.vars.append(prom_var(ctx))
     anyq = f"{{{ctx.any_req()}}}"
+    exported = f"{{({ctx.claude_req()})||({ctx.or_req()})}}"
     ors = f"{{{ctx.or_req()}}}"
     cl = f"{{{ctx.claude_req()}}}"
+    ck = f"{{{ctx.crok_req()}}}"
     spend_note = SPEND_NOTE.format(read_on=ctx.prices["read_on"])
+    # Claude Platform and OpenRouter by source, crok's own reports by provider (codex, glm, deepseek, ...).
+    by_source = lambda q: [target(q(exported, "resource.service.name")), target(q(ck, "span.gen_ai.provider.name"))]
 
     b.row("At a glance (whole time range)")
     b.add(stat("Requests", [target(f"{anyq}|count_over_time()", instant=True)],
-               desc="LLM API calls in the time range: Claude Messages API requests plus OpenRouter generations." + RANGE_NOTE, total=True), 4, 4)
+               desc="LLM API calls in the time range: Claude Messages API requests, OpenRouter generations and the calls crok "
+                    "reported for providers without traces of their own." + RANGE_NOTE, total=True), 4, 4)
     claude_spend, claude_names = claude_cost_targets(ctx, True)
-    b.add(stat("Spend", claude_spend + [target(f"{ors}|sum_over_time(span.gen_ai.usage.total_cost)", instant=True)],
+    b.add(stat("Spend", claude_spend + [target(f"{ors}|sum_over_time(span.gen_ai.usage.total_cost)", instant=True),
+                                        target(f"{ck}|sum_over_time(span.crok.cost.usd)", instant=True)],
                unit="currencyUSD", decimals=2, color="green", no_value="$0", total=True, desc=spend_note), 4, 4)
     b.add(stat("Tokens", [target(f"({anyq}|sum_over_time(span.gen_ai.usage.input_tokens))+({anyq}|sum_over_time(span.gen_ai.usage.output_tokens))", instant=True)],
                desc="Input plus output tokens. Input includes prompt-cache reads and writes.", total=True), 4, 4)
@@ -545,37 +615,57 @@ def overview(ctx: Ctx) -> Board:
                unit="percentunit", decimals=1, no_value="–",
                steps=[{"color": "red", "value": None}, {"color": "orange", "value": 0.5}, {"color": "green", "value": 0.8}],
                desc="Share of Claude input tokens read from the prompt cache. A cache read costs a tenth of input or less, so higher is cheaper. Long agent sessions usually stay above 80%."), 4, 4)
-    b.add(stat("Error rate", [target(f"({{({ctx.any_req()})&&status=error}}|count_over_time())/({anyq}|count_over_time())", instant=True)],
+    b.add(stat("Error rate", [target(f"({{{ctx.any_failed()}}}|count_over_time())/({anyq}|count_over_time())", instant=True)],
                unit="percentunit", decimals=1, no_value="0%",
                steps=[{"color": "green", "value": None}, {"color": "orange", "value": 0.01}, {"color": "red", "value": 0.05}],
-               desc="Share of calls whose span ended with an error status: rate limits, overloads, invalid requests, upstream failures."), 4, 4)
+               desc="Share of calls whose span ended with an error status: rate limits, overloads, invalid requests, upstream failures. "
+                    "A call the user interrupted in crok is not counted as failed."), 4, 4)
     b.add(stat("p95 latency", [target(f"{anyq}|quantile_over_time(duration,.95)", instant=True)], unit="s", decimals=1, no_value="–",
                desc="95% of calls finished faster than this, from request start to the last streamed token. Tempo buckets durations to powers of two, so read it as a range."), 4, 4)
 
+    b.row("Week over week (recorded history, any time range)")
+    for _, panel in wow_totals():
+        b.add(panel, 6, 4)
+    b.add(history_bars("Spend per day by provider (last 14 days)", per_day("llm_spend_usd", "provider"), "{{provider}}",
+                       unit="currencyUSD", decimals=2, last_14_days=True,
+                       desc="Spend in each UTC day of the last 14 days, by provider (codex, glm and deepseek as crok reported them). "
+                            "From the recorded history, whatever the time range above. " + spend_note), 12, 8)
+    b.add(history_bars("Requests per day by provider (last 14 days)", per_day("llm_requests", "provider"), "{{provider}}",
+                       last_14_days=True, desc="Calls in each UTC day of the last 14 days, by provider. From the recorded history."), 12, 8)
+
     b.row("Traffic")
-    b.add(timeseries("Requests per minute", [target(f"({anyq}|rate() by(resource.service.name))*60")],
-                     unit="suffix: req/min", calcs=("max", "mean"), desc="Calls per minute, by source."), 12, 8)
-    b.add(timeseries("Tokens by source", [target(f"({anyq}|sum_over_time(span.gen_ai.usage.input_tokens) by(resource.service.name))+({anyq}|sum_over_time(span.gen_ai.usage.output_tokens) by(resource.service.name))")],
-                     bars=True, stack=True, desc="Input plus output tokens in each time bucket. The legend total is the sum over the range."), 12, 8)
+    b.add(timeseries("Requests per minute", [
+        target(f"({exported}|rate() by(resource.service.name))*60"), target(f"({ck}|rate() by(span.gen_ai.provider.name))*60")],
+        unit="suffix: req/min", calcs=("max", "mean"), transformations=provider_names(),
+        desc="Calls per minute: Claude Platform and OpenRouter by source, crok's reports by provider."), 12, 8)
+    b.add(timeseries("Tokens by source", by_source(lambda q, by: f"({q}|sum_over_time(span.gen_ai.usage.input_tokens) by({by}))+({q}|sum_over_time(span.gen_ai.usage.output_tokens) by({by}))"),
+                     bars=True, stack=True, transformations=provider_names(),
+                     desc="Input plus output tokens in each time bucket. The legend total is the sum over the range."), 12, 8)
 
     b.row("Spend")
     b.add(timeseries("Spend over time", claude_cost_targets(ctx, False)[0] + [
-        target(f"{ors}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)")],
+        target(f"{ors}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)"),
+        target(f"{ck}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)")],
         unit="currencyUSD", decimals=3, bars=True, stack=True, legend="right", transformations=claude_names,
-        desc="Spend in each time bucket by model (claude-* models through Claude Platform, provider/model ids through OpenRouter). "
-             "The legend total is the spend over the range. " + spend_note), 14, 9)
+        desc="Spend in each time bucket by model (claude-* models through Claude Platform, provider/model ids through OpenRouter, "
+             "the rest as crok reported them). The legend total is the spend over the range. " + spend_note), 14, 9)
     b.add(bars("Spend by model", name="Model", value="Spend", targets=claude_spend + [
-        target(f"{ors}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)", instant=True)],
+        target(f"{ors}|sum_over_time(span.gen_ai.usage.total_cost) by(span.gen_ai.request.model)", instant=True),
+        target(f"{ck}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)", instant=True)],
         unit="currencyUSD", decimals=3, color="green", rename=claude_names,
         desc="Spend over the time range for each model, largest first. Claude Haiku 5.5 prompts over 100K tokens pay five times the base rates; that extra has its own bar. " + spend_note), 10, 9)
 
     b.row("Latency and reliability")
-    b.add(timeseries("Latency p50 / p95", [target(f"{anyq}|quantile_over_time(duration,.5,.95) by(resource.service.name)")],
-                     unit="s", calcs=("mean", "max"), transformations=quantile_names(),
-                     desc="Call duration percentiles by source. p50 is the median."), 12, 8)
-    b.add(timeseries("Errors", [target(f"{{({ctx.any_req()})&&status=error}}|count_over_time() by(resource.service.name,span.error.type)")],
-                     bars=True, stack=True, transformations=[TWO_LABELS],
-                     desc="Failed calls by source and error type, for example rate_limit_error or overloaded_error. Empty is good."), 12, 8)
+    b.add(timeseries("Latency p50 / p95", by_source(lambda q, by: f"{q}|quantile_over_time(duration,.5,.95) by({by})"),
+                     unit="s", calcs=("mean", "max"), transformations=quantile_names() + provider_names(),
+                     desc="Call duration percentiles by source (crok's reports by provider). p50 is the median."), 12, 8)
+    b.add(timeseries("Errors", [
+        target(f"{{(({ctx.claude_req()})||({ctx.or_req()}))&&status=error}}|count_over_time() by(resource.service.name,span.error.type)"),
+        target(f"{{{ctx.failed(ctx.crok_req())}}}|count_over_time() by(span.gen_ai.provider.name,span.error.category)")],
+        bars=True, stack=True, transformations=[TWO_LABELS, *provider_names()],
+        desc="Failed calls by source and error type, for example rate_limit_error or overloaded_error; crok's reports by provider "
+             "and error category (rate_limit, server_error, auth_error, client_error, timeout, sdk_error for a connection that "
+             "failed). Empty is good."), 12, 8)
 
     b.row("Models")
     b.add(bars("Requests by model", name="Model", value="Requests", targets=[target(f"{anyq}|count_over_time() by(span.gen_ai.request.model)", instant=True)],
@@ -586,8 +676,8 @@ def overview(ctx: Ctx) -> Board:
                unit="s", color="orange", rename=quantile_names(drop_p=True), total=False, desc="95th percentile call duration for each model over the time range."), 8, 8)
 
     b.row("Latest calls")
-    b.add(table("Latest LLM calls", f"{anyq}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
-                desc="The most recent calls. Click a trace ID to open the whole trace."), 24, 10)
+    b.add(table("Latest LLM calls", f"{anyq}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
+                desc="The most recent calls. Cost is what OpenRouter billed; Cost (crok) is what crok reported. Click a trace ID to open the whole trace."), 24, 10)
     return b
 
 
@@ -751,42 +841,188 @@ def openrouter_dashboard(ctx: Ctx) -> Board:
     return b
 
 
+def crok_dashboard(ctx: Ctx) -> Board:
+    b = Board(ctx, "llm-crok", "Codex, GLM and DeepSeek",
+              "Calls that crok reported itself, for providers that export no traces of their own: OpenAI Codex (and any "
+              "OpenAI API key), GLM (Z.ai, BigModel), DeepSeek, xAI and local models. Spend is what crok worked out per "
+              "call; subscription plans show what the same calls would cost on the API.", ["crok", "codex", "glm", "deepseek"])
+    b.vars.append(prom_var(ctx))
+    b.vars.append(custom_var("provider", "Provider", [(label, span) for label, span in CROK_PROVIDERS], include_all=True))
+    b.vars.append(textbox_var("model_re", "Model (regex)", "Filter by model, for example gpt-.* or deepseek-.*"))
+    req = f'{ctx.crok_req()}&&span.gen_ai.provider.name=~"${{provider:regex}}"&&span.gen_ai.request.model=~`$model_re`'
+    q = f"{{{req}}}"
+    failed = f"{{{ctx.failed(req)}}}"
+    out_q = f"{{{req}&&span.gen_ai.usage.output_tokens>0}}"
+    cost_note = ("crok's figure for each call: the provider's own cost when it reports one (xAI), else the model's standard "
+                 "API price for the call's tokens (the table crok's /usage estimates with). Codex and GLM Coding Plan "
+                 "calls are paid by the subscription, so for them it is what the calls would cost on the API. Calls from "
+                 "crok releases before this report carry no cost (see Unpriced calls).")
+
+    def s(attr, by=""):
+        return f"{q}|sum_over_time({attr})" + (f" by({by})" if by else "")
+
+    b.row("At a glance (whole time range)")
+    b.add(stat("Requests", [target(f"{q}|count_over_time()", instant=True)], desc="Calls crok made to these providers, failed and "
+               "interrupted ones included, in the TUI and in Crok Desktop, on every machine that reports." + RANGE_NOTE, total=True), 4, 4)
+    b.add(stat("Spend", [target(s("span.crok.cost.usd"), instant=True)], unit="currencyUSD", decimals=2, color="green", no_value="$0",
+               total=True, desc=cost_note), 4, 4)
+    b.add(stat("Tokens", [target(f"({s('span.gen_ai.usage.input_tokens')})+({s('span.gen_ai.usage.output_tokens')})", instant=True)],
+               desc="Input plus output tokens. Input includes prompt-cache reads.", total=True), 4, 4)
+    b.add(stat("Cache hit rate", [target(f"({s('span.gen_ai.usage.cache_read_input_tokens')})/({s('span.gen_ai.usage.input_tokens')})", instant=True)],
+               unit="percentunit", decimals=1, no_value="–",
+               steps=[{"color": "red", "value": None}, {"color": "orange", "value": 0.5}, {"color": "green", "value": 0.8}],
+               desc="Share of input tokens the provider read from its prompt cache. DeepSeek and GLM cache prompts by themselves; "
+                    "a low value in long sessions means the start of the prompt keeps changing."), 4, 4)
+    b.add(stat("Error rate", [target(f"({failed}|count_over_time())/({q}|count_over_time())", instant=True)],
+               unit="percentunit", decimals=1, no_value="0%",
+               steps=[{"color": "green", "value": None}, {"color": "orange", "value": 0.01}, {"color": "red", "value": 0.05}],
+               desc="Share of calls that failed. A call the user interrupted is not a failure (see Cancelled)."), 4, 4)
+    b.add(stat("p95 latency", [target(f"{q}|quantile_over_time(duration,.95)", instant=True)], unit="s", decimals=1, no_value="–",
+               desc="95% of calls finished faster than this, from the request to the last streamed token (bucketed to powers of two)."), 4, 4)
+
+    b.add(stat("Cancelled", [target(f"{{{req}&&span.crok.cancelled=true}}|count_over_time()", instant=True)],
+               desc="Calls the user interrupted before the model finished (Esc, a new prompt, closing the session).", total=True), 4, 4)
+    b.add(stat("Rate limited", [target(f"{{{req}&&span.error.category=\"rate_limit\"}}|count_over_time()", instant=True)],
+               steps=[{"color": "green", "value": None}, {"color": "orange", "value": 1}], total=True,
+               desc="Calls refused with HTTP 429. Coding plans limit requests per few hours; this shows when you hit it."), 4, 4)
+    b.add(stat("Unpriced calls", [target(f"{{{req}&&status!=error&&span.crok.cost.usd=nil}}|count_over_time()", instant=True)],
+               steps=[{"color": "green", "value": None}, {"color": "orange", "value": 1}], total=True,
+               desc="Finished calls without a cost: the model is not in crok's price list, or the call came from a crok release "
+                    "older than this report. Spend leaves them out."), 4, 4)
+    b.add(stat("Output speed", [target(f"({out_q}|sum_over_time(span.gen_ai.usage.output_tokens))/({out_q}|sum_over_time(duration))", instant=True)],
+               unit="suffix: tok/s", decimals=0, no_value="–",
+               desc="Output tokens divided by call time over all calls. Call time includes reading the prompt, so long prompts lower it."), 4, 4)
+    b.add(stat("Avg prompt", [target(f"({s('span.gen_ai.usage.input_tokens')})/({q}|count_over_time())", instant=True)],
+               decimals=0, no_value="–", desc="Average input tokens per call. It grows as a conversation gets longer."), 4, 4)
+    b.add(stat("Thinking share", [target(f"({s('span.gen_ai.usage.reasoning_tokens')})/({s('span.gen_ai.usage.output_tokens')})", instant=True)],
+               unit="percentunit", decimals=0, no_value="–", desc="Share of output tokens the model spent thinking."), 4, 4)
+
+    b.row("Week over week (recorded history, any time range)")
+    for _, panel in wow_totals(CROK_HISTORY_SEL):
+        panel["description"] += " All the providers on this dashboard; the filters above do not apply."
+        b.add(panel, 6, 4)
+    b.add(wow_table("Spend by model, week over week", "llm_spend_usd", CROK_HISTORY_SEL, "provider, model", "currencyUSD", 3,
+                    "Spend per provider and model in the last 7 days and the 7 before. " + cost_note, model=True), 12, 9)
+    b.add(wow_table("Requests by model, week over week", "llm_requests", CROK_HISTORY_SEL, "provider, model", "short", None,
+                    "Calls per provider and model in the last 7 days and the 7 before.", model=True), 12, 9)
+    b.add(history_bars("Spend per day by provider (last 14 days)", per_day("llm_spend_usd", "provider", CROK_HISTORY_SEL), "{{provider}}",
+                       unit="currencyUSD", decimals=2, last_14_days=True,
+                       desc="Spend in each UTC day of the last 14 days, from the recorded history. " + cost_note), 12, 8)
+    b.add(history_bars("Requests per day by model (last 14 days)",
+                       f"sum by (model) ({with_label_from_name(f'sum_over_time(llm_requests{{{CROK_HISTORY_SEL}}}[1d] offset -1d)', 'model')})",
+                       "{{model}}", last_14_days=True, desc="Calls in each UTC day of the last 14 days, by model, from the recorded history."), 12, 8)
+
+    b.row("Spend and tokens")
+    b.add(timeseries("Spend by model", [target(s("span.crok.cost.usd", "span.gen_ai.request.model"))], unit="currencyUSD", decimals=3,
+                     bars=True, stack=True, legend="right",
+                     desc="Spend in each time bucket by model. The legend total is the spend over the range. " + cost_note), 12, 9)
+    b.add(bars("Spend by provider", name="Provider", value="Spend", targets=[target(s("span.crok.cost.usd", "span.gen_ai.provider.name"), instant=True)],
+               unit="currencyUSD", decimals=3, color="green", rename=provider_names(),
+               desc="codex is OpenAI (Codex sign-in or an API key), glm is Z.ai and BigModel. " + cost_note), 6, 9)
+    b.add(bars("Spend by agent", name="Agent", value="Spend", targets=[target(s("span.crok.cost.usd", "span.gen_ai.agent.name"), instant=True)],
+               unit="currencyUSD", decimals=3, color="green",
+               desc="crok is the session's own turns, crok/<type> a sub-agent's, crok/side and the like crok's side calls (titles, "
+                    "summaries, permission checks)."), 6, 9)
+    kinds = [("Input (cache included)", "span.gen_ai.usage.input_tokens"), ("Cache read", "span.gen_ai.usage.cache_read_input_tokens"),
+             ("Cache write", "span.gen_ai.usage.cache_write_input_tokens"), ("Output", "span.gen_ai.usage.output_tokens"),
+             ("Thinking (part of output)", "span.gen_ai.usage.reasoning_tokens")]
+    constants = [("kind", "client"), ("span.gen_ai.operation.name", "streamText"), ("resource.service.name", ctx.crok),
+                 ("span.agento11y.sdk.name", "sdk-js"), ("span.gen_ai.token.semantics", "inclusive")]
+    b.add(timeseries("Tokens by kind", [target(s(attr, by)) for (_, attr), (by, _) in zip(kinds, constants)], legend="right",
+                     transformations=[rename(value, name) for (name, _), (_, value) in zip(kinds, constants)],
+                     desc="Input counts the whole prompt, cache reads and writes included, and output counts thinking, so the "
+                          "bars overlap rather than add up."), 12, 8)
+    b.add(timeseries("Cache hit rate by model", [target(f"({s('span.gen_ai.usage.cache_read_input_tokens', 'span.gen_ai.request.model')})/({s('span.gen_ai.usage.input_tokens', 'span.gen_ai.request.model')})")],
+                     unit="percentunit", calcs=("mean", "min"),
+                     desc="Share of each model's input read from the cache. A model that never read from it has no line."), 12, 8)
+
+    b.row("Latency")
+    b.add(timeseries("Call duration by model", [target(f"{q}|quantile_over_time(duration,.5,.95) by(span.gen_ai.request.model)")],
+                     unit="s", calcs=("mean", "max"), transformations=quantile_names(),
+                     desc="From sending the request to the last streamed token."), 8, 8)
+    ttft_sel = ",".join(x for x in [f'job="{ctx.crok}"', f'gen_ai_provider_name!~"{ctx.crok_skip}"' if ctx.crok_skip else "",
+                                    'gen_ai_provider_name=~"${provider:regex}"', 'gen_ai_request_model=~"$model_re"'] if x)
+    ttft = lambda p: (f"histogram_quantile({p}, sum by (le, gen_ai_provider_name) "
+                      f"(rate(gen_ai_client_time_to_first_token_seconds_bucket{{{ttft_sel}}}[$__rate_interval])))")
+    first_token = timeseries("Time to first token by provider", [prom(ttft(0.5), "{{gen_ai_provider_name}} p50"),
+                                                                  prom(ttft(0.95), "{{gen_ai_provider_name}} p95")],
+                             unit="s", calcs=("mean", "max"), transformations=provider_names(),
+                             desc="How long the provider took to send the first token, from the agento11y SDK's "
+                                  "gen_ai.client.time_to_first_token histogram (Prometheus).")
+    b.add(on_prom(first_token), 8, 8)
+    b.add(timeseries("Output speed by model", [target(f"({out_q}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))/({out_q}|sum_over_time(duration) by(span.gen_ai.request.model))")],
+                     unit="suffix: tok/s", calcs=("mean",), desc="Output tokens per second of call time."), 8, 8)
+
+    b.row("Outcomes")
+    b.add(pie("Finish reasons", [target(f"{q}|count_over_time() by(span.gen_ai.response.finish_reasons)", instant=True)],
+              desc="stop / end_turn: finished. tool_calls / tool_use: asked for a tool. length / max_tokens: cut off. (not set): "
+                   "the call failed or was interrupted."), 8, 8)
+    b.add(timeseries("Failures by category", [target(f"{failed}|count_over_time() by(span.error.category)")], bars=True, stack=True,
+                     desc="rate_limit (429), server_error (5xx), auth_error (401/403: sign in again), client_error (other 4xx), "
+                          "timeout, sdk_error (no HTTP status: the connection failed). Interrupted calls are left out."), 8, 8)
+    b.add(bars("Requests by backend", name="Backend", value="Requests", targets=[target(f"{q}|count_over_time() by(span.crok.backend)", instant=True)],
+               desc="The API crok spoke: openai_codex (ChatGPT sign-in), glm, deepseek, responses or chat_completions (an API key), "
+                    "messages. (not set): crok releases before this report."), 8, 8)
+    b.add(bars("Requests by agent", name="Agent", value="Requests", targets=[target(f"{q}|count_over_time() by(span.gen_ai.agent.name)", instant=True)],
+               color="purple", desc="The session's own turns (crok), sub-agents (crok/<type>) and side calls."), 8, 7)
+    b.add(bars("Requests by surface", name="Surface", value="Requests", targets=[target(f"{q}|count_over_time() by(span.agento11y.tag.surface)", instant=True)],
+               desc="tui (the terminal), desktop (Crok Desktop) or agent (another ACP client)."), 8, 7)
+    b.add(bars("Requests by machine", name="Machine", value="Requests", targets=[target(f"{q}|count_over_time() by(span.agento11y.tag.host)", instant=True)],
+               desc="The name of the Mac each call came from."), 8, 7)
+
+    b.row("Calls")
+    b.add(table("Latest calls", f"{q}|select(span.gen_ai.provider.name,span.gen_ai.request.model,span.crok.backend,span.gen_ai.agent.name,span.gen_ai.usage.input_tokens,span.gen_ai.usage.cache_read_input_tokens,span.gen_ai.usage.output_tokens,span.crok.cost.usd,span.gen_ai.response.finish_reasons,span.error.category,span.crok.cancelled,span.agento11y.tag.surface)",
+                desc="The most recent calls. Click a trace ID to open one: the span holds tokens, cost and, unless content capture "
+                     "is off, the conversation title. The prompts and replies are in Agent Observability."), 24, 10)
+    return b
+
+
 def explorer_dashboard(ctx: Ctx) -> Board:
     b = Board(ctx, "llm-request-explorer", "LLM Request Explorer",
-              "Find single calls: slow, failed, expensive, cut off, or with huge prompts.", ["explorer"])
-    b.vars.append(custom_var("source", "Source", [(ctx.claude, ctx.claude), (ctx.openrouter, ctx.openrouter)], include_all=True))
-    b.vars.append(textbox_var("model_re", "Model (regex)", "Filter by model, for example claude-opus.* or anthropic/.*"))
+              "Find single calls: slow, failed, expensive, cut off, or with huge prompts, from Claude Platform, OpenRouter "
+              "and crok's own reports (Codex, GLM, DeepSeek, ...). Any time range up to 14 days.", ["explorer"])
+    b.vars.append(custom_var("source", "Source", [(ctx.claude, ctx.claude), (ctx.openrouter, ctx.openrouter), (ctx.crok, ctx.crok)],
+                             include_all=True))
+    b.vars.append(textbox_var("model_re", "Model (regex)", "Filter by model, for example claude-opus.*, anthropic/.*, gpt-.* or glm-.*"))
     b.vars.append(custom_var("min_duration", "Slower than", [(v, v) for v in ("0s", "2s", "5s", "10s", "30s", "60s", "120s")]))
-    b.vars.append(custom_var("status", "Status", [("Any", "true"), ("Errors only", "status=error"), ("Succeeded only", "status!=error")]))
+    b.vars.append(custom_var("status", "Status", [("Any", "true"), ("Failed", "status=error&&span.crok.cancelled=nil"),
+                                                  ("Succeeded", "status!=error"), ("Cancelled (crok)", "span.crok.cancelled=true")]))
 
     # A request the API rejects early (say, an unknown model id) has no model attribute.
     base = (f"({ctx.any_req()})&&resource.service.name=~`${{source:regex}}`"
             "&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)")
-    cols = ("resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,"
-            "span.gen_ai.usage.total_cost,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,"
-            "span.anthropic.request.id")
+    cols = ("resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,"
+            "span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,"
+            "span.gen_ai.response.finish_reason,span.error.type")
 
     b.row("Search")
     b.add(text("How to use", (
-        "Set **Source**, **Model (regex)** (`.*` for all, `claude-opus.*` for one family), **Slower than** and **Status** at the top; "
-        "the first table follows all four, the saved searches follow Source and Model. Click a **trace ID** to open the trace: each "
-        "span's attributes hold tokens, cache use, the stop reason and, with full-content export, the prompt and the response.\n\n"
+        "Set **Source**, **Model (regex)** (`.*` for all, `claude-opus.*` for one family, `gpt-.*` for Codex, `deepseek-.*`), "
+        "**Slower than** and **Status** at the top; the first table follows all four, the saved searches follow Source and Model. "
+        "Source **crok** is what crok reported for providers without traces of their own (Codex, GLM, DeepSeek, xAI). Searches "
+        "reach back 14 days: widen the time range to find older calls. Click a **trace ID** to open the trace: each span's "
+        "attributes hold tokens, cache use, the stop reason, crok's cost and, with full-content export, the prompt and the "
+        "response.\n\n"
         "For anything else open **Explore** (compass icon), pick the traces datasource and write TraceQL, for example "
-        "`{ resource.service.name = \"claude-platform\" && span.gen_ai.usage.input_tokens > 150000 }`.")), 24, 4)
+        "`{ resource.service.name = \"crok\" && span.gen_ai.provider.name = \"deepseek\" && span.gen_ai.usage.input_tokens > 150000 }`.")), 24, 4)
     b.add(table("Matching calls", f"{{{base}&&duration>=$min_duration&&$status}}|select({cols})", limit=50,
                 desc="Every call that matches the filters, newest first (up to 100)."), 24, 10)
 
     b.row("Saved searches")
-    b.add(table("Failed calls", f"{{{base}&&status=error}}|select({cols})", desc="Calls that ended with an error. The Error column says why."), 12, 9)
+    b.add(table("Failed calls", f"{{{ctx.failed(base)}}}|select({cols},span.error.category)",
+                desc="Calls that ended with an error. The Error and Error category columns say why. Calls the user interrupted "
+                     "in crok are left out."), 12, 9)
     b.add(table("Slowest calls (over 30 s)", f"{{{base}&&duration>30s}}|select({cols})", desc="Calls that took longer than 30 seconds."), 12, 9)
-    b.add(table("Cut off by the token limit", f"{{{base}&&(span.anthropic.message.stop_reason=\"max_tokens\"||span.gen_ai.response.finish_reason=\"length\")}}|select({cols})",
+    b.add(table("Cut off by the token limit", f"{{{base}&&(span.anthropic.message.stop_reason=\"max_tokens\"||span.gen_ai.response.finish_reason=\"length\"||span.gen_ai.response.finish_reasons=\"length\")}}|select({cols})",
                 desc="Responses that stopped because they reached max_tokens. Raise max_tokens or ask for shorter output."), 12, 9)
-    b.add(table("Huge prompts (over 150K tokens)", f"{{{base}&&span.gen_ai.usage.input_tokens>150000}}|select({cols},span.gen_ai.usage.cache_read.input_tokens)",
+    b.add(table("Huge prompts (over 150K tokens)", f"{{{base}&&span.gen_ai.usage.input_tokens>150000}}|select({cols},span.gen_ai.usage.cache_read.input_tokens,span.gen_ai.usage.cache_read_input_tokens)",
                 desc="Calls whose prompt passed 150K tokens. Compaction or a fresh session usually helps."), 12, 9)
-    b.add(table("Expensive OpenRouter calls (over $0.05)", f"{{{base}&&span.gen_ai.usage.total_cost>0.05}}|select({cols})",
-                desc="Single OpenRouter generations that cost more than 5 cents."), 12, 9)
-    b.add(table("Claude cache misses on big prompts", f"{{{base}&&span.gen_ai.usage.input_tokens>20000&&span.gen_ai.usage.cache_read.input_tokens<1000}}|select({cols},span.gen_ai.usage.cache_write.input_tokens)",
-                desc="Claude requests over 20K input tokens that read almost nothing from the cache, so they paid full price for the prompt."), 12, 9)
+    b.add(table("Expensive calls (over $0.05)", f"{{{base}&&(span.gen_ai.usage.total_cost>0.05||span.crok.cost.usd>0.05)}}|select({cols})",
+                desc="Single calls that cost more than 5 cents: billed by OpenRouter, or as crok worked out (Claude calls are "
+                     "priced on the dashboards, not per span)."), 12, 9)
+    b.add(table("Cache misses on big prompts", f"{{{base}&&span.gen_ai.usage.input_tokens>20000&&(span.gen_ai.usage.cache_read.input_tokens<1000||(resource.service.name=\"{ctx.crok}\"&&span.gen_ai.usage.cache_read_input_tokens=nil))}}|select({cols},span.gen_ai.usage.cache_write.input_tokens)",
+                desc="Calls over 20K input tokens that read almost nothing from the prompt cache, so they paid full price for the "
+                     "prompt: Claude requests under 1K cached tokens, and crok's calls with none."), 12, 9)
     return b
 
 
@@ -852,6 +1088,15 @@ def history_rules(ctx: Ctx) -> dict:
             rule("llm_spend_usd", {"provider": "claude", "price_group": f"{g['name']}: extra for prompts over {cut // 1000}K"},
                  claude_cost(f"{base}&&span.gen_ai.usage.input_tokens>{cut}", long["input"] - g["input"],
                              long["cache_read"] - g["cache_read"], long["output"] - g["output"]))
+    # crok's own reports, kept per model: grouped by the span name (`streamText <model>`), whose
+    # label `name` has no dot, so Mimir takes it (see MODEL_FROM_NAME).
+    crok_sources = [(label, ctx.crok_req(span)) for label, span in CROK_PROVIDERS] + [("other", ctx.crok_others())]
+    for provider, req in crok_sources:
+        rule("llm_requests", {"provider": provider}, f"{{{req}}}|count_over_time() by(name)")
+        rule("llm_errors", {"provider": provider}, f"{{{ctx.failed(req)}}}|count_over_time()")
+        for direction, attr in (("input", "input_tokens"), ("output", "output_tokens"), ("cache_read", "cache_read_input_tokens")):
+            rule("llm_tokens", {"provider": provider, "direction": direction}, f"{{{req}}}|sum_over_time(span.gen_ai.usage.{attr}) by(name)")
+        rule("llm_spend_usd", {"provider": provider, "price_group": "crok"}, f"{{{req}}}|sum_over_time(span.crok.cost.usd) by(name)")
     return {"title": HISTORY_GROUP, "folderUid": ctx.folder, "interval": HISTORY_INTERVAL, "rules": rules}
 
 
@@ -872,6 +1117,128 @@ def prom(expr: str, legend: str = "", instant: bool = False, interval: str = "",
 def on_prom(panel: dict) -> dict:
     panel["datasource"] = PROM
     return panel
+
+
+# crok's history rules keep the span name, `"streamText <model>"` (quotes included), as the label
+# `name`: the only label of a TraceQL group-by that Mimir takes, having no dot in it. This takes
+# the model out of it; a series without `name` (Claude Platform, OpenRouter) is left as it is.
+MODEL_FROM_NAME = '`"?streamText (.+?)"?`'
+
+
+def with_label_from_name(expr: str, label: str) -> str:
+    return f'label_replace({expr}, "{label}", "$1", "name", {MODEL_FROM_NAME})'
+
+
+# ---------------------------------------------------------------------------------------------
+# Week over week
+#
+# Each recorded sample is the amount in its own 10-minute window, so sum_over_time(m[7d]) at the
+# end of the time range is the last seven days and `offset 7d` the seven days before them. Both
+# lag the rules by the same 20-30 minutes, so they compare like with like. They are instant
+# queries: the panels work on any dashboard at any time range, with the query reaching 14 days
+# back, inside the free tier's 14-day metrics retention and Mimir's 32-day query limit.
+
+
+def week(metric: str, sel: str = "", by: str = "", before: bool = False, model: bool = False) -> str:
+    inner = f"sum_over_time({metric}{{{sel}}}[7d]{' offset 7d' if before else ''})"
+    if model:
+        inner = with_label_from_name(inner, "model")
+    return f"sum{f' by ({by})' if by else ''} ({inner})"
+
+
+def change(metric: str, sel: str = "", by: str = "", model: bool = False) -> str:
+    return f"{week(metric, sel, by, model=model)} / {week(metric, sel, by, True, model)} - 1"
+
+
+WEEK_NOTE = (" Last 7 days is the seven days up to the end of the time range; the 7 days before are the seven before"
+             " that. Both come from the recorded history (LLM Spend History), which lags 20-30 minutes, and do not"
+             " depend on the time range's length.")
+
+
+def wow_stat(title: str, queries: list[tuple[str, str, str, int | None]], desc: str) -> dict:
+    """Instant Prometheus values side by side, each (name, expression, unit, decimals or None for Grafana's)."""
+    panel = stat(title, [prom(expr, instant=True) for _, expr, _, _ in queries], desc=desc + WEEK_NOTE,
+                 no_value="–", recent_note=False)
+    panel["options"]["textMode"] = "value_and_name"
+    panel["fieldConfig"]["overrides"] = [
+        {"matcher": {"id": "byFrameRefID", "options": chr(ord("A") + n)},
+         "properties": [{"id": "displayName", "value": name}, {"id": "unit", "value": unit},
+                        *([{"id": "decimals", "value": decimals}] if decimals is not None else [])]}
+        for n, (name, _, unit, decimals) in enumerate(queries)]
+    return on_prom(panel)
+
+
+def wow_totals(sel: str = "", spend_decimals: int = 2) -> list[tuple[str, dict]]:
+    """Spend, requests, tokens and error rate: the last 7 days and how they compare with the 7 before."""
+    tokens = f'{sel},direction=~"input|output"' if sel else 'direction=~"input|output"'
+    rate = lambda before: f"{week('llm_errors', sel, before=before)} / {week('llm_requests', sel, before=before)}"
+    return [
+        ("spend", wow_stat("Spend, week over week", [("Last 7 days", week("llm_spend_usd", sel), "currencyUSD", spend_decimals),
+                                                     ("vs the 7 days before", change("llm_spend_usd", sel), "percentunit", 0)],
+                           "Spend in the last 7 days and how much more (or less, below zero) than the 7 days before.")),
+        ("requests", wow_stat("Requests, week over week", [("Last 7 days", week("llm_requests", sel), "short", None),
+                                                           ("vs the 7 days before", change("llm_requests", sel), "percentunit", 0)],
+                              "Calls in the last 7 days, compared with the 7 days before.")),
+        ("tokens", wow_stat("Tokens, week over week", [("Last 7 days", week("llm_tokens", tokens), "short", 1),
+                                                       ("vs the 7 days before", change("llm_tokens", tokens), "percentunit", 0)],
+                            "Input plus output tokens in the last 7 days, compared with the 7 days before.")),
+        ("errors", wow_stat("Error rate, week over week", [("Last 7 days", rate(False), "percentunit", 1),
+                                                           ("The 7 days before", rate(True), "percentunit", 1)],
+                            "Failed calls divided by all calls (a call the user interrupted in crok is not a failure).")),
+    ]
+
+
+def wow_table(title: str, metric: str, sel: str, by: str, unit: str, decimals: int | None, desc: str, model: bool = False) -> dict:
+    """One row per value of `by`: the last 7 days, the 7 before, and the change."""
+    this, before = week(metric, sel, by, model=model), week(metric, sel, by, True, model)
+    headers = {"provider": "Provider", "model": "Model", "price_group": "Price group"}
+    panel = {
+        "type": "table",
+        "title": title,
+        "description": desc + WEEK_NOTE,
+        "datasource": PROM,
+        "fieldConfig": {"defaults": {"unit": unit, **({"decimals": decimals} if decimals is not None else {}),
+                                     "custom": {"align": "auto", "cellOptions": {"type": "auto"}}},
+                        "overrides": [{"matcher": {"id": "byName", "options": "Change"},
+                                       "properties": [{"id": "unit", "value": "percentunit"}, {"id": "decimals", "value": 0}]}]},
+        "options": {"showHeader": True, "cellHeight": "sm", "sortBy": [{"displayName": "Last 7 days", "desc": True}],
+                    "footer": {"show": True, "reducer": ["sum"], "fields": ["Last 7 days", "The 7 days before"], "countRows": False}},
+        # Instant results share one time, so merge joins them on the `by` labels.
+        "transformations": [
+            {"id": "merge", "options": {}},
+            {"id": "organize", "options": {"excludeByName": {"Time": True},
+                                           "renameByName": {"Value #A": "Last 7 days", "Value #B": "The 7 days before",
+                                                            "Value #C": "Change",
+                                                            **{d.strip(): headers.get(d.strip(), d.strip()) for d in by.split(",")}}}},
+        ],
+    }
+    return finish(panel, [prom(this, instant=True, table=True), prom(before, instant=True, table=True),
+                          prom(f"{this} / {before} - 1", instant=True, table=True)])
+
+
+def history_bars(title: str, expr: str, legend: str, unit: str = "short", decimals: int | None = None, desc: str = "",
+                 last_14_days: bool = False, stack: bool = True) -> dict:
+    """A per-UTC-day bar chart straight from Prometheus. With last_14_days it always shows the last
+    14 days, whatever the dashboard's time range (a trace dashboard opens on 24 hours)."""
+    panel = timeseries(title, [prom(expr, legend, interval="1d")], unit=unit, decimals=decimals, bars=True, stack=stack,
+                       desc=desc, transformations=provider_names())
+    panel["maxDataPoints"] = 5000  # keeps the step at one day on long ranges
+    if last_14_days:
+        panel["timeFrom"] = "14d"
+    return on_prom(panel)
+
+
+def day_vs_week_before(title: str, metric: str, sel: str, unit: str, decimals: int | None, desc: str) -> dict:
+    """Each UTC day's total as a bar, and the same weekday a week earlier as a dashed line."""
+    day = lambda offset: f"sum (sum_over_time({metric}{{{sel}}}[1d] offset {offset}))"
+    panel = timeseries(title, [prom(day("-1d"), "That day", interval="1d"), prom(day("6d"), "7 days earlier", interval="1d")],
+                       unit=unit, decimals=decimals, bars=True, desc=desc)
+    panel["maxDataPoints"] = 5000
+    panel["fieldConfig"]["overrides"] = [{"matcher": {"id": "byName", "options": "7 days earlier"}, "properties": [
+        {"id": "custom.drawStyle", "value": "line"}, {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [8, 6]}},
+        {"id": "custom.showPoints", "value": "always"}, {"id": "custom.fillOpacity", "value": 0},
+        {"id": "color", "value": {"mode": "fixed", "fixedColor": "text"}}]}]
+    return on_prom(panel)
 
 
 # The history panels add up two sources. Prometheus holds what the recording rules recorded, from
@@ -897,8 +1264,12 @@ MERGE = [
 ]
 
 
-def per_day(metric: str, by: str = "", sel: str = "") -> str:
-    return f"sum{f' by ({by})' if by else ''} (sum_over_time({metric}{{{sel}}}[1d] offset -1d))"
+def per_day(metric: str, by: str = "", sel: str = "", label_from_name: str = "") -> str:
+    """One UTC day per step. `label_from_name` sets that label of crok's series to their model."""
+    inner = f"sum_over_time({metric}{{{sel}}}[1d] offset -1d)"
+    if label_from_name:
+        inner = with_label_from_name(inner, label_from_name)
+    return f"sum{f' by ({by})' if by else ''} ({inner})"
 
 
 def group(dims: list[str], by_time: bool = True) -> dict:
@@ -965,17 +1336,20 @@ def mixed(panel: dict, transformations: list[dict]) -> dict:
 
 
 def history_dashboard(ctx: Ctx, backfill: Backfill) -> Board:
-    ds = {"type": "datasource", "name": "prom", "label": "Metrics", "query": "prometheus", "regex": "", "refresh": 1, "hide": 0,
-          "current": {"selected": True, "text": ctx.prom_name, "value": ctx.prom_uid}}
     b = Board(ctx, "llm-history", "LLM Spend History",
-              "Spend, requests and tokens by day, from totals that recording rules copy out of the traces every 10 minutes"
+              "Spend, requests and tokens by day and week over week, from totals that recording rules copy out of the traces "
+              "every 10 minutes: Claude Platform, OpenRouter, and crok's own reports for Codex, GLM and DeepSeek"
               + (", plus daily totals backfilled from the Claude and OpenRouter usage APIs for the time the rules did not record."
-                 if backfill else ". Starts on the day the rules were installed."), ["history"], ds_var=ds, time_from="now-30d")
+                 if backfill else ". Starts on the day the rules were installed.")
+              + " Opens on the last 14 days, as long as Grafana Cloud's free tier keeps metrics.", ["history"],
+              ds_var=prom_var(ctx), time_from="now-14d")
     note = (" Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet."
             + (" Days before the rules started, and windows they missed, come from the providers' usage APIs." if backfill
                else " History starts when the recording rules were installed.") + " Days are UTC days.")
-    day = lambda metric, by="", sel="": prom(per_day(metric, by, sel), interval="1d", table=True)
+    day = lambda metric, by="", sel="", label="": prom(per_day(metric, by, sel, label), interval="1d", table=True)
     one = lambda field, provider=None: lambda r: [({}, r.get(field) or 0)] if provider in (None, r["provider"]) else []
+    crok_note = (" codex, glm and deepseek are crok's own reports (crok's cost per call: the provider's when it reports one, "
+                 "else the standard API price); codex is every OpenAI call crok makes.")
 
     if backfill:
         b.row("About the data")
@@ -988,20 +1362,23 @@ def history_dashboard(ctx: Ctx, backfill: Backfill) -> Board:
 
     b.row("Totals for the time range")
     b.add(total("Spend", "llm_spend_usd", "", one("spend"), unit="currencyUSD", decimals=2, color="green", no_value="$0",
-                desc="Claude (estimated at list prices) plus OpenRouter (billed)." + note), 4, 4)
+                desc="Claude (estimated at list prices) plus OpenRouter (billed) plus what crok reported." + crok_note + note), 4, 4)
     b.add(total("Claude, estimated", "llm_spend_usd", 'provider="claude"', one("spend", "claude"), unit="currencyUSD", decimals=2,
-                no_value="$0", desc="Claude spend from tokens at list prices." + note), 4, 4)
+                no_value="$0", desc="Claude spend from tokens at list prices." + note), 3, 4)
     b.add(total("OpenRouter, billed", "llm_spend_usd", 'provider="openrouter"', one("spend", "openrouter"), unit="currencyUSD",
-                decimals=2, no_value="$0", desc="The cost OpenRouter reported." + note), 4, 4)
+                decimals=2, no_value="$0", desc="The cost OpenRouter reported." + note), 3, 4)
+    b.add(total("Codex, GLM, DeepSeek", "llm_spend_usd", CROK_HISTORY_SEL, lambda r: [], unit="currencyUSD", decimals=2,
+                no_value="$0", desc="What crok reported for the providers without traces of their own." + crok_note + note), 4, 4)
     b.add(total("Requests", "llm_requests", "", one("requests"),
-                desc="Calls to both providers." + (" Claude calls in backfilled time are not counted: the Claude usage API "
-                                                   "reports tokens only." if backfill else "") + note), 4, 4)
+                desc="Calls to every provider." + (" Claude calls in backfilled time are not counted: the Claude usage API "
+                                                   "reports tokens only." if backfill else "") + note), 3, 4)
     b.add(total("Tokens", "llm_tokens", 'direction=~"input|output"', lambda r: [({}, (r.get("input") or 0) + (r.get("output") or 0))],
-                desc="Input plus output tokens." + note), 4, 4)
+                desc="Input plus output tokens." + note), 3, 4)
     errors = stat("Error rate", [prom(per_day("llm_errors"), "errors", interval="1d"), prom(per_day("llm_requests"), "requests", interval="1d")],
                   unit="percentunit", decimals=1, no_value="0%", recent_note=False,
                   steps=[{"color": "green", "value": None}, {"color": "orange", "value": 0.01}, {"color": "red", "value": 0.05}],
-                  desc="Failed calls divided by all calls, from the traces only: the usage APIs do not count failures." + note)
+                  desc="Failed calls divided by all calls, from the traces only: the usage APIs do not count failures. A call "
+                       "the user interrupted in crok is not a failure." + note)
     errors["transformations"] = [
         {"id": "joinByField", "options": {"byField": "Time", "mode": "outer"}},
         {"id": "reduce", "options": {"mode": "reduceFields", "reducers": ["sum"]}},
@@ -1010,6 +1387,21 @@ def history_dashboard(ctx: Ctx, backfill: Backfill) -> Board:
     ]
     errors["maxDataPoints"] = 5000
     b.add(on_prom(errors), 4, 4)
+
+    b.row("Week over week")
+    for _, panel in wow_totals():
+        b.add(panel, 6, 4)
+    b.add(wow_table("Spend by provider, week over week", "llm_spend_usd", "", "provider", "currencyUSD", 2,
+                    "Spend per provider in the last 7 days and the 7 before; Change is how much more (below zero: less)." + crok_note), 8, 8)
+    b.add(wow_table("Requests by provider, week over week", "llm_requests", "", "provider", "short", None,
+                    "Calls per provider in the last 7 days and the 7 before."), 8, 8)
+    b.add(wow_table("Tokens by provider, week over week", "llm_tokens", 'direction=~"input|output"', "provider", "short", 1,
+                    "Input plus output tokens per provider in the last 7 days and the 7 before."), 8, 8)
+    b.add(day_vs_week_before("Spend per day, and 7 days earlier", "llm_spend_usd", "", "currencyUSD", 2,
+                             "Bars: spend in each UTC day. Dashed line: the same weekday a week earlier, so each day reads against "
+                             "last week's. Recorded history only (no backfill)." + note), 12, 8)
+    b.add(day_vs_week_before("Requests per day, and 7 days earlier", "llm_requests", "", "short", 0,
+                             "Bars: calls in each UTC day. Dashed line: the same weekday a week earlier." + note), 12, 8)
 
     def bars_day(title, targets, dims, name, **kw):
         panel = timeseries(title, targets, bars=True, stack=True, **kw)
@@ -1020,7 +1412,7 @@ def history_dashboard(ctx: Ctx, backfill: Backfill) -> Board:
     b.add(bars_day("Spend per day", [day("llm_spend_usd", "provider"),
                                       *backfill.target(["provider"], lambda r: [({"provider": r["provider"]}, r.get("spend"))])],
                    ["provider"], "${__field.labels.provider}", unit="currencyUSD", decimals=2,
-                   desc="Spend in each UTC day, by provider. The legend total is the spend over the range." + note), 12, 9)
+                   desc="Spend in each UTC day, by provider. The legend total is the spend over the range." + crok_note + note), 12, 9)
     b.add(bars_day("Claude spend per day by price group",
                    [day("llm_spend_usd", "price_group", 'provider="claude"'),
                     *backfill.target(["price_group"], lambda r: [({"price_group": r["price_group"]}, r.get("spend"))]
@@ -1041,11 +1433,11 @@ def history_dashboard(ctx: Ctx, backfill: Backfill) -> Board:
 
     b.row("Where the money went")
     spend_rank = bars("Spend by price group", name="Price group", value="Spend", unit="currencyUSD", decimals=2, color="green",
-                      targets=[day("llm_spend_usd", "provider, price_group"),
+                      targets=[day("llm_spend_usd", "provider, price_group", label="price_group"),
                                *backfill.target(["provider", "price_group"], lambda r: [
                                    ({"provider": r["provider"], "price_group": r["price_group"]}, r.get("spend"))])],
-                      desc="Spend over the time range for each Claude price group and for OpenRouter, largest first." + note,
-                      total=False, recent_note=False)
+                      desc="Spend over the time range for each Claude price group, for OpenRouter, and for each model crok "
+                           "reported, largest first." + note, total=False, recent_note=False)
     spend_rank["fieldConfig"]["overrides"] = [
         {"matcher": {"id": "byName", "options": "provider"}, "properties": [{"id": "displayName", "value": "Provider"},
                                                                             {"id": "custom.width", "value": 110}]},
@@ -1068,12 +1460,17 @@ def history_dashboard(ctx: Ctx, backfill: Backfill) -> Board:
                         {"id": "calculateField", "options": {"mode": "binary", "binary": {"left": "cache_read", "operator": "/", "right": "input"},
                                                              "alias": "cache hit rate", "replaceFields": True}},
                         {"id": "sortBy", "options": {"sort": [{"field": "Time\\direction"}]}}]), 12, 8)
+    b.add(history_bars("Codex, GLM, DeepSeek spend per day by model",
+                       f"sum by (provider, model) ({with_label_from_name(f'sum_over_time(llm_spend_usd{{{CROK_HISTORY_SEL}}}[1d] offset -1d)', 'model')})",
+                       "{{provider}} · {{model}}", unit="currencyUSD", decimals=2,
+                       desc="What crok reported in each UTC day, by provider and model." + crok_note + note), 24, 8)
     return b
 
 
 def folder(ctx: Ctx) -> dict:
     return {"apiVersion": "folder.grafana.app/v1", "kind": "Folder", "metadata": {"name": ctx.folder},
-            "spec": {"title": "LLM Observability", "description": "Claude Platform and OpenRouter traces: spend, tokens, latency, errors."}}
+            "spec": {"title": "LLM Observability", "description": "Claude Platform, OpenRouter and crok traces (Codex, GLM, "
+                                                                 "DeepSeek): spend, tokens, latency, errors, 14 days of history."}}
 
 
 def queries(panels: list[dict]):
@@ -1101,6 +1498,10 @@ def main(argv: list[str]) -> int:
     p.add_argument("--folder-uid", default="llm-observability", help="Folder for the dashboards (default: %(default)s)")
     p.add_argument("--claude-service", default="claude-platform", help="service.name of Claude Platform spans (default: %(default)s)")
     p.add_argument("--openrouter-service", default="openrouter", help="service.name of OpenRouter spans (default: %(default)s)")
+    p.add_argument("--crok-service", default="crok", help="service.name of the spans crok reports itself (default: %(default)s)")
+    p.add_argument("--crok-skip-providers", default="anthropic|openrouter",
+                   help="Regex of gen_ai.provider.name values whose crok spans are left out, because the provider's own export "
+                        "already counts them (default: %(default)s; empty keeps them all)")
     p.add_argument("--prometheus-uid", default="grafanacloud-prom", help="UID of the Prometheus datasource the history is "
                    "recorded into (default: %(default)s)")
     p.add_argument("--prometheus-name", default="", help="Display name of that datasource")
@@ -1117,7 +1518,7 @@ def main(argv: list[str]) -> int:
     ctx = Ctx(args, json.loads(pathlib.Path(args.prices).read_text()))
     bf_path = pathlib.Path(args.backfill)
     backfill = Backfill(json.loads(bf_path.read_text()) if bf_path.exists() else None, args.infinity_uid)
-    boards = [overview(ctx), claude_dashboard(ctx), openrouter_dashboard(ctx), explorer_dashboard(ctx),
+    boards = [overview(ctx), claude_dashboard(ctx), openrouter_dashboard(ctx), crok_dashboard(ctx), explorer_dashboard(ctx),
               history_dashboard(ctx, backfill)]
     rules = history_rules(ctx)
     problems = [msg for b in boards for msg in check_lengths(b)]

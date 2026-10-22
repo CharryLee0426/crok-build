@@ -6,6 +6,6 @@
   },
   "spec": {
     "title": "LLM Observability",
-    "description": "Claude Platform and OpenRouter traces: spend, tokens, latency, errors."
+    "description": "Claude Platform, OpenRouter and crok traces (Codex, GLM, DeepSeek): spend, tokens, latency, errors, 14 days of history."
   }
 }
