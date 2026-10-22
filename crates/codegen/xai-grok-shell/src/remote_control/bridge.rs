@@ -545,6 +545,68 @@ fn model_catalog(agent: &MvpAgent) -> Vec<ModelOption> {
         .collect()
 }
 
+/// Applies the model and thinking level chosen for a session started from another device, before its first prompt.
+async fn apply_start_setup(
+    agent: &MvpAgent,
+    session_id: &str,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<(), String> {
+    let model = model
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(str::to_owned);
+    if let Some(model) = model.as_deref() {
+        set_config_option(agent, session_id, "model", model).await?;
+    }
+    let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
+        return Ok(());
+    };
+    let current = model.unwrap_or_else(|| {
+        agent
+            .model_state(Some(&acp::SessionId::new(session_id)))
+            .current_model_id
+            .0
+            .to_string()
+    });
+    let id = effort_option_id(&model_catalog(agent), &current, effort);
+    set_config_option(agent, session_id, "reasoning_effort", &id).await
+}
+
+async fn set_config_option(
+    agent: &MvpAgent,
+    session_id: &str,
+    config_id: &str,
+    value: &str,
+) -> Result<(), String> {
+    let request = json!({
+        "sessionId": session_id,
+        "configId": config_id,
+        "value": value,
+    });
+    let request = serde_json::from_value::<acp::SetSessionConfigOptionRequest>(request)
+        .map_err(|error| error.to_string())?;
+    agent
+        .set_session_config_option(request)
+        .await
+        .map(|_| ())
+        .map_err(|error| error.message.to_string())
+}
+
+/// The option id of a thinking level of `model`, named by its id or by the level it stands for (`high`).
+fn effort_option_id(models: &[ModelOption], model: &str, wanted: &str) -> String {
+    models
+        .iter()
+        .find(|m| m.id == model)
+        .and_then(|m| {
+            m.efforts
+                .iter()
+                .find(|e| e.id == wanted || e.value.as_deref() == Some(wanted))
+        })
+        .map(|e| e.id.clone())
+        .unwrap_or_else(|| wanted.to_string())
+}
+
 /// The model and thinking level a `configOptions` list says are selected.
 fn selected_config(options: &[Value]) -> (Option<String>, Option<String>) {
     let current = |id: &str| {
@@ -1759,7 +1821,28 @@ impl Bridge {
                     Ok(response) => {
                         let session_id = response.session_id.to_string();
                         observer.hide(&session_id);
-                        Ok(session_id)
+                        // The model and thinking level picked where the session was started apply before its first
+                        // prompt, as if they had been chosen here.
+                        match apply_start_setup(
+                            &agent,
+                            &session_id,
+                            command.model.as_deref(),
+                            command.effort.as_deref(),
+                        )
+                        .await
+                        {
+                            Ok(()) => Ok(session_id),
+                            Err(error) => {
+                                let _ = agent
+                                    .close_session(acp::CloseSessionRequest::new(
+                                        session_id.clone(),
+                                    ))
+                                    .await;
+                                Err(format!(
+                                    "The computer could not set its model or thinking level: {error}"
+                                ))
+                            }
+                        }
                     }
                     Err(error) => Err(error.message.to_string()),
                 }
@@ -2396,6 +2479,25 @@ mod tests {
         assert_eq!(commands[1].name, "review-pr");
         assert_eq!(commands[1].hint.as_deref(), Some("<number>"));
         assert_eq!(commands[0].hint, None);
+    }
+
+    #[test]
+    fn a_thinking_level_is_matched_by_option_id_or_level() {
+        let models = vec![ModelOption {
+            id: "grok-4".into(),
+            name: "Grok 4".into(),
+            description: None,
+            efforts: vec![EffortOption {
+                id: "deep".into(),
+                name: "Deep".into(),
+                value: Some("xhigh".into()),
+                description: None,
+            }],
+            default_effort: Some("deep".into()),
+        }];
+        assert_eq!(effort_option_id(&models, "grok-4", "deep"), "deep");
+        assert_eq!(effort_option_id(&models, "grok-4", "xhigh"), "deep");
+        assert_eq!(effort_option_id(&models, "grok-4", "max"), "max");
     }
 
     #[test]

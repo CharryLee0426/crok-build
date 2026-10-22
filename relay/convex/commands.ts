@@ -53,7 +53,14 @@ async function insertCommand(
   viewer: Viewer,
   session: Doc<"sessions">,
   type: Doc<"commands">["type"],
-  extra: { text?: string; clientId?: string; interactionId?: string; configId?: Doc<"commands">["configId"] },
+  extra: {
+    text?: string;
+    clientId?: string;
+    interactionId?: string;
+    configId?: Doc<"commands">["configId"];
+    model?: string;
+    effort?: string;
+  },
 ): Promise<Id<"commands">> {
   await requireReachable(ctx, session, type);
   const now = Date.now();
@@ -66,6 +73,8 @@ async function insertCommand(
     clientId: extra.clientId,
     interactionId: extra.interactionId,
     configId: extra.configId,
+    model: extra.model,
+    effort: extra.effort,
     status: "pending",
     fromDeviceId: viewer.device?._id,
     fromLabel: viewerLabel(viewer),
@@ -138,9 +147,15 @@ export const sendPrompt = mutation({
     const trimmed = text.trim();
     if (!trimmed) fail("INVALID", "The prompt is empty.");
     if (trimmed.length > MAX_PROMPT) fail("INVALID", `Prompts are limited to ${MAX_PROMPT} characters.`);
-    // A new session whose computer never opened it (it failed, or nobody claimed it): this prompt opens it.
+    // A new session whose computer never opened it (it failed, or nobody claimed it): this prompt opens it, with the
+    // model and thinking level chosen for it when it was created.
     const type = isStarting(session) && !session.online ? "create" : "prompt";
-    const commandId = await insertCommand(ctx, viewer, session, type, { text: trimmed, clientId });
+    const commandId = await insertCommand(ctx, viewer, session, type, {
+      text: trimmed,
+      clientId,
+      model: type === "create" ? session.model : undefined,
+      effort: type === "create" ? session.effort : undefined,
+    });
     return { commandId };
   },
 });
@@ -288,7 +303,16 @@ export const retry = mutation({
     const type =
       command.type === "prompt" && starting ? "create" : command.type === "create" && !starting ? "prompt" : command.type;
     await requireReachable(ctx, session, type);
-    await ctx.db.patch(command._id, { type, status: "pending", error: undefined, updatedAt: Date.now() });
+    await ctx.db.patch(command._id, {
+      type,
+      status: "pending",
+      error: undefined,
+      updatedAt: Date.now(),
+      // A prompt that now opens the session carries the model and thinking level chosen for it.
+      ...(type === "create" && command.type !== "create"
+        ? { model: session.model, effort: session.effort }
+        : {}),
+    });
     return null;
   },
 });

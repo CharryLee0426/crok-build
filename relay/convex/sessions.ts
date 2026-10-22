@@ -16,7 +16,15 @@ import {
   reorderWithin,
   sessionProjectPath,
 } from "./lib/projects";
-import { STARTING_PREFIX, isAbsolutePath, isStarting, modelsFor, supports, titleFromPrompt } from "./lib/starting";
+import {
+  STARTING_PREFIX,
+  isAbsolutePath,
+  isStarting,
+  modelsFor,
+  sessionSetup,
+  supports,
+  titleFromPrompt,
+} from "./lib/starting";
 
 /** How long a viewer counts as "watching" after its last `watch` call; clients call it every 60 s. */
 const VIEW_TTL_MS = 2 * 60 * 1000;
@@ -162,11 +170,19 @@ export const get = query({
 /**
  * Starts a session in `path` on one of the person's computers, from any device: the relay lists it at once
  * (`starting`), and the first crok there to claim the `create` command opens it and runs `text` as its first prompt.
- * `clientId` (a UUID the caller makes) makes a resend a no-op.
+ * `model` and `effort` (the thinking level, an option id or its value) choose from that computer's models; its crok
+ * applies them before the first prompt. `clientId` (a UUID the caller makes) makes a resend a no-op.
  */
 export const create = mutation({
-  args: { deviceId: v.string(), path: v.string(), text: v.optional(v.string()), clientId: v.string() },
-  handler: async (ctx, { deviceId, path, text, clientId }) => {
+  args: {
+    deviceId: v.string(),
+    path: v.string(),
+    text: v.optional(v.string()),
+    model: v.optional(v.string()),
+    effort: v.optional(v.string()),
+    clientId: v.string(),
+  },
+  handler: async (ctx, { deviceId, path, text, model, effort, clientId }) => {
     const viewer = await requireViewer(ctx);
     const duplicate = await ctx.db
       .query("commands")
@@ -196,6 +212,7 @@ export const create = mutation({
           : `${device.name} is offline: start crok or Crok Desktop there.`,
       );
     }
+    const setup = sessionSetup(await modelsFor(ctx, device), model, effort);
     await ensureProject(ctx, viewer.user._id, device._id, folder);
     const now = Date.now();
     const sessionDocId = await ctx.db.insert("sessions", {
@@ -207,6 +224,8 @@ export const create = mutation({
       title: titleFromPrompt(prompt),
       cwd: folder,
       projectPath: folder,
+      model: setup.model,
+      effort: setup.effortValue,
       status: prompt ? "running" : "idle",
       online: false,
       createdAt: now,
@@ -221,6 +240,8 @@ export const create = mutation({
       sessionDocId,
       type: "create",
       text: prompt,
+      model: setup.model,
+      effort: setup.effort,
       clientId,
       status: "pending",
       fromDeviceId: viewer.device?._id,

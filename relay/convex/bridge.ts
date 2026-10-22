@@ -451,6 +451,9 @@ export const inbox = query({
         interactionId: command.interactionId ?? null,
         /** For `config`: the setting it changes (`text` holds the value). */
         configId: command.configId ?? null,
+        /** For `create`: the model and thinking level to apply before its first prompt. */
+        model: command.model ?? null,
+        effort: command.effort ?? null,
         /** A prompt or config change for a session nobody runs: the host that claims it opens the session first. */
         adopt: (command.type === "prompt" || command.type === "config") && !session.online,
         fromLabel: command.fromLabel,

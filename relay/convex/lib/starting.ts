@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { fail } from "./auth";
 
 /**
  * Sessions made by `sessions:create` carry this id prefix (and the creator's client id) until the computer that opens
@@ -32,6 +33,41 @@ export function isAbsolutePath(path: string): boolean {
 export function supports(host: Pick<Doc<"hosts">, "features">, type: Doc<"commands">["type"]): boolean {
   if (type !== "create" && type !== "config") return true;
   return host.features?.includes(type) ?? false;
+}
+
+/**
+ * A model and thinking level chosen when starting a session on another computer, checked against that computer's
+ * `models` when the relay has them: `effort` is what the bridge applies (an option id), `effortValue` what the
+ * session row stores (the level itself, `low`, `high`, …).
+ */
+export type SessionSetup = {
+  model?: string;
+  effort?: string;
+  effortValue?: string;
+};
+
+export function sessionSetup(
+  models: Doc<"modelLists">["models"] | null,
+  model: string | undefined,
+  effort: string | undefined,
+): SessionSetup {
+  const wantedModel = model?.trim() || undefined;
+  const wantedEffort = effort?.trim() || undefined;
+  if (!wantedModel && !wantedEffort) return {};
+  if (wantedEffort && !wantedModel) fail("INVALID", "Choose a model with the thinking level.");
+  const chosen = wantedModel && models ? models.find((m) => m.id === wantedModel) : undefined;
+  if (wantedModel && models && models.length > 0 && !chosen) {
+    fail("INVALID", "That model is not available on this computer.");
+  }
+  const level = chosen?.efforts.find((e) => e.id === wantedEffort || e.value === wantedEffort);
+  if (wantedEffort && chosen && !level) {
+    fail("INVALID", "That thinking level is not available for this model.");
+  }
+  return {
+    model: wantedModel,
+    effort: level?.id ?? wantedEffort,
+    effortValue: level?.value ?? level?.id ?? wantedEffort,
+  };
 }
 
 /** The models the session's computer can run, while it is online (null: nothing to choose from now). */

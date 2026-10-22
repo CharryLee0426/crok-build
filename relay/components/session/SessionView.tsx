@@ -451,6 +451,7 @@ export function Composer({
   computer,
   stopping = false,
   commands,
+  setup,
   placeholder,
   offlineText,
   autoFocus = false,
@@ -467,6 +468,8 @@ export function Composer({
   computer: string;
   stopping?: boolean;
   commands?: ComposerCommand[];
+  /** Above the field: the new-session screen's model and thinking-level choices. */
+  setup?: ReactNode;
   placeholder?: string;
   offlineText?: string;
   /** Focus the field on open (the new-session screen, like a new chat). */
@@ -579,6 +582,7 @@ export function Composer({
             <span>{t("composer_waiting", { computer })}</span>
           </div>
         ) : null}
+        {setup}
         <form
           onSubmit={(e) => {
             e.preventDefault();

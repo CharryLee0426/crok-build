@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { revokeDevice } from "./deviceAuth";
 import { fail, requireViewer } from "./lib/auth";
+import { modelsFor } from "./lib/starting";
 
 /**
  * The account's linked computers and phones, for the "Devices" screen (Telegram's Active Sessions): this device first,
@@ -42,6 +43,23 @@ export const list = query({
       return b.lastSeenAt - a.lastSeenAt;
     });
     return rows;
+  },
+});
+
+/**
+ * What one of the person's computers can run, with each model's thinking levels (`sessions:get` returns the same list
+ * for a session). Null while it is offline, or has not published a list yet.
+ */
+export const models = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }) => {
+    const viewer = await requireViewer(ctx);
+    const id = ctx.db.normalizeId("devices", deviceId);
+    const device = id ? await ctx.db.get(id) : null;
+    if (!device || device.userId !== viewer.user._id || device.revokedAt !== undefined || device.kind !== "computer") {
+      fail("NOT_FOUND", "No such computer.");
+    }
+    return await modelsFor(ctx, device);
   },
 });
 

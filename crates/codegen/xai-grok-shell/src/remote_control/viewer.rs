@@ -36,7 +36,8 @@ pub const REMOTE_SESSIONS_CHANGED_METHOD: &str = "x.ai/remote/sessions_changed";
 /// Ext notification `{sessionId, toolCallId}`: a permission request was answered on another device; a front end drops
 /// its own prompt for it.
 pub const PERMISSION_RESOLVED_METHOD: &str = "x.ai/remote/permission_resolved";
-/// Ext method `{deviceId, path, text?}` → `{sessionId: "relay:<id>"}`: starts a session in a folder of another computer.
+/// Ext method `{deviceId, path, text?, model?, effort?}` → `{sessionId: "relay:<id>"}`: starts a session in a folder of
+/// another computer, with the model and thinking level its composer offered.
 pub const REMOTE_NEW_SESSION_METHOD: &str = "x.ai/remote/new_session";
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(20);
@@ -559,6 +560,12 @@ impl Viewer {
         // Optional arguments are left out, never sent as null.
         if let Some(text) = str_of(params, "text").filter(|t| !t.trim().is_empty()) {
             set(&mut args, "text", json!(text));
+        }
+        // The composer's model and thinking-level choices, from that computer's own list.
+        for key in ["model", "effort"] {
+            if let Some(value) = str_of(params, key).filter(|v| !v.trim().is_empty()) {
+                set(&mut args, key, json!(value));
+            }
         }
         let created = self
             .call(CallKind::Mutation, "sessions:create", args)

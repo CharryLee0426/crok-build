@@ -309,6 +309,12 @@ export default defineSchema({
     interactionId: v.optional(v.string()),
     /** For `config`: the setting it changes (`text` holds the value). */
     configId: v.optional(configId),
+    /**
+     * For `create`: the model and thinking level chosen for the new session (`effort` is what `commands:setConfig`
+     * takes), applied by its computer before the first prompt.
+     */
+    model: v.optional(v.string()),
+    effort: v.optional(v.string()),
     /** Client-made id: makes a resend idempotent and lets the sender match its optimistic bubble. */
     clientId: v.optional(v.string()),
     status: commandStatus,

@@ -240,6 +240,12 @@ pub struct InboxCommand {
     /// For [`CommandType::Config`]: `model` or `reasoning_effort`.
     #[serde(default)]
     pub config_id: Option<String>,
+    /// For [`CommandType::Create`]: the model and thinking level chosen for the new session, applied before its
+    /// first prompt. `effort` is an option id, or the level itself (`high`).
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
     /// A prompt for a session nobody runs: whoever claims it opens the session first.
     #[serde(default)]
     pub adopt: bool,
