@@ -59,7 +59,7 @@ lines.on("line", (text) => {
     return;
   }
   try {
-    const error = recordGeneration(client, line);
+    const error = recordGeneration(client, line, otel.spanAttributes);
     if (error === undefined) {
       recorded += 1;
       log.debug(`recorded ${line.start.id} (${line.start.agentName ?? "agent?"}, ${line.start.model.name})`);

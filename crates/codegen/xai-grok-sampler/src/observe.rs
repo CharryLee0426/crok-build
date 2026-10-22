@@ -12,7 +12,9 @@
 //! Compaction parses raw chunks itself and is not observed.
 //!
 //! The record format ([`ObservedCall::to_json_line`]) is the agento11y SDK's `GenerationStart` and
-//! `GenerationResult`, read by the bridge in `xai-grok-agento11y/bridge/src/protocol.ts`.
+//! `GenerationResult`, read by the bridge in `xai-grok-agento11y/bridge/src/protocol.ts`, plus
+//! `spanAttributes` the bridge puts on the call's span: crok's own report of what the call cost,
+//! for providers that export no traces of their own (Codex, GLM, DeepSeek, ...).
 
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
@@ -22,6 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_util::stream::{BoxStream, Stream, StreamExt};
 use serde::Serialize;
+use xai_grok_models::pricing::{self, CallTokens, PriceList};
 use xai_grok_sampling_types::{
     ApiBackend, ChatCompletionChunk, ContentPart, ConversationItem, ConversationRequest,
     ConversationResponse, ConversationToolChoice, SamplingError, TokenUsage, ToolSpec, rs,
@@ -187,6 +190,9 @@ pub struct ObservedCall {
     backend: ApiBackend,
     provider: String,
     model: String,
+    /// Whose standard prices the call is estimated at, by the endpoint's host.
+    price_list: Option<PriceList>,
+    one_hour_cache: bool,
     request: RequestSnapshot,
     started_at: SystemTime,
     first_token_at: Option<SystemTime>,
@@ -315,6 +321,25 @@ impl ObservedCall {
             ),
         };
 
+        let mut span_attributes = serde_json::Map::new();
+        span_attributes.insert(
+            "crok.backend".to_owned(),
+            backend_label(&self.backend).into(),
+        );
+        match &self.outcome {
+            CallOutcome::Completed(response) => {
+                if let Some((usd, source)) = self.cost(response) {
+                    span_attributes.insert("crok.cost.usd".to_owned(), serde_json::json!(usd));
+                    span_attributes.insert("crok.cost.source".to_owned(), source.into());
+                }
+            }
+            // Set only here, so dashboards count `crok.cancelled = nil` as a real failure, older crok included.
+            CallOutcome::Abandoned => {
+                span_attributes.insert("crok.cancelled".to_owned(), true.into());
+            }
+            CallOutcome::Failed { .. } => {}
+        }
+
         GenerationRecord {
             kind: "generation",
             start: StartRecord {
@@ -351,7 +376,37 @@ impl ObservedCall {
                 metadata: result_metadata,
             },
             error,
+            span_attributes,
         }
+    }
+
+    /// What the call cost in USD, and where the figure comes from: the provider's own when it reports
+    /// one (OpenRouter, xAI), else the model's standard API price for the call's tokens (`list_price`),
+    /// whatever actually paid for it (a Codex or GLM Coding Plan subscription, say). `None` for a model
+    /// no price list knows. The model the provider says answered is tried before the requested one.
+    fn cost(&self, response: &ConversationResponse) -> Option<(f64, &'static str)> {
+        if let Some(ticks) = response.cost_usd_ticks {
+            return Some((ticks as f64 / pricing::USD_TICKS_PER_USD, "provider"));
+        }
+        let usage = response.usage.as_ref()?;
+        let price = [self.response_model.as_deref(), Some(self.model.as_str())]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .find_map(|model| pricing::listed_price(self.price_list, model, self.started_at))?;
+        // `prompt_tokens` counts the whole prompt; the price list wants disjoint buckets.
+        let cache_read = u64::from(usage.cached_prompt_tokens);
+        let cache_write = u64::from(usage.cache_creation_prompt_tokens);
+        let tokens = CallTokens {
+            input: u64::from(usage.prompt_tokens)
+                .saturating_sub(cache_read)
+                .saturating_sub(cache_write),
+            cache_read,
+            cache_write,
+            output: u64::from(usage.completion_tokens),
+        };
+        Some((price.cost_usd(&tokens, self.one_hour_cache), "list_price"))
     }
 }
 
@@ -438,6 +493,8 @@ impl Observation {
             provider: provider_name(&backend, client.observed_base_url()),
             backend,
             model,
+            price_list: PriceList::for_base_url(client.observed_base_url()),
+            one_hour_cache: client.observed_one_hour_cache(),
             request: snapshot(client, request),
             started_at: SystemTime::now(),
             first_token_at: None,
@@ -949,6 +1006,9 @@ struct GenerationRecord<'a> {
     first_token_at_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<CallErrorRecord>,
+    /// Attributes the bridge adds to the call's span (`crok.*`); the SDK has no field for them.
+    #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
+    span_attributes: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Serialize)]

@@ -78,6 +78,17 @@ One generation per model API request (a retried request is one per attempt):
 | result | response id and model, stop reason, tokens (input, output, cache read, cache write, reasoning), the provider's own cost when it reports one, time to first token |
 | errors | the provider's message and HTTP status (429 shows as `rate_limit`); an interrupted turn as `cancelled` |
 | tags | `call_kind`, `backend`, `surface` (`tui`, `desktop`, `agent`), `host` (the machine's name, without `.local`); `surface` and `host` are client tags, so they reach the spans and metrics too |
+| span only | `crok.backend` (`openai_codex`, `glm`, `deepseek`, `messages`, …); `crok.cost.usd` with `crok.cost.source`: the provider's own cost when it reports one (`provider`: OpenRouter, xAI), else the model's standard API price for the call's tokens (`list_price`, from `xai-grok-models::pricing`, the table `/usage` estimates with), whatever paid for it; no cost for a model neither knows (an OpenRouter model, since a reported $0 counts as unreported and OpenRouter's catalog prices are not read here: its Broadcast export carries the bill); `crok.cancelled = true` on a call the user interrupted |
+
+### crok's own report for providers without traces
+
+Claude Platform and OpenRouter export a span of every request to Grafana themselves. OpenAI Codex
+(ChatGPT sign-in), GLM (Z.ai and BigModel), DeepSeek and xAI do not, so crok's span is the only
+record of those calls. That is why the span carries the cost: Agent Observability prices only the
+models in its own catalog (Claude and OpenRouter's), and Tempo keeps what the span says. The
+dashboards in `observability/grafana-llm` read crok's spans for every provider other than
+`anthropic` and `openrouter` (which would count twice), and its history rules keep them for
+14 days. Nothing extra is switched on: it is the same span, sent wherever the rest of this goes.
 
 Text parts are cut at 64 KiB each (the SDK refuses a generation over 4 MiB). Images are not sent.
 The SDK's secret redaction runs before export (`CROK_AGENTO11Y_REDACT_SECRETS=false` turns it off),
