@@ -8,7 +8,8 @@ final class TranscriptBottomUITests: XCTestCase {
     private func launch(_ extra: [String] = []) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-CrokDemo", "YES", "-CrokAppearance", "light"] + extra
+        app.launchArguments =
+            ["-CrokDemo", "YES", "-CrokAppearance", "light", "-crok.selectedComputer", "mbp", "-crok.sessionTheme", "none"] + extra
         app.launch()
         return app
     }
@@ -31,11 +32,7 @@ final class TranscriptBottomUITests: XCTestCase {
     }
 
     private func openShowcase(_ app: XCUIApplication) {
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 10))
-        app.buttons["Studio"].firstMatch.tap()
-        let row = app.staticTexts["Refactor the pager's scroll model"]
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        row.tap()
+        app.openSession("Refactor the pager's scroll model", in: "xai-grok-pager", on: "Studio")
         XCTAssertTrue(element(app, "offlineNotice").waitForExistence(timeout: 5))
     }
 
@@ -103,9 +100,7 @@ final class TranscriptBottomUITests: XCTestCase {
     /// A reply much taller than the screen streams in: the transcript keeps its end in sight all the way.
     func testFollowsALongReplyStreamingIn() {
         let app = launch()
-        let flaky = app.staticTexts["Fix the flaky upload test"]
-        XCTAssertTrue(flaky.waitForExistence(timeout: 10))
-        flaky.tap()
+        app.openSession("Fix the flaky upload test", in: "crok-build")
         let stop = element(app, "stopButton")
         XCTAssertTrue(stop.waitForExistence(timeout: 10))
         stop.tap()

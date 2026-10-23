@@ -138,16 +138,6 @@ final class ProjectOrderTests: XCTestCase {
         legacy.projectName = nil
         XCTAssertEqual(legacy.projectDisplayName, "tool", "a relay without projects: the folder names the row")
     }
-
-    func testCollapsedProjectsAreRemembered() {
-        let defaults = UserDefaults(suiteName: "crok.collapsed.\(UUID().uuidString)")!
-        let store = CollapsedProjectsStore(defaults: defaults)
-        XCTAssertEqual(store.load(), [])
-        store.save(["mac:/a", "studio:/b"])
-        XCTAssertEqual(CollapsedProjectsStore(defaults: defaults).load(), ["mac:/a", "studio:/b"])
-        store.removeAll()
-        XCTAssertEqual(store.load(), [])
-    }
 }
 
 /// A demo relay whose reorder calls fail, to see an optimistic move undone.
@@ -279,16 +269,48 @@ final class EngineReorderTests: XCTestCase {
         await engine.shutdown()
     }
 
-    func testCollapsingAProjectIsRememberedForTheAccount() async throws {
+    /// The Sessions tab shows one computer (mobile/DESIGN.md): the most recently active one until one is picked, then
+    /// the picked one, remembered on the phone.
+    func testTheSelectedComputerDefaultsToTheMostRecentAndIsRemembered() async throws {
         let store = drafts()
         let engine = CrokEngine(backend: DemoRelay(), credentials: credentials(), isDemo: true, drafts: store, cache: nil)
-        engine.toggleCollapsed("mbp:/Users/charlie/src/website")
-        XCTAssertTrue(engine.isCollapsed("mbp:/Users/charlie/src/website"))
+        engine.start()
+        try await waitForGroups(engine)
+        for _ in 0..<100 where engine.rememberedComputer == nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(engine.selectedComputerId, "mbp", "the MacBook's sessions were active last")
+        XCTAssertEqual(engine.rememberedComputer, "mbp", "the default is kept once the relay answered")
+        XCTAssertEqual(engine.computerAccounts.map(\.name), ["Studio", "MacBook Pro"], "link order")
+        XCTAssertTrue(engine.selectedGroups.allSatisfy { $0.deviceId == "mbp" })
+        XCTAssertEqual(engine.selectedUnread, 2)
+        XCTAssertEqual(engine.otherComputersUnread, 1)
+
+        engine.selectComputer("studio")
+        XCTAssertEqual(engine.selectedGroups.map(\.name).sorted(), ["tokenizer", "xai-grok-pager"])
+        XCTAssertEqual(engine.selectedUnread, 1)
+        XCTAssertEqual(engine.otherComputersUnread, 2)
+        await engine.shutdown()
+
         let again = CrokEngine(backend: DemoRelay(), credentials: credentials(), isDemo: true, drafts: store, cache: nil)
-        XCTAssertTrue(again.isCollapsed("mbp:/Users/charlie/src/website"))
-        again.toggleCollapsed("mbp:/Users/charlie/src/website")
-        XCTAssertFalse(CrokEngine(backend: DemoRelay(), credentials: credentials(), isDemo: true, drafts: store, cache: nil)
-            .isCollapsed("mbp:/Users/charlie/src/website"))
+        XCTAssertEqual(again.rememberedComputer, "studio")
+    }
+
+    func testMarkAllAsReadClearsTheSelectedComputerOnly() async throws {
+        let world = DemoWorld()
+        let engine = CrokEngine(backend: DemoRelay(world: world), credentials: credentials(), isDemo: true, drafts: drafts(), cache: nil)
+        engine.start()
+        try await waitForGroups(engine)
+        engine.selectComputer("mbp")
+        let ids = ReadAll.unreadIDs(in: engine.selectedGroups)
+        XCTAssertEqual(ids, ["s-flaky"])
+        let error = await engine.markRead(ids)
+        XCTAssertNil(error)
+        XCTAssertEqual(engine.selectedUnread, 0, "shown read at once")
+        for _ in 0..<100 where world.sessions.contains(where: { $0.detail.id == "s-flaky" && $0.detail.unread > 0 }) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(world.sessions.first(where: { $0.detail.id == "s-flaky" })?.detail.unread, 0, "the relay has it")
+        XCTAssertEqual(engine.otherComputersUnread, 1, "Studio keeps its unread")
+        await engine.shutdown()
     }
 
     func testOpeningAListedSessionFetchesItsHistoryWhileTheComputerIsOnline() async throws {

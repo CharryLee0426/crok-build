@@ -78,9 +78,8 @@ final class LiveReconnectUITests: XCTestCase {
         let userCode = code.label.replacingOccurrences(of: " ", with: "")
         try userCode.write(to: dir.appendingPathComponent("live-user-code.txt"), atomically: true, encoding: .utf8)
         print("CROK_LIVE_USER_CODE=\(userCode)")
-        let session = app.staticTexts["Fix the login redirect"]
-        XCTAssertTrue(session.waitForExistence(timeout: 180), "approve \(userCode)")
-        session.tap()
+        XCTAssertTrue(app.computerTitle.waitForExistence(timeout: 180), "approve \(userCode)")
+        app.openSessionBySearch("Fix the login redirect")
         XCTAssertTrue(roundTrip(app, "Before the freeze", timeout: 30))
         XCTAssertTrue(wait(10) { !self.element(app, "connectionTitle").exists }, "the header settles")
         snap("live-reconnect-1-synced")

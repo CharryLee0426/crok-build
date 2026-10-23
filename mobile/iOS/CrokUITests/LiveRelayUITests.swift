@@ -75,9 +75,8 @@ final class LiveRelayUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-CrokAppearance", "light"] + relayArguments
         app.launch()
-        let session = app.staticTexts["Fix the login redirect"]
-        XCTAssertTrue(session.waitForExistence(timeout: 20))
-        session.tap()
+        XCTAssertTrue(app.computerTitle.waitForExistence(timeout: 20))
+        app.openSessionBySearch("Fix the login redirect")
         XCTAssertTrue(element(app, "sessionInfoButton").waitForExistence(timeout: 10))
         element(app, "sessionInfoButton").tap()
         Thread.sleep(forTimeInterval: 1)
@@ -122,14 +121,16 @@ final class LiveRelayUITests: XCTestCase {
         }
         print("CROK_LIVE_USER_CODE=\(userCode)")
 
-        // Approved from outside (npx convex run deviceAuth:approve): the app polls and lands on Sessions.
-        let session = app.staticTexts["Fix the login redirect"]
-        XCTAssertTrue(session.waitForExistence(timeout: 180), "approve \(userCode) and run the fake computer")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 10), "the title settles on Sessions")
+        // Approved from outside (npx convex run deviceAuth:approve): the app polls and lands on Sessions, titled with
+        // the fake computer.
+        XCTAssertTrue(app.computerTitle.waitForExistence(timeout: 180), "approve \(userCode) and run the fake computer")
+        let title = app.computerTitle
+        XCTAssertTrue(
+            wait(10) { !((title.value as? String) ?? "").hasSuffix("…") }, "the title settles on the computer")
         snap("live-05-sessions")
 
         // Open it: the transcript the computer pushed.
-        session.tap()
+        app.openSessionBySearch("Fix the login redirect")
         let field = element(app, "composerField")
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         XCTAssertTrue(element(app, "planBar").waitForExistence(timeout: 10))

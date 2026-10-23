@@ -51,7 +51,8 @@ localhost; `NSAllowsLocalNetworking` permits plain HTTP there):
   environment variable (`SIMCTL_CHILD_CROK_RELAY_URL=… xcrun simctl launch …`). The launch argument wins;
 - at build time: `xcodebuild … CROK_RELAY_URL=http://127.0.0.1:3210` (no `$()` needed on the command line).
 
-A sign-in belongs to the relay that issued it (shown in Settings › About). At launch the app forgets a saved sign-in
+A sign-in belongs to the relay that issued it (the build's `CrokRelayURL`; the app no longer shows it). At launch the
+app forgets a saved sign-in
 (or a code still waiting for approval) from any other relay than the one this launch uses, and says "This build uses a
 different relay. Sign in again." on the welcome screen: a Release build installed over a Debug one never keeps talking
 to the dev relay, and a launch without the `-CrokServer` an earlier launch had signs in again. **Advanced › Device name** on the welcome screen sets the name this phone signs in under (iOS only
@@ -83,18 +84,47 @@ every screen runs unchanged.
 
 ## The session list
 
-As relay/DESIGN.md §5 "The session list" describes, for the web and both phone apps alike: All and each computer's
-tab show `sessions:groups`, one section per project (folder, name, the computer on All, the count, a chevron that
-collapses it, remembered per project key), five sessions and then "Show N more"; Archived stays the flat
-`sessions:list({archived: true})`. Projects and sessions are reordered in **⋯ › Reorder** (move handles, with a
-Projects section for the projects themselves), with a header's or a row's long-press menu (**Move Up** / **Move
-Down**, **Sort by Recent Activity**), and **⋯ › Sort Projects by Recent Activity**. Moves show at once
-(`CrokEngine.reorder` keeps applying them over the relay's values until the relay confirms them) and go back with an
-alert when the relay refuses. Search keeps only matching sessions and hides empty sections; reordering is off while
-searching. A session only on its computer's disk shows "Loading from <computer>…" when opened, or why it can't load
+[`mobile/DESIGN.md`](../DESIGN.md) is the contract (both phone apps alike): computers are accounts under the relay
+account, projects are groups with topics, sessions are the topics.
+
+- **Tabs**: Sessions (badge: the selected computer's unread) and Profile (the account picture as its icon, badge: the
+  other computers' unread). Holding Sessions offers **Mark All as Read**; holding Profile opens the computer switcher
+  (`UI/TabBarMenus.swift` puts a `UIContextMenuInteraction` on the system tab bar, since `TabView` has no hook).
+- **Sessions tab** (`SessionsListView`): the selected computer (`CrokEngine.selectedComputerId`, remembered in
+  `crok.selectedComputer`; by default the one active last) in the title, which opens the switcher too; an Archived
+  Sessions row; one `ForumRowView` per project (rounded-square avatar, newest three topics, working / needs approval /
+  the last preview, the unread total); search lists matching sessions flat. **Edit** moves projects, with Read All and
+  Sort by Recent Activity in the bottom bar; a project's long-press menu has New Session, Mark as Read, Move Up / Down
+  and Sort by Recent Activity.
+- **Project screen** (`ProjectSessionsView`): the project's sessions as topic rows (`SessionRowView`, Telegram's topic
+  bubble from `TopicIconView`), searchable, **⋯** for Mark All as Read, Reorder, Sort by Recent Activity, compose for
+  a new session there. **Archived** (`ArchivedSessionsView`) lists the computer's archived sessions.
+
+Moves show at once (`CrokEngine.reorder` keeps applying them over the relay's values until the relay confirms them) and
+go back with an alert when the relay refuses; so does Mark as Read (`CrokEngine.markRead`, one `sessions:markRead` per
+session). A session only on its computer's disk shows "Loading from <computer>…" when opened, or why it can't load
 while the computer is offline. Rows are dimmed and "offline" only while their computer is: a session nobody runs on an
-online computer takes prompts (a crok there opens it when one arrives), so it looks like any other. The order rules are pure functions in `Core/ProjectGroups.swift`, mirroring
-`relay/convex/lib/projects.ts`.
+online computer takes prompts (a crok there opens it when one arrives), so it looks like any other. The order rules are
+pure functions in `Core/ProjectGroups.swift`, mirroring `relay/convex/lib/projects.ts`; the computer list, the default
+pick and the forum row's summary are in `Core/Computers.swift`.
+
+## Profile and session themes
+
+Profile (`Features/Settings/ProfileView.swift`) follows Telegram's Settings: the account, its computers (a checkmark
+on the selected one) and Link a computer, Devices, Appearance, Language, the version and the developer's GitHub and X
+links, Sign Out. **Appearance** (`AppearanceView`) previews a session and offers the session themes: No Theme, Classic
+and Telegram's nine emoji themes, each with a light and a dark variant (`UI/SessionTheme.swift`: a four-colour gradient
+and an SF Symbols doodle pattern, drawn once per size and cached; dark variants light the doodles with the gradient on
+black, like Telegram's night patterns), or a photo from the library (`PhotosPicker`, stored downscaled in Application
+Support, optional blur, dimmed in dark mode). A theme also sets the person's bubbles and the service capsules
+(`SessionPalette` in the environment). Stored in `crok.sessionTheme` / `crok.sessionThemeBlur`;
+`-crok.sessionTheme classic` on the command line picks one for a launch.
+
+## App icons
+
+Release builds carry the blue icon (`AppIcon`), Debug builds the yellow one (`AppIcon-Dev`), chosen by
+`ASSETCATALOG_COMPILER_APPICON_NAME` in `Config/*.xcconfig`. `swift mobile/iOS/scripts/make-icon.swift` (from the
+repository root) draws both from the Crok mark.
 
 ## New sessions and composer commands
 
@@ -162,11 +192,13 @@ value the hub replays to a new screen.
 xcodebuild test -project Crok.xcodeproj -scheme Crok -destination 'platform=iOS Simulator,name=iPhone 17' \
   ARCHS=arm64 -only-testing:CrokTests
 
-# UI tests: a tour of demo mode (sign-in, sessions grouped by project, Show more, collapsing, moving a project, Reorder
-# mode, sessions only on a computer's disk, a running session with Stop, sending a prompt, answering a permission
-# request, a session nobody runs, an offline computer's session, info, settings,
-# devices, linking a computer, new sessions, the command menu and bot cards, dark mode, German, Chinese and Japanese). Screenshots are attached to the result bundle
-# and, with TEST_RUNNER_CROK_SCREENSHOT_DIR, written as PNG files.
+# UI tests: a tour of demo mode (sign-in, a computer's projects, a project's sessions, switching computers from the
+# title and from the Profile tab, Mark All as Read from the Sessions tab, moving a project, Edit mode, sessions only on
+# a computer's disk, a running session with Stop, sending a prompt, answering a permission request, a session nobody
+# runs, an offline computer's session, info, Profile, devices, linking a computer, Appearance and session themes in
+# light and dark, new sessions, the command menu and bot cards, archived sessions and search, dark mode, German,
+# Chinese and Japanese). Screenshots are attached to the result bundle and, with TEST_RUNNER_CROK_SCREENSHOT_DIR,
+# written as PNG files.
 TEST_RUNNER_CROK_SCREENSHOT_DIR=/tmp/crok-shots xcodebuild test -project Crok.xcodeproj -scheme Crok \
   -destination 'platform=iOS Simulator,name=iPhone 17' ARCHS=arm64 -only-testing:CrokUITests/DemoTourUITests
 
@@ -224,14 +256,17 @@ Crok/
   Core/        models, errors and the HTTP API client, Keychain, transcript builder, Markdown (math scanner, parsed
                tree, highlighter), reveal pacer,
                connection state and the connection keeper, user codes, plan summary, relative time, avatars, the
-               list's order rules and search, composer commands and bot cards, drafts, collapsed projects, list cache
+               list's order rules and search, computers as accounts and forum rows, composer commands and bot cards,
+               drafts, the selected computer, list cache
   Engine/      CrokEngine (one per signed-in account), RelayAPI (facades), ConvexRelay + QueryHub + DeviceAuthProvider
                (ConvexMobile, replaceable clients, the token source), LiveQuery, Demo/ (in-memory relay, sample data)
-  Features/    SignIn, Sessions (list, new-session picker and screen), Session (transcript, composer with the Menu and
-               command list, bot cards, plan bar), Info, Settings (devices, link a computer, QR)
-  UI/          Theme (semantic colours, Liquid Glass surfaces, code colours), shared components, Markdown rendering
-               and math images
-  Resources/   Assets (app icon, Crok mark, accent), Localizable.xcstrings, InfoPlist.xcstrings
+  Features/    SignIn, Sessions (a computer's projects, a project's sessions, archived, new-session picker and
+               screen), Session (transcript, composer with the Menu and command list, bot cards, plan bar), Info,
+               Settings (Profile, Appearance, devices, link a computer, QR)
+  UI/          Theme (semantic colours, Liquid Glass surfaces, code colours), avatars and topic icons, session themes
+               and backgrounds, tab bar menus, shared components, Markdown rendering and math images
+  Resources/   Assets (app icons blue and yellow, Crok mark, GitHub and X logos, accent), Localizable.xcstrings,
+               InfoPlist.xcstrings
 CrokTests/     unit tests
 CrokUITests/   demo tour, the Markdown showcase, the live relay check and the live reconnect check
 scripts/       make-icon.swift: renders the app icon and the mark from desktop/macOS/Resources/GrokMark.svg
@@ -254,14 +289,17 @@ table is in `relay/DESIGN.md` §5; in this app:
 | `AccountContext` / `TelegramEngine` | `CrokEngine` owns the relay backend and the facades (`sessions`, `commands`, `devices`, `account`); sign-out tears it down |
 | `AuthorizationSequenceController` state | `AppModel`: welcome → waiting (code, browser sheet, polling) → signed in; the pending sign-in is in the Keychain, so a killed app resumes waiting |
 | chat-list connection title, 0.3 s delay | `ConnectionStatus` + `DelayedConnectionStatus`: "Waiting for network" / "Connecting…" / "Updating…" in the Sessions title and the session header |
-| `ChatListItem`, typing node, badges, folder tabs, reveal options | `SessionRowView` (avatar with online dot, time, the session's folder when it isn't the project's, preview / "working…" / "Needs approval", unread badge, pin) under a `ProjectSectionHeader`, `FilterTabs`, swipe Pin / Stop / Archive |
+| accounts (hold Settings, Add Account) | computers: the switcher from the Profile tab and the Sessions title, Profile's computer list, Link a computer |
+| forum `ChatListItem`, topic list, topic icons, Archived Chats, reveal options | `ForumRowView` (rounded-square avatar, newest topics, activity, unread total), `ProjectSessionsView` with `SessionRowView` (topic bubble, time, folder when it isn't the project's, preview / "working…" / "Needs approval", unread badge, pin), `ArchivedSessionsRow`, swipe Read / Pin / Stop / Archive |
+| hold Chats › Mark All as Read, Edit › Read All | `TabBarContextMenus`, the Edit mode's bottom bar |
+| Settings, Appearance, chat themes and wallpapers | `ProfileView`, `AppearanceView`, `SessionTheme` / `SessionWallpaper` (Crok's own drawing of the themes) |
 | `ChatHistoryListNode`, merge fingerprint, date headers | bottom-anchored transcript, 50 events per page, `TranscriptBuilder` groups one author within 10 minutes and adds day headers |
 | `EnqueueMessage`, status ticks, delivery-failed node | optimistic bubbles keyed by `clientId`, clock → ✓ → ✓✓ from `commands:forSession` (`mine` only), red "!" with Retry / Delete |
 | `ChatTextInputPanelNode` stop | the composer shows Stop while the session runs and a read-only notice while its computer is offline |
 | bot keyboard above the input panel | `PermissionCard`: a pending permission request with one button per choice (`commands:answer`; the first answer from any device wins) |
 | `TextRevealController` | `TextRevealPacer`: reveal speed from the chunk interval, finish within 0.3 s |
 | pinned message bar, page-down button, drafts | `PlanBar`, the scroll-to-bottom button with a new-item counter, `DraftStore` |
-| `AuthTransfer` / QR scan, Active Sessions | Settings › Link a computer (QR or typed code, approve / deny), Settings › Devices |
+| `AuthTransfer` / QR scan, Active Sessions | Profile › Link a computer (QR or typed code, approve / deny), Profile › Devices |
 | `PresentationTheme` | `Theme`: semantic colours on the Crok palette (Telegram blue `#3390EC` / `#3E88F7`, own bubbles `#E1EFFD` / `#2B5278`, Crok Day / Crok Night); Liquid Glass composer and floating buttons on iOS 26 (`glassSurface`, a material on iOS 17–25) |
 | new message, `ChatTextInputMenuButton`, command panel, inline keyboards | the list's compose button (project picker) and a project's "+": a new-session screen that becomes the session; the Menu pill and command list in the composer; `/model` and `/think` bot cards with an inline keyboard |
 

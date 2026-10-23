@@ -29,14 +29,15 @@ struct TranscriptRow: View {
 
 private struct DayHeader: View {
     let date: Date
+    @Environment(\.sessionPalette) private var palette
 
     var body: some View {
         Text(RelativeTime.dayHeader(date, now: Date()))
             .font(.caption.weight(.semibold))
-            .foregroundStyle(Theme.noticeText)
+            .foregroundStyle(palette.serviceText)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .background(Theme.noticeBackground, in: Capsule())
+            .background(palette.serviceBackground, in: Capsule())
             .frame(maxWidth: .infinity)
     }
 }
@@ -63,6 +64,7 @@ private struct UserBubble: View {
     let date: Date
     let position: TranscriptItem.Position
     let model: SessionViewModel
+    @Environment(\.sessionPalette) private var palette
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 6) {
@@ -101,24 +103,24 @@ private struct UserBubble: View {
                         }
                     }
                     .font(.caption2)
-                    .foregroundStyle(Theme.userBubbleText.opacity(0.65))
+                    .foregroundStyle(palette.userBubbleText.opacity(0.65))
                 }
                 Text(message.text)
-                    .foregroundStyle(Theme.userBubbleText)
+                    .foregroundStyle(palette.userBubbleText)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 4) {
                     Text(date, format: .dateTime.hour().minute())
                     if let tick = message.tick, tick != .failed {
-                        DeliveryTickView(tick: tick, color: Theme.userBubbleMeta)
+                        DeliveryTickView(tick: tick, color: palette.userBubbleMeta)
                     }
                 }
                 .font(.caption2)
-                .foregroundStyle(Theme.userBubbleMeta)
+                .foregroundStyle(palette.userBubbleMeta)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Theme.userBubble, in: BubbleShape(outgoing: true, position: position))
+            .background(palette.userBubble, in: BubbleShape(outgoing: true, position: position))
             .opacity(message.isPending && message.tick == .sending ? 0.85 : 1)
             .contextMenu {
                 Button {
@@ -180,6 +182,7 @@ private struct AssistantBubble: View {
 private struct ThoughtRow: View {
     let text: String
     @State private var expanded = false
+    @Environment(\.sessionPalette) private var palette
 
     var body: some View {
         HStack {
@@ -209,6 +212,7 @@ private struct ThoughtRow: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
+            .background(palette.onWallpaper ? Theme.card : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             Spacer(minLength: 28)
         }
     }
@@ -308,6 +312,7 @@ private struct ToolStatusView: View {
 private struct NoticeCapsule: View {
     let text: String
     let style: NoticeStyle
+    @Environment(\.sessionPalette) private var palette
 
     var body: some View {
         HStack(spacing: 5) {
@@ -320,10 +325,14 @@ private struct NoticeCapsule: View {
                 .multilineTextAlignment(.center)
         }
         .font(.caption.weight(.medium))
-        .foregroundStyle(style == .error ? Theme.danger : Theme.noticeText)
+        .foregroundStyle(style == .error ? Theme.danger : palette.serviceText)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
-        .background(style == .error ? Theme.danger.opacity(0.12) : Theme.noticeBackground, in: Capsule())
+        .background(
+            style == .error
+                ? AnyShapeStyle(palette.onWallpaper ? Theme.card : Theme.danger.opacity(0.12))
+                : AnyShapeStyle(palette.serviceBackground),
+            in: Capsule())
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 24)
         .accessibilityIdentifier("notice-\(text)")
