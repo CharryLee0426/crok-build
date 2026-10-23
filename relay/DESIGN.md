@@ -187,9 +187,17 @@ only listed projects (the clients offer the projects; the TUI and Crok Desktop a
 
 Each crok process publishes what it can run (`bridge:setModels`, on sign-in and when its catalog changes) into its
 computer's `modelLists` row: `[{id, name, description?, efforts: [{id, name, value?, description?}], defaultEffort?}]`, the
-computer's own choices (its providers, its sign-ins). `sessions:get` returns them as `models` while the computer is
-online, else null (nothing to choose from while it is offline), next to the session's current `model` and `effort`. A
-model with an empty `efforts` has no thinking level. An effort's `id` is what `commands:setConfig` takes; its `value` is
+computer's own choices (its providers, its sign-ins). The list is ordered for pickers: the computer's default model,
+then its own providers' models, then OpenRouter's (crok lists those first; with OpenRouter signed in a computer has about
+500 models). Up to 1,000 models (the first relay took 200 and refused longer lists, so such a computer offered no
+choice at all); the relay drops descriptions, then the end of the list, to keep a row under 600 kB.
+
+Clients read a computer's list from `devices:models({deviceId})`, a subscription of its own that changes only with the
+list (null while the computer is offline or before its crok published one). `sessions:get` still embeds it as `models`
+for clients from before, but only a list of at most 200 (`embeddedModels`): that query re-runs with every transcript
+item, and a long list would go with each. Clients fall back to that copy only when `devices:models` fails (an older
+relay). The session's current `model` and `effort` stay on `sessions:get`. A model with an empty `efforts` has no
+thinking level. An effort's `id` is what `commands:setConfig` takes; its `value` is
 the level it stands for (`low`, `high`, …), which is what the session's `effort` holds: the current choice is the one
 whose `value ?? id` equals `effort`. `defaultEffort` is an `id`.
 
@@ -244,7 +252,7 @@ callback.
 | `users:ensure` (mutation, web) | — | `{userId, name, email, imageUrl}` |
 | `users:me` (query) | — | `null` or `{userId, name, email, imageUrl, device: null\|{deviceId, kind, name, platform, client}}` |
 | `devices:list` (query) | — | `[{_id, kind, name, platform, client, createdAt, lastSeenAt, online, isCurrent, liveSessionCount}]` current first |
-| `devices:models` (query) | `deviceId` | `null` or `[{id, name, description?, efforts, defaultEffort?}]` — what that computer can run before a session exists (as `sessions:get`'s `models`) |
+| `devices:models` (query) | `deviceId` | `null` or `[{id, name, description?, efforts, defaultEffort?}]` — what that computer can run (§2, "Model and thinking level"): the list every client's model and thinking pickers read, for new and open sessions alike; null while it is offline |
 | `devices:rename` (mutation) | `deviceId, name` | `null` |
 | `devices:revoke` (mutation) | `deviceId` | `null` |
 | `devices:revokeOthers` (mutation) | — | `{count}` |
@@ -255,7 +263,7 @@ callback.
 |---|---|---|
 | `sessions:groups` (query) | — | `[{key, deviceId, deviceName, deviceOnline, path, name, placed, lastActivityAt, sessions: [row]}]` — the main list: non-archived sessions grouped by project, both levels in list order (above) |
 | `sessions:list` (query) | `archived?: boolean` | `[row]` flat, pinned first, then newest (the Archived tab) |
-| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow, outputTokensPerSecond}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}, models: null\|[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]}` |
+| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow, outputTokensPerSecond}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}, models: null\|[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]}` — `models` only for lists of at most 200 (older clients); current clients read `devices:models` |
 | `sessions:create` (mutation) | `deviceId, path, text?, model?, effort?, clientId` (UUID) | `{sessionDocId, commandId}` — a new session in `path` on that computer, with its model/thinking level from `devices:models` (§2, "New sessions from any device"); same `clientId` → same session; `OFFLINE`, `INVALID`, `NOT_FOUND` (not one of your computers), `FORBIDDEN` (a phone) |
 | `sessions:commands` (query) | `sessionDocId` | `{commands:[{name, description, hint?}], source: "session"\|"computer"\|"none"}` — the agent's slash commands, without the leading `/` |
 | `sessions:reorderProjects` (mutation) | `keys: string[]` | `null` — some project keys in their new order (all, or one computer's) |
@@ -332,7 +340,7 @@ of sending (keyed by `clientId`) until the transcript holds the user event whose
 | `bridge:finishCatalog` | `hostId, syncId, sessionIds: string[]` (all listed) | `{removed}` — offline sessions of this computer not listed are dropped |
 | `bridge:claimCommand` | `hostId, commandId` | `boolean` — claiming a prompt, config change or create for a session nobody runs makes this host its runner |
 | `bridge:bindSession` | `hostId, sessionDocId, sessionId` | `{sessionDocId, eventSeq}` — the crok session this host opened for a claimed `create` replaces the `pending:` id |
-| `bridge:setModels` | `hostId, models:[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]` (≤200) | `null` — written only when it changed |
+| `bridge:setModels` | `hostId, models:[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]` (≤1,000, in picker order) | `null` — written only when it changed; descriptions, then the list's end, are dropped above 600 kB |
 | `bridge:setCommands` | `hostId, sessionId, commands:[{name, description, hint?}]` (≤500) | `null` — the session's slash commands (and this computer's fallback copy) |
 | `bridge:completeCommand` | `hostId, commandId, status: done\|failed, result?, error?` | `null` |
 
@@ -422,13 +430,18 @@ own:
 - `x.ai/remote/sessions` (`{watch: true}` keeps `x.ai/remote/sessions_changed` coming for ten minutes) lists the other
   computers' sessions (`sessions:groups` without this computer); `x.ai/session/list` adds them as rows with
   `source: relay` when asked (`otherComputers: true`, or any search).
-- The load response carries `models` and `configOptions` (`model`, `reasoning_effort`) built from `sessions:get`'s
-  `models`, `model` and `effort`, so the front end's model and thinking pickers list that computer's choices.
+- The load response carries `models` and `configOptions` (`model`, `reasoning_effort`) built from the computer's
+  `devices:models` (watched while the session is open; `sessions:get`'s short copy only with an older relay) and the
+  session's `model` and `effort`, so the front end's model and thinking pickers list that computer's choices.
   `session/set_model` and `session/set_config_option` become `commands:setConfig` and return once the computer applied
   it (with the new `configOptions`); a change made elsewhere arrives as `x.ai/session_notification` `model_changed` and
-  a `config_option_update`.
-- `x.ai/remote/new_session {deviceId, path, text?}` starts a session there (`sessions:create`) and returns
-  `{sessionId: "relay:<id>"}` for the front end to open.
+  a `config_option_update` (also sent when the computer's list changes).
+- `x.ai/remote/models {deviceId}` returns what that computer can run before any session there is open: `{models}` in
+  the relay's shape (null while it is offline) and `availableModels` in the agent's (`SessionModelState`'s, with each
+  model's thinking levels in `_meta`), for the TUI's and Crok Desktop's new-session pickers.
+- `x.ai/remote/new_session {deviceId, path, text?, model?, effort?}` starts a session there (`sessions:create`, with
+  the model and thinking level picked from that list) and returns `{sessionId: "relay:<id>"}` for the front end to
+  open.
 - Setting a mode and forking are refused for such a session; they belong to its computer.
 
 Not covered yet: the leader (`[cli] use_leader = true`, where the TUI talks to a shared `crok agent leader`), `crok agent
@@ -469,6 +482,21 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   "Answered on another device".
 - TUI: `/remote new` picks a project on another computer (computer · project, online ones) and opens a new session
   there; `/model` and the thinking level work in another computer's session with that computer's choices.
+- TUI: **the Remote panel**, what Crok Desktop's "Other computers" sidebar is (signed in, `/remote` with no argument,
+  or `/remote open`): a full-screen picker like `/resume`'s. Its header says the account, this computer and the
+  connection state (`/remote status` keeps the old text). The body is a tree of the other computers (name, ● online or
+  "last seen …", unread total), their projects in the relay's order (name, session count, the folder when it is not
+  the name) and each project's sessions (title, time, "working…" / "needs approval" / "starting…", unread count),
+  kept current with `x.ai/remote/sessions {watch: true}`. Online computers start expanded, offline ones folded.
+  Keys: ↑/↓ move, → or Enter on a computer or project expands it, ← folds it (or moves to the parent), Enter on a
+  session opens it here (as picking a `relay:` row in `/resume` does), `n` starts a new session in the selected
+  project (or the selected session's project), typing filters (title, project, folder, computer), Esc clears the filter
+  or closes. A new session asks, in the same panel, for the model (that computer's list from `x.ai/remote/models`:
+  "Default" first, then each model with its description, filtered by typing) and then for the thinking level when the
+  chosen model has levels ("Default" first); it then calls `x.ai/remote/new_session {deviceId, path, model?, effort?}`
+  and opens the session, whose first prompt the person types. Nothing to start while the computer is offline (the
+  panel says so). `/remote new` with no argument opens the panel at the project list; its text forms
+  (`/remote new <number|name[@computer]> [prompt]`) stay.
 
 ### Crok Desktop
 
@@ -483,13 +511,19 @@ phones forget it and show "This build uses a different relay. Sign in again.").
 - Each project of another computer has **New task** (a "+" on hover, and in its context menu): a new task whose first
   prompt starts the session on that computer in that folder (`x.ai/remote/new_session` through the remote host), then
   it is an ordinary remote task.
-- The composer's model and thinking-level pickers work in a remote task, listing that computer's choices.
+- The composer's model and thinking-level pickers work in a remote task, listing that computer's choices. A new
+  task on another computer lists them before its session exists (`x.ai/remote/models`), and its first prompt starts
+  the session with the model and thinking level picked there (`x.ai/remote/new_session`'s `model` / `effort`).
 - The composer footer shows the session's branch, input/output tokens, cache rate and output speed from the relay's
   session row (its computer refreshes them at the end of each turn). **Git Graph** and the branch picker read that
   computer's repository through `commands:git`; switching and creating a branch run there, and the new branch goes
   back to the relay for every device.
 
-### The session list (web, iOS, Android alike)
+### The session list (first design)
+
+Superseded on the phones (2026-10-22) and on the web (2026-10-23) by mobile/DESIGN.md: computers as accounts, projects
+as groups with topics. What follows is kept for the rules the new design still uses (reordering, search, offline
+sessions, the permission card).
 
 - Tabs as before: **All**, one per computer, **Archived**. All and computer tabs show `sessions:groups` (a computer tab
   keeps only its projects); Archived stays a flat `sessions:list({archived: true})`.
@@ -518,8 +552,9 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   compose button that first asks for the project (projects of online computers, grouped by computer, recent first).
 - Both open a **new-session screen** shaped like a session (Telegram's new chat): header "New session" with the
   project and computer underneath, an empty transcript saying where it will run ("Starts in <path> on <computer>"),
-  and the composer. In the web app, model and thinking-level pills above the composer list that computer's
-  `devices:models` ("Default" until one is picked), and the choice goes with the first prompt. Sending calls
+  and the composer. Model and thinking-level pills above the composer list that computer's `devices:models`
+  ("Default" until one is picked), and the choice goes with the first prompt; the same pills stay in the session's
+  composer afterwards (mobile/DESIGN.md "Model and thinking level", which the web follows too). Sending calls
   `sessions:create` and turns the screen into that session (same navigation entry), with the prompt shown
   optimistically. `/new [prompt]` inside a session does the same for its project (with a prompt: at once).
 - Rows with `starting` show "Starting…" as their preview.
@@ -676,8 +711,8 @@ from a query also triggers a token refresh and a new client. The title shows "Co
 
 ### Web app (`relay/app`, Vercel)
 
-- `/` — signed out: what remote control is and "Sign in with GitHub or Google"; signed in: the session list (filter by
-  computer), like the phone apps.
+- `/` — signed out: what remote control is and "Sign in with GitHub or Google"; signed in: the phone apps' design
+  (mobile/DESIGN.md, "Web"): the selected computer's projects as groups with topics, Profile, session themes.
 - `/link` and `/link?code=…` — approve a device (shows name, platform, app, time; Approve / Deny). With `&app=1` (phone
   sign-in) the page ends on `crok://signed-in`.
 - `/sessions/[id]` — transcript, composer with Send / Stop, info panel.
