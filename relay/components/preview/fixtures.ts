@@ -41,6 +41,8 @@ function fakeRow(now: number, { project, ...r }: RowInput): SessionRow {
   return {
     sessionId: `0199e3b2-${r._id}`,
     model: "grok-code-fast-1",
+    gitBranch: null,
+    usage: null,
     status: "idle",
     online: computer.online,
     app: "tui",

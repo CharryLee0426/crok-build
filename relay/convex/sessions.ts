@@ -46,6 +46,8 @@ function sessionRow(session: Doc<"sessions">, device: Doc<"devices">) {
     title: session.title,
     cwd: session.cwd,
     model: session.model ?? null,
+    gitBranch: session.gitBranch ?? null,
+    usage: session.usage ?? null,
     status: session.status,
     online: session.online,
     app: session.app,

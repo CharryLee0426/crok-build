@@ -37,6 +37,7 @@ export const commandType = v.union(
   v.literal("answer"),
   v.literal("create"),
   v.literal("config"),
+  v.literal("git"),
 );
 
 /** The settings `commands:setConfig` changes, named as crok's `session/set_config_option` names them. */
@@ -120,6 +121,8 @@ export const sessionUsage = v.object({
   costUsd: v.optional(v.number()),
   contextTokens: v.optional(v.number()),
   contextWindow: v.optional(v.number()),
+  /** Output tokens per second, the session average as its computer measured it. */
+  outputTokensPerSecond: v.optional(v.number()),
 });
 
 export default defineSchema({

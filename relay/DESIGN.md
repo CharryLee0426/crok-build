@@ -255,15 +255,16 @@ callback.
 |---|---|---|
 | `sessions:groups` (query) | — | `[{key, deviceId, deviceName, deviceOnline, path, name, placed, lastActivityAt, sessions: [row]}]` — the main list: non-archived sessions grouped by project, both levels in list order (above) |
 | `sessions:list` (query) | `archived?: boolean` | `[row]` flat, pinned first, then newest (the Archived tab) |
-| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}, models: null\|[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]}` |
+| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow, outputTokensPerSecond}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}, models: null\|[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]}` |
 | `sessions:create` (mutation) | `deviceId, path, text?, model?, effort?, clientId` (UUID) | `{sessionDocId, commandId}` — a new session in `path` on that computer, with its model/thinking level from `devices:models` (§2, "New sessions from any device"); same `clientId` → same session; `OFFLINE`, `INVALID`, `NOT_FOUND` (not one of your computers), `FORBIDDEN` (a phone) |
 | `sessions:commands` (query) | `sessionDocId` | `{commands:[{name, description, hint?}], source: "session"\|"computer"\|"none"}` — the agent's slash commands, without the leading `/` |
 | `sessions:reorderProjects` (mutation) | `keys: string[]` | `null` — some project keys in their new order (all, or one computer's) |
 | `sessions:reorderSessions` (mutation) | `projectKey, sessionDocIds: string[]` | `null` — some of the project's sessions in their new order |
 | `sessions:resetOrder` (mutation) | `projectKey?` | `null` — with a key: that project's sessions back to newest first; without: the projects |
 
-A **row** is `{_id, sessionId, title, cwd, model, status, online, app, deviceId, deviceName, deviceOnline, preview,
-previewKind, lastActivityAt, pinned, archived, unread, plan: null|{done,total}, projectKey, projectPath, projectName,
+A **row** is `{_id, sessionId, title, cwd, model, gitBranch, usage, status, online, app, deviceId, deviceName,
+deviceOnline, preview, previewKind, lastActivityAt, pinned, archived, unread, plan: null|{done,total}, projectKey,
+projectPath, projectName,
 historyState: null|"none"|"requested"|"ready", starting}`; `starting` = made by `sessions:create` and not open on its
 computer yet. `historyState` `none`/`requested` with no events: the transcript is
 still only on the computer — show "Loading from <computer>…" while `deviceOnline`, else "<computer> is offline; this
@@ -297,14 +298,16 @@ runs it now; it still takes prompts while `deviceOnline` (its computer opens it)
 | `commands:sendPrompt` (mutation) | `sessionDocId, text, clientId` (UUID) | `{commandId}`; same `clientId` → same command; throws `OFFLINE` only when no crok on its computer can take it |
 | `commands:stop` (mutation) | `sessionDocId` | `{commandId}` (done at once for a session nobody runs) |
 | `commands:requestInfo` (mutation) | `sessionDocId` | `{commandId}`; the answer arrives in `commands:get(...).result` (at once, `stored: true`, for a session nobody runs) |
+| `commands:git` (mutation) | `sessionDocId, request` (JSON) | `{commandId}`; any crok on the computer that knows `git` runs `{op: "graph"\|"branches"\|"files"\|"diff"\|"workspace"\|"workspace_diff"\|"signature"\|"switch"\|"create", …}` in the session's folder and puts its answer in `result` (`INVALID` until crok there is updated; `OFFLINE`) |
 | `commands:answer` (mutation) | `sessionDocId, interactionId, optionId` | `{commandId}`; throws `EXPIRED` when that request is no longer pending |
 | `commands:setConfig` (mutation) | `sessionDocId, configId: "model"\|"reasoning_effort", value` | `{commandId}`; `result` = `{model, effort}` once done; `INVALID` for a value not in `models`; `OFFLINE` |
 | `commands:get` (query) | `commandId` | the command row or `null` |
 | `commands:forSession` (query) | `sessionDocId` | recent prompts `[{_id, type, clientId, text, status, error, fromLabel, fromDeviceId, mine, createdAt, updatedAt}]` (`type` `prompt`, or `create` for the first prompt of a new session); `mine` = sent by this caller |
 | `commands:retry` / `discard` (mutation) | `commandId` | `null` |
 
-An info `result` is `{ model, effort, cwd, gitBranch, title, createdAt, usage: {inputTokens, outputTokens,
-cachedTokens, reasoningTokens, costUsd}, context: {used, window}, messages, sessionId }` (fields may be missing).
+An info `result` is `{ model, effort, cwd, gitBranch, title, createdAt, outputTokensPerSecond, usage: {inputTokens,
+outputTokens, cachedTokens, reasoningTokens, costUsd}, context: {used, window}, messages, sessionId }` (fields may be
+missing).
 
 Prompt status ticks (Telegram's clock → ✓ → ✓✓ → red "!"): `pending` = not yet picked up; `delivered` = the
 computer accepted it (it is in the transcript or queued behind the running turn); `done` = its turn finished;
@@ -319,6 +322,7 @@ of sending (keyed by `clientId`) until the transcript holds the user event whose
 | `bridge:heartbeat` | `hostId` | `{serverTime}` (every 30 s) |
 | `bridge:disconnect` | `hostId` | `null` |
 | `bridge:upsertSession` | `hostId, sessionId, fields:{title?, cwd?, model?, effort?, gitBranch?, status?, preview?, previewKind?, plan?, usage?, createdAt?, lastActivityAt?, projectPath?}` | `{sessionDocId, eventSeq, created}` |
+| `bridge:setBranch` | `hostId, sessionId, branch` | `null` — the branch a git command on that computer checked out, for a session another process may run (it does not mark the session open) |
 | `bridge:closeSession` | `hostId, sessionId` | `null` |
 | `bridge:pushEvents` | `hostId, sessionDocId, replace?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history) |
 | `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt`; `hosted` = the sessions the relay has this host running |
@@ -480,6 +484,10 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   prompt starts the session on that computer in that folder (`x.ai/remote/new_session` through the remote host), then
   it is an ordinary remote task.
 - The composer's model and thinking-level pickers work in a remote task, listing that computer's choices.
+- The composer footer shows the session's branch, input/output tokens, cache rate and output speed from the relay's
+  session row (its computer refreshes them at the end of each turn). **Git Graph** and the branch picker read that
+  computer's repository through `commands:git`; switching and creating a branch run there, and the new branch goes
+  back to the relay for every device.
 
 ### The session list (web, iOS, Android alike)
 

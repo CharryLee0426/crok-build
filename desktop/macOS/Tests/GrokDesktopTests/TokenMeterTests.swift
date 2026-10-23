@@ -187,6 +187,36 @@ final class TokenMeterTests: XCTestCase {
         XCTAssertEqual(store.task(id)?.tokenUsage, SavedTokenUsage(TokenCounts(input: 410, output: 120, cacheRead: 1_400, cacheCreation: 200), tokensPerSecond: 30))
     }
 
+    func testRemoteTotalsReplaceTheFiguresAndShowTheSessionAverage() {
+        var meter = TokenMeter()
+        meter.applyRemoteUsage(TokenCounts(input: 400, output: 100, cacheRead: 1_400), tokensPerSecond: 48)
+        XCTAssertEqual(meter.readout(turnRunning: false),
+                       TokenReadout(inputTokens: 1_800, outputTokens: 100, cachedTokens: 1_400,
+                                    cacheHitRate: 1_400.0 / 1_800.0, rate: .average(48)))
+        // The next report is the session's new total, not an addition to the old one.
+        meter.applyRemoteUsage(TokenCounts(input: 500, output: 250, cacheRead: 2_000), tokensPerSecond: 52)
+        XCTAssertEqual(meter.readout(turnRunning: false)?.outputTokens, 250)
+        XCTAssertEqual(meter.readout(turnRunning: false)?.rate, .average(52))
+    }
+
+    func testARemoteUsageUpdateFeedsTheMeter() {
+        let (store, id) = makeStore()
+        defer { store.shutdown() }
+        let tokens = store.features.tokens
+        let update: [String: Any] = [
+            "sessionId": "session-1",
+            "update": [
+                "sessionUpdate": "remote_usage",
+                "usage": ["inputTokens": 1_200, "outputTokens": 300, "cachedTokens": 800, "outputTokensPerSecond": 42.5],
+            ],
+        ]
+        XCTAssertFalse(store.receiveFeatureNotification("x.ai/session_notification", params: update, id: id))
+        XCTAssertEqual(tokens.meters[id]?.readout(turnRunning: false),
+                       TokenReadout(inputTokens: 1_200, outputTokens: 300, cachedTokens: 800,
+                                    cacheHitRate: 800.0 / 1_200.0, rate: .average(42.5)))
+        XCTAssertEqual(store.task(id)?.tokenUsage?.averageTokensPerSecond, 42.5)
+    }
+
     func testSavedFiguresGiveWayToTheHarnessTotal() {
         var meter = TokenMeter(saved: SavedTokenUsage(TokenCounts(input: 50, output: 500, cacheRead: 950), tokensPerSecond: 40))
         meter.carryOver()

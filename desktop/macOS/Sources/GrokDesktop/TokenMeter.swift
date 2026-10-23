@@ -236,6 +236,16 @@ struct TokenMeter: Equatable {
         if let rate = tokensPerSecond, rate.isFinite, rate > 0 { lastRate = rate }
     }
 
+    /// A session of another computer's totals, as its bridge reports them at the end of a turn. They replace what
+    /// was shown; its only speed is the session average.
+    mutating func applyRemoteUsage(_ counts: TokenCounts, tokensPerSecond: Double?) {
+        live = nil
+        carried = nil
+        session = counts
+        lastRate = nil
+        averageRate = tokensPerSecond.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+    }
+
     /// Nil until something has been counted, so a new task draws no zeros. `turnRunning` is false
     /// once a turn ends; a stream it left open no longer counts.
     func readout(turnRunning: Bool) -> TokenReadout? {
@@ -377,6 +387,13 @@ final class TokenMeterModel: ObservableObject {
             guard let used = update["tokens_after"] as? Int else { return }
             noteContextUsed(used, id: id)
             publishNow()
+        case "remote_usage":
+            // A session of another computer's totals, which its viewer learned from the relay.
+            guard var usage = update["usage"] as? [String: Any] else { return }
+            if usage["outputTokensPerSecond"] as? NSNumber == nil, let rate = update["tokensPerSecond"] {
+                usage["outputTokensPerSecond"] = rate
+            }
+            noteRemoteUsage(RemoteSessionUsage(json: usage), conversationID: id)
         default: break
         }
     }
@@ -396,6 +413,19 @@ final class TokenMeterModel: ObservableObject {
         publishNow()
     }
 
+    /// A session of another computer's totals, from the relay's list or its viewer. They replace the last figures,
+    /// so the same report arriving twice changes nothing.
+    func noteRemoteUsage(_ usage: RemoteSessionUsage, conversationID id: UUID) {
+        let counts = usage.counts
+        guard counts != TokenCounts() else { return }
+        var meter = current[id] ?? savedMeter(id) ?? TokenMeter()
+        guard meter.session != counts || meter.averageRate != usage.tokensPerSecond else { return }
+        meter.applyRemoteUsage(counts, tokensPerSecond: usage.tokensPerSecond)
+        current[id] = meter
+        publishNow()
+        if let saved = meter.saved { store?.saveTokenUsage(saved, for: id) }
+    }
+
     /// Where a task's own record is: the session's `usage.json`. Tests point it elsewhere.
     var harnessRecord: (_ cwd: String, _ sessionID: String) -> SavedTokenUsage? = { cwd, sessionID in
         SavedTokenUsage.harnessRecord(cwd: cwd, sessionID: sessionID)
@@ -406,9 +436,10 @@ final class TokenMeterModel: ObservableObject {
     private func savedMeter(_ id: UUID) -> TokenMeter? {
         guard let store, let task = store.task(id) else { return nil }
         let saved = task.tokenUsage
-        let recorded = task.sessionID.flatMap { session in
+        // Another computer keeps its session's `usage.json`; nothing here can read it.
+        let recorded = task.remote == nil ? task.sessionID.flatMap { session in
             store.projectRecord(task.projectID).flatMap { harnessRecord($0.path, session) }
-        }
+        } : nil
         guard var chosen = saved ?? recorded else { return nil }
         if let recorded, recorded.output > chosen.output {
             chosen = recorded

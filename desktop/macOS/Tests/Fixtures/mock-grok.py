@@ -660,6 +660,67 @@ Final paragraph.
             self.relay_reasoning_id = value
         self.result(request_id, {"configOptions": self.relay_config_options()})
 
+    def remote_git(self, request_id, params):
+        """`_x.ai/remote/git`: the viewer asks the session's computer to read its repository."""
+        op = params.get("op")
+        if op == "graph":
+            self.result(request_id, {"result": {
+                "root": "/w/api", "head": "a" * 40, "branch": "fix/login-redirect",
+                "refs": [{"commit": "a" * 40, "name": "fix/login-redirect", "kind": "head"},
+                         {"commit": "b" * 40, "name": "main", "kind": "local"}],
+                "commits": [
+                    {"id": "a" * 40, "parents": ["b" * 40], "author": "Ada", "email": "ada@example.com",
+                     "date": 1_792_000_000, "subject": "Fix the login redirect", "body": "The redirect keeps the target."},
+                    {"id": "b" * 40, "parents": [], "author": "Ada", "email": "ada@example.com",
+                     "date": 1_791_000_000, "subject": "First commit", "body": ""},
+                ],
+                "hasMore": False, "uncommitted": 1,
+            }})
+        elif op == "branches":
+            self.result(request_id, {"result": {"branches": [
+                {"refName": "refs/heads/fix/login-redirect", "name": "fix/login-redirect", "upstream": "",
+                 "track": "", "date": 1_792_000_000, "current": True, "subject": "Fix the login redirect", "isRemote": False},
+                {"refName": "refs/heads/main", "name": "main", "upstream": "origin/main", "track": "ahead 1",
+                 "date": 1_791_000_000, "current": False, "subject": "First commit", "isRemote": False},
+                {"refName": "refs/remotes/origin/feature", "name": "origin/feature", "upstream": "",
+                 "track": "", "date": 1_790_000_000, "current": False, "subject": "Feature", "isRemote": True},
+            ]}})
+        elif op == "files":
+            self.result(request_id, {"result": {"files": [
+                {"path": "src/login.swift", "status": "M", "additions": 4, "deletions": 1, "isBinary": False},
+            ]}})
+        elif op == "diff":
+            self.result(request_id, {"result": {"text": "Fix the redirect\n\n--- a/src/login.swift\n+++ b/src/login.swift\n+target\n-old"}})
+        elif op == "workspace":
+            self.result(request_id, {"result": {
+                "root": "/w/api", "branch": "fix/login-redirect",
+                "changes": [{"path": "src/login.swift", "status": "M", "additions": 4, "deletions": 1, "isBinary": False}],
+            }})
+        elif op == "workspace_diff":
+            self.result(request_id, {"result": {"text": "Working tree changes\n\n+target\n-old"}})
+        elif op == "signature":
+            self.result(request_id, {"result": {"text": "a" * 40 + " refs/heads/fix/login-redirect"}})
+        elif op == "switch":
+            self.result(request_id, {"result": {"branch": params.get("branch")}})
+        elif op == "create":
+            self.result(request_id, {"result": {"branch": params.get("name")}})
+        else:
+            self.error(request_id, -32602, "Unknown git request.")
+
+    def relay_info(self, request_id, params):
+        session_id = params.get("sessionId", "")
+        self.result(request_id, {"sessionId": session_id, "cwd": "/w/api", "model": self.relay_model_id,
+                                 "gitBranch": "fix/login-redirect", "outputTokensPerSecond": 42.5,
+                                 "usage": {"inputTokens": 1_200, "outputTokens": 300, "cachedTokens": 800,
+                                           "reasoningTokens": 20, "costUsd": 0.01, "contextTokens": 1_200,
+                                           "contextWindow": 200_000, "outputTokensPerSecond": 42.5},
+                                 "context": {"used": 1_200, "total": 200_000}, "remote": True})
+
+    def relay_usage(self, request_id, params):
+        self.result(request_id, {"usage": {"inputTokens": 1_200, "outputTokens": 300, "cachedReadTokens": 800,
+                                           "reasoningTokens": 20, "totalTokens": 1_500, "modelCalls": 1,
+                                           "apiDurationMs": 0, "costUsdTicks": 100_000_000}})
+
     def relay_model_elsewhere(self, session_id):
         """Another device changes the session's model: `model_changed`, then the new choices."""
         self.relay_model_id, self.relay_reasoning_id = "other-gpt", "high"
@@ -914,6 +975,12 @@ Final paragraph.
             self.load_relay_session(request_id, params)
         elif method == "session/set_config_option" and str(params.get("sessionId", "")).startswith("relay:"):
             self.set_relay_config(request_id, params)
+        elif method == "_x.ai/remote/git" and str(params.get("sessionId", "")).startswith("relay:"):
+            self.remote_git(request_id, params)
+        elif method == "_x.ai/session/info" and str(params.get("sessionId", "")).startswith("relay:"):
+            self.relay_info(request_id, params)
+        elif method == "_x.ai/session/usage" and str(params.get("sessionId", "")).startswith("relay:"):
+            self.relay_usage(request_id, params)
         elif method == "_x.ai/models/list":
             self.result(request_id, {"result": self.models()})
         elif method == "_x.ai/commands/list":

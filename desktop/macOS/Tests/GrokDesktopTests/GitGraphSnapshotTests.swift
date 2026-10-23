@@ -121,6 +121,19 @@ final class GitGraphSnapshotTests: XCTestCase {
             try await render("composer-footer-tokens-\(Int(width))", ComposerGitFooter().padding(.horizontal, 20).frame(width: width, alignment: .leading),
                              size: CGSize(width: width, height: 44))
         }
+
+        // The footer of a task on another computer: its branch and figures, the Git Graph button included.
+        var remote = Conversation(projectID: RemoteSessions.projectID, title: "Fix the login redirect", sessionID: "relay:k1")
+        remote.remote = RemoteTaskInfo(computer: "Office PC", deviceID: "d2", cwd: "/w/api")
+        store.state.conversations.append(remote)
+        store.state.selectedProjectID = RemoteSessions.projectID
+        store.state.selectedConversationID = remote.id
+        store.workspace = GitWorkspaceSnapshot(branch: "fix/login-redirect", changes: [], isRemote: true)
+        store.features.tokens.noteRemoteUsage(
+            RemoteSessionUsage(json: ["inputTokens": 1_200, "outputTokens": 300, "cachedTokens": 800, "outputTokensPerSecond": 42.5]),
+            conversationID: remote.id)
+        try await render("composer-footer-remote", ComposerGitFooter().padding(.horizontal, 20).frame(width: 620, alignment: .leading),
+                         size: CGSize(width: 620, height: 44))
     }
 
     /// Hosts the view, waits until `settle` holds, then draws it in light and dark.

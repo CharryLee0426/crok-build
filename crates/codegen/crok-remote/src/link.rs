@@ -57,6 +57,11 @@ pub enum ToRelay {
         session_id: String,
         fields: Box<SessionFields>,
     },
+    /// A branch this computer's git command checked out, for a session another process may run.
+    SetBranch {
+        session_id: String,
+        branch: String,
+    },
     PushEvents {
         session_id: String,
         events: Vec<EventInput>,
@@ -412,7 +417,7 @@ async fn run(
         "pid": f64::from(std::process::id()),
         "canAdopt": config.can_adopt,
         // Command types this process handles beyond the first relay's.
-        "features": ["create", "config"],
+        "features": ["create", "config", "git"],
     });
     let host_id = loop {
         match client
@@ -595,6 +600,10 @@ async fn write_loop(
                     }
                 }
                 result
+            }
+            ToRelay::SetBranch { session_id, branch } => {
+                let args = json!({ "hostId": host_id, "sessionId": session_id, "branch": branch });
+                client.mutation("bridge:setBranch", to_args(args)).await
             }
             ToRelay::PushEvents {
                 session_id,

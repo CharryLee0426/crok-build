@@ -164,6 +164,7 @@ extension AppStore {
             throw DesktopError.message("This task is no longer available.")
         }
         if let client = clients[id], loaded.contains(id), let session = self.task(id)?.sessionID { return (client, session) }
+        guard clients[id] == nil else { throw DesktopError.message("The task is still connecting. Try again when it is ready.") }
         guard runs[id]?.isRunning != true else { throw DesktopError.message("The task is still connecting. Try again when it is ready.") }
         let operationID = beginOperation(id, phase: "Connecting")
         runs[id]?.isConfiguring = true

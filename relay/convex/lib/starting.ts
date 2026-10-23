@@ -29,9 +29,9 @@ export function isAbsolutePath(path: string): boolean {
   return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
 }
 
-/** Whether a crok process handles a command type the first relay did not have (`create`, `config`). */
+/** Whether a crok process handles a command type the first relay did not have (`create`, `config`, `git`). */
 export function supports(host: Pick<Doc<"hosts">, "features">, type: Doc<"commands">["type"]): boolean {
-  if (type !== "create" && type !== "config") return true;
+  if (type !== "create" && type !== "config" && type !== "git") return true;
   return host.features?.includes(type) ?? false;
 }
 

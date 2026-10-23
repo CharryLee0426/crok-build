@@ -66,13 +66,28 @@ final class GitGraphModel: ObservableObject {
     private var scrollSerial = 0
     private var isVisible = false
     private var matchSet: Set<String> = []
+    /// A remote graph load is connecting to its computer; another one would race the connection.
+    private var remoteReloading = false
+    private var remoteReloadAgain = false
 
     init(store: AppStore) {
         self.store = store
         scope = UserDefaults.standard.string(forKey: "gitGraphScope").flatMap(GitGraphScope.init(rawValue:)) ?? .all
     }
 
-    var projectName: String { store?.project?.name ?? "" }
+    /// The task's project; for a task of another computer, that computer and the session's folder.
+    var projectName: String {
+        if let remote = store?.conversation?.remote {
+            return "\(remote.computer) · \(URL(fileURLWithPath: remote.cwd).lastPathComponent)"
+        }
+        return store?.project?.name ?? ""
+    }
+
+    /// The task on screen, when its session runs on another computer.
+    private var remoteTaskID: UUID? {
+        guard let store, let task = store.conversation, task.remote != nil else { return nil }
+        return task.id
+    }
     var selectedEntry: GitGraphEntry? { selectedID.flatMap { id in entries.first { $0.id == id } } }
     var isLoading: Bool { phase == .loading }
     func isMatch(_ id: String) -> Bool { matchSet.contains(id) }
@@ -94,10 +109,12 @@ final class GitGraphModel: ObservableObject {
         store.$workspace.map { "\($0.rootPath ?? "")\u{0}\($0.branch)\u{0}\($0.changes.count)" }.removeDuplicates().dropFirst()
             .sink { [weak self] _ in Task { @MainActor [weak self] in await self?.reload() } }
             .store(in: &observers)
-        // Commits, fetches, and new branches move refs without touching the working tree.
+        // Commits, fetches, and new branches move refs without touching the working tree. A remote graph asks its
+        // computer through the relay, so it checks less often.
         poll = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                let seconds: UInt64 = self?.remoteTaskID == nil ? 4 : 10
+                try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
                 guard !Task.isCancelled else { break }
                 await self?.reloadIfRefsMoved()
             }
@@ -117,15 +134,38 @@ final class GitGraphModel: ObservableObject {
             graph = nil; entries = []; phase = .notRepository("Open a project to see its history.")
             return
         }
+        // A remote load already under way will bring the figures; starting another would race its connection.
+        if remoteTaskID != nil, remoteReloading {
+            remoteReloadAgain = true
+            return
+        }
         loadSerial += 1
         let serial = loadSerial
         if graph == nil { phase = .loading }
-        let uncommitted = store.workspace.rootPath == nil ? 0 : store.workspace.changes.count
-        let path = project.path
-        async let loaded = service.graph(path: path, scope: scope, limit: limit, uncommitted: uncommitted)
-        async let refs = service.refsSignature(path: path)
-        let (result, newSignature) = await (loaded, refs)
-        guard serial == loadSerial, store.project?.id == project.id else { return }
+        let result: GitGraphLoad
+        let newSignature: String?
+        if let id = remoteTaskID {
+            remoteReloading = true
+            result = await store.remoteGraph(conversationID: id, scope: scope, limit: limit)
+            guard serial == loadSerial, store.conversation?.id == id else {
+                remoteReloading = false
+                finishRemoteReload()
+                return
+            }
+            newSignature = await store.remoteRefsSignature(conversationID: id)
+            remoteReloading = false
+            guard serial == loadSerial, store.conversation?.id == id else {
+                finishRemoteReload()
+                return
+            }
+        } else {
+            let uncommitted = store.workspace.rootPath == nil ? 0 : store.workspace.changes.count
+            let path = project.path
+            async let loaded = service.graph(path: path, scope: scope, limit: limit, uncommitted: uncommitted)
+            async let refs = service.refsSignature(path: path)
+            (result, newSignature) = await (loaded, refs)
+            guard serial == loadSerial, store.project?.id == project.id else { return }
+        }
         signature = newSignature
         switch result {
         case .notRepository(let message):
@@ -137,6 +177,14 @@ final class GitGraphModel: ObservableObject {
             apply(loadedGraph)
             phase = .loaded
         }
+        finishRemoteReload()
+    }
+
+    /// A reload asked for while the last one was connecting to its computer.
+    private func finishRemoteReload() {
+        guard remoteReloadAgain else { return }
+        remoteReloadAgain = false
+        Task { [weak self] in await self?.reload() }
     }
 
     private func apply(_ newGraph: GitGraph) {
@@ -153,8 +201,16 @@ final class GitGraphModel: ObservableObject {
     }
 
     private func reloadIfRefsMoved() async {
-        guard isVisible, let path = store?.project?.path, phase == .loaded else { return }
-        let current = await service.refsSignature(path: path)
+        guard isVisible, phase == .loaded, !remoteReloading else { return }
+        let current: String?
+        if let id = remoteTaskID {
+            current = await store?.remoteRefsSignature(conversationID: id)
+            guard remoteTaskID == id else { return }
+        } else if let path = store?.project?.path {
+            current = await service.refsSignature(path: path)
+        } else {
+            return
+        }
         if current != signature { await reload() }
     }
 
@@ -191,6 +247,17 @@ final class GitGraphModel: ObservableObject {
         let serial = detailSerial
         let keptFile = keepFile ? selectedFile : nil
         if commit.isUncommitted {
+            if let id = remoteTaskID {
+                filesLoading = true; filesError = nil
+                if !keepFile { files = [] }
+                Task {
+                    let loaded = await store.remoteWorkspaceChanges(conversationID: id)
+                    guard serial == detailSerial else { return }
+                    files = loaded; filesLoading = false
+                    if let keptFile, files.contains(where: { $0.path == keptFile }) { selectFile(keptFile, showsProgress: false) } else if keepFile { selectedFile = nil; diffText = "" }
+                }
+                return
+            }
             files = store.workspace.changes.map {
                 GitCommitFile(path: $0.path, status: FileStatusBadge.letter($0.status), additions: $0.additions, deletions: $0.deletions, isBinary: $0.isBinary)
             }
@@ -201,7 +268,12 @@ final class GitGraphModel: ObservableObject {
         filesLoading = true; filesError = nil
         if !keepFile { files = [] }
         Task {
-            let result = await service.commitFiles(path: project.path, commit: commit)
+            let result: Result<[GitCommitFile], GitHistoryError>
+            if let id = remoteTaskID {
+                result = await store.remoteCommitFiles(conversationID: id, commit: commit)
+            } else {
+                result = await service.commitFiles(path: project.path, commit: commit)
+            }
             guard serial == detailSerial else { return }
             filesLoading = false
             switch result {
@@ -214,13 +286,20 @@ final class GitGraphModel: ObservableObject {
 
     func selectFile(_ path: String?, showsProgress: Bool = true) {
         selectedFile = path
-        guard let path, let commit = selectedEntry?.commit, let project = store?.project else { diffText = ""; return }
+        guard let store, let path, let commit = selectedEntry?.commit, let project = store.project else { diffText = ""; return }
         if showsProgress { diffText = "Loading changes…" }
         let serial = detailSerial
         Task {
-            let text = commit.isUncommitted
-                ? await service.diff(path: project.path, file: path)
-                : await service.commitDiff(path: project.path, commit: commit, file: path)
+            let text: String
+            if let id = remoteTaskID {
+                text = commit.isUncommitted
+                    ? await store.remoteWorkspaceDiff(conversationID: id, file: path)
+                    : await store.remoteCommitDiff(conversationID: id, commit: commit, file: path)
+            } else {
+                text = commit.isUncommitted
+                    ? await service.diff(path: project.path, file: path)
+                    : await service.commitDiff(path: project.path, commit: commit, file: path)
+            }
             guard serial == detailSerial, selectedFile == path else { return }
             if diffText != text { diffText = text }
         }
@@ -303,6 +382,9 @@ extension AppStore {
     func switchBranch(to branch: GitBranch) async -> String? {
         guard let project else { return "Open a project first." }
         guard !isWorkingInProject else { return "Crok is working in this project. Switch branches when the task finishes." }
+        if let task = conversation, task.remote != nil {
+            return await remoteSwitchBranch(conversationID: task.id, to: branch)
+        }
         let error = await WorkspaceService().switchBranch(path: project.path, to: branch)
         await refreshWorkspace()
         return error
@@ -312,6 +394,9 @@ extension AppStore {
     func createBranch(named name: String) async -> String? {
         guard let project else { return "Open a project first." }
         guard !isWorkingInProject else { return "Crok is working in this project. Create the branch when the task finishes." }
+        if let task = conversation, task.remote != nil {
+            return await remoteCreateBranch(conversationID: task.id, named: name)
+        }
         let error = await WorkspaceService().createBranch(path: project.path, name: name)
         await refreshWorkspace()
         return error

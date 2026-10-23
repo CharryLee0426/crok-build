@@ -120,6 +120,8 @@ struct UsageContextSnapshot: Equatable {
 struct UsageSessionInfo {
     var sessionID = ""
     var cwd = ""
+    /// The branch its folder has checked out, for a session of another computer.
+    var branch: String?
     var model: String?
     var modelDisplayName: String?
     var resolvedModelID: String?
@@ -135,6 +137,7 @@ struct UsageSessionInfo {
     init(_ value: [String: Any]) {
         sessionID = value["sessionId"] as? String ?? ""
         cwd = value["cwd"] as? String ?? ""
+        branch = AccountJSON.string(value["gitBranch"])
         model = AccountJSON.string(value["model"])
         modelDisplayName = AccountJSON.string(value["modelDisplayName"])
         resolvedModelID = AccountJSON.string(value["resolvedModelId"])

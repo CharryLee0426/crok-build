@@ -30,6 +30,8 @@ export type SessionInfoResult = {
   gitBranch?: string;
   title?: string;
   createdAt?: number;
+  /** The session's average output speed, when its computer reported one. */
+  outputTokensPerSecond?: number;
   usage?: {
     inputTokens?: number;
     outputTokens?: number;

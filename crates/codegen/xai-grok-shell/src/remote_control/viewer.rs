@@ -411,6 +411,17 @@ impl Viewer {
         self.fire("sessions:watch", json!({ "sessionDocId": doc }));
         self.fire("sessions:markRead", json!({ "sessionDocId": doc }));
         self.subscribe_view(&doc);
+        // A front end opening the session sees the figures its computer last reported even before the next turn.
+        if let Some(usage) = self
+            .views
+            .borrow()
+            .get(&doc)
+            .and_then(|view| view.detail.get("usage"))
+            .filter(|usage| usage.is_object())
+            .cloned()
+        {
+            self.notify_usage(acp_id, usage);
+        }
         let choices = self
             .views
             .borrow()
@@ -726,6 +737,7 @@ impl Viewer {
             "gitBranch": detail.get("gitBranch"),
             "computer": detail.get("deviceName"),
             "status": detail.get("status"),
+            "outputTokensPerSecond": usage.get("outputTokensPerSecond"),
             "usage": usage,
             "context": {
                 "used": usage.get("contextTokens"),
@@ -733,6 +745,98 @@ impl Viewer {
             },
             "remote": true,
         }))
+    }
+
+    /// `x.ai/session/usage` for a session of another computer: the totals its computer last reported.
+    pub(crate) async fn usage(&self, acp_id: &str) -> acp::Result<Value> {
+        let doc = doc_id(acp_id).ok_or_else(|| error("Not a session of another computer."))?;
+        let detail = match self.views.borrow().get(doc) {
+            Some(view) if !view.detail.is_null() => view.detail.clone(),
+            _ => {
+                self.call(
+                    CallKind::Query,
+                    "sessions:get",
+                    json!({ "sessionDocId": doc }),
+                )
+                .await?
+            }
+        };
+        let usage = detail.get("usage").cloned().unwrap_or(Value::Null);
+        let number = |key: &str| usage.get(key).and_then(Value::as_f64).unwrap_or(0.0);
+        let input = number("inputTokens");
+        let output = number("outputTokens");
+        let cost = usage.get("costUsd").and_then(Value::as_f64);
+        let calls = if output > 0.0 || input > 0.0 { 1 } else { 0 };
+        let mut totals = json!({
+            "inputTokens": input,
+            "outputTokens": output,
+            "cachedReadTokens": number("cachedTokens"),
+            "reasoningTokens": number("reasoningTokens"),
+            "totalTokens": input + output,
+            "modelCalls": calls,
+            "apiDurationMs": 0,
+        });
+        if let Some(cost) = cost {
+            totals["costUsdTicks"] = json!(cost * 10_000_000_000.0);
+        }
+        Ok(json!({ "usage": totals }))
+    }
+
+    /// `x.ai/remote/git` for a session of another computer: a read (or a branch change) in its folder, run by a
+    /// crok on that computer.
+    pub(crate) async fn git(self: &Rc<Self>, acp_id: &str, params: &Value) -> acp::Result<Value> {
+        let doc = doc_id(acp_id)
+            .ok_or_else(|| error("Not a session of another computer."))?
+            .to_string();
+        let request = params.get("request").cloned().unwrap_or_else(|| {
+            let mut request = params.clone();
+            if let Some(object) = request.as_object_mut() {
+                object.remove("sessionId");
+            }
+            request
+        });
+        let sent = self
+            .call(
+                CallKind::Mutation,
+                "commands:git",
+                json!({ "sessionDocId": doc, "request": request.to_string() }),
+            )
+            .await?;
+        let command_id = str_of(&sent, "commandId")
+            .ok_or_else(|| error("The relay did not take the request."))?
+            .to_string();
+        let started = Instant::now();
+        loop {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let command = self
+                .call(
+                    CallKind::Query,
+                    "commands:get",
+                    json!({ "commandId": command_id }),
+                )
+                .await?;
+            match str_of(&command, "status") {
+                Some("done") => {
+                    let result = command.get("result").cloned().unwrap_or(Value::Null);
+                    return if result.is_object() {
+                        Ok(result)
+                    } else {
+                        Err(error("The other computer sent no answer."))
+                    };
+                }
+                Some("failed") => {
+                    return Err(error(
+                        str_of(&command, "error")
+                            .unwrap_or("The other computer could not read its repository.")
+                            .to_string(),
+                    ));
+                }
+                _ if started.elapsed() >= Duration::from_secs(45) => {
+                    return Err(error("The other computer did not answer in time."));
+                }
+                _ => {}
+            }
+        }
     }
 
     // MARK: The list of other computers' sessions
@@ -933,17 +1037,25 @@ impl Viewer {
         let mut resolved: Option<(String, String)> = None;
         let mut foreign_done: Option<(String, String)> = None;
         let mut changed_choices: Option<(String, Choices)> = None;
+        let mut usage_changed: Option<(String, Value)> = None;
         {
             let mut views = self.views.borrow_mut();
             let Some(view) = views.get_mut(doc) else {
                 return;
             };
             let was_running = view.status() != "idle";
+            let before_usage = view.detail.get("usage").cloned();
             let before = (
                 str_of(&view.detail, "model").map(str::to_owned),
                 str_of(&view.detail, "effort").map(str::to_owned),
             );
             view.detail = detail;
+            let after_usage = view.detail.get("usage").cloned();
+            if before_usage != after_usage
+                && let Some(usage) = after_usage.filter(|usage| usage.is_object())
+            {
+                usage_changed = Some((view.acp_id.clone(), usage));
+            }
             let after = (
                 str_of(&view.detail, "model").map(str::to_owned),
                 str_of(&view.detail, "effort").map(str::to_owned),
@@ -983,6 +1095,9 @@ impl Viewer {
         if let Some((acp_id, prompt)) = foreign_done {
             self.prompt_complete(&acp_id, &prompt, "end_turn");
         }
+        if let Some((acp_id, usage)) = usage_changed {
+            self.notify_usage(&acp_id, usage);
+        }
         if let Some((acp_id, choices)) = changed_choices {
             // As the agent tells a front end about a model switch made elsewhere.
             self.ext_notify(
@@ -1013,6 +1128,22 @@ impl Viewer {
             self.ask_permission(doc, id, pending);
         }
         self.settle(doc);
+    }
+
+    /// The session's token and speed figures, as the agent reports a response's end. The relay carries the session's
+    /// totals; its rate is the session average (`outputTokensPerSecond`).
+    fn notify_usage(&self, acp_id: &str, usage: Value) {
+        let mut update = json!({ "sessionUpdate": "remote_usage", "usage": usage });
+        if let Some(rate) = usage
+            .get("outputTokensPerSecond")
+            .filter(|rate| rate.is_number())
+        {
+            update["tokensPerSecond"] = rate.clone();
+        }
+        self.ext_notify(
+            "x.ai/session_notification",
+            json!({ "sessionId": acp_id, "update": update }),
+        );
     }
 
     /// Asks the front end the permission question the session waits on; its choice goes back to the relay.
@@ -1549,6 +1680,8 @@ fn session_entry(row: &Value) -> Value {
         "running": row.get("online"),
         "lastActivityAt": row.get("lastActivityAt"),
         "model": row.get("model"),
+        "gitBranch": row.get("gitBranch"),
+        "usage": row.get("usage"),
         "preview": row.get("preview"),
         "pinned": row.get("pinned"),
         "unread": row.get("unread"),
@@ -1587,6 +1720,20 @@ fn tool_content(text: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_list_row_carries_the_branch_and_token_figures() {
+        let row = json!({
+            "_id": "k1",
+            "title": "Fix the redirect",
+            "gitBranch": "fix/login-redirect",
+            "usage": { "inputTokens": 1_200, "outputTokens": 300, "cachedTokens": 800 },
+        });
+        let entry = session_entry(&row);
+        assert_eq!(entry["sessionId"], "relay:k1");
+        assert_eq!(entry["gitBranch"], "fix/login-redirect");
+        assert_eq!(entry["usage"]["outputTokens"], 300);
+    }
 
     #[test]
     fn relay_ids() {

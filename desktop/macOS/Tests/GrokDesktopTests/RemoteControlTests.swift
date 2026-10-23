@@ -488,7 +488,8 @@ LoggingHarness().run()
                 "key": "d2:/w/api", "name": "api", "path": "/w/api",
                 "sessions": [
                     ["sessionId": "relay:k1", "title": "Fix the login redirect", "cwd": "/w/api", "status": "running", "running": true,
-                     "lastActivityAt": 1_792_000_000_000.0, "model": "grok-code-fast-1"],
+                     "lastActivityAt": 1_792_000_000_000.0, "model": "grok-code-fast-1", "gitBranch": "fix/login-redirect",
+                     "usage": ["inputTokens": 1_200, "outputTokens": 300, "cachedTokens": 800, "outputTokensPerSecond": 42.5]],
                     ["sessionId": "not-a-relay-id", "title": "Ignored"],
                 ],
             ]],
@@ -504,6 +505,9 @@ LoggingHarness().run()
         let entry = try XCTUnwrap(computer.sessions.first)
         XCTAssertTrue(entry.isWorking)
         XCTAssertEqual(entry.lastActivityAt.timeIntervalSince1970, 1_792_000_000, accuracy: 1)
+        XCTAssertEqual(entry.gitBranch, "fix/login-redirect")
+        XCTAssertEqual(entry.usage?.inputTokens, 1_200)
+        XCTAssertEqual(entry.usage?.tokensPerSecond, 42.5)
 
         let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
         defer { store.shutdown() }
@@ -518,6 +522,11 @@ LoggingHarness().run()
         XCTAssertEqual(task.projectID, RemoteSessions.projectID)
         XCTAssertEqual(store.project?.id, RemoteSessions.projectID, "its harness runs in the app's own folder")
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.remoteProject.path))
+        XCTAssertEqual(store.workspace.branch, "fix/login-redirect", "its computer's branch, not a local one")
+        XCTAssertTrue(store.workspace.isRemote)
+        XCTAssertEqual(store.features.tokens.meters[task.id]?.readout(turnRunning: false),
+                       TokenReadout(inputTokens: 1_200, outputTokens: 300, cachedTokens: 800,
+                                    cacheHitRate: 800.0 / 1_200.0, rate: .average(42.5)))
         XCTAssertEqual(store.state.projects, [local], "the projects list stays as it was")
         // Opening it again selects the same task.
         store.newTask()
@@ -852,6 +861,62 @@ LoggingHarness().run()
             XCTAssertEqual(error.localizedDescription, "This task has not started on Office PC yet. Send a prompt to start it.")
         }
         XCTAssertNil(store.clients[unstarted.id])
+    }
+
+    func testRemoteGitReadsComeFromThatComputer() async throws {
+        let executable = try fixtureExecutable()
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: executable.path)
+        defer { store.shutdown() }
+        let local = Project(path: directory.path)
+        var task = Conversation(projectID: RemoteSessions.projectID, title: "Fix the login redirect", sessionID: "relay:k1")
+        task.remote = RemoteTaskInfo(computer: "Office PC", deviceID: "d2", cwd: "/w/api")
+        store.state = DesktopState(projects: [local], conversations: [task], selectedProjectID: RemoteSessions.projectID,
+                                   selectedConversationID: task.id)
+        try FileManager.default.createDirectory(atPath: store.remoteProject.path, withIntermediateDirectories: true)
+
+        let branches = await store.remoteBranches(conversationID: task.id)
+        XCTAssertNil(branches.error)
+        // Connecting read the session's info too: the footer's branch and figures are there before a turn runs.
+        XCTAssertEqual(store.workspace.branch, "fix/login-redirect")
+        XCTAssertEqual(store.features.tokens.meters[task.id]?.readout(turnRunning: false),
+                       TokenReadout(inputTokens: 1_200, outputTokens: 300, cachedTokens: 800,
+                                    cacheHitRate: 800.0 / 1_200.0, rate: .average(42.5)))
+        XCTAssertEqual(branches.current?.name, "fix/login-redirect")
+        XCTAssertEqual(branches.local.map(\.name), ["fix/login-redirect", "main"])
+        XCTAssertEqual(branches.remote.map(\.name), ["origin/feature"])
+
+        let loaded: GitGraph
+        switch await store.remoteGraph(conversationID: task.id, scope: .all, limit: 100) {
+        case .loaded(let graph): loaded = graph
+        default: return XCTFail("the fixture's repository did not load")
+        }
+        XCTAssertEqual(loaded.root, "/w/api")
+        XCTAssertEqual(loaded.currentBranch, "fix/login-redirect")
+        XCTAssertEqual(loaded.commits.map(\.subject), ["Uncommitted changes · 1 file", "Fix the login redirect", "First commit"])
+        XCTAssertEqual(loaded.commits[1].refs.map(\.kind), [.head])
+
+        let commit = loaded.commits[1]
+        guard case .success(let files) = await store.remoteCommitFiles(conversationID: task.id, commit: commit) else {
+            return XCTFail("the fixture's files did not load")
+        }
+        XCTAssertEqual(files.map(\.path), ["src/login.swift"])
+        XCTAssertEqual(files.first?.additions, 4)
+        let diff = await store.remoteCommitDiff(conversationID: task.id, commit: commit, file: "src/login.swift")
+        XCTAssertTrue(diff.contains("+target"), diff)
+        let changes = await store.remoteWorkspaceChanges(conversationID: task.id)
+        XCTAssertEqual(changes.map(\.path), ["src/login.swift"])
+        XCTAssertEqual(changes.first?.additions, 4)
+        let workspaceDiff = await store.remoteWorkspaceDiff(conversationID: task.id, file: "src/login.swift")
+        XCTAssertEqual(workspaceDiff, "Working tree changes\n\n+target\n-old")
+        let signature = await store.remoteRefsSignature(conversationID: task.id)
+        XCTAssertEqual(signature, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/fix/login-redirect")
+
+        // A branch switch reports the branch its computer checked out, and the footer follows it.
+        let main = try XCTUnwrap(branches.local.first { $0.name == "main" })
+        let failure = await store.remoteSwitchBranch(conversationID: task.id, to: main)
+        XCTAssertNil(failure)
+        XCTAssertEqual(store.workspace.branch, "main")
+        XCTAssertTrue(store.workspace.isRemote)
     }
 
     // MARK: Languages
