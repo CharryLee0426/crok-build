@@ -261,7 +261,7 @@ callback.
 
 | function | args | returns |
 |---|---|---|
-| `sessions:groups` (query) | — | `[{key, deviceId, deviceName, deviceOnline, path, name, placed, lastActivityAt, sessions: [row]}]` — the main list: non-archived sessions grouped by project, both levels in list order (above) |
+| `sessions:groups` (query) | — | `[{key, deviceId, deviceName, deviceOnline, deviceLastSeenAt, path, name, placed, lastActivityAt, sessions: [row]}]` (`deviceLastSeenAt` only while offline) — the main list: non-archived sessions grouped by project, both levels in list order (above) |
 | `sessions:list` (query) | `archived?: boolean` | `[row]` flat, pinned first, then newest (the Archived tab) |
 | `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow, outputTokensPerSecond}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}, models: null\|[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]}` — `models` only for lists of at most 200 (older clients); current clients read `devices:models` |
 | `sessions:create` (mutation) | `deviceId, path, text?, model?, effort?, clientId` (UUID) | `{sessionDocId, commandId}` — a new session in `path` on that computer, with its model/thinking level from `devices:models` (§2, "New sessions from any device"); same `clientId` → same session; `OFFLINE`, `INVALID`, `NOT_FOUND` (not one of your computers), `FORBIDDEN` (a phone) |

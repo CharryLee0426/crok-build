@@ -3650,6 +3650,34 @@ pub(crate) fn execute(
             let tx = acp_tx.clone();
             tasks.spawn(crate::remote_cmd::new_session(agent_id, args, tx));
         }
+        Effect::RemoteSessionBranch { agent_id, session_id } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let info = crate::remote_cmd::ext_call(
+                    &tx,
+                    "x.ai/session/info",
+                    serde_json::json!({ "sessionId": session_id }),
+                )
+                .await;
+                // The viewer answers in its own flat shape; an agent's answer is wrapped in `result`.
+                let branch = info.ok().and_then(|info| {
+                    info.get("gitBranch")
+                        .or_else(|| info.get("result").and_then(|r| r.get("gitBranch")))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|b| !b.is_empty())
+                        .map(str::to_owned)
+                });
+                TaskResult::RemoteSessionBranch { agent_id, session_id, branch }
+            });
+        }
+        Effect::RemotePanel { agent_id, request } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let response = crate::remote_panel::run(request, tx).await;
+                TaskResult::RemotePanel { agent_id, response }
+            });
+        }
         Effect::ShowSessionInfo { agent_id, session_id, show_resolved_model, nonce } => {
             let is_api_key_auth = session_flags.is_api_key_auth;
             let api_key_env_set = xai_grok_shell::agent::auth_method::has_xai_api_key_env();

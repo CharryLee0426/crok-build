@@ -175,7 +175,9 @@ const { code: loginCode, events: loginEvents, stderr: loginErr } = await signIn(
 check(loginCode === 0, "login exits 0", loginErr.slice(-500));
 check(loginEvents[0]?.event === "code" && /^[B-Z]{4}-[B-Z]{4}$/.test(loginEvents[0].userCode), "prints the code first");
 check(loginEvents.at(-1)?.event === "signed_in" && loginEvents.at(-1).account.name === "Bridge Tester", "then signed_in with the account");
-const credentialsPath = `${HOME}/remote/credentials.json`;
+// A dev build (CROK_RELAY_ENV=dev, the test builds) keeps its sign-in apart from a release's.
+const credentialsPath = [`${HOME}/remote/credentials.json`, `${HOME}/remote/credentials-dev.json`].find(existsSync) ??
+  `${HOME}/remote/credentials.json`;
 check((statSync(credentialsPath).mode & 0o777) === 0o600, "credentials are 0600");
 const status = JSON.parse(execFileSync(CROK, ["remote", "status", "--json"], { env, encoding: "utf8" }).trim());
 check(status.signedIn && status.reachable && status.deviceName === "E2E Mac", "crok remote status", status);

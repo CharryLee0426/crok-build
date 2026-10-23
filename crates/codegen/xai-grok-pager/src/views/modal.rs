@@ -312,6 +312,11 @@ pub enum ActiveModal {
     GitGraph {
         state: Box<crate::git_graph::tui::GitGraphOverlay>,
     },
+    /// The Remote panel (`/remote`): the person's other computers, their projects and sessions, and new sessions
+    /// there. Boxed because it holds their list.
+    Remote {
+        state: Box<crate::remote_panel::RemotePanel>,
+    },
     /// Reset-settings confirmation, stacked above Settings. The underlying `SettingsModalState` is
     /// moved in/out so cancel preserves the user's filter/scroll position. The setting key lives only
     /// here (single source of truth for dispatch).
@@ -684,6 +689,7 @@ impl ActiveModal {
             | ActiveModal::UsageInfo { .. }
             | ActiveModal::Trace { .. }
             | ActiveModal::GitGraph { .. }
+            | ActiveModal::Remote { .. }
             | ActiveModal::RememberNoteReview { .. } => vec![],
         }
     }
@@ -720,6 +726,7 @@ impl ActiveModal {
             ActiveModal::UsageInfo { .. } => tl("Usage"),
             ActiveModal::Trace { .. } => tl("Trace"),
             ActiveModal::GitGraph { .. } => tl("Git graph"),
+            ActiveModal::Remote { .. } => tl("Other computers"),
         }
     }
 }

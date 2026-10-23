@@ -117,6 +117,8 @@ export const groups = query({
       deviceId: group.deviceId,
       deviceName: group.device.name,
       deviceOnline: group.device.online,
+      /** For "last seen …" while it is offline (null while online, so heartbeats do not re-send the list). */
+      deviceLastSeenAt: group.device.online ? null : group.device.lastSeenAt,
       path: group.path,
       name: projectName(group.path),
       placed: group.project?.position !== undefined,

@@ -220,18 +220,30 @@ async function handle(command) {
   if (command.type === "prompt") {
     await prompt(command);
   } else if (command.type === "create") {
-    // A new session asked for from another device: open it, give the relay its id, then run the first prompt.
+    // A new session asked for from another device: open it, give the relay its id, then run the first prompt. The
+    // model and thinking level picked there apply, as crok applies them before the first prompt.
     await sleep(400);
-    const created = { sessionId: `0199f1a3-${Date.now().toString(16)}-7c1d-9a10-fake`, sessionDocId: command.sessionDocId, model: "grok-code-fast-1", effort: "high" };
+    const picked = models.find((m) => m.id === command.model);
+    const level = picked?.efforts.find((e) => e.id === command.effort || e.value === command.effort);
+    const model = picked?.id ?? "grok-code-fast-1";
+    const effort = level?.value ?? (picked ? picked.efforts.find((e) => e.id === picked.defaultEffort)?.value : "high");
+    const created = { sessionId: `0199f1a3-${Date.now().toString(16)}-7c1d-9a10-fake`, sessionDocId: command.sessionDocId, model, effort };
     await client.mutation("bridge:bindSession", { hostId, sessionDocId: command.sessionDocId, sessionId: created.sessionId });
     sessions.set(command.sessionDocId, created);
     await client.mutation("bridge:upsertSession", {
       hostId,
       sessionId: created.sessionId,
-      fields: { cwd: command.cwd, model: created.model, effort: created.effort, status: command.text ? "running" : "idle" },
+      fields: {
+        cwd: command.cwd,
+        model: created.model,
+        ...(created.effort ? { effort: created.effort } : {}),
+        gitBranch: "main",
+        status: command.text ? "running" : "idle",
+      },
     });
     await client.mutation("bridge:setCommands", { hostId, sessionId: created.sessionId, commands: slashCommands });
-    log("session started", created.sessionId, "in", command.cwd);
+    log("session started", created.sessionId, "in", command.cwd, "model", created.model, "effort", created.effort ?? "-",
+      "asked for", command.model ?? "-", command.effort ?? "-");
     if (command.text) await prompt(command, created);
     else await client.mutation("bridge:completeCommand", { hostId, commandId: command._id, status: "done", result: { sessionId: created.sessionId } });
   } else if (command.type === "config") {

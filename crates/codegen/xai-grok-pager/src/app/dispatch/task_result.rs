@@ -1482,11 +1482,40 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
         TaskResult::RemoteSessionCreated {
             agent_id: _,
             session_id,
+            cwd,
             text,
         } => {
-            // The view switches to the new session at once: a toast outlives the switch, a scrollback line would not.
+            // Opened as the Remote panel opens one; the toast goes on the new session's view, which the open switches
+            // to (a toast stays with the view it was shown on).
+            let effects = dispatch(
+                Action::RemoteOpenSession {
+                    session_id,
+                    cwd: Some(cwd),
+                },
+                app,
+            );
             app.show_toast(&text);
-            dispatch(Action::LoadSession(session_id, None, false), app)
+            effects
+        }
+        TaskResult::RemoteSessionBranch {
+            agent_id,
+            session_id,
+            branch,
+        } => {
+            if let Some(agent) = app.agents.get_mut(&agent_id)
+                && agent
+                    .session
+                    .session_id
+                    .as_ref()
+                    .is_some_and(|id| id.0.as_ref() == session_id)
+                && branch.is_some()
+            {
+                agent.current_branch = branch;
+            }
+            vec![]
+        }
+        TaskResult::RemotePanel { agent_id, response } => {
+            super::remote::dispatch_remote_panel_response(app, agent_id, response)
         }
         TaskResult::RemoteNotice {
             agent_id,

@@ -347,7 +347,7 @@ fn pick_project<'a>(
     }
 }
 
-async fn ext_call(
+pub(crate) async fn ext_call(
     tx: &xai_acp_lib::AcpAgentTx,
     method: &str,
     params: serde_json::Value,
@@ -421,6 +421,7 @@ pub async fn new_session(
             Some(session_id) => TaskResult::RemoteSessionCreated {
                 agent_id,
                 session_id: session_id.to_string(),
+                cwd: project.path.clone(),
                 text: tlf(
                     "Started a session in {project} on {computer}.",
                     &[("project", &project.name), ("computer", &project.computer)],

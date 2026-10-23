@@ -800,7 +800,8 @@ impl Viewer {
             detail
         };
         let usage = detail.get("usage").cloned().unwrap_or(Value::Null);
-        Ok(json!({
+        // In the agent's `ExtMethodResult` envelope, as a session of this computer answers (the TUI reads `result`).
+        Ok(json!({ "result": {
             "sessionId": acp_id,
             "title": detail.get("title"),
             "cwd": detail.get("cwd"),
@@ -817,7 +818,7 @@ impl Viewer {
                 "total": usage.get("contextWindow"),
             },
             "remote": true,
-        }))
+        } }))
     }
 
     /// `x.ai/session/usage` for a session of another computer: the totals its computer last reported.
@@ -979,6 +980,7 @@ impl Viewer {
                     "deviceId": device,
                     "deviceName": group.get("deviceName"),
                     "online": group.get("deviceOnline"),
+                    "lastSeenAt": group.get("deviceLastSeenAt"),
                     "projects": [],
                 }));
                 computers.len() - 1
@@ -1784,6 +1786,7 @@ fn session_entry(row: &Value) -> Value {
         "preview": row.get("preview"),
         "pinned": row.get("pinned"),
         "unread": row.get("unread"),
+        "starting": row.get("starting"),
     })
 }
 
