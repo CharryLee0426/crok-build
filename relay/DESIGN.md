@@ -157,10 +157,13 @@ side drops its prompt (`x.ai/remote/permission_resolved {sessionId, toolCallId}`
 
 ### New sessions from any device
 
-Any device starts a session in any project of any computer that runs crok: `sessions:create({deviceId, path,
-text?, clientId})`. The relay adds the session at once — `sessionId: "pending:<clientId>"`, `starting: true` in rows
-and in `sessions:get`, `cwd` = `projectPath` = `path`, title from the prompt's first line (else "New session"), status
-`running` with a prompt and `idle` without — and a `create` command carrying the prompt. The caller opens the session
+Any device starts a session in any project of any computer that runs crok: `sessions:create({deviceId, path, text?,
+model?, effort?, clientId})`. `model` and `effort` pick from that computer's `devices:models` (its own providers and
+models); they are checked there when the relay has the list and applied by its crok before the first prompt, so a
+session started from a phone or the web need not run its first turn on the default model. The relay adds the session
+at once — `sessionId: "pending:<clientId>"`, `starting: true` in rows and in `sessions:get`, `cwd` = `projectPath` =
+`path`, title from the prompt's first line (else "New session"), its model and thinking level, status `running` with a
+prompt and `idle` without — and a `create` command carrying the prompt and those choices. The caller opens the session
 right away (its own prompt shows optimistically, ticks from `commands:forSession`, which lists `create` commands with
 text like prompts).
 
@@ -194,6 +197,11 @@ whose `value ?? id` equals `effort`. `defaultEffort` is an `id`.
 computer (`session/set_config_option`). For a session nobody runs, the first crok there to claim it opens it hidden
 (as for a prompt) and applies it. The command's `result` is `{model, effort}` after the change; the session row follows
 through the usual upsert. Values are checked against `models` when the relay has them (`INVALID`).
+
+A session started from another device can carry the same choice (`sessions:create`'s `model` and `effort`, from
+`devices:models`), which its crok applies after opening it and before its first prompt; `effort` is an option id or the
+level it stands for, and the session row holds the level. `devices:models({deviceId})` returns a computer's list
+before any session exists (the same shape as `sessions:get`'s `models`; null while it is offline).
 
 ### Slash commands
 
@@ -236,6 +244,7 @@ callback.
 | `users:ensure` (mutation, web) | — | `{userId, name, email, imageUrl}` |
 | `users:me` (query) | — | `null` or `{userId, name, email, imageUrl, device: null\|{deviceId, kind, name, platform, client}}` |
 | `devices:list` (query) | — | `[{_id, kind, name, platform, client, createdAt, lastSeenAt, online, isCurrent, liveSessionCount}]` current first |
+| `devices:models` (query) | `deviceId` | `null` or `[{id, name, description?, efforts, defaultEffort?}]` — what that computer can run before a session exists (as `sessions:get`'s `models`) |
 | `devices:rename` (mutation) | `deviceId, name` | `null` |
 | `devices:revoke` (mutation) | `deviceId` | `null` |
 | `devices:revokeOthers` (mutation) | — | `{count}` |
@@ -246,15 +255,16 @@ callback.
 |---|---|---|
 | `sessions:groups` (query) | — | `[{key, deviceId, deviceName, deviceOnline, path, name, placed, lastActivityAt, sessions: [row]}]` — the main list: non-archived sessions grouped by project, both levels in list order (above) |
 | `sessions:list` (query) | `archived?: boolean` | `[row]` flat, pinned first, then newest (the Archived tab) |
-| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}, models: null\|[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]}` |
-| `sessions:create` (mutation) | `deviceId, path, text?, clientId` (UUID) | `{sessionDocId, commandId}` — a new session in `path` on that computer (§2, "New sessions from any device"); same `clientId` → same session; `OFFLINE`, `INVALID`, `NOT_FOUND` (not one of your computers), `FORBIDDEN` (a phone) |
+| `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow, outputTokensPerSecond}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}, models: null\|[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]}` |
+| `sessions:create` (mutation) | `deviceId, path, text?, model?, effort?, clientId` (UUID) | `{sessionDocId, commandId}` — a new session in `path` on that computer, with its model/thinking level from `devices:models` (§2, "New sessions from any device"); same `clientId` → same session; `OFFLINE`, `INVALID`, `NOT_FOUND` (not one of your computers), `FORBIDDEN` (a phone) |
 | `sessions:commands` (query) | `sessionDocId` | `{commands:[{name, description, hint?}], source: "session"\|"computer"\|"none"}` — the agent's slash commands, without the leading `/` |
 | `sessions:reorderProjects` (mutation) | `keys: string[]` | `null` — some project keys in their new order (all, or one computer's) |
 | `sessions:reorderSessions` (mutation) | `projectKey, sessionDocIds: string[]` | `null` — some of the project's sessions in their new order |
 | `sessions:resetOrder` (mutation) | `projectKey?` | `null` — with a key: that project's sessions back to newest first; without: the projects |
 
-A **row** is `{_id, sessionId, title, cwd, model, status, online, app, deviceId, deviceName, deviceOnline, preview,
-previewKind, lastActivityAt, pinned, archived, unread, plan: null|{done,total}, projectKey, projectPath, projectName,
+A **row** is `{_id, sessionId, title, cwd, model, gitBranch, usage, status, online, app, deviceId, deviceName,
+deviceOnline, preview, previewKind, lastActivityAt, pinned, archived, unread, plan: null|{done,total}, projectKey,
+projectPath, projectName,
 historyState: null|"none"|"requested"|"ready", starting}`; `starting` = made by `sessions:create` and not open on its
 computer yet. `historyState` `none`/`requested` with no events: the transcript is
 still only on the computer — show "Loading from <computer>…" while `deviceOnline`, else "<computer> is offline; this
@@ -288,14 +298,16 @@ runs it now; it still takes prompts while `deviceOnline` (its computer opens it)
 | `commands:sendPrompt` (mutation) | `sessionDocId, text, clientId` (UUID) | `{commandId}`; same `clientId` → same command; throws `OFFLINE` only when no crok on its computer can take it |
 | `commands:stop` (mutation) | `sessionDocId` | `{commandId}` (done at once for a session nobody runs) |
 | `commands:requestInfo` (mutation) | `sessionDocId` | `{commandId}`; the answer arrives in `commands:get(...).result` (at once, `stored: true`, for a session nobody runs) |
+| `commands:git` (mutation) | `sessionDocId, request` (JSON) | `{commandId}`; any crok on the computer that knows `git` runs `{op: "graph"\|"branches"\|"files"\|"diff"\|"workspace"\|"workspace_diff"\|"signature"\|"switch"\|"create", …}` in the session's folder and puts its answer in `result` (`INVALID` until crok there is updated; `OFFLINE`) |
 | `commands:answer` (mutation) | `sessionDocId, interactionId, optionId` | `{commandId}`; throws `EXPIRED` when that request is no longer pending |
 | `commands:setConfig` (mutation) | `sessionDocId, configId: "model"\|"reasoning_effort", value` | `{commandId}`; `result` = `{model, effort}` once done; `INVALID` for a value not in `models`; `OFFLINE` |
 | `commands:get` (query) | `commandId` | the command row or `null` |
 | `commands:forSession` (query) | `sessionDocId` | recent prompts `[{_id, type, clientId, text, status, error, fromLabel, fromDeviceId, mine, createdAt, updatedAt}]` (`type` `prompt`, or `create` for the first prompt of a new session); `mine` = sent by this caller |
 | `commands:retry` / `discard` (mutation) | `commandId` | `null` |
 
-An info `result` is `{ model, effort, cwd, gitBranch, title, createdAt, usage: {inputTokens, outputTokens,
-cachedTokens, reasoningTokens, costUsd}, context: {used, window}, messages, sessionId }` (fields may be missing).
+An info `result` is `{ model, effort, cwd, gitBranch, title, createdAt, outputTokensPerSecond, usage: {inputTokens,
+outputTokens, cachedTokens, reasoningTokens, costUsd}, context: {used, window}, messages, sessionId }` (fields may be
+missing).
 
 Prompt status ticks (Telegram's clock → ✓ → ✓✓ → red "!"): `pending` = not yet picked up; `delivered` = the
 computer accepted it (it is in the transcript or queued behind the running turn); `done` = its turn finished;
@@ -310,9 +322,10 @@ of sending (keyed by `clientId`) until the transcript holds the user event whose
 | `bridge:heartbeat` | `hostId` | `{serverTime}` (every 30 s) |
 | `bridge:disconnect` | `hostId` | `null` |
 | `bridge:upsertSession` | `hostId, sessionId, fields:{title?, cwd?, model?, effort?, gitBranch?, status?, preview?, previewKind?, plan?, usage?, createdAt?, lastActivityAt?, projectPath?}` | `{sessionDocId, eventSeq, created}` |
+| `bridge:setBranch` | `hostId, sessionId, branch` | `null` — the branch a git command on that computer checked out, for a session another process may run (it does not mark the session open) |
 | `bridge:closeSession` | `hostId, sessionId` | `null` |
 | `bridge:pushEvents` | `hostId, sessionDocId, replace?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history) |
-| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null) to every host with `canAdopt`; `hosted` = the sessions the relay has this host running |
+| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt`; `hosted` = the sessions the relay has this host running |
 | `bridge:setPending` | `hostId, sessionId, pending?` | `null` — the session's permission request, or none (absent) once answered or gone |
 | `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another host did it lately, or is doing it) |
 | `bridge:catalogBatch` | `hostId, syncId, sessions:[{sessionId, title, cwd, projectPath, createdAt, lastActivityAt, model?, effort?, gitBranch?, preview?}]` (≤100) | `{added}` |
@@ -366,6 +379,7 @@ and on sign-in the bridge reads each session's running prompt from the agent ins
 ### Created sessions, config changes and slash commands
 
 - `create` (§2, "New sessions from any device"): `session/new` in the folder, hidden from the front end, then
+  `session/set_config_option` for the `model` and `effort` it carried (before any prompt), then
   `bridge:bindSession`, then the usual mirror and the prompt. The front end may still see the new session's first
   notifications (the id is known only once `session/new` returns); front ends ignore updates for sessions they did not
   open.
@@ -470,6 +484,10 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   prompt starts the session on that computer in that folder (`x.ai/remote/new_session` through the remote host), then
   it is an ordinary remote task.
 - The composer's model and thinking-level pickers work in a remote task, listing that computer's choices.
+- The composer footer shows the session's branch, input/output tokens, cache rate and output speed from the relay's
+  session row (its computer refreshes them at the end of each turn). **Git Graph** and the branch picker read that
+  computer's repository through `commands:git`; switching and creating a branch run there, and the new branch goes
+  back to the relay for every device.
 
 ### The session list (web, iOS, Android alike)
 
@@ -500,9 +518,10 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   compose button that first asks for the project (projects of online computers, grouped by computer, recent first).
 - Both open a **new-session screen** shaped like a session (Telegram's new chat): header "New session" with the
   project and computer underneath, an empty transcript saying where it will run ("Starts in <path> on <computer>"),
-  and the composer. Sending calls `sessions:create` and turns the screen into that session (same navigation entry),
-  with the prompt shown optimistically. `/new [prompt]` inside a session does the same for its project (with a prompt:
-  at once).
+  and the composer. In the web app, model and thinking-level pills above the composer list that computer's
+  `devices:models` ("Default" until one is picked), and the choice goes with the first prompt. Sending calls
+  `sessions:create` and turns the screen into that session (same navigation entry), with the prompt shown
+  optimistically. `/new [prompt]` inside a session does the same for its project (with a prompt: at once).
 - Rows with `starting` show "Starting…" as their preview.
 
 ### Commands in the composer (web, iOS, Android alike; Telegram's bot UI)

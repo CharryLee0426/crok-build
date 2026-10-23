@@ -85,6 +85,26 @@ impl SummaryGenerator {
         }
     }
 
+    /// Point title generation at the session's current model.
+    /// The persistence actor is built before a session can switch models, so without this
+    /// the first title keeps addressing the provider selected at session creation.
+    pub(crate) fn set_sampling_config(&mut self, config: xai_grok_sampler::SamplerConfig) {
+        let model = config.model.clone();
+        match OaiCompatClient::new(config) {
+            Ok(sampling_client) => {
+                self.config.sampling_client = sampling_client;
+                self.config.model = model;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    model = %model,
+                    error = %e,
+                    "failed to update session title client; keeping the previous model"
+                );
+            }
+        }
+    }
+
     /// Mark as Done (e.g. when disk already has a summary during load).
     pub(crate) fn mark_done(&mut self) {
         self.state = State::Done;
@@ -260,5 +280,66 @@ mod tests {
         assert!(generator.is_idle());
         generator.reset();
         assert!(generator.is_idle());
+    }
+
+    /// The persistence actor is built before a session's model can change, so the title
+    /// client must be repointable: after the update, the call goes to the new model's server.
+    #[tokio::test]
+    async fn sampling_update_moves_title_generation_to_the_new_model() {
+        use xai_grok_sampler::SamplerConfig;
+        use xai_grok_test_support::MockInferenceServer;
+
+        fn title_config(server: &MockInferenceServer, model: &str) -> SamplerConfig {
+            SamplerConfig {
+                api_key: Some("title-test-key".into()),
+                base_url: server.url(),
+                model: model.into(),
+                api_backend: xai_grok_sampling_types::ApiBackend::Responses,
+                context_window: 200_000,
+                ..SamplerConfig::default()
+            }
+        }
+
+        let old_server = MockInferenceServer::start().await.unwrap();
+        let new_server = MockInferenceServer::start().await.unwrap();
+        old_server.set_response("Old provider title");
+        new_server.set_response("New provider title");
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut generator = SummaryGenerator::new(SummaryConfig {
+            sampling_client: OaiCompatClient::new(title_config(&old_server, "minimax")).unwrap(),
+            model: "minimax".into(),
+            persistence_tx: tx.downgrade(),
+        });
+        generator.set_sampling_config(title_config(&new_server, "deepseek-flash"));
+        generator.update("Fix the failing build".into());
+
+        let message = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("title generation finishes")
+            .expect("persistence channel stays open");
+        assert!(
+            matches!(message, PersistenceMsg::GeneratedTitle(_)),
+            "expected a generated title, got {message:?}"
+        );
+
+        assert!(
+            old_server.requests().is_empty(),
+            "the old model's server must not serve the title after the update"
+        );
+        let requests = new_server.requests();
+        assert!(
+            !requests.is_empty(),
+            "the new model's server serves the title"
+        );
+        assert!(
+            requests.iter().all(|request| request
+                .body
+                .as_ref()
+                .and_then(|body| body.get("model"))
+                .and_then(|model| model.as_str())
+                == Some("deepseek-flash")),
+            "every title request carries the updated model: {requests:?}"
+        );
     }
 }

@@ -521,15 +521,22 @@ final class AppStore: ObservableObject {
             workspace = GitWorkspaceSnapshot(branch: "", changes: [])
             selectedFile = nil; diffText = ""
         }
+        // Remote tasks share one project here; another task may be in another repository on that computer.
+        if task.remote != nil, state.selectedConversationID != task.id {
+            workspace = GitWorkspaceSnapshot(branch: "", changes: [])
+            selectedFile = nil; diffText = ""
+        }
         state.selectedConversationID = task.id; state.selectedProjectID = task.projectID
         remoteNewTask = nil
         unreadConversationIDs.remove(task.id)
         features.tokens.restore(conversationID: task.id)
+        if let session = task.sessionID, let entry = remoteEntry(sessionID: session) { applyRemoteEntry(entry, to: task.id) }
         draft = drafts[draftLocation] ?? ""; save(); Task { await refreshWorkspace() }
     }
 
     func newTask() {
         drafts[draftLocation] = draft
+        let leavingRemote = state.selectedProjectID == RemoteSessions.projectID
         if state.selectedProjectID == RemoteSessions.projectID {
             // Beside a task of another computer, a new task starts on that computer in the same folder.
             if let remote = conversation?.remote {
@@ -539,6 +546,10 @@ final class AppStore: ObservableObject {
             }
         }
         state.selectedConversationID = nil
+        // A new task has no session there yet: no branch or Git Graph until its first prompt starts one.
+        if leavingRemote {
+            workspace = GitWorkspaceSnapshot(branch: "", changes: [])
+        }
         draft = drafts[draftLocation] ?? ""; showArchived = false; save()
     }
     func renameConversation(_ id: UUID, title: String) {
@@ -873,6 +884,9 @@ final class AppStore: ObservableObject {
         }
         do { try await loadCommands(client, id: id, project: project) }
         catch { /* AvailableCommandsUpdate remains authoritative if pull is unsupported. */ }
+        if task(id)?.remote != nil, let session = task(id)?.sessionID {
+            await noteRemoteInfo(client: client, session: session, conversationID: id)
+        }
         loaded.insert(id); persistSessionOptions(id); save(); return client
     }
 
@@ -1405,6 +1419,11 @@ final class AppStore: ObservableObject {
     }
 
     func refreshWorkspace() async {
+        // Another computer's repository is not on this Mac; its figure comes from the relay's session list.
+        if let task = conversation, task.remote != nil {
+            applyRemoteSessionInfo(remoteComputers)
+            return
+        }
         guard let project else { return }
         let snapshot = await git.inspect(path: project.path)
         guard self.project?.id == project.id else { return }

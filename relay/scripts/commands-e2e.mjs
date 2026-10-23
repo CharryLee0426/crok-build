@@ -168,6 +168,62 @@ check(
   "a thinking level the current model lacks is INVALID",
 );
 
+console.log("A new session's model and thinking level");
+const computerModels = await phone.query("devices:models", { deviceId });
+check(
+  computerModels?.length === 2 && computerModels[0].efforts.length === 2,
+  "devices:models lists what a computer can run before a session exists",
+  computerModels,
+);
+check(
+  (await phone.query("devices:models", { deviceId: idleDeviceId })) === null,
+  "an offline computer has no models to choose from",
+);
+const configured = await phone.mutation("sessions:create", {
+  deviceId,
+  path: project,
+  text: "Use Grok 4 with high thinking",
+  model: "grok-4",
+  effort: "high",
+  clientId: crypto.randomUUID(),
+});
+const configuredDetail = await phone.query("sessions:get", { sessionDocId: configured.sessionDocId });
+check(
+  configuredDetail.model === "grok-4" && configuredDetail.effort === "high",
+  "a new session carries the chosen model and thinking level",
+  configuredDetail,
+);
+const configuredCommand = (await computer.query("bridge:inbox", { hostId })).commands.find(
+  (c) => c._id === configured.commandId,
+);
+check(
+  configuredCommand?.model === "grok-4" && configuredCommand?.effort === "high",
+  "its create command carries them",
+  configuredCommand,
+);
+check(
+  (await codeOf(phone.mutation("sessions:create", { deviceId, path: project, model: "gpt-9", clientId: crypto.randomUUID() }))) ===
+    "INVALID",
+  "a model that computer lacks is INVALID",
+);
+check(
+  (await codeOf(
+    phone.mutation("sessions:create", {
+      deviceId,
+      path: project,
+      model: "grok-code-fast",
+      effort: "high",
+      clientId: crypto.randomUUID(),
+    }),
+  )) === "INVALID",
+  "a thinking level its model lacks is INVALID",
+);
+check(
+  (await codeOf(phone.mutation("sessions:create", { deviceId, path: project, effort: "high", clientId: crypto.randomUUID() }))) ===
+    "INVALID",
+  "a thinking level needs the model it belongs to",
+);
+
 console.log("Slash commands");
 const none = await phone.query("sessions:commands", { sessionDocId });
 check(none.source === "none" && none.commands.length === 0, "no list yet", none);

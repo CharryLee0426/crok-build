@@ -4,3 +4,6 @@
 // use too. Keep the two in step; mobile/scripts/build-apps.sh passes CROK_RELAY_URL from that file on the xcodebuild
 // command line anyway. `//` starts a comment in xcconfig files, hence the `$()` between the slashes.
 CROK_RELAY_URL = https:/$()/tacit-finch-29.convex.cloud
+
+// The blue icon; Debug builds wear the yellow one (mobile/DESIGN.md "Dev builds").
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon

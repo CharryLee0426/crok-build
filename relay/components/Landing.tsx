@@ -14,6 +14,8 @@ function demoRows(t: (key: MessageKey) => string): { row: SessionRow; time: stri
   const base = {
     sessionId: "demo",
     model: "grok-code",
+    gitBranch: null,
+    usage: null,
     app: "tui" as const,
     deviceId: "demo-device" as SessionRow["deviceId"],
     deviceOnline: true,

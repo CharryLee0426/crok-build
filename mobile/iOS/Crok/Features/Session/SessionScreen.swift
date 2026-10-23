@@ -21,7 +21,7 @@ struct SessionScreen: View {
             } else if let newModel {
                 NewSessionContent(model: newModel)
             } else {
-                Theme.canvas.ignoresSafeArea()
+                SessionBackgroundView().ignoresSafeArea()
             }
         }
         .onAppear {
@@ -75,6 +75,8 @@ private struct SessionContent: View {
     @Environment(\.dismiss) private var dismiss
     @State private var planExpanded = false
     @FocusState private var composerFocused: Bool
+    @AppStorage(SessionTheme.storageKey) private var themeID = SessionTheme.noneID
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -109,7 +111,8 @@ private struct SessionContent: View {
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
             .modifier(BottomTracking(model: model))
-            .background(Theme.canvas.ignoresSafeArea())
+            .background(SessionBackgroundView().ignoresSafeArea())
+            .environment(\.sessionPalette, SessionPalette.make(SessionTheme.named(themeID), dark: colorScheme == .dark))
             .overlay {
                 if model.isRemoved {
                     ContentUnavailableView(
@@ -167,11 +170,13 @@ private struct SessionContent: View {
                     .onTapGesture { model.showsInfo = true }
             }
             ToolbarItem(placement: .topBarTrailing) {
+                // The topic's icon, where Telegram shows the chat's avatar; a tap opens the session's info.
                 Button {
                     model.showsInfo = true
                 } label: {
-                    Image(systemName: "info.circle")
+                    TopicIconView(sessionDocId: model.sessionDocId, title: model.title, size: 32)
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel(Text("Session info"))
                 .accessibilityIdentifier("sessionInfoButton")
             }

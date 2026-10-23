@@ -159,6 +159,38 @@ test("a failed call keeps its input and is filed under the HTTP status's error c
   assert.equal(span.attributes["error.category"], "rate_limit");
 });
 
+test("crok's span attributes land on the call's span, and only on it", async () => {
+  const priced = turnLine({
+    spanAttributes: { "crok.backend": "deepseek", "crok.cost.usd": 0.0123, "crok.cost.source": "list_price" },
+  });
+  priced.start.id = "gen_test3";
+  priced.start.model = { provider: "deepseek", name: "deepseek-v4-pro" };
+  const cancelled = turnLine({
+    error: { message: "cancelled: the request was abandoned before the model finished" },
+    // A value a span cannot hold is dropped; the rest still goes on.
+    spanAttributes: { "crok.cancelled": true, "crok.backend": "glm", nested: { no: 1 } } as never,
+  });
+  cancelled.start.id = "gen_test4";
+  cancelled.result = { completedAtMs: startedAtMs + 400 };
+  const plain = turnLine();
+  plain.start.id = "gen_test5";
+  for (const line of [priced, cancelled, plain]) {
+    assert.equal(recordGeneration(client, line, otel.spanAttributes), undefined);
+  }
+  await drain();
+
+  const span = (id: string) => spans.getFinishedSpans().find((s) => s.attributes["agento11y.generation.id"] === id);
+  assert.equal(span("gen_test3")?.attributes["crok.cost.usd"], 0.0123);
+  assert.equal(span("gen_test3")?.attributes["crok.cost.source"], "list_price");
+  assert.equal(span("gen_test3")?.attributes["crok.backend"], "deepseek");
+  assert.equal(span("gen_test3")?.attributes["gen_ai.provider.name"], "deepseek");
+  assert.equal(span("gen_test4")?.attributes["crok.cancelled"], true);
+  assert.equal(span("gen_test4")?.attributes["crok.backend"], "glm");
+  assert.equal(span("gen_test4")?.attributes.nested, undefined);
+  assert.equal(span("gen_test4")?.status.code, 2, "still an error span for the SDK");
+  assert.equal(span("gen_test5")?.attributes["crok.backend"], undefined);
+});
+
 test("parseLine accepts generation and flush lines and rejects the rest", () => {
   assert.equal(parseLine("   "), undefined);
   assert.deepEqual(parseLine('{"type":"flush"}'), { type: "flush" });

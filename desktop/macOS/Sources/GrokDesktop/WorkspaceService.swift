@@ -18,12 +18,18 @@ struct GitWorkspaceSnapshot: Equatable, Sendable {
     let changes: [GitFileChange]
     let rootPath: String?
     let error: String?
+    /// The workspace is on another computer: its branch is real, its folder is not on this Mac.
+    let isRemote: Bool
 
-    init(branch: String, changes: [GitFileChange], rootPath: String? = nil, error: String? = nil) {
+    /// A repository the footer can draw, here or on another computer.
+    var hasRepository: Bool { rootPath != nil || isRemote }
+
+    init(branch: String, changes: [GitFileChange], rootPath: String? = nil, error: String? = nil, isRemote: Bool = false) {
         self.branch = branch
         self.changes = changes
         self.rootPath = rootPath
         self.error = error
+        self.isRemote = isRemote
     }
 }
 

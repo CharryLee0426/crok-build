@@ -19569,9 +19569,10 @@ function startOtel(options) {
   const resource = crokResource(options.serviceVersion);
   const spanExporter = new LoggedSpanExporter(options.spanExporter ?? new import_exporter_trace_otlp_http.OTLPTraceExporter(), options.log);
   const metricExporter = new LoggedMetricExporter(options.metricExporter ?? new import_exporter_metrics_otlp_http.OTLPMetricExporter(), options.log);
+  const spanAttributes = new CrokSpanAttributes();
   const tracerProvider = new import_sdk_trace.TracerProvider({
     resource,
-    spanProcessors: [new import_sdk_trace.BatchSpanProcessor({ exporter: spanExporter })]
+    spanProcessors: [spanAttributes, new import_sdk_trace.BatchSpanProcessor({ exporter: spanExporter })]
   });
   const meterProvider = new import_sdk_metrics.MeterProvider({
     resource,
@@ -19584,8 +19585,38 @@ function startOtel(options) {
   });
   trace.setGlobalTracerProvider(tracerProvider);
   metrics.setGlobalMeterProvider(meterProvider);
-  return { tracerProvider, meterProvider };
+  return { tracerProvider, meterProvider, spanAttributes };
 }
+var CrokSpanAttributes = class {
+  pending = /* @__PURE__ */ new Map();
+  /** Attributes for the span of generation `id`, written when that span ends. */
+  expect(id, attributes) {
+    this.pending.set(id, attributes);
+  }
+  /** Drops what no span took (the SDK refused the generation before starting one). */
+  forget(id) {
+    this.pending.delete(id);
+  }
+  onStart() {
+  }
+  onEnding(span) {
+    const id = span.attributes["agento11y.generation.id"];
+    const attributes = typeof id === "string" ? this.pending.get(id) : void 0;
+    if (attributes !== void 0) {
+      span.setAttributes(attributes);
+      this.pending.delete(id);
+    }
+  }
+  onEnd() {
+  }
+  forceFlush() {
+    return Promise.resolve();
+  }
+  shutdown() {
+    this.pending.clear();
+    return Promise.resolve();
+  }
+};
 async function flushOtel(providers) {
   await Promise.allSettled([providers.tracerProvider.forceFlush(), providers.meterProvider.forceFlush()]);
 }
@@ -19697,6 +19728,16 @@ function toResult(fields) {
   const { completedAtMs, ...rest } = fields;
   return { ...rest, completedAt: new Date(completedAtMs) };
 }
+function spanAttributesOf(line) {
+  const given = line.spanAttributes;
+  if (!isRecord4(given)) {
+    return void 0;
+  }
+  const kept = Object.entries(given).filter(
+    (entry) => typeof entry[1] === "string" || typeof entry[1] === "boolean" || typeof entry[1] === "number" && Number.isFinite(entry[1])
+  );
+  return kept.length > 0 ? Object.fromEntries(kept) : void 0;
+}
 function toCallError(error) {
   const status = error.statusCode;
   const message = typeof status === "number" ? `HTTP ${status}: ${error.message}` : error.message;
@@ -19707,7 +19748,11 @@ function isRecord4(value) {
 }
 
 // src/record.ts
-function recordGeneration(client2, line) {
+function recordGeneration(client2, line, spanAttributes) {
+  const extra = spanAttributesOf(line);
+  if (extra !== void 0) {
+    spanAttributes?.expect(line.start.id, extra);
+  }
   const start = toStart(line.start);
   const recorder = line.start.mode === "SYNC" ? client2.startGeneration(start) : client2.startStreamingGeneration(start);
   try {
@@ -19720,6 +19765,7 @@ function recordGeneration(client2, line) {
     }
   } finally {
     recorder.end();
+    spanAttributes?.forget(line.start.id);
   }
   return recorder.getError();
 }
@@ -19760,7 +19806,7 @@ lines.on("line", (text) => {
     return;
   }
   try {
-    const error = recordGeneration(client, line);
+    const error = recordGeneration(client, line, otel.spanAttributes);
     if (error === void 0) {
       recorded += 1;
       log.debug(`recorded ${line.start.id} (${line.start.agentName ?? "agent?"}, ${line.start.model.name})`);

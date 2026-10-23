@@ -37,6 +37,7 @@ export const commandType = v.union(
   v.literal("answer"),
   v.literal("create"),
   v.literal("config"),
+  v.literal("git"),
 );
 
 /** The settings `commands:setConfig` changes, named as crok's `session/set_config_option` names them. */
@@ -120,6 +121,8 @@ export const sessionUsage = v.object({
   costUsd: v.optional(v.number()),
   contextTokens: v.optional(v.number()),
   contextWindow: v.optional(v.number()),
+  /** Output tokens per second, the session average as its computer measured it. */
+  outputTokensPerSecond: v.optional(v.number()),
 });
 
 export default defineSchema({
@@ -309,6 +312,12 @@ export default defineSchema({
     interactionId: v.optional(v.string()),
     /** For `config`: the setting it changes (`text` holds the value). */
     configId: v.optional(configId),
+    /**
+     * For `create`: the model and thinking level chosen for the new session (`effort` is what `commands:setConfig`
+     * takes), applied by its computer before the first prompt.
+     */
+    model: v.optional(v.string()),
+    effort: v.optional(v.string()),
     /** Client-made id: makes a resend idempotent and lets the sender match its optimistic bubble. */
     clientId: v.optional(v.string()),
     status: commandStatus,

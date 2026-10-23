@@ -37,15 +37,12 @@
 
     <!-- Tabs and connection state -->
     <string name="tab_sessions">Sitzungen</string>
-    <string name="tab_settings">Einstellungen</string>
     <string name="connection_waiting_network">Warte auf Netzwerk</string>
     <string name="connection_connecting">Verbinde …</string>
     <string name="connection_updating">Aktualisiere …</string>
 
     <!-- Session list -->
     <string name="sessions_title">Sitzungen</string>
-    <string name="filter_all">Alle</string>
-    <string name="filter_archived">Archiviert</string>
     <string name="sessions_search">Suchen</string>
     <string name="sessions_search_hint">Sitzungen durchsuchen</string>
     <string name="sessions_working">arbeitet</string>
@@ -59,7 +56,6 @@
     <string name="sessions_empty_title">Noch keine Sitzungen</string>
     <string name="sessions_empty_body">Führe crok remote login auf einem Computer aus oder melde dich in den Einstellungen von Crok Desktop unter Fernsteuerung an. Seine Sitzungen erscheinen hier.</string>
     <string name="sessions_link_computer">Computer verknüpfen</string>
-    <string name="sessions_archived_empty">Archivierte Sitzungen erscheinen hier.</string>
     <string name="sessions_no_results">Keine passenden Sitzungen.</string>
     <string name="sessions_archived_snackbar">Sitzung archiviert</string>
     <string name="sessions_action_failed">Sitzung konnte nicht aktualisiert werden: %1$s</string>
@@ -71,19 +67,10 @@
         <item quantity="one">%d Sitzung</item>
         <item quantity="other">%d Sitzungen</item>
     </plurals>
-    <plurals name="sessions_show_more">
-        <item quantity="one">%d weitere anzeigen</item>
-        <item quantity="other">%d weitere anzeigen</item>
-    </plurals>
-    <string name="sessions_show_less">Weniger anzeigen</string>
     <string name="sessions_reorder">Neu anordnen</string>
-    <string name="sessions_reorder_hint">Ziehe ≡, um ein Projekt zu verschieben. Tippe auf ein Projekt, um seine Sitzungen zu verschieben; angeheftete bleiben oben.</string>
     <string name="sessions_sort_recent">Nach letzter Aktivität sortieren</string>
-    <string name="sessions_sort_projects_recent">Projekte nach letzter Aktivität sortieren</string>
     <string name="action_move_up">Nach oben</string>
     <string name="action_move_down">Nach unten</string>
-    <string name="action_collapse">Einklappen</string>
-    <string name="action_expand">Ausklappen</string>
 
     <!-- Session -->
     <string name="session_status_working">arbeitet …</string>
@@ -154,23 +141,14 @@
     <string name="action_remove">Entfernen</string>
 
     <!-- Settings -->
-    <string name="settings_title">Einstellungen</string>
-    <string name="settings_this_phone">Dieses Handy: %1$s</string>
     <string name="settings_devices">Geräte</string>
-    <plurals name="settings_devices_count">
-        <item quantity="one">%d Gerät</item>
-        <item quantity="other">%d Geräte</item>
-    </plurals>
     <string name="settings_link_computer">Computer verknüpfen</string>
-    <string name="settings_link_computer_detail">Scanne den QR-Code, den crok remote login anzeigt</string>
     <string name="settings_appearance">Darstellung</string>
     <string name="theme_system">System</string>
     <string name="theme_light">Hell</string>
     <string name="theme_dark">Dunkel</string>
     <string name="settings_language">Sprache</string>
-    <string name="settings_about">Über</string>
     <string name="settings_version">Version</string>
-    <string name="settings_server">Server</string>
     <string name="settings_sign_out">Abmelden</string>
     <string name="sign_out_title">Von Crok abmelden?</string>
     <string name="sign_out_body">Dieses Handy zeigt deine Sitzungen erst wieder, wenn du dich erneut anmeldest.</string>
@@ -201,7 +179,6 @@
         <item quantity="one">%d Gerät abgemeldet</item>
         <item quantity="other">%d Geräte abgemeldet</item>
     </plurals>
-    <string name="devices_footer">Ein abgemeldetes Gerät ist nicht mehr mit deinem Konto verknüpft. Seine Sitzungen bleiben auf diesem Computer.</string>
     <string name="devices_this_device_note">Das ist das Handy, das du gerade benutzt. Wenn du es abmeldest, kehrst du zum Anfang zurück.</string>
     <string name="devices_failed">Gerät konnte nicht abgemeldet werden: %1$s</string>
 
@@ -261,7 +238,6 @@
     <string name="new_session_unavailable">Das Projekt dieser Sitzung ist unbekannt, daher kann /new hier keine Sitzung starten.</string>
     <string name="session_starting">Startet …</string>
     <string name="sessions_new_session">Neue Sitzung</string>
-    <string name="sessions_new_in_project">Neue Sitzung in %1$s</string>
     <string name="picker_title">Sitzung starten in …</string>
     <string name="picker_empty">Kein Computer ist online. Starte crok oder Crok Desktop auf einem, um dort eine Sitzung zu beginnen.</string>
     <string name="composer_menu">Menü</string>
@@ -286,4 +262,52 @@
     <string name="bot_failed">Konnte nicht geändert werden: %1$s</string>
     <string name="bot_current">Aktuell</string>
     <string name="cd_compose">Neue Sitzung</string>
+    <string name="tab_profile">Profil</string>
+    <string name="profile_title">Profil</string>
+    <string name="action_mark_all_read">Alle als gelesen markieren</string>
+    <string name="action_mark_read">Als gelesen markieren</string>
+    <string name="action_read">Gelesen</string>
+    <string name="action_read_all">Alle lesen</string>
+    <string name="action_edit">Bearbeiten</string>
+    <string name="sessions_archived_title">Archivierte Sitzungen</string>
+    <string name="sessions_archived_none">Keine archivierten Sitzungen</string>
+    <string name="sessions_archived_hint">Wische auf einer Sitzung nach links, um sie zu archivieren.</string>
+    <string name="sessions_no_computers">Noch keine Computer</string>
+    <string name="sessions_empty_computer">Noch keine Sitzungen auf %1$s</string>
+    <string name="sessions_history_on">Verlauf auf %1$s</string>
+    <string name="sessions_no_messages">Noch keine Nachrichten</string>
+    <string name="sessions_reorder_hint_projects">Ziehe ≡, um ein Projekt zu verschieben.</string>
+    <string name="sessions_reorder_hint_sessions">Ziehe ≡, um eine Sitzung zu verschieben; angeheftete bleiben oben.</string>
+    <string name="computer_offline">offline</string>
+    <string name="cd_selected">Ausgewählt</string>
+    <string name="appearance_session_theme">Sitzungsdesign</string>
+    <string name="appearance_choose_photo">Foto auswählen</string>
+    <string name="appearance_blur">Weichzeichnen</string>
+    <string name="appearance_color_mode">Farbmodus</string>
+    <string name="appearance_preview_in">Alle 214 Tests bestehen. Soll ich einen PR öffnen?</string>
+    <string name="appearance_preview_out">Ja, bitte.</string>
+    <string name="session_theme_none">Kein Design</string>
+    <string name="session_theme_classic">Klassisch</string>
+    <string name="session_theme_home">Zuhause</string>
+    <string name="session_theme_duck">Küken</string>
+    <string name="session_theme_snowman">Schneemann</string>
+    <string name="session_theme_diamond">Diamant</string>
+    <string name="session_theme_teacher">Lehrer</string>
+    <string name="session_theme_tulip">Tulpe</string>
+    <string name="session_theme_purple">Lila Herz</string>
+    <string name="session_theme_christmas">Weihnachtsbaum</string>
+    <string name="session_theme_game">Videospiel</string>
+    <string name="session_theme_photo">Foto</string>
+    <string name="profile_contact_github">Entwickler auf GitHub kontaktieren</string>
+    <string name="profile_contact_x">Entwickler auf X kontaktieren</string>
+    <string name="profile_mode">Modus</string>
+    <string name="profile_mode_demo">Demo</string>
+    <plurals name="project_subtitle">
+        <item quantity="one">%1$d Sitzung · %2$s</item>
+        <item quantity="other">%1$d Sitzungen · %2$s</item>
+    </plurals>
+    <plurals name="switcher_unread">
+        <item quantity="one">%d ungelesen</item>
+        <item quantity="other">%d ungelesen</item>
+    </plurals>
 </resources>

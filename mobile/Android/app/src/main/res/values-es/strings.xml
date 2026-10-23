@@ -37,15 +37,12 @@
 
     <!-- Tabs and connection state -->
     <string name="tab_sessions">Sesiones</string>
-    <string name="tab_settings">Ajustes</string>
     <string name="connection_waiting_network">Esperando red</string>
     <string name="connection_connecting">Conectando…</string>
     <string name="connection_updating">Actualizando…</string>
 
     <!-- Session list -->
     <string name="sessions_title">Sesiones</string>
-    <string name="filter_all">Todas</string>
-    <string name="filter_archived">Archivadas</string>
     <string name="sessions_search">Buscar</string>
     <string name="sessions_search_hint">Buscar sesiones</string>
     <string name="sessions_working">trabajando</string>
@@ -59,7 +56,6 @@
     <string name="sessions_empty_title">Aún no hay sesiones</string>
     <string name="sessions_empty_body">Ejecuta crok remote login en un ordenador o inicia sesión en Control remoto, en los Ajustes de Crok Desktop. Sus sesiones aparecerán aquí.</string>
     <string name="sessions_link_computer">Vincular un ordenador</string>
-    <string name="sessions_archived_empty">Las sesiones archivadas aparecen aquí.</string>
     <string name="sessions_no_results">No hay sesiones que coincidan.</string>
     <string name="sessions_archived_snackbar">Sesión archivada</string>
     <string name="sessions_action_failed">No se pudo actualizar la sesión: %1$s</string>
@@ -73,20 +69,10 @@
         <item quantity="many">%d sesiones</item>
         <item quantity="other">%d sesiones</item>
     </plurals>
-    <plurals name="sessions_show_more">
-        <item quantity="one">Mostrar %d más</item>
-        <item quantity="many">Mostrar %d más</item>
-        <item quantity="other">Mostrar %d más</item>
-    </plurals>
-    <string name="sessions_show_less">Mostrar menos</string>
     <string name="sessions_reorder">Reordenar</string>
-    <string name="sessions_reorder_hint">Arrastra ≡ para mover un proyecto. Toca un proyecto para mover sus sesiones; las fijadas se quedan arriba.</string>
     <string name="sessions_sort_recent">Ordenar por actividad reciente</string>
-    <string name="sessions_sort_projects_recent">Ordenar proyectos por actividad reciente</string>
     <string name="action_move_up">Subir</string>
     <string name="action_move_down">Bajar</string>
-    <string name="action_collapse">Contraer</string>
-    <string name="action_expand">Expandir</string>
 
     <!-- Session -->
     <string name="session_status_working">trabajando…</string>
@@ -157,24 +143,14 @@
     <string name="action_remove">Quitar</string>
 
     <!-- Settings -->
-    <string name="settings_title">Ajustes</string>
-    <string name="settings_this_phone">Este teléfono: %1$s</string>
     <string name="settings_devices">Dispositivos</string>
-    <plurals name="settings_devices_count">
-        <item quantity="one">%d dispositivo</item>
-        <item quantity="many">%d dispositivos</item>
-        <item quantity="other">%d dispositivos</item>
-    </plurals>
     <string name="settings_link_computer">Vincular un ordenador</string>
-    <string name="settings_link_computer_detail">Escanea el código QR que muestra crok remote login</string>
     <string name="settings_appearance">Apariencia</string>
     <string name="theme_system">Sistema</string>
     <string name="theme_light">Claro</string>
     <string name="theme_dark">Oscuro</string>
     <string name="settings_language">Idioma</string>
-    <string name="settings_about">Acerca de</string>
     <string name="settings_version">Versión</string>
-    <string name="settings_server">Servidor</string>
     <string name="settings_sign_out">Cerrar sesión</string>
     <string name="sign_out_title">¿Cerrar sesión en Crok?</string>
     <string name="sign_out_body">Este teléfono dejará de mostrar tus sesiones hasta que vuelvas a iniciar sesión.</string>
@@ -207,7 +183,6 @@
         <item quantity="many">Se cerró la sesión en %d dispositivos</item>
         <item quantity="other">Se cerró la sesión en %d dispositivos</item>
     </plurals>
-    <string name="devices_footer">Cerrar la sesión de un dispositivo lo desvincula de tu cuenta. Sus sesiones siguen en ese ordenador.</string>
     <string name="devices_this_device_note">Es el teléfono que estás usando. Si cierras su sesión, volverás al inicio.</string>
     <string name="devices_failed">No se pudo cerrar la sesión del dispositivo: %1$s</string>
 
@@ -270,7 +245,6 @@
     <string name="new_session_unavailable">No se conoce el proyecto de esta sesión, así que /new no puede empezar una aquí.</string>
     <string name="session_starting">Iniciando…</string>
     <string name="sessions_new_session">Nueva sesión</string>
-    <string name="sessions_new_in_project">Nueva sesión en %1$s</string>
     <string name="picker_title">Empezar una sesión en…</string>
     <string name="picker_empty">No hay ningún ordenador conectado. Inicia crok o Crok Desktop en uno para empezar allí una sesión.</string>
     <string name="composer_menu">Menú</string>
@@ -295,4 +269,54 @@
     <string name="bot_failed">No se pudo cambiar: %1$s</string>
     <string name="bot_current">Actual</string>
     <string name="cd_compose">Nueva sesión</string>
+    <string name="tab_profile">Perfil</string>
+    <string name="profile_title">Perfil</string>
+    <string name="action_mark_all_read">Marcar todo como leído</string>
+    <string name="action_mark_read">Marcar como leído</string>
+    <string name="action_read">Leído</string>
+    <string name="action_read_all">Leer todo</string>
+    <string name="action_edit">Editar</string>
+    <string name="sessions_archived_title">Sesiones archivadas</string>
+    <string name="sessions_archived_none">No hay sesiones archivadas</string>
+    <string name="sessions_archived_hint">Desliza a la izquierda sobre una sesión para archivarla.</string>
+    <string name="sessions_no_computers">Aún no hay ordenadores</string>
+    <string name="sessions_empty_computer">Aún no hay sesiones en %1$s</string>
+    <string name="sessions_history_on">Historial en %1$s</string>
+    <string name="sessions_no_messages">Aún no hay mensajes</string>
+    <string name="sessions_reorder_hint_projects">Arrastra ≡ para mover un proyecto.</string>
+    <string name="sessions_reorder_hint_sessions">Arrastra ≡ para mover una sesión; las fijadas se quedan arriba.</string>
+    <string name="computer_offline">sin conexión</string>
+    <string name="cd_selected">Seleccionado</string>
+    <string name="appearance_session_theme">Tema de la sesión</string>
+    <string name="appearance_choose_photo">Elegir una foto</string>
+    <string name="appearance_blur">Desenfocar</string>
+    <string name="appearance_color_mode">Modo de color</string>
+    <string name="appearance_preview_in">Pasan las 214 pruebas. ¿Abro un PR?</string>
+    <string name="appearance_preview_out">Sí, por favor.</string>
+    <string name="session_theme_none">Sin tema</string>
+    <string name="session_theme_classic">Clásico</string>
+    <string name="session_theme_home">Hogar</string>
+    <string name="session_theme_duck">Patito</string>
+    <string name="session_theme_snowman">Muñeco de nieve</string>
+    <string name="session_theme_diamond">Diamante</string>
+    <string name="session_theme_teacher">Profesor</string>
+    <string name="session_theme_tulip">Tulipán</string>
+    <string name="session_theme_purple">Corazón morado</string>
+    <string name="session_theme_christmas">Árbol de Navidad</string>
+    <string name="session_theme_game">Videojuego</string>
+    <string name="session_theme_photo">Foto</string>
+    <string name="profile_contact_github">Contactar al desarrollador en GitHub</string>
+    <string name="profile_contact_x">Contactar al desarrollador en X</string>
+    <string name="profile_mode">Modo</string>
+    <string name="profile_mode_demo">Demo</string>
+    <plurals name="project_subtitle">
+        <item quantity="one">%1$d sesión · %2$s</item>
+        <item quantity="many">%1$d sesiones · %2$s</item>
+        <item quantity="other">%1$d sesiones · %2$s</item>
+    </plurals>
+    <plurals name="switcher_unread">
+        <item quantity="one">%d sin leer</item>
+        <item quantity="many">%d sin leer</item>
+        <item quantity="other">%d sin leer</item>
+    </plurals>
 </resources>

@@ -4,7 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { metrics, trace } from "@opentelemetry/api";
+import { type Attributes, metrics, trace } from "@opentelemetry/api";
 import { type ExportResult, ExportResultCode } from "@opentelemetry/core";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
@@ -18,13 +18,21 @@ import {
   type PushMetricExporter,
   type ResourceMetrics,
 } from "@opentelemetry/sdk-metrics";
-import { BatchSpanProcessor, type ReadableSpan, type SpanExporter, TracerProvider } from "@opentelemetry/sdk-trace";
+import {
+  BatchSpanProcessor,
+  type ReadableSpan,
+  type Span,
+  type SpanExporter,
+  type SpanProcessor,
+  TracerProvider,
+} from "@opentelemetry/sdk-trace";
 
 import type { Log } from "./log.js";
 
 export interface OtelProviders {
   tracerProvider: TracerProvider;
   meterProvider: MeterProvider;
+  spanAttributes: CrokSpanAttributes;
 }
 
 export interface OtelOptions {
@@ -42,9 +50,10 @@ export function startOtel(options: OtelOptions): OtelProviders {
   // The OTLP exporters read OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_HEADERS themselves.
   const spanExporter = new LoggedSpanExporter(options.spanExporter ?? new OTLPTraceExporter(), options.log);
   const metricExporter = new LoggedMetricExporter(options.metricExporter ?? new OTLPMetricExporter(), options.log);
+  const spanAttributes = new CrokSpanAttributes();
   const tracerProvider = new TracerProvider({
     resource,
-    spanProcessors: [new BatchSpanProcessor({ exporter: spanExporter })],
+    spanProcessors: [spanAttributes, new BatchSpanProcessor({ exporter: spanExporter })],
   });
   const meterProvider = new MeterProvider({
     resource,
@@ -57,7 +66,48 @@ export function startOtel(options: OtelOptions): OtelProviders {
   });
   trace.setGlobalTracerProvider(tracerProvider);
   metrics.setGlobalMeterProvider(meterProvider);
-  return { tracerProvider, meterProvider };
+  return { tracerProvider, meterProvider, spanAttributes };
+}
+
+/**
+ * Adds crok's own attributes to a generation's span. The SDK fills the span from the generation
+ * and has no field for others; `onEnding` runs after its last attribute, while the span can still
+ * be written, and before the batch processor takes it for export.
+ */
+export class CrokSpanAttributes implements SpanProcessor {
+  private readonly pending = new Map<string, Attributes>();
+
+  /** Attributes for the span of generation `id`, written when that span ends. */
+  expect(id: string, attributes: Attributes): void {
+    this.pending.set(id, attributes);
+  }
+
+  /** Drops what no span took (the SDK refused the generation before starting one). */
+  forget(id: string): void {
+    this.pending.delete(id);
+  }
+
+  onStart(): void {}
+
+  onEnding(span: Span): void {
+    const id = span.attributes["agento11y.generation.id"];
+    const attributes = typeof id === "string" ? this.pending.get(id) : undefined;
+    if (attributes !== undefined) {
+      span.setAttributes(attributes);
+      this.pending.delete(id as string);
+    }
+  }
+
+  onEnd(): void {}
+
+  forceFlush(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  shutdown(): Promise<void> {
+    this.pending.clear();
+    return Promise.resolve();
+  }
 }
 
 /** Pushes whatever spans and metrics are buffered now. */

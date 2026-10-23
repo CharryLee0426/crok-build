@@ -7,3 +7,6 @@
 // For a local `npx convex dev` in relay/, launch with `-CrokServer http://127.0.0.1:3210`, or build with
 // `CROK_RELAY_URL=http://127.0.0.1:3210` on the xcodebuild command line (no escaping needed there).
 CROK_RELAY_URL = https:/$()/limitless-badger-727.convex.cloud
+
+// Debug builds wear the yellow icon, release builds the blue one (mobile/DESIGN.md "Dev builds").
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev

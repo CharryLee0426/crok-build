@@ -7,6 +7,30 @@ import Foundation
 // whose session id is `relay:<id>`; its harness serves it from the relay, and the computer that has the
 // session does the work.
 
+/// The figures a session's computer last reported, as `x.ai/remote/sessions` carries them.
+struct RemoteSessionUsage: Equatable, Sendable {
+    /// The whole prompt, cached parts included.
+    var inputTokens = 0
+    var outputTokens = 0
+    var cachedTokens = 0
+    /// The session's average output speed.
+    var tokensPerSecond: Double?
+
+    init(json: [String: Any]) {
+        inputTokens = (json["inputTokens"] as? NSNumber)?.intValue ?? 0
+        outputTokens = (json["outputTokens"] as? NSNumber)?.intValue ?? 0
+        cachedTokens = (json["cachedTokens"] as? NSNumber)?.intValue ?? 0
+        if let rate = (json["outputTokensPerSecond"] as? NSNumber)?.doubleValue, rate.isFinite, rate > 0 {
+            tokensPerSecond = rate
+        }
+    }
+
+    /// The harness's buckets: `input` is the uncached part of the prompt.
+    var counts: TokenCounts {
+        TokenCounts(input: max(0, inputTokens - cachedTokens), output: outputTokens, cacheRead: cachedTokens)
+    }
+}
+
 /// One session of another computer, as `x.ai/remote/sessions` lists it.
 struct RemoteSessionEntry: Identifiable, Equatable, Sendable {
     /// `relay:<id>`, the session id a task opens it by.
@@ -19,6 +43,10 @@ struct RemoteSessionEntry: Identifiable, Equatable, Sendable {
     var lastActivityAt: Date
     var model: String?
     var preview: String?
+    /// The branch its folder has checked out, when that computer last reported one.
+    var gitBranch: String?
+    /// Its token figures, refreshed at the end of each turn there.
+    var usage: RemoteSessionUsage?
     var id: String { sessionID }
 
     var isWorking: Bool { status == "running" }
@@ -34,6 +62,8 @@ struct RemoteSessionEntry: Identifiable, Equatable, Sendable {
         lastActivityAt = Date(timeIntervalSince1970: ((json["lastActivityAt"] as? NSNumber)?.doubleValue ?? 0) / 1000)
         model = RemoteAccount.text(json["model"])
         preview = RemoteAccount.text(json["preview"])
+        gitBranch = RemoteAccount.text(json["gitBranch"])
+        usage = (json["usage"] as? [String: Any]).map(RemoteSessionUsage.init(json:))
     }
 }
 
@@ -151,6 +181,46 @@ extension AppStore {
         state.conversations.insert(task, at: 0)
         DesktopLog.info("remote.open_session", session: entry.sessionID, ["computer": computer.name])
         selectConversation(task)
+        applyRemoteEntry(entry, to: task.id)
+    }
+
+    /// The listed session with this id, if the remote host has reported it.
+    func remoteEntry(sessionID: String) -> RemoteSessionEntry? {
+        remoteComputers.lazy.flatMap(\.sessions).first { $0.sessionID == sessionID }
+    }
+
+    /// A session's figures and branch as its computer last reported them: the footer shows them before the task
+    /// connects, and again each time the relay says they changed.
+    func applyRemoteEntry(_ entry: RemoteSessionEntry, to id: UUID) {
+        if let usage = entry.usage { features.tokens.noteRemoteUsage(usage, conversationID: id) }
+        guard id == state.selectedConversationID, let branch = entry.gitBranch, !branch.isEmpty else { return }
+        let snapshot = GitWorkspaceSnapshot(branch: branch, changes: workspace.changes, isRemote: true)
+        if workspace != snapshot { workspace = snapshot }
+    }
+
+    /// Every listed session that has an open task: its token figures, and the selected task's branch.
+    func applyRemoteSessionInfo(_ computers: [RemoteComputer]) {
+        let entries = Dictionary(computers.flatMap(\.sessions).map { ($0.sessionID, $0) }, uniquingKeysWith: { first, _ in first })
+        for task in state.conversations where task.remote != nil {
+            guard let session = task.sessionID, let entry = entries[session] else { continue }
+            applyRemoteEntry(entry, to: task.id)
+        }
+    }
+
+    /// `_x.ai/session/info` for a session of another computer: what the relay knows about its branch, figures and
+    /// context window. The list may not carry the session yet (a task started from this Mac), so ask once when its
+    /// harness connects.
+    func noteRemoteInfo(client: ACPClient, session: String, conversationID id: UUID) async {
+        guard let response = try? await client.request("_x.ai/session/info", params: ["sessionId": session]),
+              let result = try? ExtensionResponse.unwrap(response) else { return }
+        if let usage = result["usage"] as? [String: Any] {
+            features.tokens.noteRemoteUsage(RemoteSessionUsage(json: usage), conversationID: id)
+        }
+        let info = UsageSessionInfo(result)
+        features.tokens.noteContext(info.context, conversationID: id)
+        guard id == state.selectedConversationID, let branch = info.branch, !branch.isEmpty else { return }
+        let snapshot = GitWorkspaceSnapshot(branch: branch, changes: workspace.changes, isRemote: true)
+        if workspace != snapshot { workspace = snapshot }
     }
 
     // MARK: New tasks on other computers
@@ -416,6 +486,7 @@ extension AppStore {
     func noteRemoteComputers(_ payload: [String: Any]) {
         let computers = RemoteComputer.list(payload)
         if computers != remoteComputers { remoteComputers = computers }
+        applyRemoteSessionInfo(computers)
         settleStartingTurns(computers)
     }
 

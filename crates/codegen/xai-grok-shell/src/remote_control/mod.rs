@@ -27,6 +27,7 @@
 
 mod bridge;
 mod catalog;
+mod git;
 pub(crate) mod transcript;
 pub(crate) mod viewer;
 
@@ -659,6 +660,12 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
             let viewer = self.viewer()?;
             return match method.as_str() {
                 "x.ai/session/info" => ext_response(&viewer.info(session_id).await?),
+                "x.ai/session/usage" => ext_response(&viewer.usage(session_id).await?),
+                "x.ai/remote/git" => {
+                    let params: Value =
+                        serde_json::from_str(args.params.get()).unwrap_or(Value::Null);
+                    ext_response(&viewer.git(session_id, &params).await?)
+                }
                 "x.ai/session/close" => {
                     viewer.close(session_id);
                     ext_response(&json!({}))

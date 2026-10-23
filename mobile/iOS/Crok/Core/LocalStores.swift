@@ -26,28 +26,6 @@ struct DraftStore: @unchecked Sendable {
     }
 }
 
-/// The projects collapsed in the session list, remembered on this phone by project key.
-struct CollapsedProjectsStore: @unchecked Sendable {
-    var defaults: UserDefaults = .standard
-    private static let key = "crok.collapsedProjects"
-
-    func load() -> Set<String> {
-        Set(defaults.stringArray(forKey: Self.key) ?? [])
-    }
-
-    func save(_ keys: Set<String>) {
-        if keys.isEmpty {
-            defaults.removeObject(forKey: Self.key)
-        } else {
-            defaults.set(keys.sorted(), forKey: Self.key)
-        }
-    }
-
-    func removeAll() {
-        defaults.removeObject(forKey: Self.key)
-    }
-}
-
 /// The last session list, kept in Caches so the app opens on it at once while it reconnects.
 struct SessionListCache: Sendable {
     var directory: URL

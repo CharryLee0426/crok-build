@@ -18,7 +18,7 @@ struct CrokApp: App {
         if options.resetState && !options.demo {
             environment.store.wipe()
             environment.drafts.removeAll()
-            CollapsedProjectsStore(defaults: environment.drafts.defaults).removeAll()
+            SelectedComputerStore(defaults: environment.drafts.defaults).save(nil)
             environment.sessionCache?.clear()
         }
         forcedAppearance = options.appearance.flatMap(Appearance.init(rawValue:))

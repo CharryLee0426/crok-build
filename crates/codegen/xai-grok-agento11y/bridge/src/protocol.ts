@@ -21,7 +21,14 @@ export interface GenerationLine {
   firstTokenAtMs?: number;
   /** Set when the call failed; `result` then carries the request side only. */
   error?: CallError;
+  /**
+   * crok's own attributes for the call's span, which the SDK has no field for: `crok.backend`,
+   * `crok.cost.usd` with `crok.cost.source` (`provider` or `list_price`), `crok.cancelled`.
+   */
+  spanAttributes?: Record<string, SpanAttributeValue>;
 }
+
+export type SpanAttributeValue = string | number | boolean;
 
 /** Asks the bridge to export everything it holds now, without waiting for the timers. */
 export interface FlushLine {
@@ -109,6 +116,21 @@ export function toStart(fields: StartFields): GenerationStart {
 export function toResult(fields: ResultFields): GenerationResult {
   const { completedAtMs, ...rest } = fields;
   return { ...rest, completedAt: new Date(completedAtMs) };
+}
+
+/** The line's span attributes that a span can hold (strings, finite numbers, booleans); the rest is dropped. */
+export function spanAttributesOf(line: GenerationLine): Record<string, SpanAttributeValue> | undefined {
+  const given: unknown = line.spanAttributes;
+  if (!isRecord(given)) {
+    return undefined;
+  }
+  const kept = Object.entries(given).filter(
+    (entry): entry is [string, SpanAttributeValue] =>
+      typeof entry[1] === "string" ||
+      typeof entry[1] === "boolean" ||
+      (typeof entry[1] === "number" && Number.isFinite(entry[1])),
+  );
+  return kept.length > 0 ? Object.fromEntries(kept) : undefined;
 }
 
 /**

@@ -48,7 +48,7 @@ field. `BuildConfig.RELAY_URL` comes from the `CONVEX_URL` line of `relay/enviro
   value that is not an `http(s)://host[:port]` URL.
 - Debug builds allow plain HTTP only to `10.0.2.2`, `127.0.0.1` and `localhost` (`src/debug/res/xml/
   network_security_config.xml`); release builds are HTTPS only.
-- A sign-in belongs to the relay that issued it (stored with its credentials; Settings › About shows it). A build that
+- A sign-in belongs to the relay that issued it (stored with its credentials). A build that
   finds a sign-in from another relay, such as a release build installed over a debug one, forgets it at start and asks
   to sign in again ("This build uses a different relay").
 
@@ -73,23 +73,35 @@ Access tokens come from `deviceAuth:refresh` over the HTTP API, never through th
 `loginFromCache` (the Convex client's reconnect) and five minutes before expiry. A `REVOKED` answer anywhere signs the
 phone out and returns to Welcome with a note.
 
-## The session list
+## Computers, projects and sessions
 
-As on the web and iOS (relay/DESIGN.md §5, "The session list"): every session on every linked computer — also the ones
-no crok runs right now, listed from the computer's disk — grouped by project, in an order the person sets and every
-client shares.
+As on iOS ([`mobile/DESIGN.md`](../DESIGN.md)): Telegram's accounts, groups with topics and topics. Every session on
+every linked computer — also the ones no crok runs right now, listed from the computer's disk — in an order the person
+sets and every client shares.
 
-- **All** and one tab per computer show `sessions:groups` (a computer tab keeps that computer's projects); **Archived**
-  stays a flat `sessions:list({archived: true})`.
-- A section header has a folder icon, the project's name, on All the computer (with its online dot), the session count
-  and a chevron. Tapping it collapses the project (remembered on this phone per project key, `CollapsedProjectsStore`);
-  a section shows 5 sessions, then "Show N more" / "Show less". A row's second line shows the session's own folder
-  only when it is not the project's name.
-- **Reorder** (toolbar) shows the projects with drag handles; tap a project to move its sessions instead (pinned ones
-  stay first). Long-press menus have **Move up** / **Move down** on projects and sessions and **Sort by recent activity**
-  on a project; the toolbar menu has **Sort projects by recent activity**. Moves are optimistic: `CrokEngine` shows them
-  at once and drops its local copy once `sessions:groups` reflects them, or takes them back if the relay refuses. Search
-  keeps the matching sessions per project, hides empty projects and turns reordering off.
+- Each linked computer is an **account** of the person. The Sessions tab shows only the selected one
+  (`ComputerSelectionStore`, `crok.selectedComputer`; by default the most recently active). The **computer switcher**
+  (long press on the Profile tab, or the Sessions title) lists them in link order with their unread counts and a
+  checkmark, then **Link a computer**; Profile lists them too. Switching takes the Sessions tab back to its root.
+- The Sessions tab's rows are the computer's **projects** as Telegram's forum rows (`SessionsScreen`): a rounded-square
+  avatar, the name and time, the three most recent sessions' titles with their topic glyphs, then "working…" / "Needs
+  approval" / the latest preview, and the unread total. Above them, **Archived Sessions** (that computer's archived
+  sessions). A swipe from the start marks a project read. Search lists the computer's matching sessions.
+- A project opens its **topics** (`ProjectScreen`): one row per session with its topic glyph (a speech bubble in one of
+  Telegram's six topic colours, picked from the session id with the same FNV-1a hash as iOS), the folder line only
+  when it is not the project's, two lines of preview; swipes Pin / Archive; a long press has Stop, Mark as Read, Move up
+  / Move down. Its "⋯" menu has Mark All as Read, Reorder and Sort by recent activity.
+- **Edit** (Sessions tab) gives projects drag handles, and the tab bar gives way to **Read All** and **Sort by recent
+  activity**; a project's **Reorder** does the same for its sessions (pinned ones stay first). Moves are optimistic:
+  `CrokEngine` shows them at once and drops its local copy once `sessions:groups` reflects them, or takes them back if
+  the relay refuses.
+- **Mark All as Read** (long press on the Sessions tab, Read All, a project's Read) calls `sessions:markRead` for each
+  unread session; `CrokEngine` shows them read at once and takes back the ones the relay refused.
+- The session screen's top-right button is the session's topic glyph (it opens the info sheet); its background and the
+  person's bubbles follow the **session theme** (Profile › Appearance: Telegram's chat themes drawn as a four-colour
+  gradient with Material-icon doodles, light and dark variants, or a photo from the system photo picker, optionally
+  blurred and dimmed in dark mode; `ui/theme/SessionThemes.kt`).
+- Debug builds wear a yellow launcher icon (`src/debug/res/values/colors.xml`), release builds the blue one.
 - A session listed from disk opens on "Loading from <computer>…" while that computer is online (`sessions:watch` asks
   a crok there for the history, and asks again when the computer comes back online), else "<computer> is offline…".
 - Rows are dimmed only when their computer is offline (`deviceOnline`). A session nobody runs on an online computer
@@ -106,7 +118,7 @@ client shares.
 
 As on the web and iOS (relay/DESIGN.md §5, "New sessions" and "Commands in the composer"):
 
-- Each project section of an online computer has a "+" (and **New session** in its long-press menu); the top bar's
+- Each project of an online computer has **New session** in its long-press menu and its screen's compose button; the top bar's
   compose button first asks for the project (online computers' projects, grouped by computer, recent first). Both open
   the **new-session screen**: "New session" with the project and computer under it, "Starts in <path> on <computer>",
   and the composer. Sending calls `sessions:create` and the same screen turns into that session (same navigation

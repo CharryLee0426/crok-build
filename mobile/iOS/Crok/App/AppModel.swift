@@ -268,7 +268,7 @@ final class AppModel {
     private func forgetLocalState() {
         environment.store.wipe()
         environment.drafts.removeAll()
-        CollapsedProjectsStore(defaults: environment.drafts.defaults).removeAll()
+        SelectedComputerStore(defaults: environment.drafts.defaults).save(nil)
         environment.sessionCache?.clear()
     }
 }

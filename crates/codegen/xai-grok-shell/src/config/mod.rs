@@ -501,7 +501,7 @@ impl ManagedMcpsConfig {
 #[serde(default)]
 pub(crate) struct ModelOverrideConfig {
     pub web_search: String,
-    /// `None` = current model.
+    /// Accepted for compatibility; session titles use the session's current model.
     pub session_summary: Option<String>,
     /// Compiled default (`grok-4.6`) when unset locally, remotely, and via env.
     pub image_description: Option<String>,

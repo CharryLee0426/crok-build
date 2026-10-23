@@ -25,7 +25,7 @@ struct ComposerGitFooter: View {
 
     @ViewBuilder
     private var git: some View {
-        if store.workspace.rootPath != nil {
+        if store.workspace.hasRepository {
             Button { showBranches.toggle() } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.triangle.branch")
@@ -155,9 +155,12 @@ struct BranchPickerPopover: View {
     }
 
     private func load() async {
-        guard let project = store.project else { loading = false; return }
         loading = true
-        branches = await WorkspaceService().branches(path: project.path)
+        if let task = store.conversation, task.remote != nil {
+            branches = await store.remoteBranches(conversationID: task.id)
+        } else if let project = store.project {
+            branches = await WorkspaceService().branches(path: project.path)
+        }
         loading = false
     }
 

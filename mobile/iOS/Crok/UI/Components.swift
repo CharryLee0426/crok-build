@@ -1,16 +1,23 @@
 import SwiftUI
 
-/// A session's avatar: project initials on the project's colour, with an online dot (Telegram's peer avatar).
+/// A project's avatar: its initials on the project's colour. A rounded square on the Sessions tab, where a project is
+/// a group with topics (Telegram draws forum avatars that way); a circle with an online dot elsewhere.
 struct ProjectAvatarView: View {
     let folder: String
     var online = false
     var dimmed = false
     var size: CGFloat = 54
+    var square = false
 
     var body: some View {
         ZStack {
-            Circle()
-                .fill(Theme.avatarColor(for: folder).gradient)
+            if square {
+                RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+                    .fill(Theme.avatarColor(for: folder).gradient)
+            } else {
+                Circle()
+                    .fill(Theme.avatarColor(for: folder).gradient)
+            }
             Text(ProjectAvatar.initials(forFolder: folder))
                 .font(.system(size: size * 0.38, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
@@ -126,11 +133,14 @@ struct ConnectionTitleView: View {
     let title: String
     let subtitle: AnyView?
     let connection: ConnectionStatus
+    /// A small chevron after the title: a tap on it opens a menu (the computer switcher).
+    let chevron: Bool
 
-    init(title: String, connection: ConnectionStatus, subtitle: AnyView? = nil) {
+    init(title: String, connection: ConnectionStatus, subtitle: AnyView? = nil, chevron: Bool = false) {
         self.title = title
         self.connection = connection
         self.subtitle = subtitle
+        self.chevron = chevron
     }
 
     var body: some View {
@@ -143,9 +153,17 @@ struct ConnectionTitleView: View {
                 }
                 .accessibilityIdentifier("connectionTitle")
             } else {
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                    if chevron {
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .foregroundStyle(Color.primary)
                 if let subtitle {
                     if let state = connection.title {
                         HStack(spacing: 4) {

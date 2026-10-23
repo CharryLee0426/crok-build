@@ -38,8 +38,6 @@ struct DevicesView: View {
                 Section {
                     Button("Sign out all other devices", role: .destructive) { confirmOthers = true }
                         .accessibilityIdentifier("signOutOthers")
-                } footer: {
-                    Text("Every computer and phone except this iPhone is signed out. They can sign in again with a new code.")
                 }
             }
         }

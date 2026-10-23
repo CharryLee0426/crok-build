@@ -453,7 +453,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `models.max_retries` | `number` | `yes` | `user` | Global inference retry default when a model leaves it unset. |
 | `models.prompt_suggestion` | `string` | `yes` | `user` | Model pin for next-prompt ghost text. Unset falls through remote, then the session model. |
 | `models.rate_limit_retry_threshold` | `number` | `yes` | `user` | Global total-attempt ceiling for rate-limited requests when a model leaves it unset, capped by the resolved `max_retries`; when configured, it disables the separate subagent 429 wait loop. |
-| `models.session_summary` | `string` | `yes` | `user` | Model used for session titles and summaries. |
+| `models.session_summary` | `string` | `yes` | `user` | Accepted for compatibility. Session titles use the session's current model. |
 | `models.stream_tool_calls` | `boolean` | `yes` | `user` | Global tool-call streaming request shape; some BYOK endpoints need false. |
 | `models.subagent_rate_limit_max_attempts` | `number` | `yes` | `user` | Global default for subagent 429 wait-loop attempts when `rate_limit_retry_threshold` is unset; default 8, maximum 32, and `0` disables the wait loop. |
 | `models.temperature` | `number` | `yes` | `user` | Global sampling temperature default when a model leaves it unset. |

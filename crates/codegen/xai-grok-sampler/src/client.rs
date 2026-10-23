@@ -748,6 +748,13 @@ impl SamplingClient {
         &self.base_url
     }
 
+    /// Whether prompt-cache writes go to Anthropic's one-hour lifetime, which costs more, for [`crate::observe`].
+    pub(crate) fn observed_one_hour_cache(&self) -> bool {
+        self.defaults.anthropic.is_some_and(|options| {
+            options.cache_ttl == xai_grok_sampling_types::PromptCacheTtl::OneHour
+        })
+    }
+
     /// The temperature, top-p and output cap [`Self::apply_conversation_defaults`] fills in, for [`crate::observe`].
     pub(crate) fn observed_defaults(&self) -> (Option<f32>, Option<f32>, Option<u32>) {
         (

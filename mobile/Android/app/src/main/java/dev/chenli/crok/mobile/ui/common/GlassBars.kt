@@ -1,12 +1,23 @@
 package dev.chenli.crok.mobile.ui.common
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +32,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -76,6 +86,8 @@ fun GlassScaffold(
     bottomBar: @Composable () -> Unit = {},
     snackbarHost: @Composable () -> Unit = {},
     floating: @Composable BoxScope.(PaddingValues) -> Unit = {},
+    /** Drawn under the content, inside what the glass reads (a session's background). */
+    wallpaper: (@Composable () -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val backdrop = rememberGlassBackdrop(background)
@@ -97,30 +109,95 @@ fun GlassScaffold(
                 bottom = bars.calculateBottomPadding() + bottomChrome,
             )
             Box(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxSize().glassContent(backdrop)) { content(padding) }
+                Box(Modifier.fillMaxSize().glassContent(backdrop)) {
+                    wallpaper?.invoke()
+                    content(padding)
+                }
                 floating(padding)
             }
         }
     }
 }
 
-/** One tab of [GlassTabBar]. */
-data class GlassTab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector = icon)
+/**
+ * One tab of [GlassTabBar]: an icon (or [customIcon], e.g. the account picture, told whether the tab is selected), a
+ * [badge] count, and a [menu] that a long press opens above the bar (Telegram's tab context menus).
+ */
+data class GlassTab(
+    val label: String,
+    val icon: ImageVector? = null,
+    val selectedIcon: ImageVector? = icon,
+    val badge: Int = 0,
+    val customIcon: (@Composable (selected: Boolean) -> Unit)? = null,
+    val menu: (@Composable ColumnScope.(dismiss: () -> Unit) -> Unit)? = null,
+    val tag: String? = null,
+)
+
+/**
+ * What takes the tab bar's place while a screen inside asks for it (Edit mode's bottom toolbar, Telegram's): the screen
+ * sets [replacement] and clears it when it leaves.
+ */
+class TabBarSlot {
+    var replacement by mutableStateOf<(@Composable () -> Unit)?>(null)
+}
+
+val LocalTabBarSlot = compositionLocalOf<TabBarSlot?> { null }
+
+/** Puts [bar] in the tab bar's place while [active]. */
+@Composable
+fun ReplaceTabBar(active: Boolean, bar: @Composable () -> Unit) {
+    val slot = LocalTabBarSlot.current ?: return
+    val latest by rememberUpdatedState(bar)
+    DisposableEffect(slot, active) {
+        val content: @Composable () -> Unit = { latest() }
+        if (active) slot.replacement = content
+        onDispose { if (slot.replacement === content) slot.replacement = null }
+    }
+}
 
 /**
  * The home screen's tab bar as iOS 26 draws it: a floating glass capsule above the navigation bar, the selected tab on a
  * lighter capsule of its own. The content under it fills the whole screen; [LocalBottomChrome] tells it how much room
- * the bar takes.
+ * the bar takes. A long press on a tab with a menu opens it over a dimmed screen, on glass, above the bar.
  */
 @Composable
-fun GlassTabScaffold(tabs: List<GlassTab>, selected: Int, onSelect: (Int) -> Unit, content: @Composable () -> Unit) {
+fun GlassTabScaffold(
+    tabs: List<GlassTab>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    initialMenu: Int? = null,
+    content: @Composable () -> Unit,
+) {
     val colors = CrokTheme.colors
     val density = LocalDensity.current
     val backdrop = rememberGlassBackdrop(colors.screen)
     var chrome by remember { mutableStateOf(0.dp) }
+    var menuFor by remember { mutableStateOf(initialMenu) }
+    val slot = remember { TabBarSlot() }
     Box(Modifier.fillMaxSize().background(colors.screen)) {
         Box(Modifier.fillMaxSize().glassContent(backdrop)) {
-            CompositionLocalProvider(LocalBottomChrome provides chrome) { content() }
+            CompositionLocalProvider(LocalBottomChrome provides chrome, LocalTabBarSlot provides slot) { content() }
+        }
+        val open = menuFor?.let { index -> tabs.getOrNull(index)?.menu?.let { index to it } }
+        if (open != null) {
+            val dismiss = { menuFor = null }
+            BackHandler(onBack = dismiss)
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = if (colors.isDark) 0.35f else 0.16f))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = dismiss),
+            )
+            val (index, menu) = open
+            val alignment = if (index < tabs.size / 2.0) Alignment.BottomStart else Alignment.BottomEnd
+            Box(
+                Modifier
+                    .align(alignment)
+                    .navigationBarsPadding()
+                    .padding(bottom = chrome + 4.dp, start = 20.dp, end = 20.dp),
+            ) {
+                ProvideGlass(backdrop) { GlassMenu { menu(dismiss) } }
+            }
         }
         Box(
             Modifier
@@ -130,13 +207,17 @@ fun GlassTabScaffold(tabs: List<GlassTab>, selected: Int, onSelect: (Int) -> Uni
                 .onSizeChanged { chrome = with(density) { it.height.toDp() } + 16.dp }
                 .padding(horizontal = 24.dp),
         ) {
-            ProvideGlass(backdrop) { GlassTabBar(tabs, selected, onSelect) }
+            ProvideGlass(backdrop) {
+                val replacement = slot.replacement
+                if (replacement != null) replacement() else GlassTabBar(tabs, selected, onSelect, onLongPress = { menuFor = it })
+            }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GlassTabBar(tabs: List<GlassTab>, selected: Int, onSelect: (Int) -> Unit) {
+private fun GlassTabBar(tabs: List<GlassTab>, selected: Int, onSelect: (Int) -> Unit, onLongPress: (Int) -> Unit) {
     val colors = CrokTheme.colors
     Row(
         Modifier
@@ -151,13 +232,32 @@ private fun GlassTabBar(tabs: List<GlassTab>, selected: Int, onSelect: (Int) -> 
                     .width(96.dp)
                     .clip(GlassShapes.capsule)
                     .background(if (active) colors.accent.copy(alpha = if (colors.isDark) 0.22f else 0.12f) else Color.Transparent)
-                    .clickable(role = Role.Tab) { onSelect(index) }
+                    .combinedClickable(
+                        role = Role.Tab,
+                        onClick = { onSelect(index) },
+                        onLongClick = if (tab.menu != null) ({ onLongPress(index) }) else null,
+                    )
                     .semantics { this.selected = active }
+                    .then(if (tab.tag != null) Modifier.testTag(tab.tag) else Modifier)
                     .padding(vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val tint = if (active) colors.accent else colors.textSecondary
-                Icon(if (active) tab.selectedIcon else tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+                Box {
+                    Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) {
+                        val custom = tab.customIcon
+                        if (custom != null) {
+                            custom(active)
+                        } else {
+                            (if (active) tab.selectedIcon else tab.icon)?.let {
+                                Icon(it, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+                            }
+                        }
+                    }
+                    if (tab.badge > 0) {
+                        TabBadge(tab.badge, Modifier.align(Alignment.TopEnd).offset(x = 12.dp, y = (-4).dp))
+                    }
+                }
                 Spacer(Modifier.height(2.dp))
                 Text(tab.label, color = tint, fontSize = 11.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
             }
@@ -165,46 +265,98 @@ private fun GlassTabBar(tabs: List<GlassTab>, selected: Int, onSelect: (Int) -> 
     }
 }
 
-/**
- * Folder tabs on a glass bar (Telegram's FilterTabsView, drawn as iOS 26 capsules): the selected one on a soft accent
- * capsule.
- */
+/** The accent count on a tab (Telegram's tab badge). */
 @Composable
-fun <T> GlassChipTabs(
-    items: List<Pair<T, String>>,
-    selected: T,
-    onSelect: (T) -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun TabBadge(count: Int, modifier: Modifier = Modifier) {
     val colors = CrokTheme.colors
+    Box(
+        modifier
+            .heightIn(min = 18.dp)
+            .widthIn(min = 18.dp)
+            .clip(GlassShapes.capsule)
+            .background(colors.accent)
+            .padding(horizontal = 5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(if (count > 99) "99+" else count.toString(), color = colors.onAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    }
+}
+
+/** A menu card on glass (the tab menus, the computer switcher). */
+@Composable
+fun GlassMenu(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier
+            .widthIn(min = 230.dp, max = 320.dp)
+            .glass(GlassShapes.rounded(20.dp), GlassStyle.Bar)
+            .clip(GlassShapes.rounded(20.dp))
+            .padding(vertical = 6.dp),
+        content = content,
+    )
+}
+
+/** One row of a [GlassMenu]: an optional leading glyph, the title (and a second line), and a trailing mark. */
+@Composable
+fun GlassMenuRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    subtitleColor: Color = CrokTheme.colors.textSecondary,
+    titleColor: Color = CrokTheme.colors.textPrimary,
+    enabled: Boolean = true,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     Row(
         modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp)
-            .padding(bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .clickable(enabled = enabled, onClick = onClick)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .alpha(if (enabled) 1f else 0.4f),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        items.forEach { (value, label) ->
-            val active = value == selected
-            Box(
-                Modifier
-                    .heightIn(min = 34.dp)
-                    .clip(GlassShapes.capsule)
-                    .background(if (active) colors.accent.copy(alpha = if (colors.isDark) 0.24f else 0.13f) else Color.Transparent)
-                    .clickable(role = Role.Tab) { onSelect(value) }
-                    .semantics { this.selected = active }
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label,
-                    color = if (active) colors.accent else colors.textSecondary,
-                    fontSize = 15.sp,
-                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                )
-            }
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, color = titleColor, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) Text(subtitle, color = subtitleColor, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (trailing != null) {
+            Spacer(Modifier.width(10.dp))
+            trailing()
         }
     }
+}
+
+/** A hairline between a [GlassMenu]'s groups. */
+@Composable
+fun GlassMenuDivider() {
+    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(0.5.dp).background(CrokTheme.colors.divider))
+}
+
+/**
+ * A menu dropped over a screen (the Sessions title's computer switcher): a dimmed area that closes it, and the glass
+ * card at [alignment] with [padding] around it. Put it in a [GlassScaffold]'s `floating` slot so the glass reads the
+ * content beneath.
+ */
+@Composable
+fun BoxScope.GlassMenuOverlay(
+    onDismiss: () -> Unit,
+    alignment: Alignment = Alignment.TopCenter,
+    padding: PaddingValues = PaddingValues(),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val colors = CrokTheme.colors
+    BackHandler(onBack = onDismiss)
+    Box(
+        Modifier
+            .matchParentSize()
+            .background(Color.Black.copy(alpha = if (colors.isDark) 0.35f else 0.16f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
+    )
+    Box(Modifier.align(alignment).padding(padding)) { GlassMenu(content = content) }
 }

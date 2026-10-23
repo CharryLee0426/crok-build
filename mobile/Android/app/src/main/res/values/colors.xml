@@ -2,6 +2,8 @@
 <resources>
     <!-- The app's accent, Telegram blue (light). -->
     <color name="ic_launcher_background">#3390EC</color>
+    <!-- The launcher mark; debug builds draw it dark brown on yellow (src/debug/res/values/colors.xml). -->
+    <color name="ic_launcher_mark">#FFFFFF</color>
     <color name="crok_day">#F5F5F5</color>
     <color name="crok_night">#141414</color>
 </resources>

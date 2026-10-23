@@ -15,11 +15,15 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_SERVICE="${CLAUDE_SERVICE:-claude-platform}"
 OPENROUTER_SERVICE="${OPENROUTER_SERVICE:-openrouter}"
+# crok reports its own calls (Agent Observability bridge, on by default). Its spans of providers
+# whose own export counts them already are left out of the dashboards.
+CROK_SERVICE="${CROK_SERVICE:-crok}"
+CROK_SKIP_PROVIDERS="${CROK_SKIP_PROVIDERS-anthropic|openrouter}"
 FOLDER_UID="${FOLDER_UID:-llm-observability}"
 DASHBOARDS_DIR="${DASHBOARDS_DIR:-$HERE/dashboards}"
 RULES_FILE="${RULES_FILE:-$HERE/rules/llm-history.json}"
 BACKFILL_FILE="${BACKFILL_FILE:-$HERE/backfill/llm-backfill.json}"
-DASHBOARD_UIDS=(llm-overview llm-claude-platform llm-openrouter llm-request-explorer llm-history)
+DASHBOARD_UIDS=(llm-overview llm-claude-platform llm-openrouter llm-crok llm-request-explorer llm-history)
 
 if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'; else B=; G=; Y=; R=; N=; fi
 say()  { printf '%s\n' "$*"; }
@@ -41,7 +45,8 @@ need_gcx() { command -v gcx >/dev/null 2>&1 || die "gcx is not installed. Run: $
 
 cmd_help() {
   cat <<EOF
-${B}LLM observability for Grafana Cloud: Claude Platform + OpenRouter traces${N}
+${B}LLM observability for Grafana Cloud: Claude Platform + OpenRouter traces, and crok's own reports${N}
+(Codex, GLM, DeepSeek and other providers without traces arrive from crok itself: nothing to set up.)
 
 Steps, in order (each one can be run again safely):
   install            Install gcx, the Grafana Cloud CLI (Homebrew, or the official install script).
@@ -53,7 +58,7 @@ Steps, in order (each one can be run again safely):
   claude-api         Add that destination with the Anthropic Admin API instead (needs
                      ANTHROPIC_ADMIN_KEY and GRAFANA_OTLP_TOKEN in the environment).
   openrouter         How to turn on OpenRouter Broadcast to Grafana Cloud.
-  verify [--wait N]  Look for Claude Platform and OpenRouter spans in the last hour; with --wait,
+  verify [--wait N]  Look for Claude Platform, OpenRouter and crok spans in the last hour; with --wait,
                      keep looking for N minutes.
   dashboards         Build the dashboards for this stack, push them with gcx, and install the
                      recording rules that keep long-term history (LLM Spend History).
@@ -65,7 +70,9 @@ Steps, in order (each one can be run again safely):
   snapshot [DIR]     Render every dashboard to a PNG (for checking them without a browser).
   all                Run the whole flow, pausing where the user has to act.
 
-Environment: GCX_CONTEXT (gcx context to use), CLAUDE_SERVICE, OPENROUTER_SERVICE, FOLDER_UID.
+Environment: GCX_CONTEXT (gcx context to use), CLAUDE_SERVICE, OPENROUTER_SERVICE, CROK_SERVICE,
+CROK_SKIP_PROVIDERS (regex of providers whose crok spans are left out, default anthropic|openrouter;
+set it to anthropic to count crok's Claude calls when Claude Platform does not export them), FOLDER_UID.
 EOF
 }
 
@@ -268,8 +275,11 @@ cmd_verify() {
   local info uid; info="$(discover)"; uid="$(field traces_datasource_uid <<<"$info")"
   [ -n "$uid" ] || die "No traces (Tempo) datasource found in this stack."
   local deadline=$(( $(date +%s) + wait_min * 60 ))
+  local crok_q="{resource.service.name=\"$CROK_SERVICE\""
+  if [ -n "$CROK_SKIP_PROVIDERS" ]; then crok_q+="&&span.gen_ai.provider.name!~\"$CROK_SKIP_PROVIDERS\""; fi
+  crok_q+="}|count_over_time() by(span.gen_ai.provider.name)"
   while :; do
-    local found_claude found_or
+    local found_claude found_or found_crok
     found_claude="$(gcx_json traces metrics -d "$uid" "{resource.service.name=\"$CLAUDE_SERVICE\"}|count_over_time() by(name)" --since 1h --step 1m | python3 -I -c '
 import json,sys
 d=json.load(sys.stdin); out=[]
@@ -289,6 +299,19 @@ for s in d.get("series") or []:
 print(", ".join(out))' 2>/dev/null || true)"
     if [ -n "$found_claude" ]; then ok "Claude Platform spans in the last hour: $found_claude"; else warn "No Claude Platform spans in the last hour."; fi
     if [ -n "$found_or" ]; then ok "OpenRouter spans in the last hour: $found_or"; else warn "No OpenRouter spans in the last hour."; fi
+    # crok's own reports need no setup, so they do not hold up the wait.
+    found_crok="$(gcx_json traces metrics -d "$uid" "$crok_q" --since 1h --step 1m | python3 -I -c '
+import json,sys
+names={"openai": "codex", "zai": "glm"}
+d=json.load(sys.stdin); out=[]
+for s in d.get("series") or []:
+    name=[str(list(l["value"].values())[0]) for l in s["labels"] if l["key"]!="__name__"]
+    n=int(sum(x.get("value",0) for x in s.get("samples",[])))
+    label = names.get(name[0], name[0]) if name else "(no provider)"
+    if n: out.append(f"{label}: {n}")
+print(", ".join(out))' 2>/dev/null || true)"
+    if [ -n "$found_crok" ]; then ok "crok's own reports in the last hour: $found_crok"
+    else say "No crok reports in the last hour (they arrive once crok calls Codex, GLM, DeepSeek or another provider)."; fi
     if { [ -n "$found_claude" ] && [ -n "$found_or" ]; } || [ "$(date +%s)" -ge "$deadline" ]; then break; fi
     say "Waiting 30 s for spans… (send a request, or press Test in the Claude Console / OpenRouter)"
     sleep 30
@@ -317,7 +340,8 @@ cmd_dashboards() {
   python3 -I "$HERE/build_dashboards.py" --datasource-uid "$uid" --datasource-name "$name" --folder-uid "$FOLDER_UID" \
     --prometheus-uid "$puid" --prometheus-name "$pname" --rules-out "$RULES_FILE" \
     ${iuid:+--infinity-uid "$iuid"} --backfill "$BACKFILL_FILE" \
-    --claude-service "$CLAUDE_SERVICE" --openrouter-service "$OPENROUTER_SERVICE" --out "$DASHBOARDS_DIR" >/dev/null
+    --claude-service "$CLAUDE_SERVICE" --openrouter-service "$OPENROUTER_SERVICE" \
+    --crok-service "$CROK_SERVICE" --crok-skip-providers "$CROK_SKIP_PROVIDERS" --out "$DASHBOARDS_DIR" >/dev/null
   ok "Built the dashboards in $DASHBOARDS_DIR"
   gcx resources validate -p "$DASHBOARDS_DIR" "${args[@]+"${args[@]}"}" >/dev/null 2>&1 || die "gcx validation failed: gcx resources validate -p $DASHBOARDS_DIR"
   gcx resources push -p "$DASHBOARDS_DIR" --dry-run "${args[@]+"${args[@]}"}" >/dev/null 2>&1 || die "Dry run failed: gcx resources push -p $DASHBOARDS_DIR --dry-run"
@@ -328,7 +352,7 @@ cmd_dashboards() {
   local server; server="$(field server <<<"$info")"
   ok "Pushed to folder \"LLM Observability\" and installed the llm-history recording rules (every 10 minutes):"
   for d in "${DASHBOARD_UIDS[@]}"; do say "  $server/d/$d"; done
-  say "LLM Spend History fills from now on; the trace dashboards show the last 24 hours right away."
+  say "LLM Spend History fills from now on (week over week once it holds 14 days); the trace dashboards show the last 24 hours right away."
 }
 
 cmd_snapshot() {

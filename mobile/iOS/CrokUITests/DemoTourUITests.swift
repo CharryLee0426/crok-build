@@ -2,14 +2,21 @@ import XCTest
 
 /// Drives demo mode (`-CrokDemo YES`) through every main screen and saves a screenshot of each: as test attachments,
 /// and as PNG files in `$CROK_SCREENSHOT_DIR` when set (pass `TEST_RUNNER_CROK_SCREENSHOT_DIR=…` to xcodebuild).
+///
+/// The demo has two computers: MacBook Pro (online; projects crok-build and website, one archived session) and Studio
+/// (offline; tokenizer and xai-grok-pager). The Sessions tab shows one computer at a time (mobile/DESIGN.md).
 final class DemoTourUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
     }
 
-    private func launch(_ extra: [String] = [], appearance: String = "light") -> XCUIApplication {
+    /// `theme`: a session theme id, set through the arguments domain (it wins over what the app stores, so nil when
+    /// the test picks one in the app).
+    private func launch(_ extra: [String] = [], appearance: String = "light", theme: String? = "none") -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-CrokDemo", "YES", "-CrokAppearance", appearance] + extra
+        app.launchArguments =
+            ["-CrokDemo", "YES", "-CrokAppearance", appearance, "-crok.selectedComputer", "mbp"]
+            + (theme.map { ["-crok.sessionTheme", $0] } ?? []) + extra
         app.launch()
         return app
     }
@@ -28,17 +35,33 @@ final class DemoTourUITests: XCTestCase {
     }
 
     private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        app.element(identifier)
     }
 
-    /// The Settings tab: a tab bar on iPhone, the floating top bar on iPad (not an XCUI tab bar).
-    private func openSettings(_ app: XCUIApplication) {
+    /// The Profile tab: a tab bar on iPhone, the floating top bar on iPad (not an XCUI tab bar).
+    private func openProfile(_ app: XCUIApplication) {
         let tabBar = app.tabBars.firstMatch
         if tabBar.exists {
             tabBar.buttons.element(boundBy: 1).tap()
         } else {
-            app.buttons["Settings"].firstMatch.tap()
+            app.buttons["Profile"].firstMatch.tap()
         }
+        XCTAssertTrue(element(app, "accountHeader").waitForExistence(timeout: 5))
+    }
+
+    private func openSessions(_ app: XCUIApplication) {
+        let tabBar = app.tabBars.firstMatch
+        if tabBar.exists {
+            tabBar.buttons.element(boundBy: 0).tap()
+        } else {
+            app.buttons["Sessions"].firstMatch.tap()
+        }
+    }
+
+    /// The Sessions tab's root, settled: the computer in the title, its projects listed.
+    private func waitForList(_ app: XCUIApplication, computer: String = "MacBook Pro") {
+        XCTAssertTrue(app.computerTitle.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.waitFor(10) { app.computerTitle.label.hasPrefix(computer) }, app.computerTitle.label)
     }
 
     func testSignInScreens() {
@@ -60,19 +83,25 @@ final class DemoTourUITests: XCTestCase {
         element(app, "continueButton").tap()
         XCTAssertTrue(element(app, "userCode").waitForExistence(timeout: 10))
         // Polling every 2 s picks up the approval and lands on the session list.
-        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 15))
+        XCTAssertTrue(element(app, "projectRow-crok-build").waitForExistence(timeout: 15))
     }
 
     func testMainScreens() {
         let app = launch()
-        let flaky = app.staticTexts["Fix the flaky upload test"]
-        XCTAssertTrue(flaky.waitForExistence(timeout: 10))
-        // The connection title settles on "Sessions".
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 5))
+        waitForList(app)
+        XCTAssertTrue(element(app, "projectRow-crok-build").waitForExistence(timeout: 10))
+        XCTAssertTrue(element(app, "projectRow-website").exists)
+        XCTAssertTrue(element(app, "archivedRow").exists, "MacBook Pro has an archived session")
+        XCTAssertFalse(element(app, "projectRow-tokenizer").exists, "Studio's projects are on Studio's list")
         snap("03-sessions-light")
 
+        // A project: its sessions as topics.
+        app.openProject("crok-build")
+        XCTAssertTrue(element(app, "sessionRow-Fix the flaky upload test").waitForExistence(timeout: 5))
+        snap("04-project")
+
         // A running session: plan bar, transcript, Stop.
-        flaky.tap()
+        app.tapSessionRow("Fix the flaky upload test")
         let stop = element(app, "stopButton")
         XCTAssertTrue(stop.waitForExistence(timeout: 10))
         XCTAssertTrue(element(app, "planBar").exists)
@@ -108,7 +137,7 @@ final class DemoTourUITests: XCTestCase {
         XCTAssertTrue(replyEnd.isHittable, "the finished reply is on screen, above the keyboard")
         snap("08-session-reply-done")
 
-        // Session info: refreshed from the computer.
+        // Session info, from the topic icon in the title bar: refreshed from the computer.
         element(app, "sessionInfoButton").tap()
         XCTAssertTrue(app.staticTexts["Session info"].waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "infoRefreshing").waitForNonExistence(timeout: 10))
@@ -118,33 +147,45 @@ final class DemoTourUITests: XCTestCase {
         element(app, "infoDone").tap()
 
         // A session nobody runs on the online MacBook still takes prompts (a crok there opens it).
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        let notRunning = app.staticTexts["Release notes for 1.5"]
-        XCTAssertTrue(notRunning.waitForExistence(timeout: 5))
-        notRunning.tap()
+        app.goBack()
+        app.tapSessionRow("Release notes for 1.5")
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertFalse(element(app, "offlineNotice").exists)
         let subtitle = element(app, "sessionSubtitle")
         XCTAssertTrue(subtitle.waitForExistence(timeout: 5))
         XCTAssertTrue(subtitle.label.contains("MacBook Pro"), "idle · MacBook Pro, not offline: \(subtitle.label)")
         snap("11-session-not-running")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.goBack()
+        app.goBack()
 
-        // A session on Studio, which is offline, is read-only.
-        app.buttons["Studio"].firstMatch.tap()
-        let offline = app.staticTexts["Benchmark the tokenizer"]
-        XCTAssertTrue(offline.waitForExistence(timeout: 5))
-        offline.tap()
+        // Studio, picked from the title's menu: offline, so its sessions are read-only.
+        app.computerTitle.tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Studio")).firstMatch.waitForExistence(timeout: 5))
+        snap("11d-computer-switcher")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Studio")).firstMatch.tap()
+        XCTAssertTrue(element(app, "projectRow-tokenizer").waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "projectRow-crok-build").exists)
+        snap("11e-sessions-studio")
+        app.openProject("tokenizer")
+        app.tapSessionRow("Benchmark the tokenizer")
         XCTAssertTrue(element(app, "offlineNotice").waitForExistence(timeout: 5))
         XCTAssertFalse(field.exists)
         snap("11a-session-offline")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["All"].firstMatch.tap()
+        app.goBack()
+        app.goBack()
 
-        // Settings, Devices, Link a computer.
-        openSettings(app)
-        XCTAssertTrue(element(app, "accountHeader").waitForExistence(timeout: 5))
-        snap("12-settings")
+        // Profile: the account, its computers (Studio selected), Devices, Link a computer.
+        openProfile(app)
+        XCTAssertTrue(element(app, "computerRow-Studio").isSelected)
+        snap("12-profile")
+        let macBook = element(app, "computerRow-MacBook Pro")
+        macBook.tap()
+        XCTAssertTrue(app.waitFor(5) { macBook.isSelected })
+        app.swipeUp()
+        XCTAssertTrue(element(app, "githubRow").exists)
+        XCTAssertTrue(element(app, "xRow").exists)
+        snap("12a-profile-more")
+        app.swipeDown()
         element(app, "devicesRow").tap()
         XCTAssertTrue(app.staticTexts["MacBook Pro"].waitForExistence(timeout: 5))
         snap("13-devices")
@@ -152,7 +193,7 @@ final class DemoTourUITests: XCTestCase {
         XCTAssertTrue(element(app, "signOutDevice").waitForExistence(timeout: 5))
         snap("14-device-detail")
         app.buttons["Done"].firstMatch.tap()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.goBack()
 
         element(app, "linkComputerRow").tap()
         let codeField = element(app, "manualCodeField")
@@ -169,43 +210,119 @@ final class DemoTourUITests: XCTestCase {
         snap("17-link-done")
     }
 
+    /// Holding the tabs (Telegram's tab bar menus): Sessions → Mark All as Read; Profile → the computers.
+    func testTabBarMenus() throws {
+        let app = launch()
+        waitForList(app)
+        let crokBuild = element(app, "projectRow-crok-build")
+        XCTAssertTrue(crokBuild.waitForExistence(timeout: 10))
+        XCTAssertTrue(crokBuild.label.contains("unread"), crokBuild.label)
+        let tabBar = app.tabBars.firstMatch
+        guard tabBar.exists else { throw XCTSkip("no tab bar (iPad)") }
+
+        tabBar.buttons.element(boundBy: 0).press(forDuration: 1.2)
+        let markAll = app.buttons["Mark All as Read"].firstMatch
+        XCTAssertTrue(markAll.waitForExistence(timeout: 5))
+        snap("34-tab-mark-all-read")
+        markAll.tap()
+        XCTAssertTrue(app.waitFor(5) { !crokBuild.label.contains("unread") }, crokBuild.label)
+
+        tabBar.buttons.element(boundBy: 1).press(forDuration: 1.2)
+        let studio = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Studio")).firstMatch
+        XCTAssertTrue(studio.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Link a computer"].firstMatch.exists)
+        snap("35-tab-computer-switcher")
+        studio.tap()
+        XCTAssertTrue(element(app, "projectRow-tokenizer").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.computerTitle.label.hasPrefix("Studio"))
+    }
+
     func testDarkScreens() {
         let app = launch(appearance: "dark")
-        let flaky = app.staticTexts["Fix the flaky upload test"]
-        XCTAssertTrue(flaky.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 5))
-        snap("04-sessions-dark")
-        flaky.tap()
+        waitForList(app)
+        XCTAssertTrue(element(app, "projectRow-crok-build").waitForExistence(timeout: 10))
+        snap("03b-sessions-dark")
+        app.openProject("crok-build")
+        snap("04b-project-dark")
+        app.tapSessionRow("Fix the flaky upload test")
         XCTAssertTrue(element(app, "stopButton").waitForExistence(timeout: 10))
         snap("05b-session-running-dark")
         element(app, "sessionInfoButton").tap()
         XCTAssertTrue(element(app, "infoRefreshing").waitForNonExistence(timeout: 10))
         snap("09b-session-info-dark")
         element(app, "infoDone").tap()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        openSettings(app)
-        XCTAssertTrue(element(app, "accountHeader").waitForExistence(timeout: 5))
-        snap("12b-settings-dark")
+        app.goBack()
+        app.goBack()
+        openProfile(app)
+        snap("12b-profile-dark")
+    }
+
+    /// Profile › Appearance: the session themes in light and dark, and a session on one.
+    func testSessionThemes() {
+        let app = launch(theme: nil)
+        waitForList(app)
+        openProfile(app)
+        element(app, "appearanceRow").tap()
+        XCTAssertTrue(element(app, "themePreview").waitForExistence(timeout: 5))
+        let selectedName = element(app, "selectedThemeName")
+        let none = element(app, "themeCard-none")
+        if !none.isHittable { app.swipeRight() }
+        none.tap()
+        XCTAssertTrue(app.waitFor(5) { selectedName.label == "No Theme" })
+        snap("36-appearance-no-theme")
+        element(app, "themeCard-classic").tap()
+        XCTAssertTrue(app.waitFor(5) { selectedName.label == "Classic" })
+        snap("37-appearance-classic")
+        let tulip = element(app, "themeCard-tulip")
+        if !tulip.isHittable { element(app, "themeCard-classic").swipeLeft() }
+        tulip.tap()
+        XCTAssertTrue(app.waitFor(5) { selectedName.label == "Tulip" })
+        snap("38-appearance-tulip")
+        app.terminate()
+
+        for (theme, appearance) in [("classic", "light"), ("snowman", "dark"), ("christmas", "light"), ("game", "dark")] {
+            let themed = launch(appearance: appearance, theme: theme)
+            waitForList(themed)
+            themed.openSession("Fix the flaky upload test", in: "crok-build")
+            XCTAssertTrue(element(themed, "stopButton").waitForExistence(timeout: 10))
+            // The doodles fade in once drawn.
+            Thread.sleep(forTimeInterval: 1.5)
+            snap("39-session-\(theme)-\(appearance)")
+            if appearance == "dark" {
+                themed.goBack()
+                themed.goBack()
+                openProfile(themed)
+                element(themed, "appearanceRow").tap()
+                XCTAssertTrue(element(themed, "themePreview").waitForExistence(timeout: 5))
+                Thread.sleep(forTimeInterval: 1)
+                snap("40-appearance-\(theme)-dark")
+            }
+            themed.terminate()
+        }
     }
 
     /// German has the longest strings and Chinese the densest: check nothing is cut off.
     func testLocalizedScreens() {
         for (language, locale) in [("de", "de_DE"), ("zh-Hans", "zh_CN")] {
             let app = launch(["-AppleLanguages", "(\(language))", "-AppleLocale", locale])
-            let flaky = app.staticTexts["Fix the flaky upload test"]
-            XCTAssertTrue(flaky.waitForExistence(timeout: 10))
+            waitForList(app)
+            XCTAssertTrue(element(app, "projectRow-crok-build").waitForExistence(timeout: 10))
             snap("18-\(language)-sessions")
-            flaky.tap()
+            app.openProject("crok-build")
+            app.tapSessionRow("Fix the flaky upload test")
             XCTAssertTrue(element(app, "stopButton").waitForExistence(timeout: 10))
             snap("19-\(language)-session")
             element(app, "sessionInfoButton").tap()
             XCTAssertTrue(element(app, "infoDone").waitForExistence(timeout: 5))
             snap("20-\(language)-info")
             element(app, "infoDone").tap()
-            app.navigationBars.buttons.element(boundBy: 0).tap()
-            app.tabBars.buttons.element(boundBy: 1).tap()
-            XCTAssertTrue(element(app, "accountHeader").waitForExistence(timeout: 5))
-            snap("21-\(language)-settings")
+            app.goBack()
+            app.goBack()
+            openProfile(app)
+            snap("21-\(language)-profile")
+            element(app, "appearanceRow").tap()
+            XCTAssertTrue(element(app, "themePreview").waitForExistence(timeout: 5))
+            snap("21a-\(language)-appearance")
             app.terminate()
         }
     }
@@ -220,83 +337,65 @@ final class DemoTourUITests: XCTestCase {
         snap("23-ja-waiting")
     }
 
-    /// Sessions grouped by project: Show more, collapsing, moving a project, Reorder mode, and sessions only on a
+    /// Projects as groups: moving one, Edit mode, every session of a project on its screen, and sessions only on a
     /// computer's disk (loading from an online computer; an offline one's notice).
     func testProjectsAndListedSessions() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 10))
-        let crokBuild = element(app, "projectHeader-crok-build")
-        XCTAssertTrue(crokBuild.waitForExistence(timeout: 5))
-        XCTAssertTrue(element(app, "projectHeader-tokenizer").exists)
-        snap("03c-sessions-grouped")
+        waitForList(app)
+        let crokBuild = element(app, "projectRow-crok-build")
+        let website = element(app, "projectRow-website")
+        XCTAssertTrue(crokBuild.waitForExistence(timeout: 10))
+        XCTAssertTrue(website.exists)
+        XCTAssertGreaterThan(website.frame.minY, crokBuild.frame.minY)
 
-        // Five sessions, then "Show 2 more".
-        XCTAssertFalse(app.staticTexts["Translate the settings pane"].exists)
-        element(app, "showMore-crok-build").tap()
-        XCTAssertTrue(app.staticTexts["Translate the settings pane"].waitForExistence(timeout: 5))
-        element(app, "showMore-crok-build").tap()
-        XCTAssertTrue(app.staticTexts["Translate the settings pane"].waitForNonExistence(timeout: 5))
-
-        // Collapse a project (it stays collapsed for the rest of the test, so the other projects fit on screen).
-        crokBuild.tap()
-        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForNonExistence(timeout: 5))
-        snap("03d-sessions-collapsed")
-
-        // A header's menu: Move Up puts "website" above "tokenizer".
-        let website = element(app, "projectHeader-website")
-        let tokenizer = element(app, "projectHeader-tokenizer")
-        XCTAssertTrue(website.waitForExistence(timeout: 5))
-        XCTAssertGreaterThan(website.frame.minY, tokenizer.frame.minY)
-        element(app, "projectMenu-website").tap()
+        // A project's menu: Move Up puts "website" above "crok-build".
+        website.press(forDuration: 1.2)
         let moveUp = app.buttons["Move Up"].firstMatch
         XCTAssertTrue(moveUp.waitForExistence(timeout: 5))
         snap("03e-project-menu")
         moveUp.tap()
-        let moved = wait(5) { website.frame.minY < tokenizer.frame.minY }
-        XCTAssertTrue(moved, "website moved above tokenizer")
+        XCTAssertTrue(app.waitFor(5) { website.frame.minY < crokBuild.frame.minY }, "website moved above crok-build")
 
-        // Reorder mode lists the projects with move handles.
-        element(app, "listMenu").tap()
-        let reorder = app.buttons["Reorder"].firstMatch
-        XCTAssertTrue(reorder.waitForExistence(timeout: 5))
-        reorder.tap()
-        XCTAssertTrue(element(app, "projectReorderRow-website").waitForExistence(timeout: 5))
-        snap("03f-reorder-mode")
+        // Edit: move handles, and Read All / Sort by Recent Activity in place of the tab bar.
+        element(app, "editButton").tap()
+        XCTAssertTrue(element(app, "readAllButton").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "sortProjectsButton").exists)
+        snap("03f-edit-mode")
+        element(app, "sortProjectsButton").tap()
+        XCTAssertTrue(app.waitFor(5) { crokBuild.frame.minY < website.frame.minY }, "back to most recent first")
         element(app, "reorderDone").tap()
-        XCTAssertTrue(element(app, "projectReorderRow-website").waitForNonExistence(timeout: 5))
+        XCTAssertTrue(element(app, "readAllButton").waitForNonExistence(timeout: 5))
+
+        // Every session of a project on its screen, none hidden behind "Show more".
+        app.openProject("crok-build")
+        let i18n = element(app, "sessionRow-Translate the settings pane")
+        if !i18n.waitForExistence(timeout: 3) { app.swipeUp() }
+        XCTAssertTrue(i18n.waitForExistence(timeout: 5))
+        app.goBack()
 
         // A session only on the online MacBook's disk: loading, then its history.
-        app.staticTexts["Fix the pricing page layout"].tap()
+        app.openSession("Fix the pricing page layout", in: "website")
         XCTAssertTrue(element(app, "historyLoading").waitForExistence(timeout: 5))
         snap("11b-session-loading-from-computer")
         let history = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "CSS grid")).firstMatch
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         XCTAssertTrue(element(app, "composerField").exists, "not running anywhere, but the MacBook can open it")
         XCTAssertFalse(element(app, "offlineNotice").exists)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.goBack()
+        app.goBack()
 
         // One on Studio, which is offline.
-        let lexer = app.staticTexts["Port the lexer to Rust"]
-        if !lexer.waitForExistence(timeout: 3) || !lexer.isHittable { app.swipeUp() }
-        XCTAssertTrue(lexer.waitForExistence(timeout: 5))
-        lexer.tap()
+        app.openSession("Port the lexer to Rust", in: "tokenizer", on: "Studio")
         XCTAssertTrue(element(app, "historyOffline").waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "offlineNotice").exists)
         snap("11c-session-computer-offline")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-
-        // Expand the collapsed project again.
-        XCTAssertTrue(crokBuild.waitForExistence(timeout: 5))
-        crokBuild.tap()
-        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 5))
     }
 
     /// A session waiting on a permission request: the card above the composer, answered from the phone.
     func testPermissionRequest() {
         let app = launch()
-        let deps = app.staticTexts["Bump the relay's dependencies"]
-        XCTAssertTrue(deps.waitForExistence(timeout: 10))
-        deps.tap()
+        waitForList(app)
+        app.openSession("Bump the relay's dependencies", in: "crok-build")
         let card = element(app, "permissionCard")
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "permissionDetail").exists)
@@ -311,15 +410,16 @@ final class DemoTourUITests: XCTestCase {
         snap("05d-session-permission-answered")
     }
 
-    /// New sessions (relay/DESIGN.md §5 "New sessions"): a project's "+", the compose button's project picker, the
+    /// New sessions (relay/DESIGN.md §5 "New sessions"): a project's compose button, the list's project picker, the
     /// new-session screen turning into the session, and `/new <prompt>` inside a session.
     func testNewSessions() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 10))
-        let plus = element(app, "newSession-crok-build")
-        XCTAssertTrue(plus.waitForExistence(timeout: 5))
-        XCTAssertFalse(element(app, "newSession-tokenizer").exists, "no + for a project of an offline computer")
-        plus.tap()
+        waitForList(app)
+        app.openProject("crok-build")
+        let compose = element(app, "newSessionInProject")
+        XCTAssertTrue(compose.waitForExistence(timeout: 5))
+        XCTAssertTrue(compose.isEnabled)
+        compose.tap()
         XCTAssertTrue(element(app, "newSessionPlaceholder").waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "newSessionSubtitle").label.contains("MacBook Pro"))
         snap("24-new-session")
@@ -336,24 +436,23 @@ final class DemoTourUITests: XCTestCase {
         let reply = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Ran the test 50 times")).firstMatch
         XCTAssertTrue(reply.waitForExistence(timeout: 20))
         snap("25b-new-session-reply")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.staticTexts["Add a health check endpoint"].waitForExistence(timeout: 5), "listed in its project")
+        app.goBack()
+        XCTAssertTrue(element(app, "sessionRow-Add a health check endpoint").waitForExistence(timeout: 5), "listed in its project")
+        app.goBack()
 
-        // The compose button asks for the project first.
+        // The list's compose button asks for one of this computer's projects first.
         element(app, "composeButton").tap()
         let website = element(app, "newSessionProject-website")
         XCTAssertTrue(website.waitForExistence(timeout: 5))
-        XCTAssertFalse(element(app, "newSessionProject-tokenizer").exists, "only online computers' projects")
+        XCTAssertFalse(element(app, "newSessionProject-tokenizer").exists, "only the selected computer's projects")
         snap("26-new-session-picker")
         website.tap()
         XCTAssertTrue(element(app, "newSessionPlaceholder").waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "newSessionSubtitle").label.contains("website"))
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.goBack()
 
         // `/new <prompt>` in a session starts one in its project at once.
-        let relay = app.staticTexts["Relay: device sign-in"]
-        XCTAssertTrue(relay.waitForExistence(timeout: 5))
-        relay.tap()
+        app.openSession("Relay: device sign-in", in: "crok-build")
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
         field.typeText("/new Write the relay README")
@@ -361,6 +460,13 @@ final class DemoTourUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Write the relay README"].waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "stopButton").waitForExistence(timeout: 10))
         snap("27-new-session-from-command")
+        app.goBack()
+        app.goBack()
+        app.goBack()
+
+        // No new sessions on an offline computer.
+        app.openProject("tokenizer", on: "Studio")
+        XCTAssertFalse(element(app, "newSessionInProject").isEnabled, "Studio is offline")
     }
 
     /// The composer's commands (relay/DESIGN.md §5 "Commands in the composer"): the Menu button and command list, `/`
@@ -368,9 +474,8 @@ final class DemoTourUITests: XCTestCase {
     /// a prompt.
     func testComposerCommands() {
         let app = launch()
-        let relay = app.staticTexts["Relay: device sign-in"]
-        XCTAssertTrue(relay.waitForExistence(timeout: 10))
-        relay.tap()
+        waitForList(app)
+        app.openSession("Relay: device sign-in", in: "crok-build")
         let field = element(app, "composerField")
         XCTAssertTrue(field.waitForExistence(timeout: 5))
 
@@ -426,9 +531,8 @@ final class DemoTourUITests: XCTestCase {
 
     func testCommandsDark() {
         let app = launch(appearance: "dark")
-        let relay = app.staticTexts["Relay: device sign-in"]
-        XCTAssertTrue(relay.waitForExistence(timeout: 10))
-        relay.tap()
+        waitForList(app)
+        app.openSession("Relay: device sign-in", in: "crok-build")
         XCTAssertTrue(element(app, "composerField").waitForExistence(timeout: 5))
         element(app, "menuButton").tap()
         XCTAssertTrue(element(app, "commandList").waitForExistence(timeout: 5))
@@ -437,37 +541,32 @@ final class DemoTourUITests: XCTestCase {
         element(app, "sendButton").tap()
         XCTAssertTrue(element(app, "botChoice-grok-4").waitForExistence(timeout: 5))
         snap("29b-model-card-dark")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        element(app, "newSession-crok-build").tap()
+        app.goBack()
+        element(app, "newSessionInProject").tap()
         XCTAssertTrue(element(app, "newSessionPlaceholder").waitForExistence(timeout: 5))
         snap("24b-new-session-dark")
     }
 
-    /// Waits until `condition` holds, sampling every 100 ms; returns whether it did.
-    private func wait(_ timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() { return true }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        return condition()
-    }
-
-    func testArchivedTabAndSearch() {
+    func testArchivedAndSearch() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].waitForExistence(timeout: 10))
-        app.buttons["Archived"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["Try a different diff renderer"].waitForExistence(timeout: 5))
-        app.buttons["All"].firstMatch.tap()
+        waitForList(app)
+        let archived = element(app, "archivedRow")
+        XCTAssertTrue(archived.waitForExistence(timeout: 10))
+        archived.tap()
+        XCTAssertTrue(element(app, "sessionRow-Try a different diff renderer").waitForExistence(timeout: 5))
+        snap("03g-archived")
+        app.goBack()
+
         let search = app.searchFields.firstMatch
         if !search.exists { app.swipeDown() }
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.tap()
-        search.typeText("tokenizer")
-        XCTAssertTrue(app.staticTexts["Benchmark the tokenizer"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts["Fix the flaky upload test"].exists)
-        // Sections keep only matching sessions; empty ones hide.
-        XCTAssertTrue(element(app, "projectHeader-tokenizer").exists)
-        XCTAssertFalse(element(app, "projectHeader-crok-build").exists)
+        search.typeText("release")
+        // Results are sessions of the selected computer, across its projects.
+        XCTAssertTrue(element(app, "sessionRow-Release notes for 1.5").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "sessionRow-Tidy the release script").exists)
+        XCTAssertFalse(element(app, "projectRow-crok-build").exists)
+        XCTAssertFalse(element(app, "sessionRow-Fix the flaky upload test").exists)
+        snap("03h-search")
     }
 }

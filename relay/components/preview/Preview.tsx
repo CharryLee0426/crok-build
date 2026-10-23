@@ -34,6 +34,8 @@ import {
 } from "@/lib/order";
 import type {
   CommandId,
+  EffortChoice,
+  ModelChoice,
   PendingLogin,
   PendingPrompt,
   ProjectGroup,
@@ -56,6 +58,7 @@ import {
   fakeSession,
   fakeStartingCommands,
   fakeStartingSession,
+  FAKE_MODELS,
   FAKE_SLASH_COMMANDS,
   markdownEvents,
 } from "./fixtures";
@@ -269,6 +272,8 @@ function NewSessionPreview({
           clientId: "c_new",
         },
   );
+  const [model, setModel] = useState<ModelChoice | null>(null);
+  const [effort, setEffort] = useState<EffortChoice | null>(null);
   return (
     <ChatLayout header={<Header />} pane={<Pane />} inSession gate={false}>
       <NewSessionView
@@ -278,6 +283,14 @@ function NewSessionPreview({
         online={group.deviceOnline}
         prompt={prompt}
         now={now}
+        models={FAKE_MODELS}
+        model={model}
+        effort={effort}
+        onPickModel={(picked) => {
+          setModel(picked);
+          setEffort(null);
+        }}
+        onPickEffort={setEffort}
         onSend={(value) => {
           setPrompt({ key: "c_new", text: value, createdAt: Date.now(), tick: "sending", clientId: "c_new" });
           window.setTimeout(() => router.replace("/preview/session-starting"), 1500);

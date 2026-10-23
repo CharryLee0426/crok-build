@@ -69,6 +69,13 @@ enum Internal {
     },
     /// A command a task finished (session info).
     Complete { command_id: String, result: Value },
+    /// A git request finished; a branch change names the branch now checked out.
+    GitRan {
+        command_id: String,
+        session_id: String,
+        branch: Option<String>,
+        result: Value,
+    },
     /// This computer's sessions, listed for the upload the relay granted (`None`: no upload this time).
     Catalog {
         upload: Option<(String, Vec<CatalogEntry>)>,
@@ -301,6 +308,7 @@ fn usage_fields(info: Option<&Value>, usage: Option<&Value>) -> SessionUsage {
         cost_usd: ticks.map(|t| t / xai_grok_models::pricing::USD_TICKS_PER_USD),
         context_tokens: number(context.and_then(|c| c.get("used"))),
         context_window: number(context.and_then(|c| c.get("total"))).filter(|w| *w > 0.0),
+        output_tokens_per_second: number(info.and_then(|i| i.get("outputTokensPerSecond"))),
     }
 }
 
@@ -543,6 +551,68 @@ fn model_catalog(agent: &MvpAgent) -> Vec<ModelOption> {
             }
         })
         .collect()
+}
+
+/// Applies the model and thinking level chosen for a session started from another device, before its first prompt.
+async fn apply_start_setup(
+    agent: &MvpAgent,
+    session_id: &str,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<(), String> {
+    let model = model
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(str::to_owned);
+    if let Some(model) = model.as_deref() {
+        set_config_option(agent, session_id, "model", model).await?;
+    }
+    let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
+        return Ok(());
+    };
+    let current = model.unwrap_or_else(|| {
+        agent
+            .model_state(Some(&acp::SessionId::new(session_id)))
+            .current_model_id
+            .0
+            .to_string()
+    });
+    let id = effort_option_id(&model_catalog(agent), &current, effort);
+    set_config_option(agent, session_id, "reasoning_effort", &id).await
+}
+
+async fn set_config_option(
+    agent: &MvpAgent,
+    session_id: &str,
+    config_id: &str,
+    value: &str,
+) -> Result<(), String> {
+    let request = json!({
+        "sessionId": session_id,
+        "configId": config_id,
+        "value": value,
+    });
+    let request = serde_json::from_value::<acp::SetSessionConfigOptionRequest>(request)
+        .map_err(|error| error.to_string())?;
+    agent
+        .set_session_config_option(request)
+        .await
+        .map(|_| ())
+        .map_err(|error| error.message.to_string())
+}
+
+/// The option id of a thinking level of `model`, named by its id or by the level it stands for (`high`).
+fn effort_option_id(models: &[ModelOption], model: &str, wanted: &str) -> String {
+    models
+        .iter()
+        .find(|m| m.id == model)
+        .and_then(|m| {
+            m.efforts
+                .iter()
+                .find(|e| e.id == wanted || e.value.as_deref() == Some(wanted))
+        })
+        .map(|e| e.id.clone())
+        .unwrap_or_else(|| wanted.to_string())
 }
 
 /// The model and thinking level a `configOptions` list says are selected.
@@ -1415,11 +1485,13 @@ impl Bridge {
                         continue;
                     }
                     // A transcript to read from disk needs no mirror here: any crok on this computer can serve it.
-                    // Nor does a prompt for a session nobody runs: whoever claims it opens the session.
-                    let history = command.kind == CommandType::History;
+                    // A git read does neither: it runs in the session's folder. A prompt for a session nobody runs
+                    // opens the session first.
+                    let standalone =
+                        matches!(command.kind, CommandType::History | CommandType::Git);
                     let adopt = (command.adopt && !self.mirrors.contains_key(&command.session_id))
                         || command.kind == CommandType::Create;
-                    if !history
+                    if !standalone
                         && !adopt
                         && !self
                             .mirrors
@@ -1499,6 +1571,32 @@ impl Bridge {
             }
             Internal::Complete { command_id, result } => {
                 self.complete(&command_id, CommandOutcome::Done, Some(result), None);
+            }
+            Internal::GitRan {
+                command_id,
+                session_id,
+                branch,
+                result,
+            } => {
+                self.complete(&command_id, CommandOutcome::Done, Some(result), None);
+                // A branch switch made from another device reaches the relay for viewers only when this process
+                // mirrors the session; a catalog row is not claimed by reading its repository.
+                if let Some(branch) = branch {
+                    if let Some(mirror) = self.mirrors.get_mut(&session_id) {
+                        mirror.desired.git_branch = Some(branch.clone());
+                        self.send(ToRelay::UpsertSession {
+                            session_id,
+                            fields: Box::new(SessionFields {
+                                git_branch: Some(branch),
+                                ..SessionFields::default()
+                            }),
+                        });
+                    } else {
+                        // The session is only listed from disk here: another process may run it, so update its row
+                        // without claiming the session.
+                        self.send(ToRelay::SetBranch { session_id, branch });
+                    }
+                }
             }
             Internal::Catalog { upload } => {
                 self.catalog_busy = false;
@@ -1633,6 +1731,10 @@ impl Bridge {
             self.read_history(command);
             return;
         }
+        if command.kind == CommandType::Git {
+            self.run_git(command);
+            return;
+        }
         if command.kind == CommandType::Create {
             self.create(command);
             return;
@@ -1736,8 +1838,46 @@ impl Bridge {
                     let _ = tx.send(Internal::Complete { command_id, result });
                 });
             }
-            CommandType::History | CommandType::Create | CommandType::Unknown => {}
+            CommandType::History
+            | CommandType::Create
+            | CommandType::Git
+            | CommandType::Unknown => {}
         }
+    }
+
+    /// A front end's git request, run in the session's folder. It needs no mirror: any crok on this computer can
+    /// read the repository, and a branch change runs only when the person asked for one.
+    fn run_git(&self, command: InboxCommand) {
+        let command_id = command.id.clone();
+        let session_id = command.session_id.clone();
+        let cwd = command.cwd.clone().unwrap_or_default();
+        let request = command
+            .text
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .unwrap_or(Value::Null);
+        let changes_branch = matches!(
+            request.get("op").and_then(Value::as_str),
+            Some("switch" | "create")
+        );
+        let tx = self.internal_tx.clone();
+        tokio::task::spawn_local(async move {
+            let result = super::git::handle(&cwd, request).await;
+            let branch = changes_branch
+                .then(|| {
+                    result
+                        .get("branch")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .flatten();
+            let _ = tx.send(Internal::GitRan {
+                command_id,
+                session_id,
+                branch,
+                result,
+            });
+        });
     }
 
     /// A new session asked for from another device: open it here, hidden from the front end, then give the relay its id.
@@ -1759,7 +1899,28 @@ impl Bridge {
                     Ok(response) => {
                         let session_id = response.session_id.to_string();
                         observer.hide(&session_id);
-                        Ok(session_id)
+                        // The model and thinking level picked where the session was started apply before its first
+                        // prompt, as if they had been chosen here.
+                        match apply_start_setup(
+                            &agent,
+                            &session_id,
+                            command.model.as_deref(),
+                            command.effort.as_deref(),
+                        )
+                        .await
+                        {
+                            Ok(()) => Ok(session_id),
+                            Err(error) => {
+                                let _ = agent
+                                    .close_session(acp::CloseSessionRequest::new(
+                                        session_id.clone(),
+                                    ))
+                                    .await;
+                                Err(format!(
+                                    "The computer could not set its model or thinking level: {error}"
+                                ))
+                            }
+                        }
                     }
                     Err(error) => Err(error.message.to_string()),
                 }
@@ -2352,6 +2513,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn usage_keeps_the_computers_session_average_speed() {
+        let info = json!({
+            "context": { "used": 1_200, "total": 200_000 },
+            "outputTokensPerSecond": 42.5,
+        });
+        let usage = json!({
+            "usage": {
+                "inputTokens": 1_200,
+                "outputTokens": 300,
+                "cachedReadTokens": 800,
+                "reasoningTokens": 20,
+                "costUsdTicks": 100_000_000,
+            },
+        });
+        let fields = usage_fields(Some(&info), Some(&usage));
+        assert_eq!(fields.output_tokens_per_second, Some(42.5));
+        assert_eq!(fields.context_tokens, Some(1_200.0));
+        let result = info_result(
+            "s",
+            "/w/api",
+            &SessionFields::default(),
+            Some(&info),
+            Some(&usage),
+        );
+        assert_eq!(result["outputTokensPerSecond"], json!(42.5));
+        assert_eq!(result["gitBranch"], Value::Null);
+    }
+
+    #[test]
     fn efforts_come_from_the_model_meta_with_ids_and_levels() {
         let meta = json!({
             "supportsReasoningEffort": true,
@@ -2396,6 +2586,25 @@ mod tests {
         assert_eq!(commands[1].name, "review-pr");
         assert_eq!(commands[1].hint.as_deref(), Some("<number>"));
         assert_eq!(commands[0].hint, None);
+    }
+
+    #[test]
+    fn a_thinking_level_is_matched_by_option_id_or_level() {
+        let models = vec![ModelOption {
+            id: "grok-4".into(),
+            name: "Grok 4".into(),
+            description: None,
+            efforts: vec![EffortOption {
+                id: "deep".into(),
+                name: "Deep".into(),
+                value: Some("xhigh".into()),
+                description: None,
+            }],
+            default_effort: Some("deep".into()),
+        }];
+        assert_eq!(effort_option_id(&models, "grok-4", "deep"), "deep");
+        assert_eq!(effort_option_id(&models, "grok-4", "xhigh"), "deep");
+        assert_eq!(effort_option_id(&models, "grok-4", "max"), "max");
     }
 
     #[test]

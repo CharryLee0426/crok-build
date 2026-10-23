@@ -25,16 +25,20 @@ export async function reachable(
   session: Doc<"sessions">,
   type: Doc<"commands">["type"] = "prompt",
 ): Promise<boolean> {
-  if (session.online) return true;
+  if (session.online && type !== "git") return true;
   const hosts = await ctx.db
     .query("hosts")
     .withIndex("by_device_online", (q) => q.eq("deviceId", session.deviceId).eq("online", true))
     .take(50);
+  // A git read runs in the session's folder: any crok on that computer that knows how can serve it, whether or not
+  // it opens sessions or runs the session.
+  if (type === "git") return hosts.some((host) => supports(host, "git"));
   return hosts.some((host) => host.canAdopt === true && supports(host, type));
 }
 
 async function requireReachable(ctx: MutationCtx, session: Doc<"sessions">, type: Doc<"commands">["type"] = "prompt") {
-  if (session.online && !supports((await ctx.db.get(session.hostId)) ?? {}, type)) {
+  // A git read may be served by any of the computer's processes, so only its own reachability decides.
+  if (type !== "git" && session.online && !supports((await ctx.db.get(session.hostId)) ?? {}, type)) {
     fail("INVALID", "Update crok on that computer to do this from another device.");
   }
   if (await reachable(ctx, session, type)) return;
@@ -53,7 +57,14 @@ async function insertCommand(
   viewer: Viewer,
   session: Doc<"sessions">,
   type: Doc<"commands">["type"],
-  extra: { text?: string; clientId?: string; interactionId?: string; configId?: Doc<"commands">["configId"] },
+  extra: {
+    text?: string;
+    clientId?: string;
+    interactionId?: string;
+    configId?: Doc<"commands">["configId"];
+    model?: string;
+    effort?: string;
+  },
 ): Promise<Id<"commands">> {
   await requireReachable(ctx, session, type);
   const now = Date.now();
@@ -66,6 +77,8 @@ async function insertCommand(
     clientId: extra.clientId,
     interactionId: extra.interactionId,
     configId: extra.configId,
+    model: extra.model,
+    effort: extra.effort,
     status: "pending",
     fromDeviceId: viewer.device?._id,
     fromLabel: viewerLabel(viewer),
@@ -138,9 +151,15 @@ export const sendPrompt = mutation({
     const trimmed = text.trim();
     if (!trimmed) fail("INVALID", "The prompt is empty.");
     if (trimmed.length > MAX_PROMPT) fail("INVALID", `Prompts are limited to ${MAX_PROMPT} characters.`);
-    // A new session whose computer never opened it (it failed, or nobody claimed it): this prompt opens it.
+    // A new session whose computer never opened it (it failed, or nobody claimed it): this prompt opens it, with the
+    // model and thinking level chosen for it when it was created.
     const type = isStarting(session) && !session.online ? "create" : "prompt";
-    const commandId = await insertCommand(ctx, viewer, session, type, { text: trimmed, clientId });
+    const commandId = await insertCommand(ctx, viewer, session, type, {
+      text: trimmed,
+      clientId,
+      model: type === "create" ? session.model : undefined,
+      effort: type === "create" ? session.effort : undefined,
+    });
     return { commandId };
   },
 });
@@ -184,6 +203,21 @@ export const requestInfo = mutation({
     const session = await requireSession(ctx, viewer, sessionDocId);
     if (!session.online) return { commandId: await insertSettled(ctx, viewer, session, "info", storedInfo(session)) };
     const commandId = await insertCommand(ctx, viewer, session, "info", {});
+    return { commandId };
+  },
+});
+
+/**
+ * Reads the session's git repository (history, branches, a commit's files or diff), or switches and creates a
+ * branch. `request` is JSON: `{op, …}`. Any crok of the session's computer that knows `git` runs it in the
+ * session's folder; the answer is in the command's `result`.
+ */
+export const git = mutation({
+  args: { sessionDocId: v.string(), request: v.string() },
+  handler: async (ctx, { sessionDocId, request }) => {
+    const viewer = await requireViewer(ctx);
+    const session = await requireSession(ctx, viewer, sessionDocId);
+    const commandId = await insertCommand(ctx, viewer, session, "git", { text: request });
     return { commandId };
   },
 });
@@ -288,7 +322,16 @@ export const retry = mutation({
     const type =
       command.type === "prompt" && starting ? "create" : command.type === "create" && !starting ? "prompt" : command.type;
     await requireReachable(ctx, session, type);
-    await ctx.db.patch(command._id, { type, status: "pending", error: undefined, updatedAt: Date.now() });
+    await ctx.db.patch(command._id, {
+      type,
+      status: "pending",
+      error: undefined,
+      updatedAt: Date.now(),
+      // A prompt that now opens the session carries the model and thinking level chosen for it.
+      ...(type === "create" && command.type !== "create"
+        ? { model: session.model, effort: session.effort }
+        : {}),
+    });
     return null;
   },
 });

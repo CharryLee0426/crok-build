@@ -303,7 +303,12 @@ Unknown commands produce an error instead of becoming ordinary model prompts.
   and the task works as if it were typed here. **Share tasks with my phone**
   (`[remote] enabled`, or `/remote on|off`) pauses sharing without signing
   out. Helper harnesses (model and command catalogs, history import, panels)
-  run with `CROK_REMOTE_BRIDGE=0`. See `relay/DESIGN.md`.
+  run with `CROK_REMOTE_BRIDGE=0`. The sidebar's **Other computers** opens
+  their sessions here: the composer footer shows that session's branch, input
+  and output tokens, cache rate and output speed, and **Git Graph** and the
+  branch picker read and switch that computer's repository through the relay.
+  The other computer needs a crok from this version for Git Graph. See
+  `relay/DESIGN.md`.
 
 Every terminal command has a desktop equivalent. [COMMANDS.md](COMMANDS.md)
 records all 76 pager commands, shell built-ins, CLI families, exact ACP

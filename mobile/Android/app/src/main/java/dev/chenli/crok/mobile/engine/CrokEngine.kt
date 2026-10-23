@@ -27,7 +27,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -159,13 +162,35 @@ class CrokEngine(
         private val lock = Any()
         private var base = SessionListState()
         private val pending = ArrayList<PendingChange>()
+
+        /** Sessions marked read here that the relay's list may still count as unread: shown read meanwhile. */
+        private val markedRead = HashSet<String>()
         private val _active = MutableStateFlow(SessionListState())
 
         /** The live list (not archived), grouped by project and cached on disk for an instant start. */
         val active: StateFlow<SessionListState> = _active.asStateFlow()
 
         private fun publishLocked() {
-            _active.value = if (pending.isEmpty()) base else base.copy(groups = SessionOrder.applyAll(base.groups, pending.map { it.change }))
+            val ordered = if (pending.isEmpty()) base.groups else SessionOrder.applyAll(base.groups, pending.map { it.change })
+            val groups = if (markedRead.isEmpty()) {
+                ordered
+            } else {
+                ordered.map { group ->
+                    if (group.sessions.none { it.id in markedRead && it.unread > 0 }) {
+                        group
+                    } else {
+                        group.copy(sessions = group.sessions.map { if (it.id in markedRead) it.copy(unread = 0) else it })
+                    }
+                }
+            }
+            _active.value = if (groups === base.groups) base else base.copy(groups = groups)
+        }
+
+        /** Drops the read marks the relay's list already shows (those sessions have no unread there any more). */
+        private fun dropReadLocked() {
+            if (markedRead.isEmpty() || !base.live) return
+            val stillUnread = base.groups.flatMapTo(HashSet()) { group -> group.sessions.filter { it.unread > 0 }.map { it.id } }
+            markedRead.retainAll(stillUnread)
         }
 
         /**
@@ -200,6 +225,7 @@ class CrokEngine(
                         synchronized(lock) {
                             base = SessionListState(groups = groups, live = true)
                             dropReflectedLocked()
+                            dropReadLocked()
                             publishLocked()
                         }
                     }.onFailure { error ->
@@ -303,6 +329,46 @@ class CrokEngine(
             live("sessions:commands", mapOf("sessionDocId" to sessionDocId), SessionCommands.serializer())
 
         suspend fun markRead(sessionDocId: String) = callUnit("sessions:markRead", mapOf("sessionDocId" to sessionDocId))
+
+        /**
+         * Mark All as Read (and a project's Read): `sessions:markRead` for each of [sessionDocIds], all shown read at
+         * once. Those that fail show their unread count again; the first failure is rethrown. A read mark the relay
+         * never confirms (a new reply came meanwhile) goes after [SETTLE_TIMEOUT_MS].
+         */
+        suspend fun markRead(sessionDocIds: Collection<String>) {
+            val ids = sessionDocIds.toSet()
+            if (ids.isEmpty()) return
+            synchronized(lock) {
+                markedRead += ids
+                publishLocked()
+            }
+            val failures = coroutineScope {
+                ids.map { id ->
+                    async {
+                        try {
+                            markRead(id)
+                            id to null
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            id to e
+                        }
+                    }
+                }.awaitAll()
+            }.filter { it.second != null }
+            synchronized(lock) {
+                failures.forEach { markedRead -= it.first }
+                dropReadLocked()
+                publishLocked()
+            }
+            scope.launch {
+                delay(SETTLE_TIMEOUT_MS)
+                synchronized(lock) {
+                    if (markedRead.removeAll(ids)) publishLocked()
+                }
+            }
+            failures.firstOrNull()?.second?.let { throw it }
+        }
 
         suspend fun watch(sessionDocId: String) = callUnit("sessions:watch", mapOf("sessionDocId" to sessionDocId))
 

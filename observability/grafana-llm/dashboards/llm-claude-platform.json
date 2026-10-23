@@ -415,7 +415,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens)",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens)",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -490,7 +490,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.output_tokens)",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens)",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -563,7 +563,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens))",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))",
             "metricsQueryType": "instant"
           }
         ],
@@ -842,7 +842,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(span.gen_ai.usage.output_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(duration))",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(duration))",
             "metricsQueryType": "instant"
           }
         ],
@@ -906,7 +906,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time())",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|count_over_time())",
             "metricsQueryType": "instant"
           }
         ],
@@ -970,7 +970,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.reasoning.output_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.output_tokens))",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.reasoning.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.reasoning.output_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))",
             "metricsQueryType": "instant"
           }
         ],
@@ -1367,7 +1367,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens) by(kind))-({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(kind))-({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_write.input_tokens) by(kind))",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(kind))-({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(kind))-({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.cache_write.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_write.input_tokens) by(kind))",
             "metricsQueryType": "range"
           },
           {
@@ -1377,7 +1377,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(span.gen_ai.operation.name)",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(span.gen_ai.operation.name)",
             "metricsQueryType": "range"
           },
           {
@@ -1387,7 +1387,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens) by(span.gen_ai.provider.name)",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens!=nil}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens) by(span.gen_ai.provider.name)",
             "metricsQueryType": "range"
           },
           {
@@ -1397,7 +1397,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens) by(span.http.request.method)",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens!=nil}|sum_over_time(span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens) by(span.http.request.method)",
             "metricsQueryType": "range"
           },
           {
@@ -1407,7 +1407,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.url.scheme)",
+            "query": "{resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.url.scheme)",
             "metricsQueryType": "range"
           }
         ],
@@ -1484,7 +1484,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(span.gen_ai.request.model))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(span.gen_ai.request.model))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))",
             "metricsQueryType": "range"
           }
         ],
@@ -1969,7 +1969,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(duration) by(span.gen_ai.request.model))",
+            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.output_tokens>0}|sum_over_time(duration) by(span.gen_ai.request.model))",
             "metricsQueryType": "range"
           }
         ],
@@ -2788,12 +2788,48 @@
             {
               "matcher": {
                 "id": "byName",
+                "options": "gen_ai.provider.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
                 "options": "gen_ai.request.model"
               },
               "properties": [
                 {
                   "id": "displayName",
                   "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.agent.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Agent"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.backend"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Backend"
                 }
               ]
             },
@@ -2818,6 +2854,18 @@
                 {
                   "id": "displayName",
                   "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read_input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read (crok)"
                 }
               ]
             },
@@ -2860,6 +2908,18 @@
             {
               "matcher": {
                 "id": "byName",
+                "options": "crok.cost.usd"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost (crok)"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
                 "options": "anthropic.message.stop_reason"
               },
               "properties": [
@@ -2878,6 +2938,18 @@
                 {
                   "id": "displayName",
                   "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reasons"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reasons"
                 }
               ]
             },
@@ -2908,6 +2980,30 @@
             {
               "matcher": {
                 "id": "byName",
+                "options": "error.category"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error category"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cancelled"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cancelled"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
                 "options": "anthropic.request.id"
               },
               "properties": [
@@ -2925,7 +3021,7 @@
               "properties": [
                 {
                   "id": "displayName",
-                  "value": "Provider"
+                  "value": "Upstream provider"
                 }
               ]
             },
@@ -2938,6 +3034,30 @@
                 {
                   "id": "displayName",
                   "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.surface"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Surface"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.host"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Machine"
                 }
               ]
             },
@@ -2969,6 +3089,22 @@
               "matcher": {
                 "id": "byName",
                 "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cost.usd"
               },
               "properties": [
                 {

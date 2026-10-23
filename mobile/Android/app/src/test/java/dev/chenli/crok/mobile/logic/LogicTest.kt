@@ -1,8 +1,10 @@
 package dev.chenli.crok.mobile.logic
 
+import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.PlanEntry
 import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.SessionRow
+import dev.chenli.crok.mobile.data.SessionStatus
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -132,65 +134,124 @@ class SessionListTest {
         assertEquals("C2", frozen[1].title)
     }
 
+    private fun device(id: String, name: String, createdAt: Long, online: Boolean = true, kind: String = "computer") =
+        Device(id = id, kind = kind, name = name, createdAt = createdAt, lastSeenAt = createdAt, online = online)
+
     @Test
-    fun tabsAndFilters() {
+    fun computersComeInLinkOrderWithTheirUnreadCounts() {
         val groups = listOf(
-            group("crok", row("a"), row("c")),
-            group("svc", row("b", "d2", "Studio", online = false), device = "d2", name = "Studio", online = false),
+            group("crok", row("a").copy(unread = 2, lastActivityAt = 50), row("c").copy(unread = 1)),
+            group("svc", row("b", "d2", "Studio").copy(lastActivityAt = 90), device = "d2", name = "Studio"),
+            // A computer the device list does not know (yet): listed after the linked ones, by its sessions' name.
+            group("old", row("z", "d9", "Old Mac").copy(unread = 4), device = "d9", name = "Old Mac", online = false),
         )
-        val tabs = SessionList.computerTabs(groups)
-        assertEquals(listOf("MacBook", "Studio"), tabs.map { it.name })
-        assertEquals(listOf(true, false), tabs.map { it.online })
-        // The flat Archived list filters the same way.
-        val rows = groups.flatMap { it.sessions }
-        assertEquals(listOf("a", "c"), SessionList.filter(rows, SessionFilter.Computer("d1"), "").map { it.id })
-        assertEquals(listOf("b"), SessionList.filter(rows, SessionFilter.All, "studio").map { it.id })
-        assertEquals(listOf("c"), SessionList.filter(rows, SessionFilter.All, "code/c").map { it.id })
+        val devices = listOf(
+            device("phone", "Pixel", 1, kind = "phone"),
+            device("d2", "Studio", 10, online = false),
+            device("d1", "MacBook", 20),
+        )
+        val computers = Computers.list(devices, groups)
+        assertEquals(listOf("d2", "d1", "d9"), computers.map { it.deviceId })
+        assertEquals(listOf("Studio", "MacBook", "Old Mac"), computers.map { it.name })
+        assertEquals(listOf(false, true, false), computers.map { it.online })
+        assertEquals(listOf(0, 3, 4), computers.map { it.unread })
+        // The Profile tab's badge: the others' unread.
+        assertEquals(4, Computers.unreadElsewhere(computers, "d1"))
+        assertEquals(7, Computers.unreadElsewhere(computers, "d2"))
     }
 
     @Test
-    fun aComputerTabShowsOnlyItsProjects() {
+    fun theSelectionIsTheRememberedComputerElseTheMostRecentlyActive() {
+        val computers = listOf(
+            ComputerAccount("d1", "MacBook", online = true, lastActivityAt = 50),
+            ComputerAccount("d2", "Studio", online = true, lastActivityAt = 90),
+            ComputerAccount("d3", "Linux", online = false),
+        )
+        assertEquals("d1", Computers.selected(computers, "d1")?.deviceId)
+        assertEquals("d2", Computers.selected(computers, null)?.deviceId)
+        // A remembered computer that is gone (signed out) falls back too.
+        assertEquals("d2", Computers.selected(computers, "gone")?.deviceId)
+        // Without any activity: the first.
+        assertEquals("d3", Computers.selected(listOf(computers[2]), null)?.deviceId)
+        assertNull(Computers.selected(emptyList(), "d1"))
+    }
+
+    @Test
+    fun theSessionsTabKeepsOnlyTheSelectedComputersProjects() {
         val groups = listOf(group("crok", row("a")), group("svc", row("b", "d2", "Studio"), device = "d2", name = "Studio"), group("site", row("c")))
-        assertEquals(listOf("d1:/Users/me/code/crok", "d1:/Users/me/code/site"), SessionList.sections(groups, SessionFilter.Computer("d1"), "").map { it.key })
-        assertEquals(3, SessionList.sections(groups, SessionFilter.All, "").size)
+        assertEquals(listOf("d1:/Users/me/code/crok", "d1:/Users/me/code/site"), Computers.projects(groups, "d1").map { it.key })
+        assertTrue(Computers.projects(groups, null).isEmpty())
     }
 
     @Test
-    fun aSectionShowsFiveSessionsThenMore() {
-        val big = group("crok", *(1..7).map { row("s$it") }.toTypedArray())
-        val section = SessionList.sections(listOf(big), SessionFilter.All, "").single()
-        assertEquals(7, section.count)
-        assertEquals(listOf("s1", "s2", "s3", "s4", "s5"), section.visibleRows.map { it.id })
-        assertEquals(2, section.hiddenCount)
-        assertFalse(section.canShowLess)
-
-        val expanded = SessionList.sections(listOf(big), SessionFilter.All, "", expanded = setOf(big.key)).single()
-        assertEquals(7, expanded.visibleRows.size)
-        assertEquals(0, expanded.hiddenCount)
-        assertTrue(expanded.canShowLess)
-
-        val collapsed = SessionList.sections(listOf(big), SessionFilter.All, "", collapsed = setOf(big.key)).single()
-        assertTrue(collapsed.isCollapsed)
-        assertEquals(emptyList<SessionRow>(), collapsed.visibleRows)
-        assertEquals(0, collapsed.hiddenCount)
-        assertEquals(7, collapsed.count)
-    }
-
-    @Test
-    fun searchKeepsMatchingSessionsAndHidesEmptySections() {
+    fun markAllAsReadTakesEveryUnreadSessionOfTheComputer() {
         val groups = listOf(
-            group("crok", row("a", title = "Fix the relay"), row("b", title = "Write notes"), row("c", title = "relay paging")),
+            group("crok", row("a").copy(unread = 2), row("b")),
+            group("site", row("c").copy(unread = 1)),
+        )
+        assertEquals(setOf("a", "c"), Computers.unreadSessionIds(groups))
+        assertTrue(Computers.unreadSessionIds(listOf(group("quiet", row("q")))).isEmpty())
+    }
+
+    @Test
+    fun aForumRowShowsItsThreeMostRecentTopics() {
+        val project = group(
+            "crok",
+            // Hand-placed order: pinned first; the row still lists the most recent topics.
+            row("p", title = "Pinned plan").copy(pinned = true, lastActivityAt = 10),
+            row("x", title = "").copy(cwd = "/Users/me/code/crok/relay", lastActivityAt = 40),
+            row("y", title = "Fix the pager").copy(lastActivityAt = 90),
+            row("w", title = "Write notes").copy(lastActivityAt = 30),
+        )
+        assertEquals(listOf("Fix the pager", "relay", "Write notes"), Forum.topicTitles(project))
+        assertEquals("y", Forum.latest(project)?.id)
+        assertEquals(Forum.Activity.Idle, Forum.activity(project))
+        val busy = project.copy(sessions = project.sessions + row("r").copy(status = SessionStatus.RUNNING))
+        assertEquals(Forum.Activity.Working, Forum.activity(busy))
+        val asking = project.copy(sessions = project.sessions + row("q").copy(status = SessionStatus.WAITING))
+        assertEquals(Forum.Activity.Waiting, Forum.activity(asking))
+    }
+
+    @Test
+    fun searchFindsTheComputersSessionsByTitleFolderPreviewOrModel() {
+        val groups = listOf(
+            group("crok", row("a", title = "Fix the relay"), row("b", title = "Write notes").copy(model = "grok-4"), row("c", title = "Paging").copy(preview = "the relay pages now")),
             group("site", row("d", title = "Dark mode")),
         )
-        val found = SessionList.sections(groups, SessionFilter.All, " relay ", collapsed = setOf(groups[0].key))
-        assertEquals(1, found.size)
-        // Matches show even in a collapsed section, all of them, without "Show more".
-        assertEquals(listOf("a", "c"), found.single().visibleRows.map { it.id })
-        assertFalse(found.single().isCollapsed)
-        assertEquals(2, found.single().count)
+        assertEquals(listOf("a", "c"), Forum.search(groups, " relay ").map { it.id })
+        assertEquals(listOf("b"), Forum.search(groups, "GROK").map { it.id })
         // A project's name matches all its sessions.
-        assertEquals(listOf("d"), SessionList.sections(groups, SessionFilter.All, "site").single().rows.map { it.id })
-        assertTrue(SessionList.sections(groups, SessionFilter.All, "nothing like it").isEmpty())
+        assertEquals(listOf("d"), Forum.search(groups, "site").map { it.id })
+        assertTrue(Forum.search(groups, "nothing like it").isEmpty())
+        assertTrue(Forum.search(groups, "  ").isEmpty())
+    }
+
+    @Test
+    fun topicColoursMatchTheIosApp() {
+        // FNV-1a over UTF-8, as iOS's ProjectAvatar.colorIndex: the same session gets the same colour on both phones.
+        assertEquals(StableIndex.fnv1a("", 6), (2_166_136_261L % 6).toInt())
+        val a = 2_166_136_261L xor 'a'.code.toLong()
+        assertEquals(((a * 16_777_619L) and 0xFFFFFFFFL) % 6, StableIndex.fnv1a("a", 6).toLong())
+        assertEquals(StableIndex.fnv1a("demo-s1", 6), TopicColors.index("demo-s1"))
+        assertEquals(6, TopicColors.all.size)
+        assertEquals("F", TopicColors.initial("fix the pager"))
+        assertEquals("2", TopicColors.initial("  2nd try"))
+        assertEquals("·", TopicColors.initial("…"))
+    }
+
+    @Test
+    fun theGradientMixesFourColoursByDistance() {
+        // Each colour dominates at its own point; the weights always add up to one.
+        ThemeGradient.points.forEachIndexed { index, (x, y) ->
+            val w = ThemeGradient.weights(x, y)
+            assertEquals(1f, w.sum(), 1e-4f)
+            assertEquals(index, w.indices.maxBy { w[it] })
+        }
+        val colors = listOf(0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFFFF)
+        // At the first point the pixel is mostly red.
+        val pixel = ThemeGradient.mix(colors, 0.80f, 0.10f)
+        assertTrue((pixel shr 16 and 0xFF) > 200)
+        assertEquals(0xFF, pixel ushr 24)
     }
 
     @Test
@@ -204,14 +265,19 @@ class SessionListTest {
     }
 
     @Test
-    fun freezingSectionsHoldsBothLevels() {
-        val before = listOf(group("crok", row("a"), row("b")), group("site", row("c")))
-        val order = SessionList.orderOf(SessionList.sections(before, SessionFilter.All, ""))
-        val after = listOf(group("site", row("c")), group("crok", row("b"), row("a", title = "A2"), row("n")))
-        val frozen = SessionList.freezeSections(order, SessionList.sections(after, SessionFilter.All, ""))
-        assertEquals(listOf("d1:/Users/me/code/crok", "d1:/Users/me/code/site"), frozen.map { it.key })
-        assertEquals(listOf("a", "b", "n"), frozen.first().rows.map { it.id })
-        assertEquals("A2", frozen.first().rows.first().title)
+    fun freezingProjectsHoldsTheirOrder() {
+        val before = listOf(group("crok", row("a")), group("site", row("c")))
+        val after = listOf(group("site", row("c")), group("new", row("n")), group("crok", row("a", title = "A2")))
+        val frozen = SessionList.freeze(before.map { it.key }, after) { it.key }
+        assertEquals(listOf("d1:/Users/me/code/crok", "d1:/Users/me/code/site", "d1:/Users/me/code/new"), frozen.map { it.key })
+        assertEquals("A2", frozen.first().sessions.single().title)
+    }
+
+    @Test
+    fun photosAreDownscaledToTheirLongestSide() {
+        assertEquals(2048 to 1536, dev.chenli.crok.mobile.data.PhotoImport.targetSize(4032, 3024))
+        assertEquals(1152 to 2048, dev.chenli.crok.mobile.data.PhotoImport.targetSize(2268, 4032))
+        assertEquals(800 to 600, dev.chenli.crok.mobile.data.PhotoImport.targetSize(800, 600))
     }
 
     @Test

@@ -1,6 +1,7 @@
 #!/usr/bin/env swift
 // Renders the Crok mark (desktop/macOS/Resources/GrokMark.svg, the labubu head traced to filled outlines) into the
-// iOS asset catalog: the app icon (light, dark and tinted variants) and a vector PDF of the mark for in-app use.
+// iOS asset catalog: the app icon (light, dark and tinted variants), the yellow icon of Debug builds (AppIcon-Dev,
+// mobile/DESIGN.md "Dev builds"), and a vector PDF of the mark for in-app use.
 //
 //   swift mobile/iOS/scripts/make-icon.swift            # from the repository root
 //
@@ -108,7 +109,8 @@ func drawMark(_ mark: Mark, in ctx: CGContext, rect: CGRect, color: CGColor) {
 
 enum Variant { case light, dark, tinted }
 
-func renderIcon(_ mark: Mark, variant: Variant, size: Int) -> CGImage {
+/// `dev`: the Debug builds' icon, yellow instead of blue, so a dev build and a release never look alike.
+func renderIcon(_ mark: Mark, variant: Variant, size: Int, dev: Bool = false) -> CGImage {
     let space = CGColorSpace(name: CGColorSpace.sRGB)!
     let ctx = CGContext(
         data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: space,
@@ -117,9 +119,10 @@ func renderIcon(_ mark: Mark, variant: Variant, size: Int) -> CGImage {
     let s = CGFloat(size)
     switch variant {
     case .light:
-        // Telegram blue (the app's accent, #3390EC), a touch lighter at the top, like light falling on a matte tile.
-        let gradient = CGGradient(
-            colorsSpace: space, colors: [rgb(0x4FA4F4), rgb(0x2A80DE)] as CFArray, locations: [0, 1])!
+        // Telegram blue (the app's accent, #3390EC), a touch lighter at the top, like light falling on a matte tile;
+        // dev builds: yellow.
+        let colors = dev ? [rgb(0xFFD84D), rgb(0xF6B800)] : [rgb(0x4FA4F4), rgb(0x2A80DE)]
+        let gradient = CGGradient(colorsSpace: space, colors: colors as CFArray, locations: [0, 1])!
         ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: s), end: CGPoint(x: 0, y: 0), options: [])
     case .dark:
         let gradient = CGGradient(
@@ -130,8 +133,8 @@ func renderIcon(_ mark: Mark, variant: Variant, size: Int) -> CGImage {
     }
     let markColor: CGColor
     switch variant {
-    case .light: markColor = rgb(0xFFFFFF)
-    case .dark: markColor = rgb(0x3E88F7)
+    case .light: markColor = dev ? rgb(0x3D2E00) : rgb(0xFFFFFF)
+    case .dark: markColor = dev ? rgb(0xFFC933) : rgb(0x3E88F7)
     case .tinted: markColor = rgb(0xFFFFFF)
     }
     // The head fills about 60% of the tile, nudged down a little so the ears balance the face.
@@ -168,26 +171,30 @@ func writeJSON(_ object: Any, to url: URL) throws {
 let mark = try loadMark()
 let fm = FileManager.default
 
+// Release builds use AppIcon, Debug builds AppIcon-Dev (Config/*.xcconfig, ASSETCATALOG_COMPILER_APPICON_NAME).
+for (name, dev) in [("AppIcon", false), ("AppIcon-Dev", true)] {
+    let iconSet = assets.appendingPathComponent("\(name).appiconset")
+    try fm.createDirectory(at: iconSet, withIntermediateDirectories: true)
+    try writePNG(renderIcon(mark, variant: .light, size: 1024, dev: dev), to: iconSet.appendingPathComponent("\(name)-Light.png"))
+    try writePNG(renderIcon(mark, variant: .dark, size: 1024, dev: dev), to: iconSet.appendingPathComponent("\(name)-Dark.png"))
+    try writePNG(renderIcon(mark, variant: .tinted, size: 1024, dev: dev), to: iconSet.appendingPathComponent("\(name)-Tinted.png"))
+    try writeJSON(
+        [
+            "images": [
+                ["filename": "\(name)-Light.png", "idiom": "universal", "platform": "ios", "size": "1024x1024"],
+                [
+                    "appearances": [["appearance": "luminosity", "value": "dark"]],
+                    "filename": "\(name)-Dark.png", "idiom": "universal", "platform": "ios", "size": "1024x1024",
+                ],
+                [
+                    "appearances": [["appearance": "luminosity", "value": "tinted"]],
+                    "filename": "\(name)-Tinted.png", "idiom": "universal", "platform": "ios", "size": "1024x1024",
+                ],
+            ],
+            "info": ["author": "xcode", "version": 1],
+        ], to: iconSet.appendingPathComponent("Contents.json"))
+}
 let iconSet = assets.appendingPathComponent("AppIcon.appiconset")
-try fm.createDirectory(at: iconSet, withIntermediateDirectories: true)
-try writePNG(renderIcon(mark, variant: .light, size: 1024), to: iconSet.appendingPathComponent("AppIcon-Light.png"))
-try writePNG(renderIcon(mark, variant: .dark, size: 1024), to: iconSet.appendingPathComponent("AppIcon-Dark.png"))
-try writePNG(renderIcon(mark, variant: .tinted, size: 1024), to: iconSet.appendingPathComponent("AppIcon-Tinted.png"))
-try writeJSON(
-    [
-        "images": [
-            ["filename": "AppIcon-Light.png", "idiom": "universal", "platform": "ios", "size": "1024x1024"],
-            [
-                "appearances": [["appearance": "luminosity", "value": "dark"]],
-                "filename": "AppIcon-Dark.png", "idiom": "universal", "platform": "ios", "size": "1024x1024",
-            ],
-            [
-                "appearances": [["appearance": "luminosity", "value": "tinted"]],
-                "filename": "AppIcon-Tinted.png", "idiom": "universal", "platform": "ios", "size": "1024x1024",
-            ],
-        ],
-        "info": ["author": "xcode", "version": 1],
-    ], to: iconSet.appendingPathComponent("Contents.json"))
 
 let markSet = assets.appendingPathComponent("CrokMark.imageset")
 try fm.createDirectory(at: markSet, withIntermediateDirectories: true)

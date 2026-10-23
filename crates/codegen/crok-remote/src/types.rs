@@ -65,6 +65,9 @@ pub struct SessionUsage {
     pub context_tokens: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_window: Option<f64>,
+    /// Output tokens per second, averaged over the session as the harness measured it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens_per_second: Option<f64>,
 }
 
 /// Fields of a mirrored session. Only the ones set are sent, and the relay writes only those that changed.
@@ -214,6 +217,8 @@ pub enum CommandType {
     Create,
     /// Set the session's model or thinking level (`config_id`, value in `text`).
     Config,
+    /// Read the session's repository for a front end on another computer: `text` is the JSON request.
+    Git,
     /// A command type from a newer relay: left alone.
     #[serde(other)]
     Unknown,
@@ -240,6 +245,12 @@ pub struct InboxCommand {
     /// For [`CommandType::Config`]: `model` or `reasoning_effort`.
     #[serde(default)]
     pub config_id: Option<String>,
+    /// For [`CommandType::Create`]: the model and thinking level chosen for the new session, applied before its
+    /// first prompt. `effort` is an option id, or the level itself (`high`).
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
     /// A prompt for a session nobody runs: whoever claims it opens the session first.
     #[serde(default)]
     pub adopt: bool,

@@ -14796,6 +14796,7 @@ dependencies = [
  "uuid",
  "xai-grok-auth",
  "xai-grok-extra-ca",
+ "xai-grok-models",
  "xai-grok-sampling-types",
  "xai-grok-test-support",
  "xai-grok-version",

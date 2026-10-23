@@ -170,6 +170,24 @@ const sessionFields = {
 };
 
 /**
+ * A branch a git command on this computer checked out, for a session another process may run. It updates only the
+ * row's branch (or a catalog row), so a read does not make the session look open on this process.
+ */
+export const setBranch = mutation({
+  args: { hostId: v.id("hosts"), sessionId: v.string(), branch: v.string() },
+  handler: async (ctx, { hostId, sessionId, branch }) => {
+    const { viewer } = await requireHost(ctx, hostId);
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", sessionId))
+      .unique();
+    if (!session || session.deviceId !== viewer.device._id) return null;
+    if (session.gitBranch !== branch) await ctx.db.patch(session._id, { gitBranch: branch });
+    return null;
+  },
+});
+
+/**
  * Creates or updates the mirror of one session this host runs, writing only the fields that changed (each write
  * re-runs the viewers' session lists). Taking over a session another host ran moves it here.
  */
@@ -407,6 +425,8 @@ function forHost(command: Doc<"commands">, session: Doc<"sessions"> | null, host
   if (!session) return false;
   if (!supports(host, command.type)) return false;
   if (command.type === "history") return session.deviceId === host.deviceId && !session.online;
+  // A git read runs in the session's folder without opening it; any crok of that computer can serve it.
+  if (command.type === "git") return session.deviceId === host.deviceId;
   if (session.online) return session.hostId === host._id;
   return opensSession(command) && session.deviceId === host.deviceId && host.canAdopt === true;
 }
@@ -451,6 +471,9 @@ export const inbox = query({
         interactionId: command.interactionId ?? null,
         /** For `config`: the setting it changes (`text` holds the value). */
         configId: command.configId ?? null,
+        /** For `create`: the model and thinking level to apply before its first prompt. */
+        model: command.model ?? null,
+        effort: command.effort ?? null,
         /** A prompt or config change for a session nobody runs: the host that claims it opens the session first. */
         adopt: (command.type === "prompt" || command.type === "config") && !session.online,
         fromLabel: command.fromLabel,

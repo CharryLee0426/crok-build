@@ -9,7 +9,7 @@ final class MarkdownUITests: XCTestCase {
     private func launch(appearance: String) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-CrokDemo", "YES", "-CrokAppearance", appearance]
+        app.launchArguments = ["-CrokDemo", "YES", "-CrokAppearance", appearance, "-crok.selectedComputer", "mbp", "-crok.sessionTheme", "none"]
         app.launch()
         return app
     }
@@ -32,11 +32,7 @@ final class MarkdownUITests: XCTestCase {
     }
 
     private func openShowcase(_ app: XCUIApplication) {
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 10))
-        app.buttons["Studio"].firstMatch.tap()
-        let row = app.staticTexts["Refactor the pager's scroll model"]
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        row.tap()
+        app.openSession("Refactor the pager's scroll model", in: "xai-grok-pager", on: "Studio")
         XCTAssertTrue(element(app, "offlineNotice").waitForExistence(timeout: 5))
     }
 
@@ -103,9 +99,7 @@ final class MarkdownUITests: XCTestCase {
 
     func testStreamingReply() {
         let app = launch(appearance: "light")
-        let flaky = app.staticTexts["Fix the flaky upload test"]
-        XCTAssertTrue(flaky.waitForExistence(timeout: 10))
-        flaky.tap()
+        app.openSession("Fix the flaky upload test", in: "crok-build")
         let stop = element(app, "stopButton")
         XCTAssertTrue(stop.waitForExistence(timeout: 10))
         stop.tap()

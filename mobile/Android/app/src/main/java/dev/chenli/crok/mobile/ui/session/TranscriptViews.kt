@@ -38,7 +38,6 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
@@ -54,8 +53,10 @@ import dev.chenli.crok.mobile.logic.Tick
 import dev.chenli.crok.mobile.logic.TranscriptItem
 import dev.chenli.crok.mobile.ui.common.CrokIcons
 import dev.chenli.crok.mobile.ui.common.Pill
+import dev.chenli.crok.mobile.ui.common.ServicePill
 import dev.chenli.crok.mobile.ui.common.rememberFormatter
 import dev.chenli.crok.mobile.ui.theme.CrokTheme
+import dev.chenli.crok.mobile.ui.theme.SessionTheme
 
 /** What transcript rows can ask for. */
 data class TranscriptActions(
@@ -105,8 +106,14 @@ fun TranscriptRow(item: TranscriptItem, now: Long, actions: TranscriptActions, b
 @Composable
 private fun DayHeader(item: TranscriptItem.Day, now: Long) {
     val formatter = rememberFormatter()
+    val session = SessionTheme.current
     Box(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 6.dp), contentAlignment = Alignment.Center) {
-        Pill(formatter.dayLabel(RelativeTime.dayLabel(item.date, now, formatter.zone)))
+        val label = formatter.dayLabel(RelativeTime.dayLabel(item.date, now, formatter.zone))
+        if (session.serviceBackground != null && session.serviceText != null) {
+            ServicePill(label, session.serviceText, session.serviceBackground)
+        } else {
+            Pill(label)
+        }
     }
 }
 
@@ -114,6 +121,7 @@ private fun DayHeader(item: TranscriptItem.Day, now: Long) {
 @Composable
 private fun UserBubble(item: TranscriptItem.User, actions: TranscriptActions) {
     val colors = CrokTheme.colors
+    val session = SessionTheme.current
     val formatter = rememberFormatter()
     var menu by remember { mutableStateOf(false) }
     val failed = item.tick == Tick.Failed
@@ -149,14 +157,15 @@ private fun UserBubble(item: TranscriptItem.User, actions: TranscriptActions) {
                 Modifier
                     .weight(1f, fill = false)
                     .clip(outShape(item.grouping))
-                    .background(colors.bubbleOut)
+                    .background(session.bubbleOut)
                     .combinedClickable(onClick = { if (failed) menu = true }, onLongClick = { actions.onCopy(item.text) })
                     .padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 6.dp),
                 horizontalAlignment = Alignment.End,
             ) {
-                Text(item.text, style = MaterialTheme.typography.bodyLarge, color = colors.onBubbleOut, modifier = Modifier.align(Alignment.Start))
-                // Time and label on the bubble: muted ordinary text on light blue, translucent white on dark blue.
-                val meta = if (colors.isDark) colors.onBubbleOut.copy(alpha = 0.6f) else colors.textTertiary
+                Text(item.text, style = MaterialTheme.typography.bodyLarge, color = session.onBubbleOut, modifier = Modifier.align(Alignment.Start))
+                // Time and label on the bubble: muted ordinary text on light blue, translucent white on dark blue, or
+                // the session theme's own colour.
+                val meta = session.outMeta
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (item.remote && item.fromLabel != null) {
                         Icon(CrokIcons.Phone, contentDescription = null, tint = meta, modifier = Modifier.size(12.dp))
@@ -182,9 +191,9 @@ private fun UserBubble(item: TranscriptItem.User, actions: TranscriptActions) {
 @Composable
 private fun TickIcon(tick: Tick) {
     val colors = CrokTheme.colors
-    // Accent ticks on the light bubble; on the dark blue one the accent would vanish, so a light blue-white.
-    val check = if (colors.isDark) Color(0xFFB8D8FF) else colors.accent
-    val clock = if (colors.isDark) colors.onBubbleOut.copy(alpha = 0.6f) else colors.textTertiary
+    val session = SessionTheme.current
+    val check = session.outTick
+    val clock = session.outMeta
     val (icon, tint, label) = when (tick) {
         Tick.Clock -> Triple(CrokIcons.Clock, clock, R.string.tick_clock)
         Tick.Sent -> Triple(CrokIcons.Check, check, R.string.tick_sent)
@@ -359,6 +368,7 @@ private fun ToolStatus(status: String?) {
 @Composable
 private fun NoticeRow(item: TranscriptItem.Notice) {
     val colors = CrokTheme.colors
+    val session = SessionTheme.current
     val (text, fg, bg) = when (item.kind) {
         NoticeKind.Stopped -> Triple(stringResource(R.string.notice_stopped), colors.textSecondary, colors.card)
         NoticeKind.MaxTokens -> Triple(stringResource(R.string.notice_max_tokens), colors.warning, colors.warningContainer)
@@ -366,7 +376,13 @@ private fun NoticeRow(item: TranscriptItem.Notice) {
         NoticeKind.Error -> Triple(item.text.ifBlank { stringResource(R.string.tool_failed) }, colors.danger, colors.dangerContainer)
         NoticeKind.Info -> Triple(item.text, colors.textSecondary, colors.card)
     }
+    // On a themed background the neutral notices are service capsules (Telegram's); warnings and errors keep their colour.
+    val service = item.kind == NoticeKind.Stopped || item.kind == NoticeKind.Info
     Box(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-        Pill(text, color = fg, background = bg)
+        if (service && session.serviceBackground != null && session.serviceText != null) {
+            ServicePill(text, session.serviceText, session.serviceBackground)
+        } else {
+            Pill(text, color = fg, background = bg)
+        }
     }
 }

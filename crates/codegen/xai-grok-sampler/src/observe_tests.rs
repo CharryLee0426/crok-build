@@ -130,24 +130,42 @@ fn response(text: &str) -> ConversationResponse {
     }
 }
 
-fn completed(text: &str) -> SamplingEvent {
-    SamplingEvent::Completed {
-        request_id: RequestId::from("r"),
-        response: Box::new(response(text)),
-        metrics: InferenceLatencyStats::default(),
-    }
+async fn run_turn(client: &SamplingClient, request: &ConversationRequest, path: CallPath) {
+    run_with(client, request, path, response("Found it.")).await;
 }
 
-async fn run_turn(client: &SamplingClient, request: &ConversationRequest, path: CallPath) {
+async fn run_with(
+    client: &SamplingClient,
+    request: &ConversationRequest,
+    path: CallPath,
+    response: ConversationResponse,
+) {
     let observation = Observation::start(client, request, path);
     assert!(observation.is_some(), "a sink is installed");
     let events = stream::iter(vec![
         SamplingEvent::FirstToken {
             request_id: RequestId::from("r"),
         },
-        completed("Found it."),
+        SamplingEvent::Completed {
+            request_id: RequestId::from("r"),
+            response: Box::new(response),
+            metrics: InferenceLatencyStats::default(),
+        },
     ]);
     let _: Vec<_> = watch(observation, events).collect().await;
+}
+
+fn client(base_url: &str, model: &str, api_backend: ApiBackend, one_hour: bool) -> SamplingClient {
+    SamplingClient::new(SamplerConfig {
+        api_key: Some("test-key".to_owned()),
+        base_url: base_url.to_owned(),
+        model: model.to_owned(),
+        api_backend,
+        context_window: 200_000,
+        anthropic: one_hour.then(xai_grok_sampling_types::AnthropicOptions::default),
+        ..Default::default()
+    })
+    .unwrap()
 }
 
 #[tokio::test]
@@ -203,6 +221,92 @@ async fn a_completed_turn_records_new_input_output_and_inclusive_usage() {
     assert_eq!(result["usage"]["reasoningTokens"], 20);
     assert_eq!(result["usage"]["inputSemantics"], "inclusive");
     assert!(record.get("error").is_none());
+    // `claude-test` has no standard price, so the span says nothing about cost.
+    assert_eq!(
+        record["spanAttributes"],
+        serde_json::json!({"crok.backend": "messages"})
+    );
+}
+
+#[tokio::test]
+async fn a_priced_call_reports_its_standard_cost_at_the_cache_lifetime_it_wrote() {
+    sink();
+    // The response names `claude-test-20261001`, which no list prices, so the requested model is.
+    let five_minutes = client(
+        "https://api.anthropic.com/v1",
+        "claude-sonnet-5-5",
+        ApiBackend::Messages,
+        false,
+    );
+    run_turn(&five_minutes, &turn_request("obs-cost-5m"), CallPath::Turn).await;
+    let one_hour = client(
+        "https://api.anthropic.com/v1",
+        "claude-sonnet-5-5",
+        ApiBackend::Messages,
+        true,
+    );
+    run_turn(&one_hour, &turn_request("obs-cost-1h"), CallPath::Turn).await;
+
+    // 50 uncached input at $2, 1,000 cache reads at $0.10, 150 writes at $2.50 (5 min) or $4 (1 h),
+    // 80 output at $10, per million tokens.
+    let span = |id| records_for(id)[0]["spanAttributes"].clone();
+    assert_eq!(span("obs-cost-5m")["crok.cost.source"], "list_price");
+    let usd = |id| span(id)["crok.cost.usd"].as_f64().unwrap();
+    assert!(
+        (usd("obs-cost-5m") - 0.001_375).abs() < 1e-12,
+        "{}",
+        usd("obs-cost-5m")
+    );
+    assert!(
+        (usd("obs-cost-1h") - 0.001_6).abs() < 1e-12,
+        "{}",
+        usd("obs-cost-1h")
+    );
+}
+
+#[tokio::test]
+async fn a_provider_reported_cost_wins_over_the_list_price() {
+    sink();
+    let openrouter = client(
+        "https://openrouter.ai/api/v1",
+        "anthropic/claude-sonnet-5-5",
+        ApiBackend::OpenRouter,
+        false,
+    );
+    let mut billed = response("Found it.");
+    billed.cost_usd_ticks = Some(123_400_000);
+    run_with(
+        &openrouter,
+        &turn_request("obs-cost-billed"),
+        CallPath::Turn,
+        billed,
+    )
+    .await;
+
+    let span = &records_for("obs-cost-billed")[0]["spanAttributes"];
+    assert_eq!(span["crok.backend"], "openrouter");
+    assert_eq!(span["crok.cost.source"], "provider");
+    assert!((span["crok.cost.usd"].as_f64().unwrap() - 0.012_34).abs() < 1e-12);
+    assert!(span.get("crok.cancelled").is_none());
+}
+
+#[tokio::test]
+async fn a_codex_call_is_estimated_at_the_openai_price() {
+    sink();
+    let codex = client(
+        "https://chatgpt.com/backend-api/codex",
+        "gpt-5.3-codex",
+        ApiBackend::OpenAiCodex,
+        false,
+    );
+    run_turn(&codex, &turn_request("obs-cost-codex"), CallPath::Turn).await;
+
+    let record = &records_for("obs-cost-codex")[0];
+    assert_eq!(record["start"]["model"]["provider"], "openai");
+    let span = &record["spanAttributes"];
+    assert_eq!(span["crok.backend"], "openai_codex");
+    // 50 at $1.75, 1,000 at $0.175, 150 at $1.75, 80 at $14 per million tokens.
+    assert!((span["crok.cost.usd"].as_f64().unwrap() - 0.001_645).abs() < 1e-12);
 }
 
 #[tokio::test]
@@ -259,6 +363,10 @@ async fn a_send_error_keeps_the_status_and_a_dropped_stream_is_recorded_as_cance
             .starts_with("cancelled")
     );
     assert!(records[1]["result"].get("usage").is_none());
+    // Only the cancelled one says so: a failure carries no flag.
+    assert!(records[0]["spanAttributes"].get("crok.cancelled").is_none());
+    assert_eq!(records[1]["spanAttributes"]["crok.cancelled"], true);
+    assert!(records[1]["spanAttributes"].get("crok.cost.usd").is_none());
 }
 
 #[tokio::test]

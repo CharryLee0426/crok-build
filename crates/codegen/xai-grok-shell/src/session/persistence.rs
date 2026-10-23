@@ -277,6 +277,10 @@ pub enum PersistenceMsg {
         /// Outer `None` keeps the saved context window. `Some(None)` resets it to the model default.
         context_window: Option<Option<std::num::NonZeroU64>>,
     },
+    /// Rebuild the session-title client from the session's live sampling config.
+    /// Title generation follows the session's model, so a switch made before the first
+    /// prompt is titled must move the side call to the new provider.
+    SummarySampling(Box<xai_grok_sampler::SamplerConfig>),
     PlanState(TodoState),
     PlanModeState(crate::session::plan_mode::PlanModeSnapshot),
     RewindPoint(RewindPoint),
@@ -2263,6 +2267,9 @@ impl SessionPersistence {
                     if let Some(sync) = &self.remote_sync {
                         sync.set_model_id(model_id.0.to_string());
                     }
+                }
+                PersistenceMsg::SummarySampling(config) => {
+                    self.summary.set_sampling_config(*config);
                 }
                 PersistenceMsg::PlanState(state) => {
                     // Atomic-rename: durable at write time, never on the dirty set A failed plan write must not latch into `pending_write_error`.

@@ -117,6 +117,25 @@ class EngineOverDemoTest {
     }
 
     @Test
+    fun markAllAsReadClearsEveryUnreadSessionOfTheComputer() = await {
+        val state = engine.sessions.active.first { it.live }
+        val macbook = state.groups.filter { it.deviceId == DemoData.MACBOOK_ID }
+        val unread = dev.chenli.crok.mobile.logic.Computers.unreadSessionIds(macbook)
+        assertTrue(unread.size >= 2)
+        engine.sessions.markRead(unread)
+        // Shown read at once, and the relay agrees.
+        val after = engine.sessions.active.first { list -> list.rows.filter { it.id in unread }.all { it.unread == 0 } }
+        assertTrue(after.rows.filter { it.deviceId == DemoData.MACBOOK_ID }.all { it.unread == 0 })
+        // The other computers keep theirs.
+        assertTrue(after.rows.any { it.deviceId == DemoData.STUDIO_ID && it.unread > 0 })
+        val relay = RelayJson.decodeFromJsonElement(
+            ListSerializer(SessionGroup.serializer()),
+            transport.subscribe("sessions:groups", emptyMap()).first().getOrThrow(),
+        )
+        assertTrue(relay.flatMap { it.sessions }.filter { it.id in unread }.all { it.unread == 0 })
+    }
+
+    @Test
     fun reordersProjectsAndSessionsAndTheRelayAgrees() = await {
         engine.sessions.active.first { it.live }
         val moved = listOf(DemoData.STUDIO_CROK_BUILD, DemoData.MACBOOK_CROK_BUILD, DemoData.MACBOOK_CROK_SITE, DemoData.LINUX_INGEST)

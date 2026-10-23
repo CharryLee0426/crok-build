@@ -19,8 +19,7 @@ struct NewSessionPicker: View {
                                 dismiss()
                             } label: {
                                 HStack(spacing: 12) {
-                                    Image(systemName: "folder.fill")
-                                        .foregroundStyle(Theme.avatarColor(for: group.name))
+                                    ProjectAvatarView(folder: group.name, size: 36, square: true)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(verbatim: group.name)
                                             .font(.body.weight(.semibold))
@@ -124,6 +123,12 @@ struct NewSessionContent: View {
     @Bindable var model: NewSessionModel
     @Environment(CrokEngine.self) private var engine
     @FocusState private var composerFocused: Bool
+    @AppStorage(SessionTheme.storageKey) private var themeID = SessionTheme.noneID
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var palette: SessionPalette {
+        SessionPalette.make(SessionTheme.named(themeID), dark: colorScheme == .dark)
+    }
 
     var body: some View {
         ScrollView {
@@ -140,16 +145,17 @@ struct NewSessionContent: View {
         }
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
-        .background(Theme.canvas.ignoresSafeArea())
+        .background(SessionBackgroundView().ignoresSafeArea())
+        .environment(\.sessionPalette, palette)
         .overlay {
             if model.pendingPrompt == nil {
                 VStack(spacing: 12) {
                     Image(systemName: "terminal")
                         .font(.system(size: 30, weight: .regular))
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(palette.onWallpaper ? Color.white : Theme.accent)
                     Text("Starts in \(PathText.abbreviatingHome(model.target.path)) on \(model.target.deviceName)")
                         .font(.subheadline)
-                        .foregroundStyle(Theme.noticeText)
+                        .foregroundStyle(palette.serviceText)
                         .multilineTextAlignment(.center)
                     if !model.computerOnline {
                         Text("\(model.target.deviceName) is offline. Start crok or Crok Desktop there first.")
@@ -160,7 +166,7 @@ struct NewSessionContent: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 14)
-                .background(Theme.noticeBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(palette.serviceBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .frame(maxWidth: 320)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("newSessionPlaceholder")
@@ -208,24 +214,25 @@ struct NewSessionContent: View {
 /// session.
 private struct PendingPromptBubble: View {
     let prompt: LocalPrompt
+    @Environment(\.sessionPalette) private var palette
 
     var body: some View {
         HStack(alignment: .bottom) {
             Spacer(minLength: 48)
             VStack(alignment: .trailing, spacing: 3) {
                 Text(prompt.text)
-                    .foregroundStyle(Theme.userBubbleText)
+                    .foregroundStyle(palette.userBubbleText)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 4) {
                     Text(Date(milliseconds: prompt.createdAt), format: .dateTime.hour().minute())
-                    DeliveryTickView(tick: .sending, color: Theme.userBubbleMeta)
+                    DeliveryTickView(tick: .sending, color: palette.userBubbleMeta)
                 }
                 .font(.caption2)
-                .foregroundStyle(Theme.userBubbleMeta)
+                .foregroundStyle(palette.userBubbleMeta)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Theme.userBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(palette.userBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .opacity(0.85)
         }
         .accessibilityElement(children: .contain)

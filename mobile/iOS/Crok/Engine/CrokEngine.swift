@@ -17,8 +17,9 @@ final class CrokEngine {
     private(set) var localPrompts: [DocID: [LocalPrompt]] = [:]
     /// Moves sent to the relay and not confirmed yet; `groups` applies them over every value the relay sends meanwhile.
     private(set) var pendingReorders: [PendingReorder] = []
-    /// Projects collapsed in the list (remembered on this phone).
-    private(set) var collapsedProjects: Set<String>
+    /// The computer the Sessions tab shows, as picked on this phone (mobile/DESIGN.md "The computer switcher");
+    /// `selectedComputerId` falls back to a default while it is nil or no longer linked.
+    private(set) var rememberedComputer: DocID?
     /// Sessions this phone started (`sessions:create`), by client id.
     private(set) var startedSessions: [String: DocID] = [:]
 
@@ -29,7 +30,7 @@ final class CrokEngine {
     let account: LiveQuery<AccountInfo?>
 
     @ObservationIgnored let drafts: DraftStore
-    @ObservationIgnored private let collapsedStore: CollapsedProjectsStore
+    @ObservationIgnored private let selectedStore: SelectedComputerStore
     @ObservationIgnored private let cache: SessionListCache?
     /// Network, sync and the recovery steps (relay/DESIGN.md §5 "Staying connected").
     @ObservationIgnored private(set) var keeper: ConnectionKeeper
@@ -67,8 +68,8 @@ final class CrokEngine {
         self.now = now
         self.tickInterval = tickInterval
         keeper = ConnectionKeeper(now: now())
-        collapsedStore = CollapsedProjectsStore(defaults: drafts.defaults)
-        collapsedProjects = collapsedStore.load()
+        selectedStore = SelectedComputerStore(defaults: drafts.defaults)
+        rememberedComputer = selectedStore.load()
         let cached = cache?.load(deviceId: credentials.deviceId)
         groupList = LiveQuery(engine: nil, initial: cached?.groups) { backend.sessions.groups() }
         archivedList = LiveQuery(engine: nil) { backend.sessions.list(archived: true) }
@@ -104,8 +105,14 @@ final class CrokEngine {
                 }
             }
         }
-        groupList.onValue = { [weak self] groups in self?.scheduleCacheSave(groups: groups) }
-        deviceList.onValue = { [weak self] _ in self?.scheduleCacheSave(groups: nil) }
+        groupList.onValue = { [weak self] groups in
+            self?.scheduleCacheSave(groups: groups)
+            self?.settleSelectedComputer()
+        }
+        deviceList.onValue = { [weak self] _ in
+            self?.scheduleCacheSave(groups: nil)
+            self?.settleSelectedComputer()
+        }
         groupList.start()
         deviceList.start()
         account.start()
@@ -244,7 +251,7 @@ final class CrokEngine {
         return archivedList.value?.first(where: { $0.id == id })
     }
 
-    /// Unread replies over every session in the main list (the Sessions tab's badge).
+    /// Unread replies over every session in the main list.
     var unreadTotal: Int {
         (groupList.value ?? []).reduce(0) { $0 + $1.unreadCount }
     }
@@ -253,19 +260,53 @@ final class CrokEngine {
         (deviceList.value ?? []).filter { $0.kind == .computer }
     }
 
-    // MARK: Collapsed projects
+    // MARK: Computers
 
-    func isCollapsed(_ projectKey: String) -> Bool {
-        collapsedProjects.contains(projectKey)
+    /// Every computer, in link order: the accounts of the switcher and of Profile.
+    var computerAccounts: [ComputerAccount] {
+        ComputerList.make(devices: deviceList.value ?? [], groups: groups)
     }
 
-    func toggleCollapsed(_ projectKey: String) {
-        if collapsedProjects.contains(projectKey) {
-            collapsedProjects.remove(projectKey)
-        } else {
-            collapsedProjects.insert(projectKey)
-        }
-        collapsedStore.save(collapsedProjects)
+    /// The computer the Sessions tab shows.
+    var selectedComputerId: DocID? {
+        ComputerList.resolve(remembered: rememberedComputer, in: computerAccounts)
+    }
+
+    var selectedComputer: ComputerAccount? {
+        let accounts = computerAccounts
+        guard let id = ComputerList.resolve(remembered: rememberedComputer, in: accounts) else { return nil }
+        return accounts.first(where: { $0.id == id })
+    }
+
+    func selectComputer(_ id: DocID) {
+        rememberedComputer = id
+        selectedStore.save(id)
+    }
+
+    /// Once both lists came from the relay, remembers the default pick (or the replacement for a computer that is
+    /// gone), so the tab does not jump to another computer when that one's sessions become the most recent.
+    private func settleSelectedComputer() {
+        guard !groupList.isLoading, !deviceList.isLoading else { return }
+        let accounts = computerAccounts
+        guard let id = ComputerList.resolve(remembered: rememberedComputer, in: accounts), id != rememberedComputer
+        else { return }
+        selectComputer(id)
+    }
+
+    /// The selected computer's projects, in the list's order.
+    var selectedGroups: [ProjectGroup] {
+        guard let id = selectedComputerId else { return [] }
+        return groups.filter { $0.deviceId == id }
+    }
+
+    /// The Sessions tab's badge: unread replies on the selected computer.
+    var selectedUnread: Int {
+        selectedGroups.reduce(0) { $0 + $1.unreadCount }
+    }
+
+    /// The Profile tab's badge: unread replies on every other computer (Telegram's other accounts).
+    var otherComputersUnread: Int {
+        max(0, unreadTotal - selectedUnread)
     }
 
     // MARK: Order
@@ -325,6 +366,24 @@ final class CrokEngine {
         if archived, let groups = groupList.value { groupList.override(ProjectOrder.removing(id, from: groups)) }
         let sessions = self.sessions
         let error = await perform { try await sessions.setArchived(id, archived) }
+        if error != nil { groupList.revertOverride() }
+        return error
+    }
+
+    /// Marks sessions read (`sessions:markRead` for each), shown read at once. A failure puts the relay's counts back.
+    func markRead(_ ids: [DocID]) async -> RelayError? {
+        let unique = Array(Set(ids))
+        guard !unique.isEmpty else { return nil }
+        if let groups = groupList.value { groupList.override(ProjectOrder.markingRead(Set(unique), in: groups)) }
+        let sessions = self.sessions
+        let error = await perform {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for id in unique {
+                    group.addTask { try await sessions.markRead(id) }
+                }
+                try await group.waitForAll()
+            }
+        }
         if error != nil { groupList.revertOverride() }
         return error
     }

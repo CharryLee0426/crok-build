@@ -9,11 +9,12 @@ import { newClientId } from "@/lib/browser";
 import { relayError } from "@/lib/errors";
 import { folderName, tildePath } from "@/lib/format";
 import { handOverPrompt, takeQueuedPrompt } from "@/lib/new-session";
-import type { OutboxItem, PendingPrompt } from "@/lib/types";
+import type { EffortChoice, ModelChoice, OutboxItem, PendingPrompt } from "@/lib/types";
 import { useI18n } from "../I18nProvider";
-import { ChevronLeftIcon, ComputerIcon, FolderIcon } from "../icons";
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ComputerIcon, FolderIcon } from "../icons";
 import { useErrorText } from "../SessionList";
 import { ButtonLink, Loading, Notice, ProjectAvatar, useNow } from "../ui";
+import { levelName } from "./BotCommands";
 import { Composer } from "./SessionView";
 import { Transcript } from "./Transcript";
 
@@ -38,6 +39,134 @@ function StartsIn({ path, computer }: { path: string; computer: string }) {
   );
 }
 
+/** One choice of the model and thinking-level panels. */
+function SetupChoice({
+  label,
+  detail,
+  selected,
+  centered = false,
+  onClick,
+}: {
+  label: string;
+  detail?: string;
+  selected: boolean;
+  centered?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`flex min-h-10 items-center gap-2 rounded-xl px-3.5 py-2 transition-colors ${
+        centered ? "justify-center text-center" : "text-left"
+      } ${selected ? "bg-accent-soft text-accent-text" : "text-fg hover:bg-hover"}`}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[14px] font-medium">{label}</span>
+        {detail ? <span className="block truncate text-[12px] text-muted">{detail}</span> : null}
+      </span>
+      {selected ? <CheckIcon size={16} className="shrink-0" aria-hidden /> : null}
+    </button>
+  );
+}
+
+/**
+ * The model and thinking level for a session started on another computer, from that computer's own list
+ * (`devices:models`). Unset means its default; the choice rides on `sessions:create` and its crok applies it before
+ * the first prompt.
+ */
+function NewSessionSetup({
+  models,
+  model,
+  effort,
+  onModel,
+  onEffort,
+}: {
+  models: readonly ModelChoice[];
+  model: ModelChoice | null;
+  effort: EffortChoice | null;
+  onModel: (model: ModelChoice | null) => void;
+  onEffort: (effort: EffortChoice | null) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState<"model" | "effort" | null>(null);
+  const efforts = model?.efforts ?? [];
+  if (models.length === 0) return null;
+
+  const chooseModel = (choice: ModelChoice | null) => {
+    onModel(choice);
+    onEffort(null);
+    setOpen(null);
+  };
+  const pill = (panel: "model" | "effort", title: string, value: string) => (
+    <button
+      type="button"
+      onClick={() => setOpen(open === panel ? null : panel)}
+      aria-expanded={open === panel}
+      className="flex h-8 max-w-[16rem] items-center gap-1 rounded-full border border-line px-3 text-[12.5px] text-muted transition-colors hover:border-accent hover:text-accent-text"
+    >
+      <span className="shrink-0">{title}</span>
+      <span className="truncate font-medium text-fg">{value}</span>
+      <ChevronDownIcon size={14} className="shrink-0" />
+    </button>
+  );
+
+  return (
+    <div className="mb-2 flex flex-col gap-1.5">
+      {open === "model" ? (
+        <div className="scroll-quiet max-h-[min(45vh,22rem)] overflow-y-auto rounded-2xl border border-line bg-surface p-1.5 shadow-card">
+          <p className="px-3 py-1.5 text-[13px] font-semibold text-fg">{t("card_model_title")}</p>
+          <div className="grid grid-cols-1 gap-1">
+            <SetupChoice label={t("effort_default")} selected={!model} onClick={() => chooseModel(null)} />
+            {models.map((choice) => (
+              <SetupChoice
+                key={choice.id}
+                label={choice.name}
+                detail={choice.description}
+                selected={model?.id === choice.id}
+                onClick={() => chooseModel(choice)}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {open === "effort" && model ? (
+        <div className="scroll-quiet max-h-[min(45vh,22rem)] overflow-y-auto rounded-2xl border border-line bg-surface p-1.5 shadow-card">
+          <p className="px-3 py-1.5 text-[13px] font-semibold text-fg">{t("card_effort_title")}</p>
+          <div className="grid grid-cols-2 gap-1">
+            <SetupChoice
+              centered
+              label={t("effort_default")}
+              selected={!effort}
+              onClick={() => {
+                onEffort(null);
+                setOpen(null);
+              }}
+            />
+            {efforts.map((choice) => (
+              <SetupChoice
+                centered
+                key={choice.id}
+                label={levelName(t, choice)}
+                selected={effort?.id === choice.id}
+                onClick={() => {
+                  onEffort(choice);
+                  setOpen(null);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {pill("model", t("info_model"), model?.name ?? t("effort_default"))}
+        {efforts.length > 0 ? pill("effort", t("info_effort"), effort ? levelName(t, effort) : t("effort_default")) : null}
+      </div>
+    </div>
+  );
+}
+
 /**
  * The new-session screen, shaped like a session (DESIGN.md §5): header "New session" with project and computer, an
  * empty transcript saying where it will run, the composer. The first prompt shows at once while the relay adds the
@@ -51,6 +180,11 @@ export function NewSessionView({
   prompt,
   now,
   initialDraft,
+  models = null,
+  model = null,
+  effort = null,
+  onPickModel = noop,
+  onPickEffort = noop,
   onSend,
   onRetry,
   onDiscard,
@@ -63,6 +197,13 @@ export function NewSessionView({
   prompt: PendingPrompt | null;
   now: number;
   initialDraft?: string;
+  /** That computer's models (`devices:models`), null while it is offline or has not published them. */
+  models?: readonly ModelChoice[] | null;
+  /** The model and thinking level chosen for the new session; null: its computer's default. */
+  model?: ModelChoice | null;
+  effort?: EffortChoice | null;
+  onPickModel?: (model: ModelChoice | null) => void;
+  onPickEffort?: (effort: EffortChoice | null) => void;
   onSend: (text: string) => void;
   onRetry: (prompt: PendingPrompt) => void;
   onDiscard: (prompt: PendingPrompt) => void;
@@ -115,6 +256,17 @@ export function NewSessionView({
         placeholder={t("new_session_placeholder")}
         offlineText={t("new_session_offline", { computer })}
         autoFocus
+        setup={
+          models && models.length > 0 ? (
+            <NewSessionSetup
+              models={models}
+              model={model}
+              effort={effort}
+              onModel={onPickModel}
+              onEffort={onPickEffort}
+            />
+          ) : null
+        }
         onSend={onSend}
       />
     </section>
@@ -129,6 +281,12 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
   const now = useNow(30_000);
   const devices = useQuery(api.devices.list);
   const create = useMutation(api.sessions.create);
+  /** That computer's own models, for the picker above the composer; null while it is offline. */
+  const models = useQuery(api.devices.models, { deviceId });
+  const [modelId, setModelId] = useState<string | null>(null);
+  const [effortId, setEffortId] = useState<string | null>(null);
+  const chosenModel = models?.find((m) => m.id === modelId) ?? null;
+  const chosenEffort = chosenModel?.efforts.find((e) => e.id === effortId) ?? null;
   const [outbox, setOutbox] = useState<OutboxItem | null>(null);
   const device = devices?.find((d) => d._id === deviceId && d.kind === "computer");
   const computer = device?.name ?? "";
@@ -152,7 +310,14 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
     (text: string, clientId = newClientId()) => {
       const item: OutboxItem = { clientId, text, createdAt: Date.now() };
       setOutbox(item);
-      create({ deviceId, path, text, clientId }).then(
+      create({
+        deviceId,
+        path,
+        text,
+        model: chosenModel?.id,
+        effort: chosenEffort?.id,
+        clientId,
+      }).then(
         ({ sessionDocId }) => {
           handOverPrompt(sessionDocId, item);
           router.replace(`/sessions/${sessionDocId}`);
@@ -160,7 +325,7 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
         (error) => setOutbox((o) => (o?.clientId === clientId ? { ...o, error: createErrorText(error) } : o)),
       );
     },
-    [create, deviceId, path, router, createErrorText],
+    [create, deviceId, path, router, createErrorText, chosenModel, chosenEffort],
   );
 
   // `/new <prompt>` in a session: its prompt waits here and goes out at once.
@@ -208,6 +373,14 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
       online={device.online}
       prompt={prompt}
       now={now}
+      models={models ?? null}
+      model={chosenModel}
+      effort={chosenEffort}
+      onPickModel={(picked) => {
+        setModelId(picked?.id ?? null);
+        setEffortId(null);
+      }}
+      onPickEffort={(picked) => setEffortId(picked?.id ?? null)}
       // One session per screen: a second prompt while the first is on its way would start another.
       onSend={(text) => {
         if (!outbox || outbox.error) send(text);

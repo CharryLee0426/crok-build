@@ -1,8 +1,9 @@
 use xai_grok_sampling_types::conversation::ConversationItem;
 
-use super::support::{build_actor, running_task_stub};
+use super::support::{build_actor, create_test_actor, running_task_stub};
 use crate::session::SwitchContextWindow;
 use crate::session::compaction_config::AsyncCompactionCache;
+use crate::session::persistence::PersistenceMsg;
 
 const SWITCH_TARGET_LABEL: &str = "Aurora";
 
@@ -58,6 +59,53 @@ async fn model_switch_relabels_live_agent_and_system_head() {
             );
             assert_eq!(agent.system_prompt(), head);
             assert_eq!(2, conv.len(), "the switch swaps only the head");
+        })
+        .await;
+}
+
+/// The persistence actor owns the first-title side call. A model switch must hand it the
+/// new sampling config so a prompt typed after the switch is titled by that provider.
+#[tokio::test(flavor = "current_thread")]
+async fn model_switch_repoints_title_generation_at_the_new_model() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (gateway_tx, _gateway_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (persistence_tx, mut persistence_rx) = tokio::sync::mpsc::unbounded_channel();
+            let actor = std::sync::Arc::new(
+                create_test_actor(0, 256_000, 85, gateway_tx, persistence_tx).await,
+            );
+
+            actor
+                .handle_set_session_model(crate::session::SessionModelSwitch {
+                    sampling_config: xai_grok_sampler::SamplerConfig {
+                        model: "switch-target".to_owned(),
+                        context_window: 256_000,
+                        ..xai_grok_sampler::SamplerConfig::default()
+                    },
+                    use_concise: false,
+                    is_family_switch: false,
+                    apply_prompt_override: false,
+                    skip_prompt_rewrite: true,
+                    auto_compact_threshold_percent: 85,
+                    system_prompt_label: SWITCH_TARGET_LABEL.to_owned(),
+                    context_window_selection: SwitchContextWindow::Set(None),
+                    supported_context_windows: Vec::new(),
+                })
+                .await
+                .expect("model switch succeeds");
+
+            let mut seen = Vec::new();
+            while let Ok(message) = persistence_rx.try_recv() {
+                if let PersistenceMsg::SummarySampling(config) = message {
+                    assert_eq!(
+                        "switch-target", config.model,
+                        "the title client must follow the model the session now runs on"
+                    );
+                    return;
+                }
+                seen.push(message);
+            }
+            panic!("model switch must update the title client; saw {seen:?}");
         })
         .await;
 }

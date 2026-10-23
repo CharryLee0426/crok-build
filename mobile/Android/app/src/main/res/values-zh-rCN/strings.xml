@@ -37,15 +37,12 @@
 
     <!-- Tabs and connection state -->
     <string name="tab_sessions">会话</string>
-    <string name="tab_settings">设置</string>
     <string name="connection_waiting_network">等待网络</string>
     <string name="connection_connecting">正在连接…</string>
     <string name="connection_updating">正在更新…</string>
 
     <!-- Session list -->
     <string name="sessions_title">会话</string>
-    <string name="filter_all">全部</string>
-    <string name="filter_archived">已归档</string>
     <string name="sessions_search">搜索</string>
     <string name="sessions_search_hint">搜索会话</string>
     <string name="sessions_working">工作中</string>
@@ -59,7 +56,6 @@
     <string name="sessions_empty_title">还没有会话</string>
     <string name="sessions_empty_body">在电脑上运行 crok remote login，或在 Crok Desktop 的设置 › 远程控制中登录。它的会话会显示在这里。</string>
     <string name="sessions_link_computer">关联电脑</string>
-    <string name="sessions_archived_empty">已归档的会话会显示在这里。</string>
     <string name="sessions_no_results">没有匹配的会话。</string>
     <string name="sessions_archived_snackbar">会话已归档</string>
     <string name="sessions_action_failed">无法更新会话：%1$s</string>
@@ -69,18 +65,10 @@
     <plurals name="sessions_count">
         <item quantity="other">%d 个会话</item>
     </plurals>
-    <plurals name="sessions_show_more">
-        <item quantity="other">再显示 %d 个</item>
-    </plurals>
-    <string name="sessions_show_less">收起</string>
     <string name="sessions_reorder">调整顺序</string>
-    <string name="sessions_reorder_hint">拖动 ≡ 可移动项目。点按项目即可移动其中的会话；置顶的会话始终排在最前。</string>
     <string name="sessions_sort_recent">按最近活动排序</string>
-    <string name="sessions_sort_projects_recent">按最近活动排序项目</string>
     <string name="action_move_up">上移</string>
     <string name="action_move_down">下移</string>
-    <string name="action_collapse">收起</string>
-    <string name="action_expand">展开</string>
 
     <!-- Session -->
     <string name="session_status_working">工作中…</string>
@@ -151,22 +139,14 @@
     <string name="action_remove">移除</string>
 
     <!-- Settings -->
-    <string name="settings_title">设置</string>
-    <string name="settings_this_phone">这台手机：%1$s</string>
     <string name="settings_devices">设备</string>
-    <plurals name="settings_devices_count">
-        <item quantity="other">%d 台设备</item>
-    </plurals>
     <string name="settings_link_computer">关联电脑</string>
-    <string name="settings_link_computer_detail">扫描 crok remote login 显示的二维码</string>
     <string name="settings_appearance">外观</string>
     <string name="theme_system">跟随系统</string>
     <string name="theme_light">浅色</string>
     <string name="theme_dark">深色</string>
     <string name="settings_language">语言</string>
-    <string name="settings_about">关于</string>
     <string name="settings_version">版本</string>
-    <string name="settings_server">服务器</string>
     <string name="settings_sign_out">退出登录</string>
     <string name="sign_out_title">退出 Crok？</string>
     <string name="sign_out_body">在你重新登录之前，这台手机将不再显示你的会话。</string>
@@ -195,7 +175,6 @@
     <plurals name="devices_signed_out">
         <item quantity="other">已将 %d 台设备退出登录</item>
     </plurals>
-    <string name="devices_footer">将设备退出登录会解除它与你账户的关联。它的会话仍保留在那台电脑上。</string>
     <string name="devices_this_device_note">这是你正在使用的手机。将它退出登录会回到开始界面。</string>
     <string name="devices_failed">无法将设备退出登录：%1$s</string>
 
@@ -252,7 +231,6 @@
     <string name="new_session_unavailable">不知道此会话所属的项目，因此 /new 无法在这里开始会话。</string>
     <string name="session_starting">正在启动…</string>
     <string name="sessions_new_session">新会话</string>
-    <string name="sessions_new_in_project">在 %1$s 中新建会话</string>
     <string name="picker_title">在哪里开始会话…</string>
     <string name="picker_empty">没有在线的电脑。在一台电脑上启动 crok 或 Crok Desktop，即可在那里开始会话。</string>
     <string name="composer_menu">菜单</string>
@@ -277,4 +255,50 @@
     <string name="bot_failed">无法更改：%1$s</string>
     <string name="bot_current">当前</string>
     <string name="cd_compose">新会话</string>
+    <string name="tab_profile">个人资料</string>
+    <string name="profile_title">个人资料</string>
+    <string name="action_mark_all_read">全部标为已读</string>
+    <string name="action_mark_read">标为已读</string>
+    <string name="action_read">已读</string>
+    <string name="action_read_all">全部已读</string>
+    <string name="action_edit">编辑</string>
+    <string name="sessions_archived_title">已归档的会话</string>
+    <string name="sessions_archived_none">没有已归档的会话</string>
+    <string name="sessions_archived_hint">在会话上向左轻扫即可归档。</string>
+    <string name="sessions_no_computers">还没有电脑</string>
+    <string name="sessions_empty_computer">%1$s 上还没有会话</string>
+    <string name="sessions_history_on">历史记录在 %1$s 上</string>
+    <string name="sessions_no_messages">暂无消息</string>
+    <string name="sessions_reorder_hint_projects">拖动 ≡ 可移动项目。</string>
+    <string name="sessions_reorder_hint_sessions">拖动 ≡ 可移动会话；置顶的会话始终排在最前。</string>
+    <string name="computer_offline">离线</string>
+    <string name="cd_selected">已选择</string>
+    <string name="appearance_session_theme">会话主题</string>
+    <string name="appearance_choose_photo">选择照片</string>
+    <string name="appearance_blur">模糊</string>
+    <string name="appearance_color_mode">颜色模式</string>
+    <string name="appearance_preview_in">214 项测试全部通过。要我开一个 PR 吗？</string>
+    <string name="appearance_preview_out">好的，请开吧。</string>
+    <string name="session_theme_none">无主题</string>
+    <string name="session_theme_classic">经典</string>
+    <string name="session_theme_home">家</string>
+    <string name="session_theme_duck">小鸭</string>
+    <string name="session_theme_snowman">雪人</string>
+    <string name="session_theme_diamond">钻石</string>
+    <string name="session_theme_teacher">老师</string>
+    <string name="session_theme_tulip">郁金香</string>
+    <string name="session_theme_purple">紫心</string>
+    <string name="session_theme_christmas">圣诞树</string>
+    <string name="session_theme_game">电子游戏</string>
+    <string name="session_theme_photo">照片</string>
+    <string name="profile_contact_github">在 GitHub 上联系开发者</string>
+    <string name="profile_contact_x">在 X 上联系开发者</string>
+    <string name="profile_mode">模式</string>
+    <string name="profile_mode_demo">演示</string>
+    <plurals name="project_subtitle">
+        <item quantity="other">%1$d 个会话 · %2$s</item>
+    </plurals>
+    <plurals name="switcher_unread">
+        <item quantity="other">%d 条未读</item>
+    </plurals>
 </resources>

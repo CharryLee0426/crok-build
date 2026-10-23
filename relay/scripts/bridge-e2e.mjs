@@ -400,14 +400,28 @@ if (effortChoice) {
 // 5c. A new session in this project, started from the phone: a crok here opens it and runs the prompt.
 console.log("a new session from the phone");
 const computerDevice = (await phone.query("devices:list", {})).find((d) => d.name === "E2E Mac");
+const deviceModels = await phone.query("devices:models", { deviceId: computerDevice?._id });
+check(deviceModels?.length > 0, "the phone lists what that computer can run", deviceModels?.map((m) => m.id));
+// The model this computer's session runs (the mock one), with a thinking level when it has one: chosen before the
+// session exists.
+const setupModel = deviceModels?.find((m) => m.id === withModels?.model) ?? deviceModels?.[0];
+const setupEffort = setupModel?.efforts?.[0];
 const created = await phone.mutation("sessions:create", {
   deviceId: computerDevice?._id,
   path: PROJECT,
   text: "hello from a new phone session",
+  model: setupModel?.id,
+  effort: setupEffort?.id,
   clientId: crypto.randomUUID(),
 });
 const createdRow = await phone.query("sessions:get", { sessionDocId: created.sessionDocId });
-check(createdRow.starting && createdRow.title === "hello from a new phone session", "it is listed at once, starting", createdRow);
+check(
+  createdRow.starting && createdRow.title === "hello from a new phone session" &&
+    (!setupModel || createdRow.model === setupModel.id) &&
+    (!setupEffort || createdRow.effort === (setupEffort.value ?? setupEffort.id)),
+  "it is listed at once, starting, with the chosen model and thinking level",
+  createdRow,
+);
 const createdDone = await until("its first prompt finishes", async () => {
   const command = await phone.query("commands:get", { commandId: created.commandId });
   return command?.status === "done" || command?.status === "failed" ? command : null;
@@ -415,6 +429,7 @@ const createdDone = await until("its first prompt finishes", async () => {
 check(createdDone?.status === "done", "the computer started it and ran the prompt", createdDone);
 const createdNow = await phone.query("sessions:get", { sessionDocId: created.sessionDocId });
 check(!createdNow.starting && createdNow.online && /^[0-9a-f-]{36}$/.test(createdNow.sessionId), "it has crok's own id now", createdNow.sessionId);
+check(!setupModel || createdNow.model === setupModel.id, "it runs with the model chosen before it started", createdNow);
 const createdReply = await until("its reply is mirrored", async () => {
   const page = await phone.query("sessions:events", { sessionDocId: created.sessionDocId, paginationOpts: { numItems: 20, cursor: null } });
   // A new session's first prompt reaches the model wrapped in its opening context, so the mock's echo differs.
@@ -579,6 +594,7 @@ const remoteNew = await second.rpc("_x.ai/remote/new_session", {
   deviceId: computerDevice?._id,
   path: PROJECT,
   text: "hello new from the other desk",
+  model: remoteModel,
 });
 check(remoteNew?.sessionId?.startsWith("relay:"), "the second computer starts a session here", remoteNew);
 const remoteNewDoc = remoteNew?.sessionId?.slice("relay:".length);
@@ -590,6 +606,8 @@ const remoteNewReply = await until("the new session runs here", async () => {
     : null;
 }, 60_000);
 check(Boolean(remoteNewReply), "its first prompt ran on this computer");
+const remoteNewDetail = await phone.query("sessions:get", { sessionDocId: remoteNewDoc });
+check(remoteNewDetail.model === remoteModel, "with the model the other computer picked", remoteNewDetail.model);
 second.agent.stdin.end();
 await Promise.race([second.exited, sleep(15_000)]);
 execFileSync(CROK, ["remote", "logout", "--json"], { env: env2, encoding: "utf8" });

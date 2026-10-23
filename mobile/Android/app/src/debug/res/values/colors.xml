@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Debug (dev relay) builds wear a yellow icon, release (prod) builds the blue one (mobile/DESIGN.md "Dev builds"). -->
+    <color name="ic_launcher_background">#F6B800</color>
+    <color name="ic_launcher_mark">#3D2E00</color>
+</resources>
