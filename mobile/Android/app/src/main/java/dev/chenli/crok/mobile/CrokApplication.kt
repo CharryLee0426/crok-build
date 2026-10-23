@@ -7,7 +7,7 @@ import android.provider.Settings
 import androidx.lifecycle.ProcessLifecycleOwner
 import dev.chenli.crok.mobile.auth.AuthStore
 import dev.chenli.crok.mobile.auth.DeviceInfo
-import dev.chenli.crok.mobile.data.CollapsedProjectsStore
+import dev.chenli.crok.mobile.data.ComputerSelectionStore
 import dev.chenli.crok.mobile.data.DeviceAuthApiFactory
 import dev.chenli.crok.mobile.data.DraftStore
 import dev.chenli.crok.mobile.data.HttpDeviceAuthApi
@@ -38,7 +38,10 @@ class AppGraph(val context: Context) {
     val settingsStore = SettingsStore(context)
     val drafts = DraftStore(PrefsKeyValueStore(context, "crok_drafts"))
     val sessionCache = SessionListCache(File(context.filesDir, "session-cache"))
-    val collapsedProjects = CollapsedProjectsStore(PrefsKeyValueStore(context, "crok_list"))
+    val computerSelection = ComputerSelectionStore(PrefsKeyValueStore(context, "crok_selection"))
+
+    /** The Photo session theme's picture (Profile › Appearance › Choose a Photo), downscaled; kept across sign-ins. */
+    val sessionBackgroundFile = File(context.filesDir, "session-background.jpg")
     val network by lazy { NetworkMonitor(context, appScope) }
 
     /** Whether the app is in front: coming back to it checks the relay connection. */
@@ -77,6 +80,6 @@ class AppGraph(val context: Context) {
     fun clearAccountData() {
         drafts.clear()
         sessionCache.clear()
-        collapsedProjects.clear()
+        computerSelection.clear()
     }
 }

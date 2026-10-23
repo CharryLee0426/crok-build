@@ -37,15 +37,12 @@
 
     <!-- Tabs and connection state -->
     <string name="tab_sessions">セッション</string>
-    <string name="tab_settings">設定</string>
     <string name="connection_waiting_network">ネットワークを待っています</string>
     <string name="connection_connecting">接続中…</string>
     <string name="connection_updating">更新中…</string>
 
     <!-- Session list -->
     <string name="sessions_title">セッション</string>
-    <string name="filter_all">すべて</string>
-    <string name="filter_archived">アーカイブ済み</string>
     <string name="sessions_search">検索</string>
     <string name="sessions_search_hint">セッションを検索</string>
     <string name="sessions_working">作業中</string>
@@ -59,7 +56,6 @@
     <string name="sessions_empty_title">まだセッションがありません</string>
     <string name="sessions_empty_body">コンピュータで crok remote login を実行するか、Crok Desktop の設定 › リモートコントロールでサインインしてください。そのセッションがここに表示されます。</string>
     <string name="sessions_link_computer">コンピュータをリンク</string>
-    <string name="sessions_archived_empty">アーカイブしたセッションはここに表示されます。</string>
     <string name="sessions_no_results">一致するセッションはありません。</string>
     <string name="sessions_archived_snackbar">セッションをアーカイブしました</string>
     <string name="sessions_action_failed">セッションを更新できませんでした：%1$s</string>
@@ -69,18 +65,10 @@
     <plurals name="sessions_count">
         <item quantity="other">%d 件のセッション</item>
     </plurals>
-    <plurals name="sessions_show_more">
-        <item quantity="other">さらに %d 件を表示</item>
-    </plurals>
-    <string name="sessions_show_less">表示を減らす</string>
     <string name="sessions_reorder">並べ替え</string>
-    <string name="sessions_reorder_hint">≡ をドラッグしてプロジェクトを移動します。プロジェクトをタップすると、その中のセッションを移動できます。ピン留めしたセッションは常に先頭です。</string>
     <string name="sessions_sort_recent">最近のアクティビティ順に並べる</string>
-    <string name="sessions_sort_projects_recent">プロジェクトを最近のアクティビティ順に並べる</string>
     <string name="action_move_up">上へ移動</string>
     <string name="action_move_down">下へ移動</string>
-    <string name="action_collapse">折りたたむ</string>
-    <string name="action_expand">展開</string>
 
     <!-- Session -->
     <string name="session_status_working">作業中…</string>
@@ -151,22 +139,14 @@
     <string name="action_remove">削除</string>
 
     <!-- Settings -->
-    <string name="settings_title">設定</string>
-    <string name="settings_this_phone">このスマホ：%1$s</string>
     <string name="settings_devices">デバイス</string>
-    <plurals name="settings_devices_count">
-        <item quantity="other">%d 台のデバイス</item>
-    </plurals>
     <string name="settings_link_computer">コンピュータをリンク</string>
-    <string name="settings_link_computer_detail">crok remote login が表示する QR コードを読み取る</string>
     <string name="settings_appearance">外観</string>
     <string name="theme_system">システム</string>
     <string name="theme_light">ライト</string>
     <string name="theme_dark">ダーク</string>
     <string name="settings_language">言語</string>
-    <string name="settings_about">情報</string>
     <string name="settings_version">バージョン</string>
-    <string name="settings_server">サーバー</string>
     <string name="settings_sign_out">サインアウト</string>
     <string name="sign_out_title">Crok からサインアウトしますか？</string>
     <string name="sign_out_body">もう一度サインインするまで、このスマホにはセッションが表示されなくなります。</string>
@@ -195,7 +175,6 @@
     <plurals name="devices_signed_out">
         <item quantity="other">%d 台のデバイスをサインアウトしました</item>
     </plurals>
-    <string name="devices_footer">デバイスをサインアウトすると、アカウントとのリンクが解除されます。セッションはそのコンピュータに残ります。</string>
     <string name="devices_this_device_note">いま使っているスマホです。サインアウトすると最初の画面に戻ります。</string>
     <string name="devices_failed">デバイスをサインアウトできませんでした：%1$s</string>
 
@@ -252,7 +231,6 @@
     <string name="new_session_unavailable">このセッションのプロジェクトが分からないため、/new ではここでセッションを始められません。</string>
     <string name="session_starting">開始中…</string>
     <string name="sessions_new_session">新しいセッション</string>
-    <string name="sessions_new_in_project">%1$s で新しいセッション</string>
     <string name="picker_title">セッションを始める場所…</string>
     <string name="picker_empty">オンラインのコンピュータがありません。いずれかで crok か Crok Desktop を起動すると、そこでセッションを始められます。</string>
     <string name="composer_menu">メニュー</string>
@@ -277,4 +255,50 @@
     <string name="bot_failed">変更できませんでした：%1$s</string>
     <string name="bot_current">現在</string>
     <string name="cd_compose">新しいセッション</string>
+    <string name="tab_profile">プロフィール</string>
+    <string name="profile_title">プロフィール</string>
+    <string name="action_mark_all_read">すべて既読にする</string>
+    <string name="action_mark_read">既読にする</string>
+    <string name="action_read">既読</string>
+    <string name="action_read_all">すべて既読</string>
+    <string name="action_edit">編集</string>
+    <string name="sessions_archived_title">アーカイブ済みのセッション</string>
+    <string name="sessions_archived_none">アーカイブ済みのセッションはありません</string>
+    <string name="sessions_archived_hint">セッションを左にスワイプするとアーカイブできます。</string>
+    <string name="sessions_no_computers">まだコンピュータがありません</string>
+    <string name="sessions_empty_computer">%1$s にはまだセッションがありません</string>
+    <string name="sessions_history_on">履歴は %1$s にあります</string>
+    <string name="sessions_no_messages">メッセージはまだありません</string>
+    <string name="sessions_reorder_hint_projects">≡ をドラッグしてプロジェクトを移動します。</string>
+    <string name="sessions_reorder_hint_sessions">≡ をドラッグしてセッションを移動します。ピン留めしたセッションは常に先頭です。</string>
+    <string name="computer_offline">オフライン</string>
+    <string name="cd_selected">選択中</string>
+    <string name="appearance_session_theme">セッションのテーマ</string>
+    <string name="appearance_choose_photo">写真を選択</string>
+    <string name="appearance_blur">ぼかし</string>
+    <string name="appearance_color_mode">カラーモード</string>
+    <string name="appearance_preview_in">214 件のテストがすべて通りました。PR を作成しますか？</string>
+    <string name="appearance_preview_out">はい、お願いします。</string>
+    <string name="session_theme_none">テーマなし</string>
+    <string name="session_theme_classic">クラシック</string>
+    <string name="session_theme_home">ホーム</string>
+    <string name="session_theme_duck">ひよこ</string>
+    <string name="session_theme_snowman">雪だるま</string>
+    <string name="session_theme_diamond">ダイヤモンド</string>
+    <string name="session_theme_teacher">先生</string>
+    <string name="session_theme_tulip">チューリップ</string>
+    <string name="session_theme_purple">紫のハート</string>
+    <string name="session_theme_christmas">クリスマスツリー</string>
+    <string name="session_theme_game">ビデオゲーム</string>
+    <string name="session_theme_photo">写真</string>
+    <string name="profile_contact_github">GitHub で開発者に連絡</string>
+    <string name="profile_contact_x">X で開発者に連絡</string>
+    <string name="profile_mode">モード</string>
+    <string name="profile_mode_demo">デモ</string>
+    <plurals name="project_subtitle">
+        <item quantity="other">%1$d 件のセッション · %2$s</item>
+    </plurals>
+    <plurals name="switcher_unread">
+        <item quantity="other">未読 %d 件</item>
+    </plurals>
 </resources>

@@ -187,7 +187,7 @@ fun DevicesContent(
                 }
             }
             if (state.computers.isNotEmpty() || state.phones.isNotEmpty()) {
-                Section(footer = stringResource(R.string.devices_footer)) {
+                Section {
                     SectionRow(
                         stringResource(R.string.devices_sign_out_others),
                         leading = { IconBadge(CrokIcons.Logout, colors.danger) },

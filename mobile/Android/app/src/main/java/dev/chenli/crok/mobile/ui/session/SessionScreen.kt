@@ -104,6 +104,9 @@ import dev.chenli.crok.mobile.logic.ComposerCommands
 import dev.chenli.crok.mobile.logic.LocalCommand
 import dev.chenli.crok.mobile.ui.common.GlassCircle
 import dev.chenli.crok.mobile.ui.common.GlassScaffold
+import dev.chenli.crok.mobile.ui.common.TopicIcon
+import dev.chenli.crok.mobile.ui.theme.LocalSessionAppearance
+import dev.chenli.crok.mobile.ui.theme.SessionBackground
 import dev.chenli.crok.mobile.ui.common.GlassShapes
 import dev.chenli.crok.mobile.ui.common.GlassStyle
 import dev.chenli.crok.mobile.ui.common.glass
@@ -261,8 +264,11 @@ fun SessionContent(
     }
 
     val bot = BotContext(state.models, state.deviceName, state.deviceOnline)
+    val appearance = LocalSessionAppearance.current
     GlassScaffold(
         snackbarHost = { SnackbarHost(snackbar) },
+        // The session theme (Profile › Appearance) under the transcript, where the glass bars read it.
+        wallpaper = { SessionBackground(appearance, Modifier.fillMaxSize()) },
         topBar = {
             Column {
                 TopAppBar(
@@ -271,8 +277,22 @@ fun SessionContent(
                     },
                     title = { SessionHeader(state) },
                     actions = {
-                        if (state.newSession == null) {
-                            IconButton(onClick = actions.onInfo) { Icon(CrokIcons.Info, contentDescription = stringResource(R.string.session_info)) }
+                        val docId = state.sessionDocId
+                        if (state.newSession == null && docId != null) {
+                            // Where Telegram shows the chat's avatar: the session's topic glyph; a tap opens its info.
+                            val label = stringResource(R.string.session_info)
+                            Box(
+                                Modifier
+                                    .padding(end = 8.dp)
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .clickable(onClickLabel = label, role = Role.Button, onClick = actions.onInfo)
+                                    .semantics { contentDescription = label }
+                                    .testTag("session-topic-icon"),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                TopicIcon(state.title, docId, 32.dp)
+                            }
                         }
                     },
                     colors = glassBarColors(),

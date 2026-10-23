@@ -45,6 +45,8 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
+# The doodles of the session themes' patterns (mobile/DESIGN.md "Session themes"); R8 keeps only the ones used.
+compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
 backdrop = { module = "io.github.kyant0:backdrop", version.ref = "backdrop" }
 kyant-shapes = { module = "io.github.kyant0:shapes", version.ref = "kyantShapes" }
 gms-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }

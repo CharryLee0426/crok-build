@@ -16,10 +16,8 @@ import dev.chenli.crok.mobile.data.SessionInfoResult
 import dev.chenli.crok.mobile.data.ThemeMode
 import dev.chenli.crok.mobile.demo.DemoData
 import dev.chenli.crok.mobile.engine.ConnectionState
-import dev.chenli.crok.mobile.engine.SessionListState
 import dev.chenli.crok.mobile.engine.TranscriptState
 import dev.chenli.crok.mobile.logic.OptimisticPrompt
-import dev.chenli.crok.mobile.logic.SessionFilter
 import dev.chenli.crok.mobile.data.CommandStatus
 import dev.chenli.crok.mobile.data.CommandType
 import dev.chenli.crok.mobile.data.PromptCommand
@@ -29,7 +27,10 @@ import dev.chenli.crok.mobile.data.SessionStatus
 import dev.chenli.crok.mobile.logic.BotCard
 import dev.chenli.crok.mobile.logic.BotCardKind
 import dev.chenli.crok.mobile.logic.BotCardProblem
+import dev.chenli.crok.mobile.ui.AccountInfo
+import dev.chenli.crok.mobile.ui.ComputerState
 import dev.chenli.crok.mobile.ui.HomeScaffold
+import dev.chenli.crok.mobile.ui.HomeTabsUi
 import dev.chenli.crok.mobile.ui.common.GlassLevel
 import dev.chenli.crok.mobile.ui.common.LocalGlassLevel
 import dev.chenli.crok.mobile.ui.session.NewSessionTarget
@@ -39,18 +40,29 @@ import dev.chenli.crok.mobile.ui.session.SessionContent
 import dev.chenli.crok.mobile.ui.session.SessionInfoActions
 import dev.chenli.crok.mobile.ui.session.SessionInfoContent
 import dev.chenli.crok.mobile.ui.session.SessionUiState
+import dev.chenli.crok.mobile.ui.sessions.ArchivedContent
+import dev.chenli.crok.mobile.ui.sessions.ArchivedUiState
+import dev.chenli.crok.mobile.ui.sessions.ProjectActions
+import dev.chenli.crok.mobile.ui.sessions.ProjectContent
+import dev.chenli.crok.mobile.ui.sessions.ProjectUiState
 import dev.chenli.crok.mobile.ui.sessions.SessionsActions
 import dev.chenli.crok.mobile.ui.sessions.SessionsContent
 import dev.chenli.crok.mobile.ui.sessions.SessionsUiState
+import dev.chenli.crok.mobile.ui.sessions.TopicActions
+import dev.chenli.crok.mobile.ui.settings.AppearanceActions
+import dev.chenli.crok.mobile.ui.settings.AppearanceContent
+import dev.chenli.crok.mobile.ui.settings.AppearanceUiState
 import dev.chenli.crok.mobile.ui.settings.DevicesActions
 import dev.chenli.crok.mobile.ui.settings.DevicesContent
 import dev.chenli.crok.mobile.ui.settings.DevicesUiState
 import dev.chenli.crok.mobile.ui.settings.LinkActions
 import dev.chenli.crok.mobile.ui.settings.LinkComputerContent
 import dev.chenli.crok.mobile.ui.settings.LinkStep
-import dev.chenli.crok.mobile.ui.settings.SettingsActions
-import dev.chenli.crok.mobile.ui.settings.SettingsContent
-import dev.chenli.crok.mobile.ui.settings.SettingsUiState
+import dev.chenli.crok.mobile.ui.settings.ProfileActions
+import dev.chenli.crok.mobile.ui.settings.ProfileContent
+import dev.chenli.crok.mobile.ui.settings.ProfileUiState
+import dev.chenli.crok.mobile.ui.theme.LocalSessionAppearance
+import dev.chenli.crok.mobile.ui.theme.SessionAppearance
 import dev.chenli.crok.mobile.ui.signin.WaitingScreen
 import dev.chenli.crok.mobile.ui.signin.WaitingUiState
 import dev.chenli.crok.mobile.ui.signin.WelcomeScreen
@@ -87,11 +99,17 @@ class ScreenshotTest {
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
     }
 
-    private fun shoot(name: String, dark: Boolean = false, glass: GlassLevel = GlassLevel.Liquid, content: @Composable () -> Unit) {
+    private fun shoot(
+        name: String,
+        dark: Boolean = false,
+        glass: GlassLevel = GlassLevel.Liquid,
+        appearance: SessionAppearance = SessionAppearance(),
+        content: @Composable () -> Unit,
+    ) {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             CrokTheme(dark = dark) {
-                CompositionLocalProvider(LocalGlassLevel provides glass) {
+                CompositionLocalProvider(LocalGlassLevel provides glass, LocalSessionAppearance provides appearance) {
                     Box(Modifier.fillMaxSize().background(CrokTheme.colors.screen)) { content() }
                 }
             }
@@ -100,21 +118,41 @@ class ScreenshotTest {
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/$name.png")
     }
 
-    /** The demo list as `sessions:groups` sends it: projects on two online computers and an offline one. */
+    private val demo get() = DemoData.state(now)
+    private val account = AccountInfo("Chen Li", "chen@example.com", null)
+
+    /** The person's computers as the relay lists them, with [selected] (default: the most recently active, MacBook Pro). */
+    private fun computers(selected: String? = null, groups: List<dev.chenli.crok.mobile.data.SessionGroup> = DemoData.groups(demo)) =
+        ComputerState.build(groups, listed = true, devices = demo.devices, remembered = selected)
+
+    /** The Sessions tab on the demo data: the selected computer's projects. */
     private fun sessionsState(
         connection: ConnectionState = ConnectionState.Connected,
-        filter: SessionFilter = SessionFilter.All,
+        selected: String? = null,
         query: String = "",
-        collapsed: Set<String> = emptySet(),
-        reordering: Boolean = false,
-        reorderProject: String? = null,
+        editing: Boolean = false,
+        groups: List<dev.chenli.crok.mobile.data.SessionGroup> = DemoData.groups(demo),
     ): SessionsUiState {
-        val groups = DemoData.groups(DemoData.state(now))
-        return SessionsUiState.build(
-            SessionListState(groups, live = true), null, filter, query, connection, now, collapsed,
-            reordering = reordering, reorderProject = reorderProject,
-        )
+        val archived = DemoData.sessions(now).filter { it.detail.archived }.map { it.row() }
+        return SessionsUiState.build(computers(selected, groups), archived, query, connection, now, editing)
     }
+
+    /** The home screen's tabs around [content], for the selected computer. */
+    @Composable
+    private fun Home(tab: Int = 0, selected: String? = null, menu: Int? = null, content: @Composable () -> Unit) {
+        HomeScaffold(tab = tab, onTab = {}, ui = HomeTabsUi(account, computers(selected)), initialMenu = menu, content = content)
+    }
+
+    private fun projectState(key: String, reordering: Boolean = false) =
+        ProjectUiState.build(DemoData.groups(demo), live = true, key, "", reordering, ConnectionState.Connected, now)
+
+    private fun profileState(selected: String? = null) = ProfileUiState(
+        account = account,
+        computers = computers(selected).computers,
+        selectedId = computers(selected).selectedId,
+        deviceCount = 5,
+        version = "1.0 (1)",
+    )
 
     private fun runningSession(): SessionUiState {
         val session = DemoData.sessions(now).first { it.id == DemoData.RUNNING_SESSION }
@@ -188,18 +226,19 @@ class ScreenshotTest {
 
     @Test
     fun sessionsLight() = shoot("03-sessions-light") {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(), SessionsActions()) }
+        Home { SessionsContent(sessionsState(), SessionsActions()) }
     }
 
     @Test
     fun sessionsDarkUpdating() = shoot("04-sessions-dark", dark = true) {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(ConnectionState.Updating), SessionsActions()) }
+        Home { SessionsContent(sessionsState(ConnectionState.Updating), SessionsActions()) }
     }
 
     @Test
-    fun sessionsEmpty() = shoot("05-sessions-empty") {
-        HomeScaffold(tab = 0, onTab = {}) {
-            SessionsContent(SessionsUiState.build(SessionListState(emptyList(), live = true), null, SessionFilter.All, "", ConnectionState.Connected, now), SessionsActions())
+    fun sessionsNoComputers() = shoot("05-sessions-empty") {
+        val empty = ComputerState.build(emptyList(), listed = true, devices = emptyList(), remembered = null)
+        HomeScaffold(tab = 0, onTab = {}, ui = HomeTabsUi(account, empty)) {
+            SessionsContent(SessionsUiState.build(empty, emptyList(), "", ConnectionState.Connected, now), SessionsActions())
         }
     }
 
@@ -227,21 +266,14 @@ class ScreenshotTest {
     }
 
     @Test
-    fun settings() = shoot("09-settings") {
-        HomeScaffold(tab = 1, onTab = {}) {
-            SettingsContent(
-                SettingsUiState(
-                    name = "Chen Li",
-                    email = "chen@example.com",
-                    imageUrl = null,
-                    deviceName = "Pixel 9",
-                    deviceCount = 5,
-                    server = "https://happy-otter-123.convex.cloud",
-                ),
-                ThemeMode.System,
-                SettingsActions(onLanguage = {}),
-            )
-        }
+    fun profile() = shoot("09-profile") {
+        Home(tab = 1) { ProfileContent(profileState(), ProfileActions(onLanguage = {})) }
+    }
+
+    @Test
+    @Config(qualifiers = "+h1100dp")
+    fun profileDarkTall() = shoot("09b-profile-dark", dark = true) {
+        Home(tab = 1, selected = DemoData.STUDIO_ID) { ProfileContent(profileState(DemoData.STUDIO_ID), ProfileActions(onLanguage = {})) }
     }
 
     @Test
@@ -269,7 +301,7 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "+ja")
     fun sessionsJapanese() = shoot("13-sessions-ja") {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(), SessionsActions()) }
+        Home { SessionsContent(sessionsState(), SessionsActions()) }
     }
 
     @Test
@@ -280,21 +312,8 @@ class ScreenshotTest {
 
     @Test
     @Config(qualifiers = "+de")
-    fun settingsGerman() = shoot("15-settings-de") {
-        HomeScaffold(tab = 1, onTab = {}) {
-            SettingsContent(
-                SettingsUiState(
-                    name = "Chen Li",
-                    email = "chen@example.com",
-                    imageUrl = null,
-                    deviceName = "Pixel 9",
-                    deviceCount = 5,
-                    server = "https://happy-otter-123.convex.cloud",
-                ),
-                ThemeMode.Dark,
-                SettingsActions(onLanguage = {}),
-            )
-        }
+    fun profileGerman() = shoot("15-profile-de") {
+        Home(tab = 1) { ProfileContent(profileState(), ProfileActions(onLanguage = {})) }
     }
 
     @Test
@@ -317,35 +336,104 @@ class ScreenshotTest {
         )
     }
 
-    // Projects, Reorder mode and sessions listed from a computer's disk.
+    // Computers as accounts, projects as groups, sessions as topics (mobile/DESIGN.md).
 
-    /** The whole grouped list at once, on a tall screen. */
+    /** A project's topics, on a tall screen so every session shows. */
     @Test
-    @Config(qualifiers = "+h1700dp")
-    fun sessionsGroupedTall() = shoot("18-sessions-grouped") {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(collapsed = setOf(DemoData.LINUX_INGEST)), SessionsActions()) }
+    @Config(qualifiers = "+h1100dp")
+    fun projectScreen() = shoot("18-project") {
+        Home { ProjectContent(projectState(DemoData.MACBOOK_CROK_BUILD), ProjectActions()) }
+    }
+
+    /** Studio: the Archived Sessions row, then its project (dark). */
+    @Test
+    fun sessionsOtherComputer() = shoot("19-sessions-studio", dark = true) {
+        Home(selected = DemoData.STUDIO_ID) { SessionsContent(sessionsState(selected = DemoData.STUDIO_ID), SessionsActions()) }
     }
 
     @Test
-    fun sessionsComputerTab() = shoot("19-sessions-computer-tab", dark = true) {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(filter = SessionFilter.Computer(DemoData.STUDIO_ID)), SessionsActions()) }
+    fun sessionsEditMode() = shoot("20-sessions-edit") {
+        Home { SessionsContent(sessionsState(editing = true), SessionsActions()) }
     }
 
     @Test
-    fun sessionsReorderMode() = shoot("20-sessions-reorder") {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(reordering = true), SessionsActions()) }
-    }
-
-    @Test
-    fun sessionsReorderOneProject() = shoot("20b-sessions-reorder-project") {
-        HomeScaffold(tab = 0, onTab = {}) {
-            SessionsContent(sessionsState(reordering = true, reorderProject = DemoData.MACBOOK_CROK_SITE), SessionsActions())
-        }
+    fun projectReorderMode() = shoot("20b-project-reorder") {
+        Home { ProjectContent(projectState(DemoData.MACBOOK_CROK_BUILD, reordering = true), ProjectActions()) }
     }
 
     @Test
     fun sessionsSearch() = shoot("21-sessions-search") {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(query = "release"), SessionsActions()) }
+        Home { SessionsContent(sessionsState(query = "release"), SessionsActions()) }
+    }
+
+    @Test
+    fun archived() = shoot("21b-archived") {
+        val rows = DemoData.sessions(now).filter { it.detail.archived }.map { it.row() }
+        Home(selected = DemoData.STUDIO_ID) { ArchivedContent(ArchivedUiState("Studio", rows, now), onBack = {}, actions = TopicActions()) }
+    }
+
+    /** Long press on Sessions: Mark All as Read. */
+    @Test
+    fun sessionsTabMenu() = shoot("44-tab-menu-mark-all-read") {
+        Home(menu = 0) { SessionsContent(sessionsState(), SessionsActions()) }
+    }
+
+    /** Long press on Profile: the computer switcher (dark). */
+    @Test
+    fun profileTabSwitcher() = shoot("45-tab-menu-switcher-dark", dark = true) {
+        Home(menu = 1) { SessionsContent(sessionsState(), SessionsActions()) }
+    }
+
+    /** The switcher from the Sessions title. */
+    @Test
+    fun titleSwitcher() = shoot("46-title-switcher") {
+        Home { SessionsContent(sessionsState(), SessionsActions(), switcherInitiallyOpen = true) }
+    }
+
+    /** A computer without sessions (Linux box is offline). */
+    @Test
+    fun computerWithoutSessions() = shoot("47-sessions-no-sessions") {
+        val groups = DemoData.groups(demo).filter { it.deviceId != DemoData.LINUX_ID }
+        HomeScaffold(tab = 0, onTab = {}, ui = HomeTabsUi(account, computers(DemoData.LINUX_ID, groups))) {
+            SessionsContent(sessionsState(selected = DemoData.LINUX_ID, groups = groups), SessionsActions())
+        }
+    }
+
+    // Profile › Appearance and the session themes.
+
+    private val home = SessionAppearance(themeId = "home")
+    private val snowman = SessionAppearance(themeId = "snowman")
+
+    @Test
+    @Config(qualifiers = "+h1000dp")
+    fun appearanceLight() = shoot("48-appearance-home") {
+        AppearanceContent(AppearanceUiState(ThemeMode.System, home), AppearanceActions())
+    }
+
+    @Test
+    @Config(qualifiers = "+h1000dp")
+    fun appearanceDark() = shoot("49-appearance-snowman-dark", dark = true) {
+        AppearanceContent(AppearanceUiState(ThemeMode.Dark, snowman), AppearanceActions())
+    }
+
+    @Test
+    fun themedSessionLight() = shoot("50-session-theme-classic", appearance = SessionAppearance(themeId = "classic")) {
+        SessionContent(runningSession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun themedSessionDark() = shoot("51-session-theme-classic-dark", dark = true, appearance = SessionAppearance(themeId = "classic")) {
+        SessionContent(runningSession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun themedSessionPurpleDark() = shoot("52-session-theme-purple-dark", dark = true, appearance = SessionAppearance(themeId = "purple")) {
+        SessionContent(runningSession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun themedSessionGame() = shoot("53-session-theme-game", appearance = SessionAppearance(themeId = "game")) {
+        SessionContent(waitingSession(), draft = "", now = now, actions = SessionActions())
     }
 
     @Test
@@ -360,8 +448,8 @@ class ScreenshotTest {
 
     @Test
     @Config(qualifiers = "+de")
-    fun sessionsReorderGerman() = shoot("24-sessions-reorder-de", dark = true) {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(reordering = true), SessionsActions()) }
+    fun sessionsEditGerman() = shoot("24-sessions-edit-de", dark = true) {
+        Home { SessionsContent(sessionsState(editing = true), SessionsActions()) }
     }
 
     // A permission request any device can answer.
@@ -429,12 +517,12 @@ class ScreenshotTest {
 
     @Test
     fun projectPicker() = shoot("30-new-session-picker") {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(), SessionsActions(), pickerInitiallyOpen = true) }
+        Home { SessionsContent(sessionsState(), SessionsActions(), pickerInitiallyOpen = true) }
     }
 
     @Test
     fun projectPickerDark() = shoot("31-new-session-picker-dark", dark = true) {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(), SessionsActions(), pickerInitiallyOpen = true) }
+        Home { SessionsContent(sessionsState(), SessionsActions(), pickerInitiallyOpen = true) }
     }
 
     @Test
@@ -450,8 +538,8 @@ class ScreenshotTest {
                 group.copy(sessions = listOf(starting) + group.sessions)
             }
         }
-        HomeScaffold(tab = 0, onTab = {}) {
-            SessionsContent(SessionsUiState.build(SessionListState(groups, live = true), null, SessionFilter.All, "", ConnectionState.Connected, now), SessionsActions())
+        HomeScaffold(tab = 0, onTab = {}, ui = HomeTabsUi(account, computers(groups = groups))) {
+            ProjectContent(ProjectUiState.build(groups, live = true, DemoData.MACBOOK_CROK_SITE, "", false, ConnectionState.Connected, now), ProjectActions())
         }
     }
 
@@ -539,7 +627,7 @@ class ScreenshotTest {
 
     @Test
     fun frostedFallback() = shoot("42-sessions-frosted-fallback", glass = GlassLevel.Tinted) {
-        HomeScaffold(tab = 0, onTab = {}) { SessionsContent(sessionsState(), SessionsActions()) }
+        Home { SessionsContent(sessionsState(), SessionsActions()) }
     }
 
     @Test

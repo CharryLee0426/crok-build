@@ -1,5 +1,6 @@
 package dev.chenli.crok.mobile
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -12,6 +13,7 @@ import dev.chenli.crok.mobile.auth.TokenManager
 import dev.chenli.crok.mobile.data.AppSettings
 import dev.chenli.crok.mobile.data.ConvexHttpApi
 import dev.chenli.crok.mobile.data.HttpDeviceAuthApi
+import dev.chenli.crok.mobile.data.PhotoImport
 import dev.chenli.crok.mobile.data.RelayUser
 import dev.chenli.crok.mobile.data.ThemeMode
 import dev.chenli.crok.mobile.demo.DemoData
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The app's root: the sign-in state machine and, while signed in, the account's [CrokEngine] (created on sign-in,
@@ -131,6 +134,26 @@ class AppViewModel(private val graph: AppGraph) : ViewModel() {
 
     fun setTheme(mode: ThemeMode) {
         viewModelScope.launch { graph.settingsStore.setTheme(mode) }
+    }
+
+    /** Profile › Appearance › Session Theme. */
+    fun setSessionTheme(id: String) {
+        viewModelScope.launch { graph.settingsStore.setSessionTheme(id) }
+    }
+
+    fun setSessionThemeBlur(blur: Boolean) {
+        viewModelScope.launch { graph.settingsStore.setSessionThemeBlur(blur) }
+    }
+
+    /**
+     * Choose a Photo: the picked picture, downscaled to [PhotoImport.MAX_SIDE] px on its longest side, becomes the Photo
+     * theme's background (stored in the app's own files) and is selected.
+     */
+    fun importPhoto(uri: Uri) {
+        viewModelScope.launch {
+            val stored = withContext(Dispatchers.IO) { PhotoImport.store(graph.context, uri, graph.sessionBackgroundFile) }
+            if (stored) graph.settingsStore.photoChosen(System.currentTimeMillis())
+        }
     }
 
     override fun onCleared() {

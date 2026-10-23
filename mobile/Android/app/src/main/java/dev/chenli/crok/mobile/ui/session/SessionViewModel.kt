@@ -94,6 +94,8 @@ data class ModelState(
 }
 
 data class SessionUiState(
+    /** The session's relay id (its topic glyph's colour); null on the new-session screen. */
+    val sessionDocId: String? = null,
     val title: String = "",
     val deviceName: String = "",
     /** The computer is online (a crok runs there), whether or not it runs this session. */
@@ -184,6 +186,7 @@ data class SessionUiState(
                 effort = detail?.effort,
             )
             return SessionUiState(
+                sessionDocId = detail?.id ?: row?.id,
                 title = detail?.title ?: row?.title.orEmpty(),
                 deviceName = detail?.deviceName ?: row?.deviceName ?: newSession?.deviceName.orEmpty(),
                 deviceOnline = deviceOnline,

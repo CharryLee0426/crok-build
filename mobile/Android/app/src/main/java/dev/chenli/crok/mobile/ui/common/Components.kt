@@ -327,6 +327,21 @@ fun ConfirmDialog(
     )
 }
 
+/** A day header or notice on a themed session background: white on a translucent dark capsule (Telegram's service messages). */
+@Composable
+fun ServicePill(text: String, color: Color, background: Color, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        color = color,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Medium,
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(background)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    )
+}
+
 /** The small grey pill for day headers and notices. */
 @Composable
 fun Pill(text: String, modifier: Modifier = Modifier, color: Color = CrokTheme.colors.textSecondary, background: Color = CrokTheme.colors.card) {
