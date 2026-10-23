@@ -514,6 +514,15 @@ check(
   "it lists the other computer's sessions, not its own",
   listed?.computers.map((c) => c.deviceName),
 );
+const firstDeviceId = listed?.computers.find((c) => c.deviceName === "E2E Mac")?.deviceId;
+const listedModels = await second.rpc("_x.ai/remote/models", { deviceId: firstDeviceId });
+check(
+  listedModels?.models?.length > 0 &&
+    listedModels.availableModels?.length === listedModels.models.length &&
+    listedModels.availableModels.every((m) => m.modelId && m._meta),
+  "a new session there can choose from that computer's models before it exists (x.ai/remote/models)",
+  listedModels && { models: listedModels.models?.map((m) => m.id), available: listedModels.availableModels?.length },
+);
 const remoteLoad = await second.rpc("session/load", { sessionId: remoteId, cwd: PROJECT, mcpServers: [] });
 check(
   remoteLoad?.models?.availableModels?.length > 0 && remoteLoad.configOptions?.some((o) => o.id === "model"),

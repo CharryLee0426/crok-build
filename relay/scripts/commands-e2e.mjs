@@ -179,6 +179,50 @@ check(
   (await phone.query("devices:models", { deviceId: idleDeviceId })) === null,
   "an offline computer has no models to choose from",
 );
+
+console.log("A long model list (OpenRouter's)");
+const shortList = computerModels;
+const longList = Array.from({ length: 500 }, (_, i) => ({
+  id: `openrouter/vendor-${i % 40}/model-${i}`,
+  name: `Vendor ${i % 40}: Model ${i}`,
+  description: "A capable general model with a long context window, tools and structured output. ".repeat(3),
+  efforts:
+    i % 2 === 0
+      ? ["minimal", "low", "medium", "high", "xhigh"].map((level) => ({
+          id: level,
+          name: level,
+          value: level,
+          description: `Think ${level} before answering, trading speed for quality.`,
+        }))
+      : [],
+  ...(i % 2 === 0 ? { defaultEffort: "medium" } : {}),
+}));
+await computer.mutation("bridge:setModels", { hostId, models: longList });
+const longModels = await phone.query("devices:models", { deviceId });
+check(longModels?.length === 500, "a computer can publish 500 models", longModels?.length);
+check(
+  longModels?.[498]?.efforts.length === 5 && longModels?.[499]?.efforts.length === 0,
+  "every model keeps its thinking levels",
+);
+check(
+  (await phone.query("sessions:get", { sessionDocId })).models === null,
+  "sessions:get leaves a long list to devices:models (it re-runs with every transcript item)",
+);
+const { commandId: longModelId } = await phone.mutation("commands:setConfig", {
+  sessionDocId,
+  configId: "model",
+  value: "openrouter/vendor-18/model-498",
+});
+check(Boolean(longModelId), "a model from the end of a long list can be chosen");
+await computer.mutation("bridge:claimCommand", { hostId, commandId: longModelId });
+await computer.mutation("bridge:completeCommand", { hostId, commandId: longModelId, status: "done", result: {} });
+check(
+  (await codeOf(computer.mutation("bridge:setModels", { hostId, models: [...longList, ...longList, ...longList] }))) ===
+    "INVALID",
+  "more than 1,000 models is INVALID",
+);
+await computer.mutation("bridge:setModels", { hostId, models: shortList });
+check((await phone.query("sessions:get", { sessionDocId })).models?.length === 2, "a short list is embedded again");
 const configured = await phone.mutation("sessions:create", {
   deviceId,
   path: project,

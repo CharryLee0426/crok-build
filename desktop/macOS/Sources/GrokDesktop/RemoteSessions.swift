@@ -272,6 +272,8 @@ extension AppStore {
         guard let id else { return }
         let optimistic = Message(kind: .user, text: prompt, createdAt: Date())
         append(optimistic, to: id)
+        let (model, effort) = (remoteStartModelID, remoteStartReasoningID)
+        remoteStartModelID = ""; remoteStartReasoningID = ""
         if clearsDraft {
             drafts.removeValue(forKey: location); drafts.removeValue(forKey: .conversation(id))
             draft = ""
@@ -282,7 +284,7 @@ extension AppStore {
         operations[id] = Task {
             defer { finishOperation(id, operationID: operationID) }
             do {
-                let session = try await requestRemoteSession(target, text: text)
+                let session = try await requestRemoteSession(target, text: text, model: model, effort: effort)
                 try checkOperation(id, operationID: operationID)
                 guard let index = state.conversations.firstIndex(where: { $0.id == id }) else { throw CancellationError() }
                 state.conversations[index].sessionID = session
@@ -316,11 +318,15 @@ extension AppStore {
 
     /// `x.ai/remote/new_session {deviceId, path, text}` through the remote host: the relay adds the
     /// session at once and a crok of that computer picks it up. The answer is its `relay:` id.
-    func requestRemoteSession(_ target: RemoteNewTask, text: String) async throws -> String {
+    func requestRemoteSession(_ target: RemoteNewTask, text: String, model: String = "", effort: String = "") async throws -> String {
         guard let client = remoteHost, remoteHostReady else {
             throw DesktopError.message(L10n.t("remote_new_task_no_host", "Remote control is not connected on this Mac. Check Settings › Remote control, then send again."))
         }
-        let response = try await client.request("_x.ai/remote/new_session", params: ["deviceId": target.deviceID, "path": target.path, "text": text], timeout: 45)
+        var params: [String: Any] = ["deviceId": target.deviceID, "path": target.path, "text": text]
+        // The composer's picks from that computer's list; left out, its crok uses its own choice.
+        if !model.isEmpty { params["model"] = model }
+        if !effort.isEmpty { params["effort"] = effort }
+        let response = try await client.request("_x.ai/remote/new_session", params: params, timeout: 45)
         let payload = try ExtensionResponse.unwrap(response)
         guard let session = RemoteAccount.text(payload["sessionId"]), RemoteSessions.isRemote(session) else {
             throw DesktopError.message(L10n.t("remote_new_task_no_session", "The relay did not say which session it started. Try again."))
@@ -351,6 +357,19 @@ extension AppStore {
     var selectedRemoteDeviceID: String? {
         if let task = conversation { return task.remote?.deviceID }
         return state.selectedProjectID == RemoteSessions.projectID ? remoteNewTask?.deviceID : nil
+    }
+
+    /// Asks the remote host what a computer can run (`x.ai/remote/models`), for a new task there
+    /// whose session does not exist yet. Kept with the other computers' catalogs.
+    func fetchRemoteModels(deviceID: String) async {
+        guard let client = remoteHost, remoteHostReady else { return }
+        do {
+            let response = try await client.request("_x.ai/remote/models", params: ["deviceId": deviceID], timeout: 20)
+            let payload = try ExtensionResponse.unwrap(response)
+            rememberRemoteModels(SessionOptions.models(payload), deviceID: deviceID)
+        } catch {
+            DesktopLog.warn("remote.models_failed", ["error": error.localizedDescription])
+        }
     }
 
     /// Keeps the models a computer offers, so its tasks name and list them before their session
@@ -456,6 +475,7 @@ extension AppStore {
                 guard self.remoteHost === client else { return }
                 self.remoteHostReady = true
                 await self.askRemoteSessions()
+                if let device = self.remoteNewTask?.deviceID { await self.fetchRemoteModels(deviceID: device) }
             } catch {
                 guard self.remoteHost === client else { return }
                 DesktopLog.warn("remote.host_init_failed", ["error": error.localizedDescription])

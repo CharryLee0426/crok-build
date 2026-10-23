@@ -63,7 +63,7 @@ extension L10n {
         "remote_new_task_help": "New task in {folder} on {computer}",
         "remote_new_task_where": "Runs on {computer}, in {path}",
         "remote_new_task_detail": "Your first prompt starts this task on {computer}.",
-        "remote_models_after_start": "{computer}'s models can be chosen once the task has started there.",
+        "remote_models_unavailable": "{computer} has not listed its models yet: it is offline, or crok there needs an update.",
     ]
 
     // MARK: Simplified Chinese
@@ -123,7 +123,7 @@ extension L10n {
         "remote_new_task_help": "在 {computer} 的 {folder} 中新建任务",
         "remote_new_task_where": "在 {computer} 上运行，位于 {path}",
         "remote_new_task_detail": "你的第一个提示会在 {computer} 上开始此任务。",
-        "remote_models_after_start": "任务在 {computer} 上开始后，即可选择它的模型。",
+        "remote_models_unavailable": "{computer} 还没有列出它的模型：它已离线，或那里的 crok 需要更新。",
     ]
 
     // MARK: Japanese
@@ -183,7 +183,7 @@ extension L10n {
         "remote_new_task_help": "{computer} の {folder} で新規タスク",
         "remote_new_task_where": "{computer} の {path} で実行",
         "remote_new_task_detail": "最初のプロンプトで、このタスクが {computer} で開始されます。",
-        "remote_models_after_start": "{computer} のモデルは、タスクがそこで開始されてから選択できます。",
+        "remote_models_unavailable": "{computer} はまだモデルを公開していません。オフラインか、そこの crok の更新が必要です。",
     ]
 
     // MARK: Spanish
@@ -243,7 +243,7 @@ extension L10n {
         "remote_new_task_help": "Nueva tarea en {folder} de {computer}",
         "remote_new_task_where": "Se ejecuta en {computer}, en {path}",
         "remote_new_task_detail": "Tu primer prompt inicia esta tarea en {computer}.",
-        "remote_models_after_start": "Podrás elegir los modelos de {computer} cuando la tarea se haya iniciado allí.",
+        "remote_models_unavailable": "{computer} aún no ha publicado sus modelos: está sin conexión o hay que actualizar crok allí.",
     ]
 
     // MARK: French
@@ -303,7 +303,7 @@ extension L10n {
         "remote_new_task_help": "Nouvelle tâche dans {folder} sur {computer}",
         "remote_new_task_where": "S'exécute sur {computer}, dans {path}",
         "remote_new_task_detail": "Votre première invite démarre cette tâche sur {computer}.",
-        "remote_models_after_start": "Les modèles de {computer} pourront être choisis une fois la tâche démarrée là-bas.",
+        "remote_models_unavailable": "{computer} n'a pas encore publié ses modèles : il est hors ligne, ou crok doit y être mis à jour.",
     ]
 
     // MARK: German
@@ -363,6 +363,6 @@ extension L10n {
         "remote_new_task_help": "Neue Aufgabe in {folder} auf {computer}",
         "remote_new_task_where": "Läuft auf {computer}, in {path}",
         "remote_new_task_detail": "Deine erste Eingabe startet diese Aufgabe auf {computer}.",
-        "remote_models_after_start": "Die Modelle von {computer} kannst du wählen, sobald die Aufgabe dort gestartet ist.",
+        "remote_models_unavailable": "{computer} hat seine Modelle noch nicht gemeldet: Er ist offline, oder crok muss dort aktualisiert werden.",
     ]
 }

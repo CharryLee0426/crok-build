@@ -18,6 +18,7 @@ import {
 } from "./lib/projects";
 import {
   STARTING_PREFIX,
+  embeddedModels,
   isAbsolutePath,
   isStarting,
   modelsFor,
@@ -163,8 +164,11 @@ export const get = query({
       starting: isStarting(session),
       /** A permission request waiting for an answer (`commands:answer`), or null. */
       pending: session.pending ?? null,
-      /** What its computer can run (`commands:setConfig` picks from these), or null while the computer is offline. */
-      models: await modelsFor(ctx, device),
+      /**
+       * What its computer can run (`commands:setConfig` picks from these) when the list is short (`embeddedModels`);
+       * current clients read `devices:models`. Null while the computer is offline.
+       */
+      models: embeddedModels(await modelsFor(ctx, device)),
     };
   },
 });

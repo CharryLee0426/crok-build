@@ -39,6 +39,9 @@ pub const PERMISSION_RESOLVED_METHOD: &str = "x.ai/remote/permission_resolved";
 /// Ext method `{deviceId, path, text?, model?, effort?}` → `{sessionId: "relay:<id>"}`: starts a session in a folder of
 /// another computer, with the model and thinking level its composer offered.
 pub const REMOTE_NEW_SESSION_METHOD: &str = "x.ai/remote/new_session";
+/// Ext method `{deviceId}` → `{models, availableModels}`: what another computer can run, before any session there is
+/// open (`devices:models`: `models` in the relay's shape, null while it is offline; `availableModels` in the agent's).
+pub const REMOTE_MODELS_METHOD: &str = "x.ai/remote/models";
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 /// How much transcript a session starts with when opened here.
@@ -96,6 +99,8 @@ enum Feed {
     Events,
     Commands,
     Groups,
+    /// `devices:models` for the session's computer.
+    Models,
 }
 
 #[derive(Clone, Debug)]
@@ -130,11 +135,17 @@ struct View {
     mine: HashMap<String, Mine>,
     asked: Option<String>,
     last_watch: Instant,
+    /// The computer's models from `devices:models`: unlike `sessions:get`'s copy, there for any length of list.
+    models: Option<Value>,
 }
 
 impl View {
     fn status(&self) -> &str {
         str_of(&self.detail, "status").unwrap_or("idle")
+    }
+
+    fn choices(&self) -> Choices {
+        Choices::of(&self.detail, self.models.as_ref())
     }
 
     fn computer(&self) -> String {
@@ -289,9 +300,33 @@ impl Viewer {
             json!({ "sessionDocId": doc, "paginationOpts": { "numItems": TAIL_EVENTS, "cursor": null } }),
         ));
         feeds.extend(self.subscribe(Feed::Commands, doc, "commands:forSession", args));
+        let device = self
+            .views
+            .borrow()
+            .get(doc)
+            .and_then(|view| str_of(&view.detail, "deviceId").map(str::to_owned));
+        if let Some(device) = device {
+            feeds.extend(self.subscribe(
+                Feed::Models,
+                doc,
+                "devices:models",
+                json!({ "deviceId": device }),
+            ));
+        }
         if let Some(view) = self.views.borrow_mut().get_mut(doc) {
             view.feeds = feeds;
         }
+    }
+
+    /// `devices:models` once: a computer's list, or None when the relay cannot say (an older relay has no such query).
+    async fn device_models(&self, device: &str) -> Option<Value> {
+        self.call(
+            CallKind::Query,
+            "devices:models",
+            json!({ "deviceId": device }),
+        )
+        .await
+        .ok()
     }
 
     // MARK: Emitting to the front end
@@ -368,6 +403,10 @@ impl Viewer {
                 json!({ "sessionDocId": doc, "paginationOpts": { "numItems": HISTORY_EVENTS, "cursor": null } }),
             )
             .await?;
+        let models = match str_of(&detail, "deviceId") {
+            Some(device) => self.device_models(device).await,
+            None => None,
+        };
         self.close(acp_id);
         let view = View {
             acp_id: acp_id.to_string(),
@@ -380,6 +419,7 @@ impl Viewer {
             mine: HashMap::new(),
             asked: None,
             last_watch: Instant::now(),
+            models,
         };
         self.views.borrow_mut().insert(doc.clone(), view);
         let mut events: Vec<Value> = page
@@ -426,7 +466,7 @@ impl Viewer {
             .views
             .borrow()
             .get(&doc)
-            .map(|view| Choices::of(&view.detail))
+            .map(View::choices)
             .unwrap_or_default();
         let mut response = json!({
             "models": choices.model_state(),
@@ -458,8 +498,7 @@ impl Viewer {
             self.change(&doc, "model", model).await?;
         }
         if let Some(level) = effort {
-            let detail = self.detail(&doc).await?;
-            let choices = Choices::of(&detail);
+            let choices = self.choices(&doc).await?;
             if choices.effort.as_deref() != Some(level.as_str())
                 && let Some(id) = choices.effort_id(&level)
             {
@@ -484,9 +523,43 @@ impl Viewer {
             return Err(error(format!("unknown config option: {config_id}")));
         }
         self.change(&doc, config_id, value).await?;
-        let detail = self.detail(&doc).await?;
-        serde_json::from_value(json!({ "configOptions": Choices::of(&detail).config_options() }))
+        let choices = self.choices(&doc).await?;
+        serde_json::from_value(json!({ "configOptions": choices.config_options() }))
             .map_err(|failure| error(format!("cannot build the response: {failure}")))
+    }
+
+    /// What the session offers to choose now: its detail with its computer's list (the open view's, else read once).
+    async fn choices(&self, doc: &str) -> acp::Result<Choices> {
+        let detail = self.detail(doc).await?;
+        let held = self
+            .views
+            .borrow()
+            .get(doc)
+            .and_then(|view| view.models.clone());
+        let models = match (held, str_of(&detail, "deviceId")) {
+            (Some(models), _) => Some(models),
+            (None, Some(device)) => self.device_models(device).await,
+            (None, None) => None,
+        };
+        Ok(Choices::of(&detail, models.as_ref()))
+    }
+
+    /// `x.ai/remote/models`: what one of the person's other computers can run, for a session about to start there.
+    pub(crate) async fn models(&self, params: &Value) -> acp::Result<Value> {
+        let device = str_of(params, "deviceId").ok_or_else(|| error("Which computer?"))?;
+        let models = self
+            .call(
+                CallKind::Query,
+                "devices:models",
+                json!({ "deviceId": device }),
+            )
+            .await?;
+        let choices = Choices::of(&json!({}), Some(&models));
+        Ok(json!({
+            "deviceId": device,
+            "models": models,
+            "availableModels": choices.model_state().get("availableModels"),
+        }))
     }
 
     /// The session as the relay has it: the open view's copy, else a fresh read.
@@ -1011,7 +1084,30 @@ impl Viewer {
             }
             Feed::Commands => self.on_commands(&doc, &value),
             Feed::Groups => self.on_groups(value),
+            Feed::Models => self.on_models(&doc, value),
         }
+    }
+
+    /// The computer's list of models arrived or changed: the front end's pickers follow it.
+    fn on_models(&self, doc: &str, models: Value) {
+        let changed = {
+            let mut views = self.views.borrow_mut();
+            let Some(view) = views.get_mut(doc) else {
+                return;
+            };
+            if view.models.as_ref() == Some(&models) {
+                return;
+            }
+            view.models = Some(models);
+            (view.acp_id.clone(), view.choices())
+        };
+        let (acp_id, choices) = changed;
+        let _ = self.notify(
+            &acp_id,
+            json!({ "sessionUpdate": "config_option_update", "configOptions": choices.config_options() }),
+            None,
+            false,
+        );
     }
 
     fn on_groups(&self, value: Value) {
@@ -1061,7 +1157,7 @@ impl Viewer {
                 str_of(&view.detail, "effort").map(str::to_owned),
             );
             if before != after && after.0.is_some() {
-                changed_choices = Some((view.acp_id.clone(), Choices::of(&view.detail)));
+                changed_choices = Some((view.acp_id.clone(), view.choices()));
             }
             let now_idle = view.status() == "idle" || view.status() == "error";
             if was_running
@@ -1489,8 +1585,9 @@ impl Viewer {
     }
 }
 
-/// What a session of another computer offers to choose (`sessions:get`'s `models`, `model`, `effort`), in the agent's
-/// shapes: `models` for the TUI's picker, `configOptions` for Crok Desktop's.
+/// What a session of another computer offers to choose (its computer's `devices:models`, else `sessions:get`'s
+/// `models`, with the session's `model` and `effort`), in the agent's shapes: `models` for the TUI's picker,
+/// `configOptions` for Crok Desktop's.
 #[derive(Default)]
 struct Choices {
     models: Vec<Value>,
@@ -1500,11 +1597,13 @@ struct Choices {
 }
 
 impl Choices {
-    fn of(detail: &Value) -> Choices {
+    /// `models` is the computer's list from `devices:models` when known (null while it is offline); `sessions:get` embeds
+    /// only short lists, so its copy is the fallback for a relay without that query.
+    fn of(detail: &Value, models: Option<&Value>) -> Choices {
         Choices {
-            models: detail
-                .get("models")
+            models: models
                 .and_then(Value::as_array)
+                .or_else(|| detail.get("models").and_then(Value::as_array))
                 .cloned()
                 .unwrap_or_default(),
             model: str_of(detail, "model")
@@ -1781,7 +1880,7 @@ mod tests {
 
     #[test]
     fn another_computers_choices_take_the_agents_shapes() {
-        let choices = Choices::of(&detail());
+        let choices = Choices::of(&detail(), None);
         let state = choices.model_state();
         assert_eq!(state["currentModelId"], "grok-4");
         let first = &state["availableModels"][0];
@@ -1805,7 +1904,7 @@ mod tests {
 
     #[test]
     fn levels_are_found_by_id_level_or_name() {
-        let choices = Choices::of(&detail());
+        let choices = Choices::of(&detail(), None);
         assert_eq!(choices.effort_id("xhigh").as_deref(), Some("deep"));
         assert_eq!(choices.effort_id("Balanced").as_deref(), Some("balanced"));
         assert_eq!(choices.effort_id("max"), None);
@@ -1813,12 +1912,30 @@ mod tests {
 
     #[test]
     fn an_offline_computer_still_names_the_model() {
-        let choices = Choices::of(&json!({ "model": "grok-4", "models": null }));
+        let choices = Choices::of(&json!({ "model": "grok-4", "models": null }), None);
         assert_eq!(
             choices.model_state()["availableModels"][0]["modelId"],
             "grok-4"
         );
         assert!(choices.config_options().is_empty());
+    }
+
+    #[test]
+    fn the_computers_own_list_wins_over_the_short_copy_in_the_session() {
+        // `sessions:get` leaves out a long list (null); `devices:models` has it.
+        let long: Vec<Value> = (0..450)
+            .map(|i| json!({ "id": format!("openrouter/m-{i}"), "name": format!("M {i}"), "efforts": [] }))
+            .collect();
+        let session = json!({ "model": "openrouter/m-449", "models": null });
+        let choices = Choices::of(&session, Some(&json!(long)));
+        let state = choices.model_state();
+        assert_eq!(state["availableModels"].as_array().map(Vec::len), Some(450));
+        assert_eq!(
+            choices.config_options()[0]["currentValue"],
+            "openrouter/m-449"
+        );
+        // While the computer is offline `devices:models` is null: the session's own copy stands.
+        assert_eq!(Choices::of(&detail(), Some(&Value::Null)).models.len(), 2);
     }
 
     #[test]

@@ -83,6 +83,20 @@ export async function modelsFor(
   return row?.models ?? null;
 }
 
+/**
+ * The list `sessions:get` still embeds for clients from before `devices:models` was their source: up to the 200 models
+ * the first relay took. A longer list (OpenRouter's) would go out again with every transcript item, since the query
+ * re-runs whenever the session row changes, so those clients see none, as before; current ones subscribe to
+ * `devices:models`, which changes only with the list.
+ */
+export const EMBEDDED_MODELS_MAX = 200;
+
+export function embeddedModels(
+  models: Doc<"modelLists">["models"] | null,
+): Doc<"modelLists">["models"] | null {
+  return models && models.length <= EMBEDDED_MODELS_MAX ? models : null;
+}
+
 /** Appends one transcript item to a session no host writes now (a failure the relay itself reports). */
 export async function appendNotice(
   ctx: MutationCtx,

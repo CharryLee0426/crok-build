@@ -42,7 +42,7 @@ use xai_acp_lib::{AcpArgs, AcpClientMessage, AcpResult};
 
 pub use crok_remote::HostApp;
 pub use viewer::{
-    PERMISSION_RESOLVED_METHOD, RELAY_PREFIX, REMOTE_NEW_SESSION_METHOD,
+    PERMISSION_RESOLVED_METHOD, RELAY_PREFIX, REMOTE_MODELS_METHOD, REMOTE_NEW_SESSION_METHOD,
     REMOTE_SESSIONS_CHANGED_METHOD, REMOTE_SESSIONS_METHOD,
 };
 
@@ -654,6 +654,10 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         if method == REMOTE_NEW_SESSION_METHOD {
             let params: Value = serde_json::from_str(args.params.get()).unwrap_or(Value::Null);
             return ext_response(&self.viewer()?.new_session(&params).await?);
+        }
+        if method == REMOTE_MODELS_METHOD {
+            let params: Value = serde_json::from_str(args.params.get()).unwrap_or(Value::Null);
+            return ext_response(&self.viewer()?.models(&params).await?);
         }
         let session = params_session(&args.params);
         if let Some(session_id) = session.as_deref().filter(|s| viewer::is_relay_session(s)) {

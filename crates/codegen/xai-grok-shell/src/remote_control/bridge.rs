@@ -553,6 +553,27 @@ fn model_catalog(agent: &MvpAgent) -> Vec<ModelOption> {
         .collect()
 }
 
+/// The most models the relay keeps for a computer (`bridge:setModels`).
+const MAX_PUBLISHED_MODELS: usize = 1_000;
+
+/// The catalog in the order other devices' pickers list it: this computer's default model, then its own providers'
+/// models, then OpenRouter's (several hundred, listed first here), within the relay's limit.
+fn for_pickers(models: Vec<ModelOption>, default: &str) -> Vec<ModelOption> {
+    let rank = |model: &ModelOption| {
+        if model.id == default {
+            0
+        } else if model.id.starts_with("openrouter/") {
+            2
+        } else {
+            1
+        }
+    };
+    let mut models = models;
+    models.sort_by_key(rank);
+    models.truncate(MAX_PUBLISHED_MODELS);
+    models
+}
+
 /// Applies the model and thinking level chosen for a session started from another device, before its first prompt.
 async fn apply_start_setup(
     agent: &MvpAgent,
@@ -947,7 +968,8 @@ impl Bridge {
         let Some(agent) = self.agent.upgrade() else {
             return;
         };
-        let models = model_catalog(&agent);
+        let default = agent.model_state(None).current_model_id.0.to_string();
+        let models = for_pickers(model_catalog(&agent), &default);
         if models.is_empty() || self.sent_models.as_ref() == Some(&models) {
             return;
         }
@@ -2605,6 +2627,33 @@ mod tests {
         assert_eq!(effort_option_id(&models, "grok-4", "deep"), "deep");
         assert_eq!(effort_option_id(&models, "grok-4", "xhigh"), "deep");
         assert_eq!(effort_option_id(&models, "grok-4", "max"), "max");
+    }
+
+    #[test]
+    fn pickers_list_the_default_then_own_providers_then_openrouter_within_the_relays_limit() {
+        let model = |id: &str| ModelOption {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            efforts: Vec::new(),
+            default_effort: None,
+        };
+        let mut catalog: Vec<ModelOption> = (0..1_200)
+            .map(|i| model(&format!("openrouter/vendor/model-{i}")))
+            .collect();
+        catalog.extend(["anthropic/claude-sonnet-5-5", "deepseek/deepseek-flash"].map(model));
+        let listed = for_pickers(catalog, "deepseek/deepseek-flash");
+        let ids: Vec<&str> = listed.iter().take(4).map(|m| m.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "deepseek/deepseek-flash",
+                "anthropic/claude-sonnet-5-5",
+                "openrouter/vendor/model-0",
+                "openrouter/vendor/model-1",
+            ]
+        );
+        assert_eq!(listed.len(), MAX_PUBLISHED_MODELS);
     }
 
     #[test]

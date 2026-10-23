@@ -608,7 +608,9 @@ LoggingHarness().run()
         XCTAssertEqual(store.remoteStartTarget, target)
         XCTAssertEqual(store.draftLocation, .remoteNewTask(target))
         XCTAssertEqual(store.draft, "", "each new task has its own draft")
-        XCTAssertTrue(store.run.models.isEmpty, "this Mac's models are not that computer's")
+        XCTAssertFalse(store.run.models.contains { $0.id == "fixture-grok-build" }, "this Mac's models are not that computer's")
+        try await eventually { store.run.models.map(\.id) == ["other-claude", "other-gpt", "other-plain"] }
+        XCTAssertEqual(store.run.modelID, "", "that computer's own choice until one is picked")
         XCTAssertNil(store.ensureConversation(title: "Panel"), "a panel does not start a session of this Mac's for it")
 
         store.draft = "Add a health check"
@@ -680,12 +682,47 @@ LoggingHarness().run()
         // ⌘N beside it starts another task on that computer, in the same folder.
         store.newTask()
         XCTAssertEqual(store.remoteStartTarget, target)
-        XCTAssertTrue(store.run.models.isEmpty)
+        XCTAssertEqual(store.run.models.map(\.id), ["other-claude", "other-gpt", "other-plain"], "that computer's list")
+        XCTAssertEqual(store.run.modelID, "")
         // Back in a project of this Mac's, its own models.
         store.selectProject(localProject.id)
         XCTAssertNil(store.remoteStartTarget)
         XCTAssertEqual(store.run.models, localModels)
         XCTAssertEqual(store.modelOption("other-gpt")?.name, "This Mac's GPT")
+    }
+
+    func testANewTaskOnAnotherComputerStartsWithTheModelAndThinkingLevelPickedThere() async throws {
+        let fixture = try harness()
+        let store = fixture.store
+        defer { store.shutdown() }
+        useLocalModels(store)
+        _ = try await remoteHost(for: store, executable: directory.appendingPathComponent("fixture-crok"))
+        let computer = try XCTUnwrap(store.remoteComputers.first { $0.deviceID == "d2" })
+        store.newRemoteTask(on: computer, in: computer.projects[0])
+        // Before any session there exists, that computer's own list (`x.ai/remote/models`).
+        try await eventually { store.run.models.map(\.id) == ["other-claude", "other-gpt", "other-plain"] }
+        XCTAssertTrue(fixture.methods.contains("_x.ai/remote/models"))
+        XCTAssertEqual(store.run.modelID, "")
+        XCTAssertTrue(store.run.reasoningOptions.isEmpty, "no thinking level to pick before a model is")
+
+        let gpt = try XCTUnwrap(store.run.models.first { $0.id == "other-gpt" })
+        store.setModel(gpt)
+        XCTAssertEqual(store.run.modelID, "other-gpt")
+        XCTAssertEqual(store.run.reasoningOptions.map(\.id), ["low", "high"])
+        XCTAssertEqual(store.run.reasoningID, "", "that model's own default until one is picked")
+        let high = try XCTUnwrap(store.run.reasoningOptions.first { $0.id == "high" })
+        store.setReasoning(high)
+        XCTAssertEqual(store.run.reasoningID, "high")
+        XCTAssertEqual(store.state.selectedModelID, "fixture-grok-build", "this Mac's default is untouched")
+        XCTAssertEqual(store.catalogRun.modelID, "fixture-grok-build")
+
+        store.draft = "Start on GPT"
+        store.send()
+        XCTAssertEqual(store.remoteStartModelID, "", "the pick went with the prompt")
+        try await eventually(timeout: 10) { store.conversation?.messages.contains { $0.kind == .assistant } == true && !store.run.isRunning }
+        XCTAssertEqual(store.run.modelID, "other-gpt", "that computer opened the session on the picked model")
+        XCTAssertEqual(store.run.reasoningID, "high")
+        XCTAssertFalse(fixture.methods.contains("session/set_config_option"), "chosen when the session started, not after")
     }
 
     func testAComputerThatStartedTheTaskFirstShowsThePromptOnceAndFinishesFromTheList() async throws {

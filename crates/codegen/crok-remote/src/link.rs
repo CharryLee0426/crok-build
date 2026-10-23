@@ -756,10 +756,17 @@ async fn write_loop(
         match result {
             Ok(FunctionResult::Value(_)) => {}
             Ok(other) => {
-                if error_code(&other).as_deref() == Some("REVOKED") {
+                let code = error_code(&other);
+                if code.as_deref() == Some("REVOKED") {
                     tokens.revoked.store(true, Ordering::SeqCst);
                 }
-                tracing::debug!(error = %describe(&other), "remote link: write failed");
+                // A write the relay refuses as invalid (a limit, a shape it does not take) fails the same way every
+                // time: say so where it can be found.
+                if code.as_deref() == Some("INVALID") {
+                    tracing::warn!(error = %describe(&other), "remote link: the relay refused a write");
+                } else {
+                    tracing::debug!(error = %describe(&other), "remote link: write failed");
+                }
             }
             Err(error) => tracing::debug!(%error, "remote link: write failed"),
         }
