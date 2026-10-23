@@ -146,11 +146,14 @@ export function DevicesView({
   browserLabel,
   now,
   actions,
+  compact = false,
 }: {
   devices: DeviceRow[] | undefined;
   browserLabel: string;
   now: number;
   actions: DevicesActions;
+  /** Profile › Devices in the left column: no page title, no footer under "Sign out all other devices". */
+  compact?: boolean;
 }) {
   const { t, tn, tx } = useI18n();
   const toast = useToast();
@@ -185,9 +188,15 @@ export function DevicesView({
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
-      <h1 className="text-2xl font-semibold tracking-tight">{t("devices_title")}</h1>
-      <p className="mt-1 text-sm text-muted">{t("devices_lead")}</p>
+    <div className={compact ? "w-full pb-4" : "mx-auto w-full max-w-2xl px-4 py-8 sm:px-6"}>
+      {compact ? (
+        <p className="mt-4 px-1 text-[13px] leading-relaxed text-muted">{t("devices_lead")}</p>
+      ) : (
+        <>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("devices_title")}</h1>
+          <p className="mt-1 text-sm text-muted">{t("devices_lead")}</p>
+        </>
+      )}
 
       <Section title={t("this_device")}>
         {current ? (
@@ -227,20 +236,22 @@ export function DevicesView({
             </Section>
           ) : null}
           <div className="mt-6">
-            <Button tone="danger" className="w-full sm:w-auto" onClick={() => setConfirm("all")}>
+            <Button tone="danger" className={compact ? "w-full" : "w-full sm:w-auto"} onClick={() => setConfirm("all")}>
               {t("sign_out_all")}
             </Button>
           </div>
         </>
       )}
 
-      <div className="mt-10 flex flex-col gap-3 rounded-2xl bg-surface-2 px-5 py-4 text-sm text-muted sm:flex-row sm:items-center">
-        <p className="flex-1 leading-relaxed">{tx("devices_link_hint", { cmd: <Code>crok remote login</Code> })}</p>
-        <ButtonLink href="/link" size="sm" className="shrink-0">
-          <LinkIcon size={15} />
-          {t("nav_link")}
-        </ButtonLink>
-      </div>
+      {compact ? null : (
+        <div className="mt-10 flex flex-col gap-3 rounded-2xl bg-surface-2 px-5 py-4 text-sm text-muted sm:flex-row sm:items-center">
+          <p className="flex-1 leading-relaxed">{tx("devices_link_hint", { cmd: <Code>crok remote login</Code> })}</p>
+          <ButtonLink href="/link" size="sm" className="shrink-0">
+            <LinkIcon size={15} />
+            {t("nav_link")}
+          </ButtonLink>
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirm !== null}

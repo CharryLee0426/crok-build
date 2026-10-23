@@ -46,8 +46,13 @@ export type BotCard = {
   miss?: { arg: string; reason: "none" | "several" };
 };
 
-/** What a card needs to know about its session. */
-export type CardSession = Pick<SessionDetail, "models" | "model" | "effort" | "deviceName" | "deviceOnline">;
+/**
+ * What a card needs to know about its session. `models` is its computer's list (`devices:models`, mobile/DESIGN.md
+ * "Model and thinking level"), which the bot cards share with the composer's pills.
+ */
+export type CardSession = Pick<SessionDetail, "model" | "effort" | "deviceName" | "deviceOnline"> & {
+  models: readonly ModelChoice[] | null;
+};
 
 /** `/name rest of the line` → its parts; anything else → null. */
 export function parseSlash(text: string): { name: string; arg: string } | null {

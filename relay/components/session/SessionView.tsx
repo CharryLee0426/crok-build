@@ -15,6 +15,7 @@ import {
 } from "@/lib/format";
 import type { MessageKey } from "@/lib/i18n";
 import type {
+  ModelChoice,
   PendingPrompt,
   PromptCommand,
   SessionDetail,
@@ -22,15 +23,15 @@ import type {
   SlashCommand,
   TranscriptEvent,
 } from "@/lib/types";
+import { TopicIcon } from "../avatars";
 import { useI18n } from "../I18nProvider";
 import {
   ArchiveIcon,
+  ArrowLeftIcon,
   CheckIcon,
   ChevronDownIcon,
-  ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
-  InfoIcon,
   MenuIcon,
   PinIcon,
   SendIcon,
@@ -40,18 +41,22 @@ import {
   WarningIcon,
   XIcon,
 } from "../icons";
+import { MenuList, Popover, useMenu } from "../menu";
 import { WorkingDots } from "../SessionList";
-import { IconButton, ProjectAvatar } from "../ui";
+import { useToast } from "../Toast";
+import { IconButton } from "../ui";
 import {
   BotCardView,
-  cardChoices,
-  choiceName,
   CommandPanel,
   composerCommands,
+  currentModel,
   currentValue,
+  levelName,
   parseSlash,
 } from "./BotCommands";
 import type { BotCard, ComposerCommand, ConfigKind, LocalCommand } from "./BotCommands";
+import { effortMenuItems, ModelDialog, SetupRow } from "./SetupRow";
+import type { SetupRowProps } from "./SetupRow";
 import { Transcript } from "./Transcript";
 
 export type InfoState = {
@@ -59,9 +64,19 @@ export type InfoState = {
   result: SessionInfoResult | null;
 };
 
+/** A model or thinking-level change on its way (`commands:setConfig` until `commands:get` says done). */
+export type ConfigChange = { kind: ConfigKind; value: string };
+
 /** Everything the session screen shows and can do; the live container and the dev preview both build one. */
 export type SessionModel = {
   session: SessionDetail;
+  /**
+   * What the session's computer can run (`devices:models`, or `sessions:get`'s copy when that query fails): undefined
+   * while loading, null when it offers no choice (offline, or an older crok).
+   */
+  models: readonly ModelChoice[] | null | undefined;
+  /** A change the pills show with a spinner until the computer applied it. */
+  config: ConfigChange | null;
   events: TranscriptEvent[];
   pagination: { canLoadMore: boolean; loadingMore: boolean; isDone: boolean; firstLoad: boolean; loadMore: () => void };
   commands: PromptCommand[] | undefined;
@@ -91,31 +106,73 @@ export type SessionModel = {
     openCard: (kind: ConfigKind, arg?: string) => void;
     /** A tap on a bot card's button. */
     chooseInCard: (cardId: string, value: string) => void;
+    /** The setup row and Session info: `commands:setConfig`. */
+    setConfig: (kind: ConfigKind, value: string) => void;
   };
 };
 
 const APP_KEYS: Record<string, MessageKey> = { tui: "app_tui", desktop: "app_desktop", cli: "app_cli" };
 
+/** What the setup row and Session info offer for this session (mobile/DESIGN.md "Model and thinking level"). */
+function useSessionSetup(model: SessionModel) {
+  const { t } = useI18n();
+  const { session, models, config } = model;
+  const listed = models ?? null;
+  const current = currentModel(listed, session.model);
+  const pendingModel = config?.kind === "model" ? (listed?.find((m) => m.id === config.value) ?? null) : null;
+  const shown = config?.kind === "model" ? pendingModel : current;
+  const modelText = config?.kind === "model" ? (pendingModel?.name ?? config.value) : (current?.name ?? session.model);
+  const efforts = shown?.efforts ?? [];
+  // While a new model is on its way: the same level if it has one, else its default.
+  const effortId =
+    config?.kind === "reasoning_effort"
+      ? config.value
+      : config?.kind === "model"
+        ? (efforts.find((e) => (e.value ?? e.id) === session.effort)?.id ?? shown?.defaultEffort ?? null)
+        : currentValue({ ...session, models: listed }, "reasoning_effort");
+  const effort = efforts.find((e) => e.id === effortId) ?? null;
+  const effortText = efforts.length
+    ? effort
+      ? levelName(t, effort)
+      : session.effort && config?.kind !== "model"
+        ? levelName(t, { id: session.effort })
+        : t("setup_default")
+    : null;
+  /** The computer offers choices: the dialog and the menu open. */
+  const offers = Array.isArray(models) && models.length > 0 && session.deviceOnline && !session.starting;
+  // No model reported yet but a list to pick from: the pill still offers one.
+  return { listed, current, modelText: modelText ?? (offers ? t("setup_default") : null), efforts, effortId, effortText, offers };
+}
+
 export function SessionView({
   model,
   initialInfoOpen = false,
   initialDraft,
+  initialModelDialog = false,
 }: {
   model: SessionModel;
   initialInfoOpen?: boolean;
   /** The dev preview's composer text (the command list opens for `/`). */
   initialDraft?: string;
+  /** The dev preview: Choose a Model open from the start. */
+  initialModelDialog?: boolean;
 }) {
   const { session, actions } = model;
   const { t } = useI18n();
+  const toast = useToast();
   const [infoOpen, setInfoOpen] = useState(initialInfoOpen);
+  const [modelDialog, setModelDialog] = useState(initialModelDialog);
+  const setup = useSessionSetup(model);
+  const busy = model.config !== null;
 
   const openInfo = () => {
     setInfoOpen(true);
     actions.requestInfo();
   };
 
-  const commands = useMemo(() => composerCommands(t, session, model.slashCommands), [t, session, model.slashCommands]);
+  // The bot cards and the command list read the same list as the pills.
+  const cardSession = useMemo(() => ({ ...session, models: setup.listed }), [session, setup.listed]);
+  const commands = useMemo(() => composerCommands(t, cardSession, model.slashCommands), [t, cardSession, model.slashCommands]);
 
   /** The device's own commands run here; any other text, `/compact` or `/whatever` too, goes to the computer. */
   const submit = (text: string) => {
@@ -145,21 +202,40 @@ export function SessionView({
     }
   };
 
-  /** From the header or the info panel: the same card `/model` and `/think` give. */
-  const pickConfig = (kind: ConfigKind) => {
-    if (typeof window !== "undefined" && !window.matchMedia("(min-width: 1024px)").matches) setInfoOpen(false);
-    actions.openCard(kind);
+  const pickModel = (id: string | null) => {
+    setModelDialog(false);
+    if (id && id !== setup.current?.id) actions.setConfig("model", id);
   };
+  const pickEffort = (id: string | null) => {
+    if (id && id !== setup.effortId) actions.setConfig("reasoning_effort", id);
+  };
+  const openModels = () => {
+    if (busy) return;
+    if (setup.offers) setModelDialog(true);
+    else if (model.models === null && session.deviceOnline) toast.show(t("card_unavailable", { computer: session.deviceName }));
+  };
+
+  let setupRow: SetupRowProps | null = null;
+  if (session.deviceOnline && !session.starting && setup.modelText) {
+    setupRow = {
+      model: setup.modelText,
+      modelBusy: model.config?.kind === "model",
+      modelDimmed: model.models === null,
+      onModel: openModels,
+      effort: setup.offers ? setup.effortText : null,
+      effortBusy: model.config?.kind === "reasoning_effort",
+      effortItems: busy ? [] : effortMenuItems(t, setup.efforts, setup.effortId, pickEffort, false),
+    };
+  }
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1">
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <SessionHeader
           session={session}
           now={model.now}
           onInfo={() => (infoOpen ? setInfoOpen(false) : openInfo())}
           infoOpen={infoOpen}
-          onPickModel={session.starting ? undefined : () => pickConfig("model")}
         />
         <PlanBar plan={session.plan} />
         <Transcript
@@ -181,7 +257,7 @@ export function SessionView({
           }
           cards={model.cards}
           renderCard={(card) => (
-            <BotCardView card={card} session={session} onChoose={(value) => actions.chooseInCard(card.id, value)} />
+            <BotCardView card={card} session={cardSession} onChoose={(value) => actions.chooseInCard(card.id, value)} />
           )}
         />
         {session.pending && session.online ? (
@@ -202,6 +278,7 @@ export function SessionView({
           computer={session.deviceName}
           stopping={model.stopping}
           commands={commands}
+          setup={setupRow ? <SetupRow {...setupRow} /> : null}
           onSend={submit}
           onStop={actions.stop}
         />
@@ -209,11 +286,28 @@ export function SessionView({
       {infoOpen ? (
         <InfoPanel
           session={session}
+          models={setup.listed}
           info={model.info}
           onClose={() => setInfoOpen(false)}
           onPin={() => actions.setPinned(!session.pinned)}
           onArchive={() => actions.setArchived(!session.archived)}
-          onPickConfig={session.starting ? undefined : pickConfig}
+          onModel={setup.offers && !busy ? () => setModelDialog(true) : undefined}
+          effortItems={
+            setup.offers && !busy && setup.efforts.length
+              ? effortMenuItems(t, setup.efforts, setup.effortId, pickEffort, false)
+              : undefined
+          }
+        />
+      ) : null}
+      {Array.isArray(model.models) ? (
+        <ModelDialog
+          open={modelDialog}
+          models={model.models}
+          currentId={setup.current?.id ?? session.model}
+          computer={session.deviceName}
+          isNew={false}
+          onPick={pickModel}
+          onClose={() => setModelDialog(false)}
         />
       ) : null}
     </div>
@@ -225,14 +319,11 @@ function SessionHeader({
   now,
   onInfo,
   infoOpen,
-  onPickModel,
 }: {
   session: SessionDetail;
   now: number;
   onInfo: () => void;
   infoOpen: boolean;
-  /** Opens the model card; unset while the session has not opened on its computer. */
-  onPickModel?: () => void;
 }) {
   const { t, lang } = useI18n();
   let status: ReactNode;
@@ -263,57 +354,38 @@ function SessionHeader({
     status = <span className="text-accent-text">{t("status_online")}</span>;
   }
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-2 sm:px-3">
+    <header className="relative z-10 flex h-14 shrink-0 items-center gap-1 border-b border-line bg-surface px-2 sm:px-3">
       <Link
         href="/"
         aria-label={t("back")}
         title={t("back")}
-        className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-fg lg:hidden"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-fg lg:hidden"
       >
-        <ChevronLeftIcon size={22} />
+        <ArrowLeftIcon size={22} />
       </Link>
-      <button type="button" onClick={onInfo} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1.5 py-1 text-left">
-        <ProjectAvatar cwd={session.cwd} title={session.title} online={session.online} dim={!session.deviceOnline} size={38} />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[15px] font-semibold leading-tight">{session.title || folderName(session.cwd)}</span>
-          <span className="block truncate text-[13px] leading-tight">
-            {status}
-            <span className="text-faint">
-              {" "}
-              · {session.deviceName} · {folderName(session.cwd)}
-            </span>
+      <button type="button" onClick={onInfo} className="flex min-w-0 flex-1 flex-col rounded-xl px-2 py-1 text-left">
+        <span className="block w-full truncate text-[15.5px] font-semibold leading-tight">{session.title || folderName(session.cwd)}</span>
+        <span className="block w-full truncate text-[13px] leading-tight">
+          {status}
+          <span className="text-faint">
+            {" "}
+            · {session.deviceName} · {folderName(session.cwd)}
           </span>
         </span>
       </button>
-      {onPickModel && session.model ? <ModelChip session={session} onClick={onPickModel} /> : null}
-      <IconButton
-        label={t("session_info")}
+      <button
+        type="button"
         onClick={onInfo}
+        aria-label={t("session_info")}
+        title={t("session_info")}
         aria-pressed={infoOpen}
-        className={infoOpen ? "bg-accent-soft text-accent-text" : ""}
+        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-hover ${
+          infoOpen ? "bg-hover" : ""
+        }`}
       >
-        <InfoIcon size={20} />
-      </IconButton>
+        <TopicIcon id={session._id} title={session.title} size={36} dimmed={!session.deviceOnline} />
+      </button>
     </header>
-  );
-}
-
-/** The model and thinking level in use, on wide screens; a click opens the model card (phones: the info panel). */
-function ModelChip({ session, onClick }: { session: SessionDetail; onClick: () => void }) {
-  const { t } = useI18n();
-  const model = choiceName(t, session, "model", currentValue(session, "model"));
-  const effort = choiceName(t, session, "reasoning_effort", currentValue(session, "reasoning_effort"));
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={t("change_model")}
-      className="hidden h-8 max-w-[16rem] shrink items-center gap-1 rounded-full border border-line px-3 text-[12.5px] text-muted transition-colors hover:border-accent hover:text-accent-text md:flex"
-    >
-      <span className="truncate font-medium text-fg">{model}</span>
-      {effort ? <span className="shrink-0">· {effort}</span> : null}
-      <ChevronDownIcon size={14} className="shrink-0" />
-    </button>
   );
 }
 
@@ -337,7 +409,7 @@ export function PlanBar({ plan }: { plan: SessionDetail["plan"] }) {
   const done = plan.filter((p) => p.status === "completed").length;
   const step = currentStep(plan);
   return (
-    <div className="shrink-0 border-b border-line bg-surface">
+    <div className="relative z-10 shrink-0 border-b border-line bg-surface">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -401,8 +473,8 @@ export function PermissionCard({
 }) {
   const { t } = useI18n();
   return (
-    <div className="shrink-0 border-t border-line bg-surface px-3 pt-3 sm:px-4" role="region" aria-label={pending.title}>
-      <div className="mx-auto max-w-3xl rounded-2xl bg-warning-soft p-3">
+    <div className="relative shrink-0 px-3 pt-2 sm:px-4" role="region" aria-label={pending.title}>
+      <div className="mx-auto max-w-3xl rounded-2xl bg-warning-soft p-3 shadow-sm">
         <div className="flex items-start gap-2 text-[13px] text-warning">
           <WarningIcon size={16} className="mt-px shrink-0" />
           <span className="font-medium">{t("permission_asks", { computer })}</span>
@@ -440,7 +512,8 @@ export function PermissionCard({
  * Enter sends, Shift+Enter breaks the line (on touch screens Enter breaks the line and the button sends). With
  * `commands`, a Menu button leads the field (Telegram's bot menu: "☰ Menu" while empty, the icon alone once typing) and
  * the command list opens above it, from that button or from `/` typed first; ↑/↓ move, Enter or a click picks (a
- * command that takes arguments fills `/name `, the others are sent), Tab completes, Esc closes.
+ * command that takes arguments fills `/name `, the others are sent), Tab completes, Esc closes. Telegram Web's look:
+ * the field and the round send button float over the session's background.
  */
 export function Composer({
   draftKey,
@@ -468,7 +541,7 @@ export function Composer({
   computer: string;
   stopping?: boolean;
   commands?: ComposerCommand[];
-  /** Above the field: the new-session screen's model and thinking-level choices. */
+  /** Above the field: the setup row (model and thinking level); hidden while the command list is open. */
   setup?: ReactNode;
   placeholder?: string;
   offlineText?: string;
@@ -536,8 +609,8 @@ export function Composer({
 
   if (!online) {
     return (
-      <div className="shrink-0 border-t border-line bg-surface px-4 py-3">
-        <p className="mx-auto max-w-3xl text-center text-[13px] leading-relaxed text-muted">
+      <div className="relative shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
+        <p className="mx-auto max-w-3xl rounded-2xl bg-surface px-4 py-3 text-center text-[13.5px] leading-relaxed text-muted shadow-sm">
           {offlineText ?? t("composer_offline", { computer })}
         </p>
       </div>
@@ -571,18 +644,18 @@ export function Composer({
   };
 
   return (
-    <div className="shrink-0 border-t border-line bg-surface px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 sm:px-4">
+    <div className="relative shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
       <div ref={rootRef} className="relative mx-auto max-w-3xl">
         {listOpen ? (
           <CommandPanel id={listId} commands={shown} active={highlighted} onHover={setActive} onPick={pick} />
         ) : null}
         {waiting ? (
-          <div className="mb-2 flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[13px] text-warning">
+          <div className="mb-2 flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[13px] text-warning shadow-sm">
             <WarningIcon size={16} className="mt-px shrink-0" />
             <span>{t("composer_waiting", { computer })}</span>
           </div>
         ) : null}
-        {setup}
+        {listOpen ? null : setup}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -590,7 +663,7 @@ export function Composer({
           }}
           className="flex items-end gap-2"
         >
-          <div className="flex min-h-11 min-w-0 flex-1 items-end rounded-[22px] border border-line bg-canvas transition-colors focus-within:border-accent">
+          <div className="flex min-h-[46px] min-w-0 flex-1 items-end rounded-[23px] bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.12),0_2px_10px_rgb(0_0_0/0.06)] ring-1 ring-line transition-shadow focus-within:ring-accent/60">
             {commands ? (
               <button
                 type="button"
@@ -608,7 +681,7 @@ export function Composer({
                 aria-haspopup="listbox"
                 aria-expanded={listOpen}
                 aria-controls={listOpen ? listId : undefined}
-                className={`mb-[5px] ml-[5px] flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-accent text-[14px] font-medium text-accent-fg transition-[background-color,width,padding] hover:bg-accent-hover ${
+                className={`mb-[7px] ml-[7px] flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-accent text-[14px] font-medium text-accent-fg transition-[background-color,width,padding] hover:bg-accent-hover ${
                   text ? "w-8 px-0" : "pl-2.5 pr-3.5"
                 }`}
               >
@@ -660,12 +733,13 @@ export function Composer({
               }}
               placeholder={placeholder ?? (running ? t("composer_placeholder_running") : t("composer_placeholder"))}
               aria-label={t("composer_label")}
+              title={coarse ? undefined : t("composer_hint")}
               role={commands ? "combobox" : undefined}
               aria-autocomplete={commands ? "list" : undefined}
               aria-expanded={commands ? listOpen : undefined}
               aria-controls={listOpen ? listId : undefined}
               aria-activedescendant={listOpen ? `${listId}-${highlighted}` : undefined}
-              className={`scroll-quiet max-h-[220px] min-h-11 min-w-0 flex-1 resize-none bg-transparent py-2.5 pr-4 text-[15px] leading-6 text-fg placeholder:text-faint focus:outline-none ${
+              className={`scroll-quiet max-h-[220px] min-h-[46px] min-w-0 flex-1 resize-none bg-transparent py-[11px] pr-4 text-[15px] leading-6 text-fg placeholder:text-faint focus:outline-none ${
                 commands ? "pl-2.5" : "pl-4"
               }`}
             />
@@ -677,7 +751,7 @@ export function Composer({
               disabled={stopping}
               aria-label={stopping ? t("stopping") : t("stop")}
               title={stopping ? t("stopping") : t("stop")}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-fg hover:bg-surface-2 disabled:opacity-60"
+              className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full bg-surface text-fg shadow-[0_1px_2px_rgb(0_0_0/0.12),0_2px_10px_rgb(0_0_0/0.06)] ring-1 ring-line hover:bg-surface-2 disabled:opacity-60"
             >
               {stopping ? <SpinnerIcon size={18} /> : <StopIcon size={20} />}
             </button>
@@ -688,13 +762,12 @@ export function Composer({
               disabled={!text.trim()}
               aria-label={t("send")}
               title={t("send")}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg transition-opacity hover:bg-accent-hover disabled:opacity-35"
+              className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg shadow-[0_1px_2px_rgb(0_0_0/0.15)] transition-opacity hover:bg-accent-hover disabled:opacity-60"
             >
               <SendIcon size={20} />
             </button>
           ) : null}
         </form>
-        {!coarse ? <p className="mt-1.5 hidden px-4 text-[11px] text-faint sm:block">{t("composer_hint")}</p> : null}
       </div>
     </div>
   );
@@ -710,8 +783,8 @@ function InfoRow({
   label: string;
   children: ReactNode;
   mono?: boolean;
-  /** Makes the value a button (the model and thinking level open their picker card). */
-  onClick?: () => void;
+  /** Makes the value a button (the model and thinking level open their dialog and menu). */
+  onClick?: (el: HTMLButtonElement) => void;
   actionLabel?: string;
 }) {
   return (
@@ -721,7 +794,7 @@ function InfoRow({
         {onClick ? (
           <button
             type="button"
-            onClick={onClick}
+            onClick={(e) => onClick(e.currentTarget)}
             title={actionLabel}
             className="-mr-1 rounded-md text-right font-medium text-accent-text hover:underline"
           >
@@ -758,24 +831,35 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-/** Model, effort, folder, branch, computer, tokens, cost, context, plan, id: stored values, refreshed from the computer. */
+/**
+ * Session info, the right column (a full-height panel over the session below 1024 px): model and thinking level (they
+ * open the model dialog and the thinking menu while the computer offers choices), folder, branch, computer, tokens,
+ * cost, context, plan, id. Stored values, refreshed from the computer.
+ */
 export function InfoPanel({
   session,
+  models,
   info,
   onClose,
   onPin,
   onArchive,
-  onPickConfig,
+  onModel,
+  effortItems,
 }: {
   session: SessionDetail;
+  /** The computer's list (`devices:models`), for the model's and level's names. */
+  models: readonly ModelChoice[] | null;
   info: InfoState;
   onClose: () => void;
   onPin: () => void;
   onArchive: () => void;
-  /** The model and thinking level open their picker card; unset before the session opened on its computer. */
-  onPickConfig?: (kind: ConfigKind) => void;
+  /** Opens Choose a Model; unset while the computer offers no choice. */
+  onModel?: () => void;
+  /** The thinking menu's items; unset while there is nothing to pick. */
+  effortItems?: ReturnType<typeof effortMenuItems>;
 }) {
   const { t, lang } = useI18n();
+  const effortMenu = useMenu();
   // Fresh numbers, or (a session nobody runs) the ones the relay kept.
   const r = info.result;
   const model = r?.model ?? session.model;
@@ -787,12 +871,12 @@ export function InfoPanel({
   const window_ = r?.context?.window ?? session.usage?.contextWindow;
   const ratio = used !== undefined && window_ ? Math.min(1, used / window_) : null;
   // The computer's own names when it shared its models (the session names them by id).
-  const named = { ...session, model, effort };
-  const modelLabel = choiceName(t, named, "model", currentValue(named, "model"));
-  const effortLabel = choiceName(t, named, "reasoning_effort", currentValue(named, "reasoning_effort"));
-  // Offered when the model has levels to pick from (or the computer hasn't said which it has).
-  const efforts = session.models ? cardChoices(named, "reasoning_effort") : null;
-  const canPickEffort = Boolean(onPickConfig) && session.deviceOnline && (efforts === null || efforts.length > 0);
+  const named = { ...session, models, model, effort };
+  const current = currentModel(models, model);
+  const modelLabel = current?.name ?? model;
+  const effortId = currentValue(named, "reasoning_effort");
+  const effortChoice = current?.efforts.find((e) => e.id === effortId);
+  const effortLabel = effortChoice ? levelName(t, effortChoice) : effort ? levelName(t, { id: effort }) : null;
   const appKey = APP_KEYS[session.app];
   const createdAt = r?.createdAt ?? session.createdAt;
 
@@ -821,16 +905,16 @@ export function InfoPanel({
       <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={onClose} aria-hidden="true" />
       <aside
         aria-label={t("session_info")}
-        className="scroll-quiet fixed inset-y-0 right-0 z-40 flex w-[min(100vw,22rem)] flex-col overflow-y-auto border-l border-line bg-surface shadow-card lg:static lg:z-auto lg:w-[22rem] lg:shrink-0 lg:shadow-none"
+        className="scroll-quiet fixed inset-y-0 right-0 z-40 flex w-full flex-col overflow-y-auto bg-surface shadow-card sm:w-[360px] sm:border-l sm:border-line lg:static lg:z-auto lg:w-[360px] lg:shrink-0 lg:shadow-none"
       >
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-line px-4">
-          <h2 className="text-[15px] font-semibold">{t("session_info")}</h2>
-          <IconButton label={t("close")} onClick={onClose}>
-            <XIcon size={18} />
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-2">
+          <IconButton label={t("close")} onClick={onClose} className="h-10 w-10">
+            <XIcon size={20} />
           </IconButton>
+          <h2 className="text-[16px] font-semibold">{t("session_info")}</h2>
         </div>
         <div className="flex flex-col items-center px-5 pb-4 pt-6 text-center">
-          <ProjectAvatar cwd={session.cwd} title={session.title} online={session.online} size={68} />
+          <TopicIcon id={session._id} title={session.title} size={80} dimmed={!session.deviceOnline} />
           <h3 className="mt-3 text-base font-semibold leading-snug">{session.title || folderName(session.cwd)}</h3>
           <p className="mt-0.5 text-[13px] text-muted">
             {session.deviceName} · {folderName(session.cwd)}
@@ -839,20 +923,16 @@ export function InfoPanel({
         </div>
 
         <dl className="mx-4 divide-y divide-line rounded-xl border border-line px-3">
-          <InfoRow
-            label={t("info_model")}
-            onClick={onPickConfig && session.deviceOnline ? () => onPickConfig("model") : undefined}
-            actionLabel={t("change_model")}
-          >
+          <InfoRow label={t("info_model")} onClick={onModel ? () => onModel() : undefined} actionLabel={t("change_model")}>
             {modelLabel ?? "—"}
           </InfoRow>
-          {effortLabel || canPickEffort ? (
+          {effortLabel || effortItems ? (
             <InfoRow
               label={t("info_effort")}
-              onClick={canPickEffort ? () => onPickConfig?.("reasoning_effort") : undefined}
+              onClick={effortItems ? (el) => (effortMenu.open ? effortMenu.close() : effortMenu.fromElement(el)) : undefined}
               actionLabel={t("change_effort")}
             >
-              {effortLabel ?? "—"}
+              {effortLabel ?? t("setup_default")}
             </InfoRow>
           ) : null}
           <InfoRow label={t("info_folder")} mono>
@@ -871,6 +951,11 @@ export function InfoPanel({
           <InfoRow label={t("info_started")}>{formatDateTime(createdAt, lang)}</InfoRow>
           {r?.messages !== undefined ? <InfoRow label={t("info_messages")}>{formatCount(r.messages, lang)}</InfoRow> : null}
         </dl>
+        {effortMenu.anchor && effortItems ? (
+          <Popover anchor={effortMenu.anchor} onClose={effortMenu.close} placement="bottom-end" label={t("info_effort")}>
+            <MenuList items={effortItems} onDone={effortMenu.close} />
+          </Popover>
+        ) : null}
 
         <h4 className="mx-5 mb-1.5 mt-5 text-xs font-semibold uppercase tracking-wide text-faint">{t("info_tokens")}</h4>
         <dl className="mx-4 divide-y divide-line rounded-xl border border-line px-3">

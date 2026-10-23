@@ -99,15 +99,15 @@ export function tildePath(cwd: string): string {
   return cwd.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "~");
 }
 
-/** One or two letters for a project avatar: "crok-build" → "CB", "relay" → "R". */
+/**
+ * One or two letters for a project avatar, the phones' rule: the first letters of the first two words of the folder
+ * name ("crok-build" → "CB", "relay" → "R").
+ */
 export function projectInitials(cwd: string, fallback: string): string {
   const name = folderName(cwd) || fallback;
-  const words = name
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .split(/[\s\-_.]+/)
-    .filter(Boolean);
-  const letters = (words.length >= 2 ? [words[0], words[1]] : [words[0] ?? name]).map((w) => Array.from(w)[0] ?? "");
-  return letters.join("").toUpperCase() || "?";
+  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const letters = words.slice(0, 2).map((w) => Array.from(w)[0] ?? "");
+  return letters.join("").toLocaleUpperCase() || "·";
 }
 
 /** A stable hue per project, so each folder keeps its avatar colour. */

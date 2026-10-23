@@ -127,8 +127,8 @@ function HistoryNotice({ computer, online }: { computer: string; online: boolean
     );
   }
   return (
-    <div role="status" className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface text-faint shadow-sm">
+    <div role="status" className="flex max-w-sm flex-col items-center gap-3 rounded-2xl bg-surface px-6 py-5 text-center shadow-sm">
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-faint">
         <ComputerIcon size={22} />
       </span>
       <p className="text-[13.5px] leading-relaxed text-muted">{t("history_offline", { computer })}</p>
@@ -237,20 +237,24 @@ export function Transcript(props: TranscriptProps) {
       >
         <div ref={contentRef} className="mx-auto w-full max-w-3xl px-3 pb-4 pt-3 sm:px-6">
           {loadingMore || (firstLoad && events.length === 0) ? (
-            <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted">
-              <SpinnerIcon size={14} />
-              {firstLoad ? t("loading") : t("loading_older")}
+            <div className="flex justify-center py-4">
+              <span className="svc flex items-center gap-2 rounded-full px-3 py-1 text-xs">
+                <SpinnerIcon size={14} />
+                {firstLoad ? t("loading") : t("loading_older")}
+              </span>
             </div>
           ) : null}
           {isDone && !firstLoad && !awaitingHistory ? (
-            <div className="py-4 text-center text-xs text-faint">
-              {items.length ? t("transcript_start") : t("transcript_empty")}
+            <div className="flex justify-center py-4">
+              <span className="svc rounded-full px-3 py-1 text-xs">
+                {items.length ? t("transcript_start") : t("transcript_empty")}
+              </span>
             </div>
           ) : null}
           {days.map((day) => (
             <section key={day.key} className="relative">
               <div className="sticky top-2 z-10 my-3 flex justify-center">
-                <span className="rounded-full bg-surface/90 px-3 py-1 text-xs font-medium text-muted shadow-sm backdrop-blur">
+                <span className="svc rounded-full px-3 py-1 text-xs font-medium shadow-sm backdrop-blur">
                   {formatDayHeader(day.at, lang, now, { today: t("today"), yesterday: t("yesterday") })}
                 </span>
               </div>
@@ -379,7 +383,7 @@ function GroupView({
 
 function TimeStamp({ at }: { at: number }) {
   const { lang } = useI18n();
-  return <span className="px-1 text-[11px] text-faint tabular-nums">{formatClock(at, lang)}</span>;
+  return <span className="loose px-1 text-[11px] text-faint tabular-nums">{formatClock(at, lang)}</span>;
 }
 
 const AssistantBubble = memo(function AssistantBubble({ event }: { event: TranscriptEvent }) {
@@ -396,7 +400,7 @@ function ThoughtBlock({ event }: { event: TranscriptEvent }) {
   const text = event.text.trim();
   if (!text) return null;
   return (
-    <details className="group max-w-full rounded-xl px-1 text-sm text-muted sm:max-w-[92%]">
+    <details className="thought group max-w-full rounded-xl px-1 text-sm text-muted sm:max-w-[92%]">
       <summary className="flex cursor-pointer list-none items-center gap-1.5 py-1 text-[13px] hover:text-fg [&::-webkit-details-marker]:hidden">
         <BulbIcon size={14} />
         <span>{event.title || t("thought")}</span>
@@ -437,7 +441,7 @@ function ToolCard({ event }: { event: TranscriptEvent }) {
   const long = detail.split("\n").length > 6 || detail.length > 420;
   return (
     <div
-      className={`w-full max-w-full rounded-xl border bg-surface/70 sm:max-w-[92%] ${
+      className={`w-full max-w-full rounded-xl border bg-surface/80 sm:max-w-[92%] ${
         event.status === "failed" ? "border-danger/40" : "border-line"
       }`}
     >
@@ -489,7 +493,7 @@ function ToolRun({ tools }: { tools: TranscriptEvent[] }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[13px] text-muted hover:bg-hover hover:text-fg"
+        className="loose flex items-center gap-1.5 rounded-full px-2 py-1 text-[13px] text-muted hover:bg-hover hover:text-fg"
       >
         <ChevronRightIcon size={14} className={`transition-transform ${open ? "rotate-90" : ""}`} />
         {tn("tool_calls", tools.length)}
@@ -538,7 +542,7 @@ function SystemLine({ event }: { event: TranscriptEvent }) {
   // A plain end of turn is implied by the reply itself.
   if (!text || (event.status === "end_turn" && !event.text.trim())) return null;
   return (
-    <span className="max-w-[92%] rounded-full bg-surface-2 px-3 py-1 text-center text-xs text-muted">{text}</span>
+    <span className="svc max-w-[92%] rounded-full px-3 py-1 text-center text-xs">{text}</span>
   );
 }
 
@@ -581,7 +585,7 @@ function UserBubble({ event, command }: { event: TranscriptEvent; command?: Prom
   return (
     <div className="flex max-w-[88%] flex-col items-end sm:max-w-[78%]">
       {remote && label && label !== "Web" ? (
-        <span className="mb-0.5 px-2 text-[11px] text-faint">{t("from_label", { label })}</span>
+        <span className="loose mb-0.5 px-2 text-[11px] text-faint">{t("from_label", { label })}</span>
       ) : null}
       <div className="rounded-2xl rounded-tr-md bg-bubble-user px-3.5 py-2 text-[15px] leading-relaxed text-bubble-user-fg">
         <span className="whitespace-pre-wrap break-words">{event.text}</span>
@@ -622,7 +626,7 @@ function PendingBubble({
         </div>
       </div>
       {failed ? (
-        <div className="mt-1 flex flex-wrap items-center justify-end gap-x-3 gap-y-1 px-1 text-xs">
+        <div className="loose mt-1 flex flex-wrap items-center justify-end gap-x-3 gap-y-1 px-1 text-xs">
           {prompt.error ? <span className="text-right text-danger">{prompt.error}</span> : null}
           <span className="flex shrink-0 gap-3">
             <button type="button" onClick={() => onRetry(prompt)} className="font-medium text-accent-text hover:underline">
