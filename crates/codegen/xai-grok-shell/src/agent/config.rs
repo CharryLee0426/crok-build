@@ -987,8 +987,8 @@ pub struct Config {
     pub requirements: Requirements,
     #[serde(skip)]
     pub web_search_model: String,
-    /// Session title model.
-    /// Resolved to the compiled default (`default_session_summary_model`) when unset; see `ModelOverrideConfig::resolve`.
+    /// Session title model setting, kept for config compatibility.
+    /// Session titles run on the session's current model, so this value is resolved but no longer selects the title client.
     #[serde(skip)]
     pub session_summary_model: Option<String>,
     /// Image describe model (`grok-4.6` default via `ModelOverrideConfig::resolve`).

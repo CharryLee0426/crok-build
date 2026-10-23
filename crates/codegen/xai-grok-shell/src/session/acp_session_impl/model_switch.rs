@@ -116,6 +116,14 @@ impl SessionActor {
                 client_version: sampling_config.client_version.clone(),
             });
         self.invalidate_model_auth_memo();
+        // The first title is written by the persistence actor's side call, which holds its
+        // own client. Hand it the model the session now runs on so a switch made before the
+        // first prompt is titled follows this provider.
+        let title_sampling = self.reconstruct_full_config().await;
+        let _ = self
+            .notifications
+            .persistence_tx
+            .send(PersistenceMsg::SummarySampling(Box::new(title_sampling)));
         self.signals_handle()
             .record_model_usage(&sampling_config.model);
         if apply_prompt_override && !skip_prompt_rewrite {
@@ -258,6 +266,12 @@ impl SessionActor {
         cfg.reasoning_effort = Some(effort);
         let model_id = acp::ModelId::new(cfg.model.clone());
         self.chat_state_handle.update_sampling_config(cfg);
+        // Effort can route to another model slug; keep the title side call on the live model.
+        let title_sampling = self.reconstruct_full_config().await;
+        let _ = self
+            .notifications
+            .persistence_tx
+            .send(PersistenceMsg::SummarySampling(Box::new(title_sampling)));
         let agent_name = self.agent.borrow().definition().name.clone();
         let _ = self
             .notifications

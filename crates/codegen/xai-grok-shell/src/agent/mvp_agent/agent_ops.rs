@@ -112,53 +112,14 @@ impl MvpAgent {
             .unwrap_or(crate::models::default_image_description_model())
             .to_owned()
     }
-    fn resolve_session_summary_model(&self) -> String {
-        self.cfg
-            .borrow()
-            .session_summary_model
-            .as_deref()
-            .unwrap_or(crate::models::default_session_summary_model())
-            .to_owned()
-    }
+    /// The title side call always runs on the session's own model.
+    /// A separate summary slug would keep addressing the provider the session was created on after a model switch.
     pub(super) fn build_summary_client(
         &self,
         primary: &SamplingConfig,
     ) -> Result<(OaiCompatClient, String), acp::Error> {
-        let slug = self.resolve_session_summary_model();
-        let session_key = self.auth_manager.current_or_expired().map(|a| a.key.clone());
-        let models = self.models_manager.models();
-        let endpoints = self.models_manager.endpoints();
-        let (disable_api_key_auth, alpha_test_key, client_version) = {
-            let cfg = self.cfg.borrow();
-            (
-                cfg.grok_com_config.api_key_auth_disabled(),
-                cfg.endpoints.alpha_test_key.clone(),
-                cfg.client_version.clone(),
-            )
-        };
-        let config = match crate::agent::config::resolve_aux_model_sampling_config(
-            &slug,
-            &models,
-            &endpoints,
-            session_key.as_deref(),
-            disable_api_key_auth,
-            alpha_test_key,
-            client_version,
-        ) {
-            Some(mut cfg) => {
-                crate::agent::config::stamp_session_local_sampler_fields(
-                    &mut cfg,
-                    primary,
-                    primary.client_identifier.clone(),
-                    primary.max_retries,
-                );
-                cfg
-            }
-            // The summary slug belongs to the default provider. Another provider (Claude, OpenRouter, ...) rejects it with a 404, so the session's own model writes the title.
-            None => primary.clone(),
-        };
-        let model = config.model.clone();
-        let client = OaiCompatClient::new(config).map_err(map_sampling_err_to_acp)?;
+        let model = primary.model.clone();
+        let client = OaiCompatClient::new(primary.clone()).map_err(map_sampling_err_to_acp)?;
         Ok((client, model))
     }
     fn has_proxy_credentials(&self) -> bool {
