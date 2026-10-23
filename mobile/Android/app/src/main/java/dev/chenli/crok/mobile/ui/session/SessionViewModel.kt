@@ -36,8 +36,12 @@ import dev.chenli.crok.mobile.logic.ChoiceMatch
 import dev.chenli.crok.mobile.logic.CommandEntry
 import dev.chenli.crok.mobile.logic.ComposerCommands
 import dev.chenli.crok.mobile.logic.LocalCommand
+import dev.chenli.crok.mobile.logic.ModelSetup
 import dev.chenli.crok.mobile.logic.OptimisticPrompt
 import dev.chenli.crok.mobile.logic.PlanSummary
+import dev.chenli.crok.mobile.logic.SetupChange
+import dev.chenli.crok.mobile.logic.SetupChoice
+import dev.chenli.crok.mobile.logic.SetupRow
 import dev.chenli.crok.mobile.logic.Transcript
 import dev.chenli.crok.mobile.logic.TranscriptItem
 import java.time.ZoneId
@@ -64,6 +68,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
 /** The header's subtitle (connection trouble overrides it). [Offline]: the session's computer is offline. */
@@ -80,7 +85,7 @@ data class NewSessionTarget(
     val projectName: String,
 )
 
-/** The session's model and thinking-level choices, for `/model`, `/think` and their bot cards. */
+/** The session's model and thinking-level choices, for the setup row, `/model`, `/think` and their bot cards. */
 data class ModelState(
     /** Null: nothing to choose from (the computer is offline, or its crok too old to say). */
     val models: List<ModelChoice>? = null,
@@ -89,8 +94,33 @@ data class ModelState(
     val modelName: String? = null,
     /** The session's canonical thinking level. */
     val effort: String? = null,
+    /** No list yet: `devices:models` has not answered, and the session carries no copy of its own. */
+    val loading: Boolean = false,
 ) {
     val hasThinking: Boolean get() = current?.efforts?.isNotEmpty() == true
+
+    companion object {
+        /**
+         * The computer's list from `devices:models` ([deviceModels]: null until it answers). The session's own copy
+         * ([sessionModels], `sessions:get` → `models`, only for lists of up to 200) stands in until it answers, and for
+         * good when it failed (a relay from before it).
+         */
+        fun of(
+            sessionModels: List<ModelChoice>?,
+            model: String?,
+            effort: String?,
+            deviceModels: Result<List<ModelChoice>?>?,
+        ): ModelState {
+            val list = if (deviceModels != null && deviceModels.isSuccess) deviceModels.getOrNull() else sessionModels
+            return ModelState(
+                models = list,
+                current = ModelChoice.find(list, model),
+                modelName = model,
+                effort = effort,
+                loading = deviceModels == null && list == null,
+            )
+        }
+    }
 }
 
 data class SessionUiState(
@@ -125,6 +155,12 @@ data class SessionUiState(
     val localCommands: List<CommandEntry> = emptyList(),
     val sessionCommands: List<SlashCommand> = emptyList(),
     val models: ModelState = ModelState(),
+    /** The model and thinking pills above the field; null: no row (mobile/DESIGN.md "Model and thinking level"). */
+    val setup: SetupRow? = null,
+    /** The new-session screen's picks, sent with the first prompt. */
+    val choice: SetupChoice = SetupChoice(),
+    /** A model or thinking-level change on its way to the computer. */
+    val changing: SetupChange = SetupChange(),
 ) {
     /** Prompts go wherever the computer is online: one for a session nobody runs opens it there. */
     val canSend: Boolean get() = (newSession != null || phase != SessionPhase.Offline) && !gone
@@ -132,6 +168,17 @@ data class SessionUiState(
 
     /** The Menu button: only in a session (a new one has no commands yet). */
     val hasMenu: Boolean get() = newSession == null
+
+    /** The model Choose a Model marks: the one picked for a new session (null: Default), else the session's. */
+    val setupModelId: String? get() = if (newSession != null) choice.model else models.current?.id
+
+    /** The model whose thinking levels the thinking menu lists. */
+    val setupModel: ModelChoice?
+        get() = if (newSession != null) models.models?.firstOrNull { it.id == choice.model } else models.current
+
+    /** The thinking level the menu marks (an effort's id; null in a new session: Default). */
+    val setupEffortId: String?
+        get() = if (newSession != null) choice.effort else ComposerCommands.currentEffort(models.current, models.effort)?.id
 
     /** Nothing to show yet because the transcript is still on the computer: it loads while that is online. */
     val historyOnComputer: Boolean get() = loaded && items.isEmpty() && HistoryState.onComputerOnly(historyState)
@@ -170,6 +217,10 @@ data class SessionUiState(
             newSession: NewSessionTarget? = null,
             commands: SessionCommands? = null,
             cards: List<BotCard> = emptyList(),
+            /** `devices:models` for the session's computer; null until it answers. */
+            deviceModels: Result<List<ModelChoice>?>? = null,
+            choice: SetupChoice = SetupChoice(),
+            changing: SetupChange = SetupChange(),
         ): SessionUiState {
             val status = detail?.status ?: row?.status ?: SessionStatus.IDLE
             val online = detail?.online ?: row?.online ?: false
@@ -179,11 +230,18 @@ data class SessionUiState(
             val plan = detail?.plan.orEmpty()
             // Only a crok that runs the session can take an answer: a stale request of a closed one is not shown.
             val pending = detail?.pending?.takeIf { detail.online }
-            val models = ModelState(
-                models = detail?.models,
-                current = detail?.currentModel,
-                modelName = detail?.model,
-                effort = detail?.effort,
+            val models = ModelState.of(detail?.models, detail?.model ?: row?.model, detail?.effort, deviceModels)
+            val setup = ModelSetup.row(
+                newSession = newSession != null,
+                models = models.models,
+                model = models.modelName,
+                effort = models.effort,
+                // Where the composer can send: the computer is online and the session still there.
+                available = (newSession != null || phase != SessionPhase.Offline) && !gone,
+                starting = starting,
+                loading = models.loading,
+                picked = choice,
+                changing = changing,
             )
             return SessionUiState(
                 sessionDocId = detail?.id ?: row?.id,
@@ -216,6 +274,9 @@ data class SessionUiState(
                 localCommands = localEntries(phase == SessionPhase.Working, models.hasThinking),
                 sessionCommands = commands?.commands.orEmpty(),
                 models = models,
+                setup = setup,
+                choice = choice,
+                changing = changing,
             )
         }
     }
@@ -233,6 +294,9 @@ sealed interface SessionEvent {
 
     /** `/new` could not tell where (the session's project is unknown). */
     data object NewSessionUnavailable : SessionEvent
+
+    /** A model ([model]) or thinking-level change from the setup row failed; [message] is the computer's or relay's. */
+    data class ConfigFailed(val model: Boolean, val message: String) : SessionEvent
 }
 
 /**
@@ -289,6 +353,23 @@ class SessionViewModel(
 
     private val row = combine(engine.sessions.active, docId) { list, id -> id?.let { list.rows.firstOrNull { it.id == id } } }
 
+    /**
+     * What the session's computer can run (`devices:models`), subscribed while the screen is open; null until it
+     * answers. Its own subscription: it changes only with the computer's list, not with every transcript item.
+     */
+    private val deviceModels: StateFlow<Result<List<ModelChoice>?>?> = combine(detail, row) { d, r ->
+        newSession?.deviceId ?: d?.getOrNull()?.deviceId?.takeIf { it.isNotBlank() } ?: r?.deviceId?.takeIf { it.isNotBlank() }
+    }
+        .distinctUntilChanged()
+        .flatMapLatest { id -> if (id == null) flowOf(null) else engine.devices.models(id) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** The new-session screen's picks (not stored: they live on the screen until the first prompt goes). */
+    private val setupChoice = MutableStateFlow(SetupChoice())
+
+    /** A model or thinking-level change on its way to the computer. */
+    private val changing = MutableStateFlow(SetupChange())
+
     /** The pending request this phone answered, until the computer takes the answer (the request leaves the session). */
     private val answering = MutableStateFlow<String?>(null)
 
@@ -298,11 +379,19 @@ class SessionViewModel(
 
     private data class Header(val row: SessionRow?, val detail: Result<SessionDetail?>?, val answering: String?, val id: String?)
 
-    private data class Local(val optimistic: List<OptimisticPrompt>, val cards: List<BotCard>, val commands: SessionCommands?)
+    private data class Local(
+        val optimistic: List<OptimisticPrompt>,
+        val cards: List<BotCard>,
+        val commands: SessionCommands?,
+        val deviceModels: Result<List<ModelChoice>?>?,
+        val setup: Pair<SetupChoice, SetupChange>,
+    )
 
     private val header = combine(row, detail, answering, docId) { r, d, a, id -> Header(r, d, a, id) }
 
-    private val local = combine(optimistic, cards, commands) { o, c, s -> Local(o, c, s) }
+    private val local = combine(optimistic, cards, commands, deviceModels, combine(setupChoice, changing, ::Pair)) { o, c, s, m, setup ->
+        Local(o, c, s, m, setup)
+    }
 
     val state: StateFlow<SessionUiState> = combine(
         header,
@@ -319,6 +408,9 @@ class SessionViewModel(
             newSession = if (h.id == null) newSession else null,
             commands = mine.commands,
             cards = mine.cards,
+            deviceModels = mine.deviceModels,
+            choice = mine.setup.first,
+            changing = mine.setup.second,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionUiState(newSession = newSession, loaded = newSession != null))
 
@@ -428,9 +520,73 @@ class SessionViewModel(
         return NewSessionTarget(deviceId, path, d?.deviceName ?: r?.deviceName.orEmpty(), name)
     }
 
-    private fun currentModels(): ModelState = state.value.models.takeIf { it.models != null } ?: detail.value?.getOrNull()?.let {
-        ModelState(it.models, it.currentModel, it.model, it.effort)
-    } ?: ModelState()
+    /** The computer's list and the session's choice now (the same sources as [state], read directly). */
+    private fun currentModels(): ModelState {
+        val d = detail.value?.getOrNull()
+        return ModelState.of(d?.models, d?.model, d?.effort, deviceModels.value)
+    }
+
+    /**
+     * Choose a Model ([id] null: Default, only on the new-session screen). There the choice is kept for the first prompt
+     * and the thinking level goes back to Default; in a session it goes to the computer (`commands:setConfig`).
+     */
+    fun chooseModel(id: String?) {
+        if (docId.value == null) {
+            if (newSession != null) setupChoice.value = SetupChoice(model = id)
+            return
+        }
+        if (id == null || id == currentModels().current?.id) return
+        changeConfig(ConfigId.MODEL, id)
+    }
+
+    /** A thinking level from the setup row's menu ([id]: the effort's option id; null: Default, new sessions only). */
+    fun chooseEffort(id: String?) {
+        if (docId.value == null) {
+            if (newSession != null) setupChoice.update { it.copy(effort = id) }
+            return
+        }
+        val models = currentModels()
+        if (id == null || id == ComposerCommands.currentEffort(models.current, models.effort)?.id) return
+        changeConfig(ConfigId.EFFORT, id)
+    }
+
+    /**
+     * `commands:setConfig` from the setup row: the pill shows the new value with a spinner until `commands:get` says
+     * done (and the session shows it), or goes back to the old one when it failed, with [SessionEvent.ConfigFailed].
+     */
+    private fun changeConfig(configId: String, value: String) {
+        val id = docId.value ?: return
+        if (changing.value.any) return
+        val model = configId == ConfigId.MODEL
+        changing.value = if (model) SetupChange(model = value) else SetupChange(effort = value)
+        val level = if (model) null else currentModels().current?.efforts?.firstOrNull { it.id == value }?.level
+        viewModelScope.launch {
+            try {
+                val commandId = engine.commands.setConfig(id, configId, value)
+                val done = engine.commands.get(commandId).mapNotNull { it.getOrNull() }
+                    .first { it.status == CommandStatus.DONE || it.status == CommandStatus.FAILED }
+                if (done.status == CommandStatus.FAILED) {
+                    _events.trySend(SessionEvent.ConfigFailed(model, done.error.orEmpty()))
+                } else {
+                    // The session follows through the usual upsert: the new value stays shown until it has.
+                    val result = done.result as? JsonObject
+                    val wanted = if (model) result?.string("model") ?: value else result?.string("effort") ?: level ?: value
+                    withTimeoutOrNull(CONFIG_SETTLE_MS) {
+                        detail.first { current ->
+                            val d = current?.getOrNull() ?: return@first true
+                            if (model) d.model == wanted else d.effort == wanted
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.trySend(SessionEvent.ConfigFailed(model, describe(e)))
+            } finally {
+                changing.value = SetupChange()
+            }
+        }
+    }
 
     /** `/model [name]`: a card with the choices, or with a name, the change at once. */
     private fun modelCommand(argument: String?) {
@@ -515,8 +671,14 @@ class SessionViewModel(
             try {
                 val existing = docId.value
                 if (existing == null && newSession != null) {
-                    // The first prompt makes the session; the screen turns into it.
-                    val created = engine.sessions.create(newSession.deviceId, newSession.path, prompt.text, prompt.clientId)
+                    // The first prompt makes the session, with the model and thinking level picked for it (Default: none
+                    // sent); the screen turns into it.
+                    val choice = setupChoice.value
+                    val created = engine.sessions.create(
+                        newSession.deviceId, newSession.path, prompt.text, prompt.clientId,
+                        model = choice.model,
+                        effort = choice.effort?.takeIf { choice.model != null },
+                    )
                     replace(prompt.clientId) { it.copy(commandId = created.commandId, localError = null) }
                     drafts.save(draftKey, "")
                     saved?.set(CREATED_KEY, created.sessionDocId)
@@ -613,5 +775,8 @@ class SessionViewModel(
     companion object {
         const val WATCH_INTERVAL_MS = 60_000L
         private const val CREATED_KEY = "createdSessionDocId"
+
+        /** How long a done change waits for the session to show it before the pill reads the session again. */
+        private const val CONFIG_SETTLE_MS = 3_000L
     }
 }

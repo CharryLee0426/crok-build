@@ -302,6 +302,14 @@
     <string name="profile_contact_x">Entwickler auf X kontaktieren</string>
     <string name="profile_mode">Modus</string>
     <string name="profile_mode_demo">Demo</string>
+    <string name="setup_default">Standard</string>
+    <string name="setup_choose_model">Modell auswählen</string>
+    <string name="setup_search">Modelle oder Anbieter suchen</string>
+    <string name="setup_next_message">Die Modelländerung gilt ab deiner nächsten Nachricht.</string>
+    <string name="setup_computer_choice">Die Einstellung von %1$s</string>
+    <string name="setup_model_failed">Das Modell konnte nicht geändert werden</string>
+    <string name="setup_thinking_failed">Die Denkstufe konnte nicht geändert werden</string>
+    <string name="setup_no_results">Keine Ergebnisse</string>
     <plurals name="project_subtitle">
         <item quantity="one">%1$d Sitzung · %2$s</item>
         <item quantity="other">%1$d Sitzungen · %2$s</item>

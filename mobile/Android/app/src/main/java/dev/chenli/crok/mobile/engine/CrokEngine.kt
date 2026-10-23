@@ -8,6 +8,7 @@ import dev.chenli.crok.mobile.data.ConfigId
 import dev.chenli.crok.mobile.data.CreateResult
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.Me
+import dev.chenli.crok.mobile.data.ModelChoice
 import dev.chenli.crok.mobile.data.PendingLogin
 import dev.chenli.crok.mobile.data.PromptCommand
 import dev.chenli.crok.mobile.data.RelayErrorCode
@@ -310,15 +311,26 @@ class CrokEngine(
             }
 
         /**
-         * `sessions:create`: a new session in [path] on computer [deviceId], started with [text] when there is one. The
-         * row exists at once (`starting`); the same [clientId] gives the same session back.
+         * `sessions:create`: a new session in [path] on computer [deviceId], started with [text] when there is one, on
+         * [model] (an id from `devices:models`) and thinking level [effort] (an effort's id) when picked — the
+         * computer's own choice otherwise. The row exists at once (`starting`); the same [clientId] gives the same
+         * session back.
          */
-        suspend fun create(deviceId: String, path: String, text: String?, clientId: String): CreateResult {
+        suspend fun create(
+            deviceId: String,
+            path: String,
+            text: String?,
+            clientId: String,
+            model: String? = null,
+            effort: String? = null,
+        ): CreateResult {
             val args = buildMap<String, Any?> {
                 put("deviceId", deviceId)
                 put("path", path)
-                // Optional on the relay: leave it out rather than send null.
+                // Optional on the relay: leave them out rather than send null.
                 if (!text.isNullOrBlank()) put("text", text)
+                if (!model.isNullOrBlank()) put("model", model)
+                if (!effort.isNullOrBlank()) put("effort", effort)
                 put("clientId", clientId)
             }
             return call("sessions:create", args, CreateResult.serializer())
@@ -433,6 +445,15 @@ class CrokEngine(
 
     inner class Devices {
         fun list(): Flow<Result<List<Device>>> = live("devices:list", emptyMap(), ListSerializer(Device.serializer()))
+
+        /**
+         * `devices:models`: what computer [deviceId] can run, in picker order (its default model, its own providers',
+         * then OpenRouter's), for new and open sessions alike; null while it is offline or before its crok published a
+         * list. A subscription of its own that changes only with the list. It fails on a relay from before it; the
+         * session's own copy (`sessions:get` → `models`) is the fallback then.
+         */
+        fun models(deviceId: String): Flow<Result<List<ModelChoice>?>> =
+            live("devices:models", mapOf("deviceId" to deviceId), ListSerializer(ModelChoice.serializer()).nullable)
 
         suspend fun revoke(deviceId: String) = callUnit("devices:revoke", mapOf("deviceId" to deviceId))
 

@@ -54,8 +54,11 @@ fun BotCardRow(card: BotCard, bot: BotContext, onApply: (cardId: String, value: 
     val colors = CrokTheme.colors
     val models = bot.models
     val current = models.current
+    // The list is the computer's own (`devices:models`), with the session's copy as the fallback (ModelState.of).
     val unavailable: String? = when {
         card.done != null -> null
+        // Not there yet: the buttons come when it arrives.
+        models.loading && bot.deviceOnline -> null
         models.models == null && !bot.deviceOnline -> stringResource(R.string.bot_offline, bot.deviceName)
         models.models == null -> stringResource(R.string.bot_no_models, bot.deviceName)
         card.kind == BotCardKind.Think && current?.efforts.isNullOrEmpty() -> stringResource(R.string.bot_no_thinking)

@@ -1,12 +1,23 @@
 package dev.chenli.crok.mobile.ui.session
 
 import androidx.lifecycle.SavedStateHandle
+import dev.chenli.crok.mobile.data.CommandDoc
+import dev.chenli.crok.mobile.data.CommandRef
+import dev.chenli.crok.mobile.data.CommandStatus
 import dev.chenli.crok.mobile.data.CommandType
 import dev.chenli.crok.mobile.data.DraftStore
 import dev.chenli.crok.mobile.data.MemoryKeyValueStore
+import dev.chenli.crok.mobile.data.RelayErrorCode
+import dev.chenli.crok.mobile.data.RelayException
+import dev.chenli.crok.mobile.data.RelayJson
 import dev.chenli.crok.mobile.demo.DemoData
 import dev.chenli.crok.mobile.demo.DemoTransport
 import dev.chenli.crok.mobile.engine.CrokEngine
+import dev.chenli.crok.mobile.engine.RelayTransport
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.serialization.json.JsonElement
 import dev.chenli.crok.mobile.logic.BotCardKind
 import dev.chenli.crok.mobile.logic.BotCardProblem
 import dev.chenli.crok.mobile.logic.Tick
@@ -37,7 +48,34 @@ import org.junit.Test
 class SessionViewModelTest {
     private val main = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val transport = DemoTransport(scope, animate = false)
+    private val demo = DemoTransport(scope, animate = false)
+
+    /** The mutations the phone sent, with their arguments. */
+    private val calls = CopyOnWriteArrayList<Pair<String, Map<String, Any?>>>()
+
+    /** A relay from before `devices:models` (the query does not exist there). */
+    @Volatile private var withoutDeviceModels = false
+
+    /** The computer refuses config changes: `commands:get` says failed. */
+    @Volatile private var refuseConfig = false
+
+    /** The demo relay, recording mutations, and older or refusing when a test asks. */
+    private val transport = object : RelayTransport by demo {
+        override fun subscribe(name: String, args: Map<String, Any?>): Flow<Result<JsonElement>> = when {
+            name == "devices:models" && withoutDeviceModels ->
+                flowOf(Result.failure(RelayException(RelayErrorCode.UNKNOWN, "Could not find public function for 'devices:models'")))
+            name == "commands:get" && args["commandId"] == REFUSED -> flowOf(
+                Result.success(RelayJson.encodeToJsonElement(CommandDoc.serializer(), CommandDoc(REFUSED, "config", CommandStatus.FAILED, "The model is not available"))),
+            )
+            else -> demo.subscribe(name, args)
+        }
+
+        override suspend fun mutation(name: String, args: Map<String, Any?>): JsonElement {
+            calls += name to args
+            if (name == "commands:setConfig" && refuseConfig) return RelayJson.encodeToJsonElement(CommandRef.serializer(), CommandRef(REFUSED))
+            return demo.mutation(name, args)
+        }
+    }
     private val engine = CrokEngine(DemoData.credentials, true, transport, kotlinx.coroutines.flow.MutableStateFlow(true), null, Dispatchers.Default)
     private val drafts = DraftStore(MemoryKeyValueStore())
     private val target = NewSessionTarget(DemoData.MACBOOK_ID, "/Users/chen/code/crok-site", "MacBook Pro", "crok-site")
@@ -180,5 +218,121 @@ class SessionViewModelTest {
         val model = vm.state.first { it.localCommands.isNotEmpty() }.localCommands.first { it.name == "model" }
         vm.pickCommand(model)
         assertEquals("/model ", vm.draft)
+    }
+
+    // Model and thinking level (mobile/DESIGN.md): the setup row, Choose a Model, the thinking menu.
+
+    private fun createArgs(): Map<String, Any?> = calls.last { it.first == "sessions:create" }.second
+
+    @Test
+    fun aNewSessionStartsOnTheComputersOwnChoiceByDefault() = onMain {
+        val vm = SessionViewModel(engine, null, drafts, newSession = target).collectState()
+        // The computer's list (devices:models) arrives before any session exists: the row says Default.
+        val row = vm.state.first { it.setup != null }.setup!!
+        assertNull(row.model.label)
+        assertNull(row.thinking)
+        vm.updateDraft("Fix the footer links")
+        vm.send()
+        vm.state.first { it.newSession == null }
+        // Default leaves model and effort out.
+        assertTrue("model" !in createArgs() && "effort" !in createArgs())
+    }
+
+    @Test
+    fun aNewSessionSendsThePickedModelAndThinkingLevel() = onMain {
+        val vm = SessionViewModel(engine, null, drafts, newSession = target).collectState()
+        vm.state.first { it.setup != null }
+        vm.chooseModel("grok-4")
+        vm.chooseEffort("xhigh")
+        val picked = vm.state.first { it.setup?.thinking?.label == "Extra high" }
+        assertEquals("Grok 4", picked.setup!!.model.label)
+        assertEquals("grok-4", picked.setupModelId)
+        assertEquals("xhigh", picked.setupEffortId)
+        // Another model: the thinking level goes back to Default; one without levels has no thinking pill.
+        vm.chooseModel("claude-sonnet-4-5")
+        val plain = vm.state.first { it.setup?.model?.label == "Claude Sonnet 4.5" }
+        assertNull(plain.setup!!.thinking)
+        assertNull(plain.choice.effort)
+        vm.chooseModel("deepseek/deepseek-reasoner")
+        vm.chooseEffort("low")
+        vm.state.first { it.setup?.thinking?.label == "Low" }
+
+        vm.updateDraft("Plan the release")
+        vm.send()
+        vm.state.first { it.newSession == null }
+        assertEquals("deepseek/deepseek-reasoner", createArgs()["model"])
+        assertEquals("low", createArgs()["effort"])
+        // The computer applied them before the first prompt; the session shows them.
+        val detail = engine.sessions.get(vm.sessionDocId!!).first().getOrThrow()!!
+        assertEquals("deepseek/deepseek-reasoner", detail.model)
+        assertEquals("low", detail.effort)
+    }
+
+    @Test
+    fun theSetupRowChangesTheSessionsModelAndThinkingLevel() = onMain {
+        val vm = SessionViewModel(engine, DemoData.RUNNING_SESSION, drafts).collectState()
+        val before = vm.state.first { it.setup?.thinking != null }.setup!!
+        assertEquals("Grok Code Fast", before.model.label)
+        assertEquals("Medium", before.thinking!!.label)
+        vm.chooseModel("grok-4")
+        val after = vm.state.first { it.models.current?.id == "grok-4" && !it.changing.any }
+        val pill = after.setup!!.model
+        assertEquals("Grok 4", pill.label)
+        assertTrue(pill.enabled)
+        val sent = calls.last { it.first == "commands:setConfig" }.second
+        assertEquals(mapOf("sessionDocId" to DemoData.RUNNING_SESSION, "configId" to "model", "value" to "grok-4"), sent)
+
+        vm.chooseEffort("xhigh")
+        assertEquals("Extra high", vm.state.first { it.models.effort == "xhigh" && !it.changing.any }.setup!!.thinking!!.label)
+        assertEquals("reasoning_effort", calls.last { it.first == "commands:setConfig" }.second["configId"])
+        // Picking what is already set sends nothing.
+        val count = calls.count { it.first == "commands:setConfig" }
+        vm.chooseEffort("xhigh")
+        vm.chooseModel("grok-4")
+        assertEquals(count, calls.count { it.first == "commands:setConfig" })
+    }
+
+    @Test
+    fun aRefusedChangeGoesBackAndSaysWhy() = onMain {
+        val vm = SessionViewModel(engine, DemoData.RUNNING_SESSION, drafts).collectState()
+        vm.state.first { it.setup?.thinking != null }
+
+        // The relay refuses an unknown model (INVALID).
+        vm.chooseModel("gpt-9")
+        val failed = vm.events.first() as SessionEvent.ConfigFailed
+        assertTrue(failed.model)
+        assertTrue(failed.message.contains("gpt-9"))
+        assertEquals("Grok Code Fast", vm.state.first { !it.changing.any }.setup!!.model.label)
+
+        // The computer refuses it: the command fails with its error.
+        refuseConfig = true
+        vm.chooseEffort("high")
+        assertEquals(SessionEvent.ConfigFailed(false, "The model is not available"), vm.events.first())
+        assertEquals("Medium", vm.state.first { !it.changing.any }.setup!!.thinking!!.label)
+    }
+
+    @Test
+    fun anOlderCrokShowsTheModelDimmed() = onMain {
+        // The Studio's crok publishes no list: the session's model, dimmed, and nothing to change.
+        val vm = SessionViewModel(engine, "demo-s3", drafts).collectState()
+        val row = vm.state.first { it.setup?.model?.dimmed == true }.setup!!
+        assertEquals("grok-code-fast-1", row.model.label)
+        assertNull(row.thinking)
+        assertTrue(!vm.state.value.models.loading)
+    }
+
+    @Test
+    fun aRelayWithoutDeviceModelsFallsBackToTheSessionsCopy() = onMain {
+        withoutDeviceModels = true
+        val vm = SessionViewModel(engine, DemoData.RUNNING_SESSION, drafts).collectState()
+        // sessions:get's own models (an older relay): the same pills, from that copy.
+        val state = vm.state.first { it.models.models != null && it.setup?.thinking != null }
+        assertEquals(DemoData.macbookModels.map { it.id }, state.models.models!!.map { it.id })
+        assertEquals("Grok Code Fast", state.setup!!.model.label)
+        assertTrue(!state.models.loading)
+    }
+
+    private companion object {
+        const val REFUSED = "refused-config"
     }
 }

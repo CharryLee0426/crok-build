@@ -295,6 +295,14 @@
     <string name="profile_contact_x">在 X 上联系开发者</string>
     <string name="profile_mode">模式</string>
     <string name="profile_mode_demo">演示</string>
+    <string name="setup_default">默认</string>
+    <string name="setup_choose_model">选择模型</string>
+    <string name="setup_search">搜索模型或提供商</string>
+    <string name="setup_next_message">模型更改将从你的下一条消息开始生效。</string>
+    <string name="setup_computer_choice">%1$s 自己的设置</string>
+    <string name="setup_model_failed">无法更改模型</string>
+    <string name="setup_thinking_failed">无法更改思考级别</string>
+    <string name="setup_no_results">无结果</string>
     <plurals name="project_subtitle">
         <item quantity="other">%1$d 个会话 · %2$s</item>
     </plurals>

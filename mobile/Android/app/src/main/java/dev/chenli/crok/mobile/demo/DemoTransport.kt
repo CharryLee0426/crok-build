@@ -12,6 +12,7 @@ import dev.chenli.crok.mobile.data.EventKind
 import dev.chenli.crok.mobile.data.EventPage
 import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.Me
+import dev.chenli.crok.mobile.data.ModelChoice
 import dev.chenli.crok.mobile.data.SessionCommands
 import dev.chenli.crok.mobile.data.SessionDetail
 import dev.chenli.crok.mobile.data.SessionGroup
@@ -105,6 +106,13 @@ class DemoTransport(
         return when (name) {
             "users:me" -> RelayJson.encodeToJsonElement(Me.serializer(), s.me)
             "devices:list" -> RelayJson.encodeToJsonElement(ListSerializer(Device.serializer()), s.devices)
+            "devices:models" -> {
+                // As on the relay: the computer's list while it is online; null when it is offline or its crok publishes none.
+                val device = s.devices.firstOrNull { it.id == args["deviceId"] && it.isComputer }
+                    ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such computer.")
+                val models = if (device.online) DemoData.modelsFor(device.id) else null
+                RelayJson.encodeToJsonElement(ListSerializer(ModelChoice.serializer()).nullable, models)
+            }
             "sessions:list" -> {
                 val archived = args["archived"] == true
                 val rows = s.sessions.filter { it.detail.archived == archived }
@@ -222,7 +230,14 @@ class DemoTransport(
                 state.update { s -> s.copy(sessions = s.sessions.filterNot { it.id == sessionDocId }) }
             }
             "commands:sendPrompt" -> return sendPrompt(sessionDocId, args["text"] as? String ?: "", args["clientId"] as? String)
-            "sessions:create" -> return create(args["deviceId"] as? String, args["path"] as? String, args["text"] as? String, args["clientId"] as? String)
+            "sessions:create" -> return create(
+                args["deviceId"] as? String,
+                args["path"] as? String,
+                args["text"] as? String,
+                args["clientId"] as? String,
+                args["model"] as? String,
+                args["effort"] as? String,
+            )
             "commands:setConfig" -> return setConfig(sessionDocId, args["configId"] as? String, args["value"] as? String)
             "commands:stop" -> {
                 val session = session(sessionDocId)
@@ -444,10 +459,11 @@ class DemoTransport(
     }
 
     /**
-     * `sessions:create`: the session is listed at once (`starting`, its title from the prompt), with a `create` command;
+     * `sessions:create`: the session is listed at once (`starting`, its title from the prompt), on the [model] and
+     * thinking level [effort] picked from `devices:models` (else the computer's default), with a `create` command;
      * "the computer" opens it a moment later and runs the prompt like any other.
      */
-    private fun create(deviceId: String?, path: String?, text: String?, clientId: String?): JsonElement {
+    private fun create(deviceId: String?, path: String?, text: String?, clientId: String?, model: String?, effort: String?): JsonElement {
         val s = state.value
         s.commands.firstOrNull { clientId != null && it.clientId == clientId && it.type == CommandType.CREATE }?.let {
             return RelayJson.encodeToJsonElement(CreateResult.serializer(), CreateResult(it.sessionDocId, it.id))
@@ -460,6 +476,15 @@ class DemoTransport(
             throw RelayException(RelayErrorCode.OFFLINE, "${device.name} runs an older crok that cannot start sessions from other devices: update crok there.")
         }
         val prompt = text?.trim()?.takeIf { it.isNotEmpty() }
+        // Checked against the computer's list, as the relay does; `effort` is an option id or the level it stands for.
+        val models = DemoData.modelsFor(device.id)
+        val chosen = model?.takeIf { it.isNotBlank() }?.let { wanted ->
+            models?.firstOrNull { it.id == wanted } ?: throw RelayException(RelayErrorCode.INVALID, "No such model: $wanted")
+        } ?: models?.firstOrNull()
+        val level = effort?.takeIf { it.isNotBlank() }?.let { wanted ->
+            chosen?.efforts?.firstOrNull { it.id == wanted || it.level == wanted }?.level
+                ?: throw RelayException(RelayErrorCode.INVALID, "No such thinking level: $wanted")
+        } ?: chosen?.efforts?.firstOrNull { it.id == chosen.defaultEffort }?.level
         val id = "demo-new-${UUID.randomUUID().toString().take(8)}"
         val now = clock()
         val project = s.sessions.firstOrNull { it.detail.deviceId == device.id && it.detail.projectPath == path }?.detail
@@ -469,8 +494,8 @@ class DemoTransport(
                 sessionId = "pending:$clientId",
                 title = prompt?.lineSequence()?.firstOrNull()?.take(80) ?: "New session",
                 cwd = path,
-                model = DemoData.modelsFor(device.id)?.firstOrNull()?.id,
-                effort = DemoData.modelsFor(device.id)?.firstOrNull()?.defaultEffort,
+                model = chosen?.id,
+                effort = level,
                 status = if (prompt != null) SessionStatus.RUNNING else SessionStatus.IDLE,
                 online = false,
                 app = "desktop",

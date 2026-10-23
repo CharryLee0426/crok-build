@@ -344,6 +344,33 @@ class EngineOverDemoTest {
     }
 
     @Test
+    fun listsEachComputersModelsBeforeAnySessionExists() = await {
+        assertEquals(DemoData.macbookModels, engine.devices.models(DemoData.MACBOOK_ID).first().getOrThrow())
+        // An older crok publishes none; an offline computer has none; a phone is not a computer.
+        assertEquals(null, engine.devices.models(DemoData.STUDIO_ID).first().getOrThrow())
+        assertEquals(null, engine.devices.models(DemoData.LINUX_ID).first().getOrThrow())
+        assertEquals(RelayErrorCode.NOT_FOUND, (engine.devices.models(DemoData.PHONE_ID).first().exceptionOrNull() as RelayException).code)
+    }
+
+    @Test
+    fun createsASessionOnThePickedModelAndThinkingLevel() = await {
+        val path = "/Users/chen/code/crok-site"
+        val picked = engine.sessions.create(DemoData.MACBOOK_ID, path, "Plan it", "client-picked", model = "grok-4", effort = "xhigh")
+        val detail = engine.sessions.get(picked.sessionDocId).first().getOrThrow()!!
+        assertEquals("grok-4", detail.model)
+        // The session holds the level the option stands for.
+        assertEquals("xhigh", detail.effort)
+        // Without a pick: the computer's default model and its default level.
+        val default = engine.sessions.create(DemoData.MACBOOK_ID, path, null, "client-default")
+        val plain = engine.sessions.get(default.sessionDocId).first().getOrThrow()!!
+        assertEquals(DemoData.macbookModels.first().id, plain.model)
+        assertEquals("medium", plain.effort)
+        // Checked against the computer's list.
+        expectError(RelayErrorCode.INVALID) { engine.sessions.create(DemoData.MACBOOK_ID, path, null, "client-bad", model = "gpt-9") }
+        expectError(RelayErrorCode.INVALID) { engine.sessions.create(DemoData.MACBOOK_ID, path, null, "client-bad2", model = "claude-sonnet-4-5", effort = "high") }
+    }
+
+    @Test
     fun listsTheSessionsSlashCommands() = await {
         val running = engine.sessions.commands(DemoData.RUNNING_SESSION).first().getOrThrow()
         assertEquals("session", running.source)

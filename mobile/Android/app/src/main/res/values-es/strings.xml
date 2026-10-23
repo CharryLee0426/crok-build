@@ -309,6 +309,14 @@
     <string name="profile_contact_x">Contactar al desarrollador en X</string>
     <string name="profile_mode">Modo</string>
     <string name="profile_mode_demo">Demo</string>
+    <string name="setup_default">Predeterminado</string>
+    <string name="setup_choose_model">Elegir un modelo</string>
+    <string name="setup_search">Buscar modelos o proveedores</string>
+    <string name="setup_next_message">El cambio de modelo se aplica a partir de tu próximo mensaje.</string>
+    <string name="setup_computer_choice">Lo que use %1$s</string>
+    <string name="setup_model_failed">No se pudo cambiar el modelo</string>
+    <string name="setup_thinking_failed">No se pudo cambiar el nivel de razonamiento</string>
+    <string name="setup_no_results">Sin resultados</string>
     <plurals name="project_subtitle">
         <item quantity="one">%1$d sesión · %2$s</item>
         <item quantity="many">%1$d sesiones · %2$s</item>

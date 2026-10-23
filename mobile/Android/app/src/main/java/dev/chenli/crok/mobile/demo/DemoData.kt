@@ -462,9 +462,10 @@ object DemoData {
     )
 
     /**
-     * What the MacBook's crok can run (`sessions:get` → `models`): two models with thinking levels and one without. The
-     * Studio runs an older crok that publishes none (and cannot start sessions for other devices); the Linux box is
-     * offline.
+     * What the MacBook's crok can run (`devices:models`, and `sessions:get` → `models`), in picker order: its default
+     * and its own models (ids without a provider prefix), its DeepSeek key's, then OpenRouter's — some with thinking
+     * levels, some without. The Studio runs an older crok that publishes none (and cannot start sessions for other
+     * devices); the Linux box is offline.
      */
     val macbookModels: List<ModelChoice> = listOf(
         ModelChoice(
@@ -491,6 +492,27 @@ object DemoData {
             defaultEffort = "high",
         ),
         ModelChoice(id = "claude-sonnet-4-5", name = "Claude Sonnet 4.5", description = "Through your Anthropic key"),
+        ModelChoice(id = "deepseek/deepseek-chat", name = "DeepSeek V3.2", description = "DeepSeek's general model"),
+        ModelChoice(
+            id = "deepseek/deepseek-reasoner",
+            name = "DeepSeek V3.2 Reasoner",
+            description = "Thinks before it answers",
+            efforts = listOf(EffortChoice("low", "Low", value = "low"), EffortChoice("high", "High", value = "high")),
+            defaultEffort = "high",
+        ),
+        ModelChoice(
+            id = "openrouter/google/gemini-2.5-pro",
+            name = "Gemini 2.5 Pro",
+            description = "Google's model, through OpenRouter",
+            efforts = listOf(
+                EffortChoice("low", "Low", value = "low"),
+                EffortChoice("medium", "Medium", value = "medium"),
+                EffortChoice("high", "High", value = "high"),
+            ),
+            defaultEffort = "medium",
+        ),
+        ModelChoice(id = "openrouter/moonshotai/kimi-k2", name = "Kimi K2", description = "Moonshot's agentic coding model, through OpenRouter"),
+        ModelChoice(id = "openrouter/qwen/qwen3-coder", name = "Qwen3 Coder", description = "Alibaba's coding model, through OpenRouter"),
     )
 
     /** Models by computer: only computers whose crok publishes them. */

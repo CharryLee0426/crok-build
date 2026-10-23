@@ -43,11 +43,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dev.chenli.crok.mobile.R
 import dev.chenli.crok.mobile.data.CommandStatus
+import dev.chenli.crok.mobile.data.ModelChoice
 import dev.chenli.crok.mobile.data.RelayErrorCode
 import dev.chenli.crok.mobile.data.SessionDetail
 import dev.chenli.crok.mobile.data.SessionInfoResult
 import dev.chenli.crok.mobile.data.relayCode
 import dev.chenli.crok.mobile.engine.CrokEngine
+import dev.chenli.crok.mobile.logic.ComposerCommands
 import dev.chenli.crok.mobile.logic.RelativeTime
 import dev.chenli.crok.mobile.logic.SessionList
 import dev.chenli.crok.mobile.ui.common.ConfirmDialog
@@ -135,8 +137,19 @@ data class SessionInfoActions(
     val onCopy: (String) -> Unit = {},
 )
 
+/**
+ * The Model and Thinking level rows: [models] names the session's model and level (the computer's list, else the
+ * session's own copy); [onModel] / [onThinking] open Choose a Model / the thinking menu while the computer offers
+ * choices — null leaves the row plain text.
+ */
+data class InfoSetup(
+    val models: List<ModelChoice>? = null,
+    val onModel: (() -> Unit)? = null,
+    val onThinking: (() -> Unit)? = null,
+)
+
 @Composable
-fun SessionInfoSheet(viewModel: SessionInfoViewModel, onDismiss: () -> Unit, onRemoved: () -> Unit) {
+fun SessionInfoSheet(viewModel: SessionInfoViewModel, setup: InfoSetup, onDismiss: () -> Unit, onRemoved: () -> Unit) {
     val detail by viewModel.detail.collectAsStateWithLifecycle()
     val refresh by viewModel.refresh.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
@@ -156,6 +169,7 @@ fun SessionInfoSheet(viewModel: SessionInfoViewModel, onDismiss: () -> Unit, onR
                 detail = current,
                 refresh = refresh,
                 now = System.currentTimeMillis(),
+                setup = setup,
                 actions = SessionInfoActions(
                     onPin = viewModel::setPinned,
                     onArchive = viewModel::setArchived,
@@ -173,7 +187,14 @@ fun SessionInfoSheet(viewModel: SessionInfoViewModel, onDismiss: () -> Unit, onR
 }
 
 @Composable
-fun SessionInfoContent(detail: SessionDetail, refresh: InfoRefresh, now: Long, actions: SessionInfoActions, modifier: Modifier = Modifier) {
+fun SessionInfoContent(
+    detail: SessionDetail,
+    refresh: InfoRefresh,
+    now: Long,
+    actions: SessionInfoActions,
+    modifier: Modifier = Modifier,
+    setup: InfoSetup = InfoSetup(),
+) {
     val colors = CrokTheme.colors
     val formatter = rememberFormatter()
     val fresh = (refresh as? InfoRefresh.Done)?.result
@@ -226,8 +247,23 @@ fun SessionInfoContent(detail: SessionDetail, refresh: InfoRefresh, now: Long, a
         }
 
         Section {
-            model?.let { InfoLine(stringResource(R.string.info_model), it) }
-            effort?.let { InfoLine(stringResource(R.string.info_effort), it) }
+            // By name (else the id), tappable while the computer offers choices.
+            val choice = ModelChoice.find(setup.models ?: detail.models, model)
+            val level = ComposerCommands.currentEffort(choice, effort)
+            if (model != null || setup.onModel != null) {
+                InfoLine(
+                    stringResource(R.string.info_model),
+                    choice?.label ?: model ?: stringResource(R.string.setup_default),
+                    onClick = setup.onModel,
+                )
+            }
+            if (effort != null || setup.onThinking != null) {
+                InfoLine(
+                    stringResource(R.string.info_effort),
+                    level?.label ?: effort ?: stringResource(R.string.setup_default),
+                    onClick = setup.onThinking,
+                )
+            }
             InfoLine(stringResource(R.string.info_folder), SessionList.prettyPath(detail.cwd), mono = true)
             branch?.let { InfoLine(stringResource(R.string.info_branch), it, mono = true) }
             InfoLine(

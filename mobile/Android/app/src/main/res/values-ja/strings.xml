@@ -295,6 +295,14 @@
     <string name="profile_contact_x">X で開発者に連絡</string>
     <string name="profile_mode">モード</string>
     <string name="profile_mode_demo">デモ</string>
+    <string name="setup_default">デフォルト</string>
+    <string name="setup_choose_model">モデルを選択</string>
+    <string name="setup_search">モデルやプロバイダを検索</string>
+    <string name="setup_next_message">モデルの変更は次のメッセージから適用されます。</string>
+    <string name="setup_computer_choice">%1$s の設定どおり</string>
+    <string name="setup_model_failed">モデルを変更できませんでした</string>
+    <string name="setup_thinking_failed">思考レベルを変更できませんでした</string>
+    <string name="setup_no_results">結果なし</string>
     <plurals name="project_subtitle">
         <item quantity="other">%1$d 件のセッション · %2$s</item>
     </plurals>
