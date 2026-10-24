@@ -47,6 +47,7 @@ function demoGroups(t: (key: MessageKey) => string): { group: ProjectGroup; time
     deviceId,
     deviceName: "MacBook Pro",
     deviceOnline: true,
+    deviceLastSeenAt: null,
     path: cwd,
     name: cwd.split("/").pop() ?? cwd,
     placed: false,

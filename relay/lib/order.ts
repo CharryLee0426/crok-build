@@ -111,6 +111,7 @@ export function addSession(groups: ProjectGroup[], row: SessionRow): ProjectGrou
       deviceId: row.deviceId,
       deviceName: row.deviceName,
       deviceOnline: row.deviceOnline,
+      deviceLastSeenAt: null,
       path: row.projectPath,
       name: row.projectName,
       placed: false,

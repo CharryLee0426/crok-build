@@ -296,6 +296,7 @@ export function fakeGroups(now: number): ProjectGroup[] {
         deviceId: row.deviceId,
         deviceName: row.deviceName,
         deviceOnline: row.deviceOnline,
+        deviceLastSeenAt: row.deviceOnline ? null : row.lastActivityAt,
         path: row.projectPath,
         name: row.projectName,
         placed: true,
