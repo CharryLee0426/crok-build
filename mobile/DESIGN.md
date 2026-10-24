@@ -104,6 +104,47 @@ As before, plus: the trailing top-bar button is the session's topic icon (32 pt/
 Telegram shows the chat's avatar; the background and the person's bubbles follow the session theme (below). The
 new-session screen uses the same background.
 
+The transcript loads as a window of live parts (relay/DESIGN.md §3 "Loading long transcripts", `sessions:transcript`),
+so a session with thousands of turns opens on its newest 40 items and a streamed reply re-sends only the live end.
+Sending a prompt (also a new session's first) keeps the transcript's end in sight whatever its length: a transcript
+shorter than the screen sits at the bottom above the composer, never scrolled away from it.
+
+### Thinking and tool calls
+
+After Crok Desktop's reasoning and tool rows (`desktop/macOS/…/TranscriptRowViews.swift`, `ThinkingEffects.swift`), but
+**status only**: the phones never show a thought's text or a tool's output (the relay does not send them), so nothing
+expands. Both sit on the agent's side like its bubbles (28 pt/dp kept free on the right) and draw on the theme's card
+fill (`Theme.card` / `colors.card`: white at 75 % / `#1D1E1D`), which reads on Crok Day and Night, every session theme
+and a photo alike; the state tints go on top of that fill.
+
+**Thinking** — a compact card hugging its content (radius 12, padding 12 × 8): the `sparkle` glyph (13 pt/dp), 8 gap,
+the label (15 pt/sp medium, one line).
+- Active (the transcript's newest event while the turn runs, i.e. the session's status is `running` or `waiting`):
+  "Thinking…". Label and glyph are filled with Desktop's thinking colours
+  `#598CFF → #9E6BFF → #FA66B8 → #FF9E52 → #FA66B8 → #9E6BFF → #598CFF` sliding sideways (one sweep per 2.4 s); the
+  glyph turns once per 2.8 s; a 2 pt/dp bar runs along the card's bottom (inset 12): a track of the secondary text
+  colour at 14 %, and a segment 36 % of its width with the same colours sliding end to end and back over 1.25 s.
+  Reduce Motion / animations off: the colours stand still, the glyph does not turn, the segment fills the bar.
+- Done: "Thought", glyph and label in the secondary text colour, no bar.
+
+**Tool call** — a card as wide as the agent's column (radius 12, height ≥ 44 pt/dp, padding 12 × 10): a 16 pt/dp
+status glyph, 10 gap, the title (15 pt/sp, one line, middle of a long one elided at the end; `` `code` `` spans in
+the monospaced font on the code-span fill, as Desktop does for `` Execute `git status` ``), then the status word
+(12 pt/sp) at the trailing edge.
+
+| state | when | glyph | status word | card |
+|---|---|---|---|---|
+| running | `pending` / `in_progress` while the turn runs (`running` / `waiting`) and the call is part of it (after its prompt and after the last turn-end marker) | spinner: a 13 pt/dp ring (1.8 line, 20 % of the tint) with a 68 % arc turning once per 0.9 s, executing blue `#2868E8` / `#5FA8FF` | "running", blue | card fill + a 1 pt/dp rim in blues `#3366FF → #1A9EFF → #47DBFA` sliding sideways (static with Reduce Motion) |
+| completed | `completed` | `checkmark.circle.fill`, green `#3B7751` / `#91C5A1` | "done", green | card fill + green at 10 %, 1 pt/dp border green at 35 % |
+| failed | `failed` | `xmark.circle.fill`, red `#B3261E` / `#F2877E` | "failed", red | card fill + red at 10 %, 1 pt/dp border red at 40 % |
+| stopped | `pending` / `in_progress` otherwise (its turn ended or was stopped) | the kind's glyph (below), secondary | "stopped", secondary | card fill + hairline |
+| other | any other status | the kind's glyph, secondary | none | card fill + hairline |
+
+Kind glyphs (SF Symbols; Android: the matching Material icons): read `doc.text`, edit `pencil`, delete `trash`, move
+`arrow.left.arrow.right`, search `magnifyingglass`, execute `terminal`, think `brain`, fetch `globe`, other
+`wrench.and.screwdriver`. A long press offers Copy (the title). No grouping: each call is its own card, as on Desktop.
+Words (6 languages): "Thinking…", "Thought", "running", "done", "failed", "stopped".
+
 ## Model and thinking level
 
 Added 2026-10-23. A session's model and thinking level can be seen and changed where the person writes, before a new
