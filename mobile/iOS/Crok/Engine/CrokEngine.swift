@@ -401,18 +401,21 @@ final class CrokEngine {
 
     // MARK: New sessions
 
-    /// Starts a session in `target` with `text` as its first prompt (`sessions:create`). The prompt is kept as this
-    /// phone's optimistic bubble in the new session, under the same client id as the relay's `create` command, so its
-    /// ticks follow `commands:forSession`. The same client id never makes two sessions.
-    func startSession(in target: NewSessionTarget, text: String?, clientId: String) async -> Result<DocID, RelayError> {
+    /// Starts a session in `target` with `text` as its first prompt (`sessions:create`), on `model` at the thinking
+    /// level `effort` (an option id) when picked. The prompt is kept as this phone's optimistic bubble in the new
+    /// session, under the same client id as the relay's `create` command, so its ticks follow `commands:forSession`. The
+    /// same client id never makes two sessions.
+    func startSession(
+        in target: NewSessionTarget, text: String?, model: String? = nil, effort: String? = nil, clientId: String
+    ) async -> Result<DocID, RelayError> {
         if let started = startedSessions[clientId] { return .success(started) }
         let prompt = text?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sentAt = Date().milliseconds
         let sessions = self.sessions
         do {
             let created = try await sessions.create(
-                deviceId: target.deviceId, path: target.path, text: prompt?.isEmpty == false ? prompt : nil,
-                clientId: clientId)
+                deviceId: target.deviceId, path: target.path, text: prompt?.isEmpty == false ? prompt : nil, model: model,
+                effort: effort, clientId: clientId)
             startedSessions[clientId] = created.sessionDocId
             if let prompt, !prompt.isEmpty {
                 localPrompts[created.sessionDocId, default: []].append(

@@ -156,9 +156,11 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         }
     }
 
-    func create(deviceId: DocID, path: String, text: String?, clientId: String) async throws -> CreatedSession {
+    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
+        async throws -> CreatedSession
+    {
         try await mutate(.milliseconds(350)) { world in
-            try world.createSession(deviceId: deviceId, path: path, text: text, clientId: clientId)
+            try world.createSession(deviceId: deviceId, path: path, text: text, model: model, effort: effort, clientId: clientId)
         }
     }
 
@@ -249,6 +251,8 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
     // MARK: DevicesAPI
 
     func list() -> RelayStream<[DeviceRow]> { observe { $0.devices } }
+
+    func models(_ deviceId: DocID) -> RelayStream<[ModelChoice]?> { observe { $0.deviceModels(deviceId) } }
 
     func rename(_ deviceId: DocID, name: String) async throws {
         try await mutate { world in

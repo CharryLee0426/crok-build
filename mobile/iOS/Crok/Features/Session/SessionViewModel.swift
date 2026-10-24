@@ -30,8 +30,8 @@ final class TranscriptPage {
 }
 
 /// The session screen's state: header, plan, transcript (paged, bottom-anchored), prompt ticks, streaming reveal,
-/// composer draft and its slash commands (the Menu, `/model` and `/think` bot cards), and the `watch` / `markRead`
-/// bookkeeping.
+/// composer draft and its slash commands (the Menu, `/model` and `/think` bot cards), the model and thinking-level pills
+/// above the composer, and the `watch` / `markRead` bookkeeping.
 @MainActor
 @Observable
 final class SessionViewModel {
@@ -47,6 +47,19 @@ final class SessionViewModel {
     private(set) var menuOpen = false
     /// The info sheet (the header, the ⓘ button, or `/info`).
     var showsInfo = false
+    /// What the session's computer can run (`devices:models`), watched while the screen is open; made once the
+    /// computer is known.
+    private(set) var modelQuery: LiveQuery<[ModelChoice]?>?
+    /// A model or thinking-level change from the pills or Session info: on its way, then shown until the session
+    /// reports it.
+    private(set) var modelChange: ConfigChange?
+    private(set) var effortChange: ConfigChange?
+    /// "Couldn't change the model" / "Couldn't change the thinking level".
+    var configFailure: ConfigFailure?
+    /// Choose a Model (the model pill).
+    var showsModelPicker = false
+    /// The dimmed model pill's explanation: the computer's crok publishes no list.
+    var showsNotOffered = false
 
     private(set) var items: [TranscriptItem] = []
     private(set) var hasOlder = false
@@ -140,6 +153,7 @@ final class SessionViewModel {
             detail.start()
             commands.start()
             slashCommands.start()
+            watchModels(of: engine.sessionRow(sessionDocId)?.deviceId)
             let first = makePage(cursor: nil)
             pages = [first]
             first.query.start()
@@ -172,6 +186,7 @@ final class SessionViewModel {
         detail.stop()
         commands.stop()
         slashCommands.stop()
+        modelQuery?.stop()
         for watch in configWatches.values { watch.stop() }
         configWatches.removeAll()
         for page in pages { page.query.stop() }
@@ -390,6 +405,8 @@ final class SessionViewModel {
     // MARK: Session
 
     private func detailChanged(_ value: SessionDetail) {
+        watchModels(of: value.deviceId)
+        settleConfigChanges(value)
         if !value.isRunning { finishAllReveals() }
         if value.unreadCount > 0 { scheduleMarkRead(force: false) }
         if let answering = answeringRequestId, value.pending?.id != answering { answeringRequestId = nil }
@@ -514,7 +531,7 @@ final class SessionViewModel {
     /// The phone's commands this session allows: `/think` only when its model has thinking levels (or the relay
     /// cannot say), `/stop` only while a turn runs.
     private var allowedDeviceCommands: [DeviceCommand] {
-        let thinking: Bool? = detail.value?.models == nil ? nil : !(detail.value?.currentModel?.efforts.isEmpty ?? true)
+        let thinking: Bool? = models == nil ? nil : !(currentModel?.efforts.isEmpty ?? true)
         return CommandMenu.deviceCommands(isRunning: isRunning, modelHasThinking: thinking)
     }
 
@@ -581,7 +598,8 @@ final class SessionViewModel {
 
     /// What a bot card offers now.
     func choices(for card: BotCard) -> BotChoices {
-        BotChoices.make(card.kind, detail: detail.value, computerName: computerName, computerOnline: isComputerOnline)
+        BotChoices.make(
+            card.kind, models: models, detail: detail.value, computerName: computerName, computerOnline: isComputerOnline)
     }
 
     /// `/model` or `/think`: without an argument a card with the choices; with one, the matching choice is applied at
@@ -613,13 +631,13 @@ final class SessionViewModel {
     private func match(_ argument: String, _ kind: BotCard.Kind) -> Matched {
         switch kind {
         case .model:
-            switch ChoiceMatch.find(argument, in: detail.value?.models ?? [], keys: { [$0.id, $0.name] }) {
+            switch ChoiceMatch.find(argument, in: models ?? [], keys: { [$0.id, $0.name] }) {
             case .one(let model): return .one(model.id)
             case .none: return .none
             case .ambiguous: return .ambiguous
             }
         case .think:
-            let efforts = detail.value?.currentModel?.efforts ?? []
+            let efforts = currentModel?.efforts ?? []
             switch ChoiceMatch.find(argument, in: efforts, keys: { [$0.id, $0.level, $0.name] }) {
             case .one(let effort): return .one(effort.id)
             case .none: return .none
@@ -639,57 +657,165 @@ final class SessionViewModel {
         guard let index = botCards.firstIndex(where: { $0.id == cardId }) else { return }
         let kind = botCards[index].kind
         updateCard(cardId) { $0.state = .applying(choiceId: value) }
+        sendConfig(kind == .model ? .model : .reasoningEffort, value, key: "card-" + cardId) { [weak self] outcome in
+            guard let self else { return }
+            switch outcome {
+            case .done(let record):
+                let chosen = kind == .model ? (record.result?.model ?? value) : (record.result?.effort ?? value)
+                let label = BotChoices.name(of: chosen, kind, models: self.models, detail: self.detail.value)
+                self.updateCard(cardId) { $0.state = .done(label: label) }
+            case .failed(let message):
+                self.updateCard(cardId) { $0.state = .failed(message: message) }
+            }
+        }
+    }
+
+    private enum ConfigOutcome {
+        case done(CommandRecord)
+        case failed(String)
+    }
+
+    /// `commands:setConfig`, then follows the command (`commands:get`, under `key`) until it is done or failed; a
+    /// refusal from the relay (`INVALID`, `OFFLINE`) is a failure too.
+    private func sendConfig(
+        _ option: ConfigOption, _ value: String, key: String, _ ended: @escaping @MainActor (ConfigOutcome) -> Void
+    ) {
         let commands = engine.commands
         let id = sessionDocId
-        let option: ConfigOption = kind == .model ? .model : .reasoningEffort
         Task { [weak self] in
             do {
                 let commandId = try await commands.setConfig(id, configId: option, value: value)
-                self?.watchConfig(commandId, cardId: cardId, kind: kind, value: value)
+                self?.follow(commandId, key: key, ended)
             } catch {
                 guard let self else { return }
                 let relayError = (error as? RelayError) ?? RelayError(.server, error.localizedDescription)
                 if relayError.isRevoked { self.engine.handleRevoked() }
                 if relayError.code == .unauthenticated { self.engine.handleUnauthenticated() }
-                self.updateCard(cardId) { $0.state = .failed(message: relayError.message) }
+                ended(.failed(relayError.message))
             }
         }
     }
 
-    private func watchConfig(_ commandId: DocID, cardId: String, kind: BotCard.Kind, value: String) {
+    private func follow(_ commandId: DocID, key: String, _ ended: @escaping @MainActor (ConfigOutcome) -> Void) {
         let commands = engine.commands
         let query = LiveQuery<CommandRecord?>(engine: engine) { commands.get(commandId) }
         query.onValue = { [weak self] record in
             guard let self, let record else { return }
             switch record.status {
             case .done:
-                let chosen = kind == .model ? (record.result?.model ?? value) : (record.result?.effort ?? value)
-                let label = BotChoices.name(of: chosen, kind, in: self.detail.value)
-                self.updateCard(cardId) { $0.state = .done(label: label) }
-                self.endWatch(cardId)
+                self.endWatch(key)
+                ended(.done(record))
             case .failed:
-                self.updateCard(cardId) {
-                    $0.state = .failed(message: record.error ?? String(localized: "The computer couldn't change it."))
-                }
-                self.endWatch(cardId)
+                self.endWatch(key)
+                ended(.failed(record.error ?? String(localized: "The computer couldn't change it.")))
             default:
                 break
             }
         }
-        configWatches[cardId]?.stop()
-        configWatches[cardId] = query
+        configWatches[key]?.stop()
+        configWatches[key] = query
         query.start()
     }
 
-    private func endWatch(_ cardId: String) {
-        configWatches[cardId]?.stop()
-        configWatches[cardId] = nil
+    private func endWatch(_ key: String) {
+        configWatches[key]?.stop()
+        configWatches[key] = nil
     }
 
     private func updateCard(_ id: String, _ change: (inout BotCard) -> Void) {
         guard let index = botCards.firstIndex(where: { $0.id == id }) else { return }
         change(&botCards[index])
         rebuild()
+    }
+
+    // MARK: Model and thinking level
+
+    private func watchModels(of deviceId: DocID?) {
+        guard modelQuery == nil, let deviceId, !deviceId.isEmpty else { return }
+        let devices = engine.devices
+        let query = LiveQuery<[ModelChoice]?>(engine: engine) { devices.models(deviceId) }
+        modelQuery = query
+        query.start()
+    }
+
+    /// The computer's list: `devices:models`, or `sessions:get`'s copy when that query fails (an older relay).
+    var modelList: ModelList {
+        ModelList.resolve(
+            listed: modelQuery?.value, listFailed: modelQuery?.value == nil && modelQuery?.error != nil,
+            fallback: detail.value?.models, fallbackLoaded: detail.value != nil)
+    }
+
+    /// The models this session's computer offers now; nil while it offers none (offline, an older crok, loading).
+    var models: [ModelChoice]? { modelList.models }
+
+    /// The model the session runs, among its computer's choices.
+    var currentModel: ModelChoice? {
+        guard let id = detail.value?.model else { return nil }
+        return models?.first(where: { $0.id == id })
+    }
+
+    /// The pills above the input row; nil hides the row.
+    var setupRow: ModelSetupRow? {
+        ModelSetup.session(
+            list: modelList, model: detail.value?.model ?? engine.sessionRow(sessionDocId)?.model,
+            effort: detail.value?.effort, modelChange: modelChange, effortChange: effortChange,
+            computerOnline: canSendPrompts, starting: isStarting)
+    }
+
+    /// The model pill: Choose a Model, or (an older crok there) why there is nothing to choose.
+    func tapModelPill() {
+        guard let row = setupRow, row.acceptsModelTaps else { return }
+        if row.model.dimmed {
+            showsNotOffered = true
+        } else {
+            showsModelPicker = true
+        }
+    }
+
+    /// Choose a Model: `commands:setConfig({configId: "model"})`; the pill spins until the computer has applied it.
+    func chooseModel(_ id: String) {
+        guard let row = setupRow, row.acceptsModelTaps, !row.model.dimmed, id != row.modelId else { return }
+        modelChange = ConfigChange(value: id)
+        sendConfig(.model, id, key: "pill-model") { [weak self] outcome in self?.configEnded(.model, id, outcome) }
+    }
+
+    /// The thinking menu: `commands:setConfig({configId: "reasoning_effort", value: <option id>})`.
+    func chooseLevel(_ id: String?) {
+        guard let id, let row = setupRow, row.acceptsLevelTaps, id != row.levelId else { return }
+        effortChange = ConfigChange(value: id)
+        sendConfig(.reasoningEffort, id, key: "pill-effort") { [weak self] outcome in
+            self?.configEnded(.reasoningEffort, id, outcome)
+        }
+    }
+
+    private func configEnded(_ option: ConfigOption, _ value: String, _ outcome: ConfigOutcome) {
+        switch outcome {
+        case .done(let record):
+            var change = ConfigChange(value: value, done: true)
+            if option == .model, let applied = record.result?.model, !applied.isEmpty { change.value = applied }
+            if option == .model { modelChange = change } else { effortChange = change }
+            if let detail = detail.value { settleConfigChanges(detail) }
+            // Shown until the session reports it, a few seconds at most (it may report something else).
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard let self else { return }
+                if option == .model, self.modelChange == change { self.modelChange = nil }
+                if option == .reasoningEffort, self.effortChange == change { self.effortChange = nil }
+            }
+        case .failed(let message):
+            if option == .model { modelChange = nil } else { effortChange = nil }
+            configFailure = ConfigFailure(option: option, message: message)
+        }
+    }
+
+    /// Drops a done change once the session shows it.
+    private func settleConfigChanges(_ detail: SessionDetail) {
+        if let change = modelChange, change.done, detail.model == change.value { modelChange = nil }
+        if let change = effortChange, change.done {
+            let model = models?.first(where: { $0.id == detail.model })
+            let level = model?.efforts.first(where: { $0.id == change.value })?.level ?? change.value
+            if detail.effort == level || detail.effort == change.value { effortChange = nil }
+        }
     }
 
     func stop() async {

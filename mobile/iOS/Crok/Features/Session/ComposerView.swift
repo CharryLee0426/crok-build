@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// The input panel: the Menu button and its command list (Telegram's bot menu), a multi-line field with Send, and Stop
-/// while a turn runs (Telegram's streaming stop), under the card of a permission request the session waits on. It takes
-/// prompts whenever the session's computer is online (a crok there opens a session nobody runs); it is read-only only
-/// while the computer is offline.
+/// while a turn runs (Telegram's streaming stop), under the card of a permission request the session waits on and the
+/// model and thinking-level pills. It takes prompts whenever the session's computer is online (a crok there opens a
+/// session nobody runs); it is read-only only while the computer is offline.
 struct ComposerView: View {
     @Bindable var model: SessionViewModel
     var focused: FocusState<Bool>.Binding
@@ -33,6 +33,11 @@ struct ComposerView: View {
                                 if item.takesArgument { focused.wrappedValue = true }
                             }
                             .transition(.move(edge: .bottom).combined(with: .opacity))
+                        } else if let row = model.setupRow {
+                            ModelSetupBar(
+                                row: row, offersDefault: false, onModel: { model.tapModelPill() },
+                                onLevel: { model.chooseLevel($0) })
+                            .transition(.opacity)
                         }
                         ComposerInputRow(
                             draft: $model.draft,
@@ -50,8 +55,32 @@ struct ComposerView: View {
                     }
                     .animation(.snappy, value: model.pendingRequest?.id)
                     .animation(.snappy, value: model.commandMenuItems.map(\.id))
+                    .animation(.snappy, value: model.setupRow == nil)
                 }
             }
+        }
+        .sheet(isPresented: $model.showsModelPicker) {
+            ModelPickerSheet(
+                models: model.models ?? [], computerName: model.computerName, current: model.setupRow?.modelId,
+                offersDefault: false, onPick: { id in if let id { model.chooseModel(id) } })
+        }
+        .alert(
+            Text(verbatim: String(localized: "\(model.computerName) doesn't offer model choices yet. Update crok there.")),
+            isPresented: $model.showsNotOffered
+        ) {
+            Button("OK", role: .cancel) {}
+        }
+        .alert(
+            model.configFailure?.title ?? "",
+            // Session info shows it while it is open.
+            isPresented: Binding(
+                get: { model.configFailure != nil && !model.showsInfo },
+                set: { if !$0 { model.configFailure = nil } }),
+            presenting: model.configFailure
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { failure in
+            Text(verbatim: failure.message)
         }
     }
 

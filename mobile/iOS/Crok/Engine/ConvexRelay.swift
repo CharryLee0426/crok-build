@@ -515,9 +515,14 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         try await run("sessions:remove", ["sessionDocId": .string(sessionDocId)])
     }
 
-    func create(deviceId: DocID, path: String, text: String?, clientId: String) async throws -> CreatedSession {
+    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
+        async throws -> CreatedSession
+    {
         var args: [String: JSONValue] = ["deviceId": .string(deviceId), "path": .string(path), "clientId": .string(clientId)]
+        // Optional arguments are left out, not sent as null.
         if let text, !text.isEmpty { args["text"] = .string(text) }
+        if let model, !model.isEmpty { args["model"] = .string(model) }
+        if let effort, !effort.isEmpty { args["effort"] = .string(effort) }
         return try await call("sessions:create", args)
     }
 
@@ -578,6 +583,10 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
 
     func list() -> RelayStream<[DeviceRow]> {
         observe("devices:list")
+    }
+
+    func models(_ deviceId: DocID) -> RelayStream<[ModelChoice]?> {
+        observe("devices:models", ["deviceId": .string(deviceId)])
     }
 
     func rename(_ deviceId: DocID, name: String) async throws {

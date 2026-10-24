@@ -86,18 +86,37 @@ final class ComposerCommandsTests: XCTestCase {
 
     func testWhatABotCardOffers() throws {
         var detail = try XCTUnwrap(DemoWorld().detailForTests("s-dark"))
+        let models = detail.models
         let card = BotCard(kind: .think)
-        guard case .choices(let levels) = BotChoices.make(.think, detail: detail, computerName: "Mac", computerOnline: true) else {
+        guard case .choices(let levels) = BotChoices.make(.think, models: models, detail: detail, computerName: "Mac", computerOnline: true)
+        else {
             return XCTFail("Claude's thinking levels")
         }
         XCTAssertEqual(levels.map(\.id), ["thinking-low", "thinking-medium", "thinking-high", "thinking-max"])
         XCTAssertEqual(levels.first(where: \.isCurrent)?.title, "Medium", "the session's effort is the canonical value")
         XCTAssertEqual(card.state, .choosing(note: nil))
         detail.model = "grok-4-fast"
-        XCTAssertEqual(BotChoices.make(.think, detail: detail, computerName: "Mac", computerOnline: true), .noThinking(model: "Grok 4 Fast"))
+        XCTAssertEqual(
+            BotChoices.make(.think, models: models, detail: detail, computerName: "Mac", computerOnline: true),
+            .noThinking(model: "Grok 4 Fast"))
+        XCTAssertEqual(
+            BotChoices.make(.model, models: nil, detail: detail, computerName: "Mac", computerOnline: true), .notOffered("Mac"),
+            "an older crok there")
+        XCTAssertEqual(
+            BotChoices.make(.model, models: nil, detail: detail, computerName: "Mac", computerOnline: false), .computerOffline("Mac"))
+    }
+
+    func testABotCardReadsTheComputersListNotTheSessionsShortCopy() throws {
+        var detail = try XCTUnwrap(DemoWorld().detailForTests("s-relay"))
+        // A computer with OpenRouter: `sessions:get` leaves a long list out (null); `devices:models` has it.
         detail.models = nil
-        XCTAssertEqual(BotChoices.make(.model, detail: detail, computerName: "Mac", computerOnline: true), .notOffered("Mac"), "an older crok there")
-        XCTAssertEqual(BotChoices.make(.model, detail: detail, computerName: "Mac", computerOnline: false), .computerOffline("Mac"))
+        let long = (0..<450).map { ModelChoice(id: "openrouter/vendor/model-\($0)", name: "Model \($0)") }
+        detail.model = "openrouter/vendor/model-449"
+        guard case .choices(let choices) = BotChoices.make(.model, models: long, detail: detail, computerName: "Mac", computerOnline: true)
+        else { return XCTFail("the computer's list") }
+        XCTAssertEqual(choices.count, 450)
+        XCTAssertEqual(choices.first(where: \.isCurrent)?.id, "openrouter/vendor/model-449")
+        XCTAssertEqual(BotChoices.name(of: "openrouter/vendor/model-3", .model, models: long, detail: detail), "Model 3")
     }
 
     func testBotCardsSitWhereTheyWereAskedForBeforeQueuedPrompts() {
@@ -243,7 +262,7 @@ final class SessionCommandsFlowTests: XCTestCase {
         let (engine, world) = makeEngine()
         let model = SessionViewModel(sessionDocId: "s-relay", engine: engine)
         model.appear()
-        await until("the session") { model.detail.value?.models != nil }
+        await until("the session and its computer's models") { model.detail.value != nil && model.models != nil }
 
         model.draft = "/model"
         model.send()

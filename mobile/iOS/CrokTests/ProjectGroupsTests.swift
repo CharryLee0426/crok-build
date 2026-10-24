@@ -168,8 +168,10 @@ private final class FailingReorderRelay: RelayBackend, SessionsAPI, @unchecked S
     func setPinned(_ sessionDocId: DocID, _ pinned: Bool) async throws { try await demo.setPinned(sessionDocId, pinned) }
     func setArchived(_ sessionDocId: DocID, _ archived: Bool) async throws { try await demo.setArchived(sessionDocId, archived) }
     func remove(_ sessionDocId: DocID) async throws { try await demo.remove(sessionDocId) }
-    func create(deviceId: DocID, path: String, text: String?, clientId: String) async throws -> CreatedSession {
-        try await demo.create(deviceId: deviceId, path: path, text: text, clientId: clientId)
+    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
+        async throws -> CreatedSession
+    {
+        try await demo.create(deviceId: deviceId, path: path, text: text, model: model, effort: effort, clientId: clientId)
     }
     func slashCommands(_ sessionDocId: DocID) -> RelayStream<SlashCommandList> { demo.slashCommands(sessionDocId) }
 

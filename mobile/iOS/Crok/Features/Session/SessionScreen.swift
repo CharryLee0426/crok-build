@@ -183,7 +183,7 @@ private struct SessionContent: View {
         }
         .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $model.showsInfo) {
-            SessionInfoView(sessionDocId: model.sessionDocId, onRemoved: { dismiss() })
+            SessionInfoView(sessionDocId: model.sessionDocId, session: model, onRemoved: { dismiss() })
                 .environment(engine)
         }
         .onChange(of: engine.localPrompts[model.sessionDocId]) { _, _ in model.rebuild() }

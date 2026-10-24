@@ -31,8 +31,11 @@ final class DemoWorld {
     var infoCommands: [DocID: CommandRecord] = [:]
     /// Hand-placed projects, by key.
     var projectPositions: [String: Double] = [:]
-    /// What each computer can run (`sessions:get` → `models`, while it is online).
+    /// What each computer can run (`devices:models` and `sessions:get` → `models`, while it is online). A computer
+    /// without an entry runs an older crok that publishes no list.
     var modelsByDevice: [DocID: [ModelChoice]] = [:]
+    /// When set, the computer refuses every model or thinking-level change with this reason (`-CrokDemoConfigFails`).
+    var configFailure: String?
     let currentDeviceId = "demo-phone"
     private var observers: [UUID: @MainActor () -> Void] = [:]
     private var nextId = 1000
@@ -100,6 +103,13 @@ final class DemoWorld {
         d.starting = Self.isStarting(d)
         d.models = device?.online == true ? modelsByDevice[d.deviceId] : nil
         return d
+    }
+
+    /// `devices:models`: what a computer can run while it is online; null for an offline one and for one whose crok
+    /// publishes no list (an older version).
+    func deviceModels(_ deviceId: DocID) -> [ModelChoice]? {
+        guard devices.first(where: { $0.id == deviceId })?.online == true else { return nil }
+        return modelsByDevice[deviceId]
     }
 
     /// `sessions:groups`, ordered like the relay (`relay/convex/lib/projects.ts`): never-placed items first, most
@@ -352,9 +362,11 @@ final class DemoWorld {
 
     // MARK: New sessions
 
-    /// `sessions:create`: the session is listed at once (`starting`), and a crok on the computer opens it a moment
-    /// later and runs the prompt.
-    func createSession(deviceId: DocID, path: String, text: String?, clientId: String) throws -> CreatedSession {
+    /// `sessions:create`: the session is listed at once (`starting`) with the model and thinking level asked for
+    /// (checked against the computer's list), and a crok on the computer opens it a moment later and runs the prompt.
+    func createSession(
+        deviceId: DocID, path: String, text: String?, model: String? = nil, effort: String? = nil, clientId: String
+    ) throws -> CreatedSession {
         if let existing = sessions.first(where: { $0.createdClientId == clientId }) {
             return CreatedSession(
                 sessionDocId: existing.detail.id, commandId: existing.commands.last?.id ?? existing.detail.id)
@@ -368,13 +380,14 @@ final class DemoWorld {
         guard device.online else {
             throw RelayError(.offline, "\(device.name) is offline: start crok or Crok Desktop there.")
         }
+        let setup = try startSetup(on: device, model: model, effort: effort)
         let prompt = text?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         let id = newId("session")
         let commandId = newId("command")
         let now = Date().milliseconds
         let detail = SessionDetail(
-            id: id, sessionId: "pending:\(clientId)", title: Self.title(fromPrompt: prompt), cwd: folder, model: nil,
-            effort: nil, gitBranch: nil, status: prompt == nil ? .idle : .running, online: false,
+            id: id, sessionId: "pending:\(clientId)", title: Self.title(fromPrompt: prompt), cwd: folder,
+            model: setup.model, effort: setup.level, gitBranch: nil, status: prompt == nil ? .idle : .running, online: false,
             app: device.client.hasPrefix("Crok Desktop") ? .desktop : .tui, deviceId: device.id, deviceName: device.name,
             devicePlatform: device.platform, deviceOnline: true, createdAt: now, lastActivityAt: now, plan: [], usage: nil,
             pinned: false, archived: false, unread: 0, eventSeq: 0)
@@ -401,6 +414,31 @@ final class DemoWorld {
             }
         }
         return CreatedSession(sessionDocId: id, commandId: commandId)
+    }
+
+    /// A new session's model and level (the level it stands for, as the session row holds it), as the relay checks
+    /// them against the computer's list: a model it offers, and one of that model's levels by option id or level (of
+    /// the computer's default model when no model is given).
+    private func startSetup(on device: DeviceRow, model: String?, effort: String?) throws -> (model: String?, level: String?) {
+        let models = modelsByDevice[device.id] ?? []
+        let wantedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let wantedEffort = effort?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        guard wantedModel != nil || wantedEffort != nil else { return (nil, nil) }
+        guard !models.isEmpty else {
+            throw RelayError(.invalid, "\(device.name) doesn't offer model choices yet. Update crok there.")
+        }
+        var chosen = models.first
+        if let wantedModel {
+            guard let found = models.first(where: { $0.id == wantedModel }) else {
+                throw RelayError(.invalid, "\(device.name) doesn't offer the model “\(wantedModel)”.")
+            }
+            chosen = found
+        }
+        guard let wantedEffort else { return (wantedModel, nil) }
+        guard let level = chosen?.efforts.first(where: { $0.id == wantedEffort || $0.level == wantedEffort }) else {
+            throw RelayError(.invalid, "\(chosen?.name ?? "That model") has no thinking level “\(wantedEffort)”.")
+        }
+        return (wantedModel, level.level)
     }
 
     /// A new session's title until crok names it: its first prompt's first line.
@@ -441,6 +479,11 @@ final class DemoWorld {
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(900))
             guard let self, let s = try? self.index(of: sessionId) else { return }
+            if let reason = self.configFailure {
+                self.infoCommands[id] = CommandRecord(id: id, type: "config", status: .failed, error: reason)
+                self.changed()
+                return
+            }
             self.adopt(s)
             var detail = self.sessions[s].detail
             switch configId {
@@ -508,6 +551,39 @@ final class DemoWorld {
                 EffortChoice(id: "thinking-max", name: "Max", value: "xhigh"),
             ],
             defaultEffort: "thinking-medium"),
+    ]
+
+    /// Other providers the MacBook has signed in (ids carry the provider: `deepseek/…`, OpenRouter's
+    /// `openrouter/<vendor>/…`), after its own: Choose a Model's sections.
+    static let providerModels: [ModelChoice] = [
+        ModelChoice(id: "deepseek/deepseek-chat", name: "DeepSeek V3.2", description: "DeepSeek, with your API key"),
+        ModelChoice(
+            id: "openrouter/openai/gpt-5", name: "OpenAI: GPT-5",
+            description: "OpenAI's flagship for coding, reasoning and agentic tasks",
+            efforts: [
+                EffortChoice(id: "minimal", name: "Minimal"), EffortChoice(id: "low", name: "Low"),
+                EffortChoice(id: "medium", name: "Medium"), EffortChoice(id: "high", name: "High"),
+            ],
+            defaultEffort: "medium"),
+        ModelChoice(
+            id: "openrouter/google/gemini-2.5-pro", name: "Google: Gemini 2.5 Pro",
+            description: "Google's state-of-the-art model for reasoning, coding and math",
+            efforts: [EffortChoice(id: "low", name: "Low"), EffortChoice(id: "high", name: "High")], defaultEffort: "high"),
+        ModelChoice(
+            id: "openrouter/anthropic/claude-opus-4.1", name: "Anthropic: Claude Opus 4.1",
+            description: "Anthropic's most capable model, through OpenRouter"),
+        ModelChoice(
+            id: "openrouter/moonshotai/kimi-k2", name: "MoonshotAI: Kimi K2",
+            description: "A large mixture-of-experts model tuned for agentic coding"),
+        ModelChoice(
+            id: "openrouter/qwen/qwen3-coder", name: "Qwen: Qwen3 Coder",
+            description: "Qwen's open coding model with a 256K context"),
+        // A long name, as OpenRouter has many: the pill truncates it in the middle.
+        ModelChoice(
+            id: "openrouter/nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            name: "NVIDIA: Llama 3.3 Nemotron Super 49B v1.5 (reasoning)",
+            description: "A reasoning model derived from Llama 3.3 70B",
+            efforts: [EffortChoice(id: "low", name: "Low"), EffortChoice(id: "high", name: "High")], defaultEffort: "high"),
     ]
 
     // MARK: Permission requests

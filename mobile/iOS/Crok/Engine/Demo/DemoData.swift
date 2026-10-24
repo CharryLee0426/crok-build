@@ -22,7 +22,13 @@ extension DemoWorld {
                 id: "ipad", kind: .phone, name: "iPad Air", platform: "iPadOS 26.0", client: "Crok iOS 1.0 (1)",
                 createdAt: t - 12 * day, lastSeenAt: t - 2 * day, online: false, isCurrent: false, liveSessionCount: 0),
         ]
-        modelsByDevice = ["mbp": DemoWorld.macModels]
+        // `-CrokDemoStudioOnline YES`: Studio is online with an older crok that publishes no model list.
+        if UserDefaults.standard.bool(forKey: "CrokDemoStudioOnline"), let studio = devices.firstIndex(where: { $0.id == "studio" }) {
+            devices[studio].online = true
+            devices[studio].lastSeenAt = t
+        }
+        modelsByDevice = ["mbp": DemoWorld.macModels + DemoWorld.providerModels]
+        configFailure = UserDefaults.standard.string(forKey: "CrokDemoConfigFails")?.nilIfEmpty
 
         func detail(
             _ id: String, title: String, cwd: String, device: String, app: HostApp, status: SessionStatus, online: Bool,

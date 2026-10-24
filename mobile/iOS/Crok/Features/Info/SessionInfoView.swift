@@ -71,6 +71,9 @@ final class SessionInfoModel {
 
 struct SessionInfoView: View {
     let sessionDocId: DocID
+    /// The open session's screen: its model and thinking level change from here as from the pills above its composer
+    /// (mobile/DESIGN.md "Model and thinking level"). Without it both rows are plain text.
+    var session: SessionViewModel?
     let onRemoved: () -> Void
     @Environment(CrokEngine.self) private var engine
     @Environment(\.dismiss) private var dismiss
@@ -78,6 +81,7 @@ struct SessionInfoView: View {
     @State private var confirmRemove = false
     @State private var actionError: RelayError?
     @State private var copied = false
+    @State private var showsModelPicker = false
 
     var body: some View {
         NavigationStack {
@@ -115,6 +119,22 @@ struct SessionInfoView: View {
         } message: { error in
             Text(error.message)
         }
+        .alert(
+            session?.configFailure?.title ?? "",
+            isPresented: Binding(get: { session?.configFailure != nil }, set: { if !$0 { session?.configFailure = nil } }),
+            presenting: session?.configFailure
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { failure in
+            Text(verbatim: failure.message)
+        }
+        .sheet(isPresented: $showsModelPicker) {
+            if let session {
+                ModelPickerSheet(
+                    models: session.models ?? [], computerName: session.computerName, current: session.setupRow?.modelId,
+                    offersDefault: false, onPick: { id in if let id { session.chooseModel(id) } })
+            }
+        }
     }
 
     @ViewBuilder
@@ -139,8 +159,7 @@ struct SessionInfoView: View {
             }
 
             Section("Model") {
-                InfoRow("Model", value: fresh?.model ?? detail.model)
-                InfoRow("Reasoning effort", value: (fresh?.effort ?? detail.effort).map(Self.effortName))
+                modelRows(detail, fresh: fresh)
             }
 
             Section("Workspace") {
@@ -290,6 +309,37 @@ struct SessionInfoView: View {
         }
     }
 
+    /// The model's name and the level's name. While the computer offers choices both open the same picker as the
+    /// pills above the composer (a chevron says so); otherwise they are plain text.
+    @ViewBuilder
+    private func modelRows(_ detail: SessionDetail, fresh: SessionInfoResult?) -> some View {
+        let row = session?.setupRow
+        if let session, let row, !row.model.dimmed, session.models != nil {
+            Button {
+                showsModelPicker = true
+            } label: {
+                ChoiceRowLabel(title: "Model", value: row.model.label, busy: row.model.busy, symbol: "chevron.right")
+            }
+            .disabled(!row.acceptsModelTaps)
+            .accessibilityIdentifier("infoModelRow")
+        } else {
+            let models = session?.models ?? detail.models
+            InfoRow("Model", value: ModelLabels.modelName(fresh?.model ?? detail.model, in: models))
+        }
+        if let session, let row, let thinking = row.thinking, let levels = row.levelModel?.efforts {
+            ThinkingMenu(levels: levels, current: row.levelId, offersDefault: false, onPick: { session.chooseLevel($0) }) {
+                ChoiceRowLabel(
+                    title: "Thinking level", value: thinking.label, busy: thinking.busy, symbol: "chevron.up.chevron.down")
+            }
+            .disabled(!row.acceptsLevelTaps)
+            .accessibilityIdentifier("infoThinkingRow")
+        } else {
+            let models = session?.models ?? detail.models
+            let current = models?.first(where: { $0.id == (fresh?.model ?? detail.model) })
+            InfoRow("Thinking level", value: ModelLabels.levelName(fresh?.effort ?? detail.effort, model: current))
+        }
+    }
+
     private func statusLine(_ detail: SessionDetail) -> String {
         switch detail.presence {
         case .offline: return String(localized: "offline")
@@ -327,18 +377,37 @@ struct SessionInfoView: View {
         case .unknown: String(localized: "Unknown")
         }
     }
+}
 
-    static func effortName(_ raw: String) -> String {
-        switch raw {
-        case "none": String(localized: "None")
-        case "minimal": String(localized: "Minimal")
-        case "low": String(localized: "Low")
-        case "medium": String(localized: "Medium")
-        case "high": String(localized: "High")
-        case "xhigh": String(localized: "Extra high")
-        case "max": String(localized: "Max")
-        default: raw
+/// A Session info row that opens a picker: the title, the current choice and a chevron (a spinner while a change is
+/// on its way).
+private struct ChoiceRowLabel: View {
+    let title: LocalizedStringKey
+    let value: String
+    let busy: Bool
+    let symbol: String
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 6) {
+                Text(verbatim: value)
+                    .foregroundStyle(Color.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if busy {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: symbol)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                }
+            }
+        } label: {
+            Text(title)
+                .foregroundStyle(Color.primary)
         }
+        .contentShape(Rectangle())
     }
 }
 
