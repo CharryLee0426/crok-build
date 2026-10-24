@@ -340,7 +340,10 @@ object EventKind {
     const val ERROR = "error"
 }
 
-/** One transcript item (`sessions:events`). Streaming text updates the same row: same `key`, same `_id`. */
+/**
+ * One transcript item (`sessions:transcript`). Streaming text updates the same row: same `key`, same `_id`. Thoughts
+ * and tool calls come without their text (the phones show their status only).
+ */
 @Serializable
 data class RelayEvent(
     @SerialName("_id") val id: String,
@@ -358,11 +361,11 @@ data class RelayEvent(
     val at: WireLong = 0,
 )
 
+/** A part of the transcript (`sessions:transcript`), newest first; [more]: the range holds older items than these. */
 @Serializable
-data class EventPage(
-    val page: List<RelayEvent> = emptyList(),
-    val isDone: Boolean = true,
-    val continueCursor: String = "",
+data class TranscriptChunk(
+    val events: List<RelayEvent> = emptyList(),
+    val more: Boolean = false,
 )
 
 // ---- Commands ----

@@ -26,7 +26,7 @@ import dev.chenli.crok.mobile.data.relayCode
 import dev.chenli.crok.mobile.data.string
 import dev.chenli.crok.mobile.engine.ConnectionState
 import dev.chenli.crok.mobile.engine.CrokEngine
-import dev.chenli.crok.mobile.engine.TranscriptPager
+import dev.chenli.crok.mobile.engine.TranscriptWindow
 import dev.chenli.crok.mobile.engine.TranscriptState
 import dev.chenli.crok.mobile.engine.delayedForDisplay
 import dev.chenli.crok.mobile.logic.BotCard
@@ -261,6 +261,8 @@ data class SessionUiState(
                     historyComplete = transcript.historyComplete,
                     zone = zone,
                     cards = cards,
+                    // A turn waiting on a permission request still runs: its thought and tool call are not over.
+                    turnRunning = phase == SessionPhase.Working || phase == SessionPhase.Waiting,
                 ),
                 loaded = transcript.loaded,
                 historyComplete = transcript.historyComplete,
@@ -326,7 +328,7 @@ class SessionViewModel(
     /** The session shown; null on the new-session screen until its first prompt made it. */
     val sessionDocId: String? get() = docId.value
 
-    private val pager = MutableStateFlow(docId.value?.let(::startPager))
+    private val window = MutableStateFlow(docId.value?.let(::startWindow))
     private val optimistic = MutableStateFlow<List<OptimisticPrompt>>(emptyList())
     private val cards = MutableStateFlow<List<BotCard>>(emptyList())
     private val visible = MutableStateFlow(false)
@@ -373,7 +375,7 @@ class SessionViewModel(
     /** The pending request this phone answered, until the computer takes the answer (the request leaves the session). */
     private val answering = MutableStateFlow<String?>(null)
 
-    private val transcript: Flow<TranscriptState> = pager.flatMapLatest { current ->
+    private val transcript: Flow<TranscriptState> = window.flatMapLatest { current ->
         current?.state ?: flowOf(TranscriptState(loaded = true, historyComplete = true))
     }
 
@@ -447,7 +449,7 @@ class SessionViewModel(
         }
     }
 
-    private fun startPager(sessionDocId: String): TranscriptPager = engine.events.pager(sessionDocId, viewModelScope).also { it.start() }
+    private fun startWindow(sessionDocId: String): TranscriptWindow = engine.events.window(sessionDocId, viewModelScope).also { it.start() }
 
     fun setVisible(value: Boolean) {
         visible.value = value
@@ -458,9 +460,9 @@ class SessionViewModel(
         drafts.save(draftKey, text)
     }
 
-    fun loadMore() = pager.value?.loadMore() ?: Unit
+    fun loadMore() = window.value?.loadMore() ?: Unit
 
-    fun reload() = pager.value?.reload() ?: Unit
+    fun reload() = window.value?.reload() ?: Unit
 
     /**
      * Sends the draft: the phone's own commands run here (`/new`, `/model`, `/think`, `/stop`, `/info`); anything else —
@@ -682,7 +684,7 @@ class SessionViewModel(
                     replace(prompt.clientId) { it.copy(commandId = created.commandId, localError = null) }
                     drafts.save(draftKey, "")
                     saved?.set(CREATED_KEY, created.sessionDocId)
-                    pager.value = startPager(created.sessionDocId)
+                    window.value = startWindow(created.sessionDocId)
                     docId.value = created.sessionDocId
                 } else if (existing != null) {
                     val commandId = engine.commands.sendPrompt(existing, prompt.text, prompt.clientId)
@@ -769,7 +771,7 @@ class SessionViewModel(
     }
 
     override fun onCleared() {
-        pager.value?.close()
+        window.value?.close()
     }
 
     companion object {

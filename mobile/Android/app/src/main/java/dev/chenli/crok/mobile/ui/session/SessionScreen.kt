@@ -405,11 +405,11 @@ fun SessionContent(
         when {
             state.gone -> CenterNote(stringResource(R.string.session_gone), inner)
             state.newSession != null && state.items.isEmpty() -> NewSessionNote(state.newSession, inner)
-            !state.loaded && state.error != null -> Column(inner.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            !state.loaded && state.items.isEmpty() && state.error != null -> Column(inner.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text(stringResource(R.string.transcript_load_failed, state.error), color = colors.textSecondary, textAlign = TextAlign.Center)
                 TextButton(onClick = actions.onReload) { Text(stringResource(R.string.action_retry), color = colors.accent) }
             }
-            !state.loaded -> Box(inner, contentAlignment = Alignment.Center) { CircularProgressIndicator(color = colors.accent) }
+            !state.loaded && state.items.isEmpty() -> Box(inner, contentAlignment = Alignment.Center) { CircularProgressIndicator(color = colors.accent) }
             state.historyOnComputer && state.deviceOnline -> Column(inner.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp, color = colors.accent)
                 Spacer(Modifier.height(16.dp))

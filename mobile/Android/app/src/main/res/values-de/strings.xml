@@ -87,9 +87,11 @@
     <string name="day_yesterday">Gestern</string>
     <string name="message_from">von %1$s</string>
     <string name="thought_title">Überlegung</string>
-    <string name="tool_pending">Ausstehend</string>
-    <string name="tool_running">Läuft</string>
-    <string name="tool_done">Fertig</string>
+    <string name="thinking_active">Denkt nach…</string>
+    <string name="tool_state_running">läuft</string>
+    <string name="tool_state_done">fertig</string>
+    <string name="tool_state_failed">fehlgeschlagen</string>
+    <string name="tool_state_stopped">gestoppt</string>
     <string name="tool_failed">Fehlgeschlagen</string>
     <string name="notice_stopped">Gestoppt</string>
     <string name="notice_max_tokens">Die Antwort hat das Ausgabelimit erreicht.</string>

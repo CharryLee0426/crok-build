@@ -89,9 +89,11 @@
     <string name="day_yesterday">Ayer</string>
     <string name="message_from">desde %1$s</string>
     <string name="thought_title">Razonamiento</string>
-    <string name="tool_pending">Pendiente</string>
-    <string name="tool_running">En curso</string>
-    <string name="tool_done">Hecho</string>
+    <string name="thinking_active">Pensando…</string>
+    <string name="tool_state_running">en curso</string>
+    <string name="tool_state_done">hecho</string>
+    <string name="tool_state_failed">falló</string>
+    <string name="tool_state_stopped">detenido</string>
     <string name="tool_failed">Falló</string>
     <string name="notice_stopped">Detenido</string>
     <string name="notice_max_tokens">La respuesta alcanzó el límite de salida.</string>

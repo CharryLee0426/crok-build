@@ -763,4 +763,67 @@ class ScreenshotTest {
     fun sessionSetupFrosted() = shoot("72-session-setup-frosted-fallback", glass = GlassLevel.Tinted) {
         SessionContent(commandSession(), draft = "", now = now, actions = SessionActions())
     }
+
+    // Thinking and tool calls by their status only (mobile/DESIGN.md "Thinking and tool calls").
+
+    /**
+     * A turn that ended (a thought, a done, a failed and a stopped call, then Stop) and the one running now: a call
+     * running and the newest item a thought, so "Thinking…" shows.
+     */
+    private fun activitySession(): SessionUiState {
+        val session = DemoData.sessions(now).first { it.id == DemoData.RUNNING_SESSION }
+        val s = session.id
+        fun event(seq: Long, kind: String, at: Long, text: String = "", title: String? = null, status: String? = null) =
+            dev.chenli.crok.mobile.data.RelayEvent("$s-a$seq", seq, "a$seq", kind, text, title, if (kind == "tool") "execute" else null, status, "local", null, null, at)
+        val start = now - 12 * 60_000
+        val events = listOf(
+            event(1, "user", start, "Why does relay_reconnect flake on CI?"),
+            event(2, "thought", start + 10_000),
+            event(3, "tool", start + 20_000, title = "Read `crates/codegen/crok-remote/src/socket.rs`", status = "completed").copy(toolKind = "read"),
+            event(4, "tool", start + 30_000, title = "Run `cargo test -p crok-remote relay_reconnect`", status = "completed"),
+            event(5, "tool", start + 40_000, title = "Run `cargo clippy -p crok-remote -- -D warnings`", status = "failed"),
+            event(6, "tool", start + 50_000, title = "Run `cargo bench -p crok-remote`", status = "in_progress"),
+            event(7, "system", start + 60_000, status = "cancelled"),
+            event(8, "user", now - 3 * 60_000, "Skip the bench, run the test 20 times"),
+            event(9, "tool", now - 2 * 60_000, title = "Run `cargo test -p crok-remote relay_reconnect -- --test-threads 1`", status = "in_progress"),
+            event(10, "thought", now - 60_000),
+        )
+        return SessionUiState.build(
+            row = session.row(),
+            detail = session.detail,
+            gone = false,
+            transcript = TranscriptState(events.sortedByDescending { it.seq }, loaded = true, historyComplete = true),
+            prompts = emptyList(),
+            optimistic = emptyList(),
+            connection = ConnectionState.Connected,
+            zone = zone,
+            deviceModels = deviceModels(session.detail.deviceId),
+        )
+    }
+
+    @Test
+    fun activityLight() = shoot("80-activity-light") {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun activityDark() = shoot("81-activity-dark", dark = true) {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun activityOnAWallpaper() = shoot("82-activity-theme-home", appearance = SessionAppearance(themeId = "home")) {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun activityOnAWallpaperDark() = shoot("83-activity-theme-snowman-dark", dark = true, appearance = SessionAppearance(themeId = "snowman")) {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    @Config(qualifiers = "+zh-rCN")
+    fun activityChinese() = shoot("84-activity-zh") {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
+    }
 }

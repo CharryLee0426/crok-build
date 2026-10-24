@@ -85,9 +85,11 @@
     <string name="day_yesterday">昨天</string>
     <string name="message_from">来自 %1$s</string>
     <string name="thought_title">思考</string>
-    <string name="tool_pending">等待中</string>
-    <string name="tool_running">运行中</string>
-    <string name="tool_done">完成</string>
+    <string name="thinking_active">思考中…</string>
+    <string name="tool_state_running">运行中</string>
+    <string name="tool_state_done">完成</string>
+    <string name="tool_state_failed">失败</string>
+    <string name="tool_state_stopped">已停止</string>
     <string name="tool_failed">失败</string>
     <string name="notice_stopped">已停止</string>
     <string name="notice_max_tokens">回复达到了输出上限。</string>

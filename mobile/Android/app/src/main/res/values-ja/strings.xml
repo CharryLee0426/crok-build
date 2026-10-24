@@ -85,9 +85,11 @@
     <string name="day_yesterday">昨日</string>
     <string name="message_from">%1$s から</string>
     <string name="thought_title">思考</string>
-    <string name="tool_pending">待機中</string>
-    <string name="tool_running">実行中</string>
-    <string name="tool_done">完了</string>
+    <string name="thinking_active">思考中…</string>
+    <string name="tool_state_running">実行中</string>
+    <string name="tool_state_done">完了</string>
+    <string name="tool_state_failed">失敗</string>
+    <string name="tool_state_stopped">停止</string>
     <string name="tool_failed">失敗</string>
     <string name="notice_stopped">停止しました</string>
     <string name="notice_max_tokens">返信が出力の上限に達しました。</string>

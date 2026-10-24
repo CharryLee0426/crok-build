@@ -256,7 +256,7 @@ object DemoData {
                 RUNNING_SESSION, "Fix the flaky relay reconnect test", macbook, crokBuild,
                 lastActivityAt = now - MIN, createdAt = now - DAY - 3 * HOUR,
                 status = SessionStatus.RUNNING, app = "desktop", effort = "medium", gitBranch = "fix/relay-reconnect-flake",
-                plan = runningPlan, usage = SessionUsage(182_400, 9_830, 150_200, 2_100, 0.42, 61_500, 256_000), eventSeq = 10,
+                plan = runningPlan, usage = SessionUsage(182_400, 9_830, 150_200, 2_100, 0.42, 61_500, 256_000), eventSeq = 12,
                 preview = "So far 12 of 20 runs passed, none failed.", unread = 2,
             ).let { it.copy(detail = it.detail.copy(sessionId = "0199e2e0-7a1c-7b4e-9f00-5c1d2e3f4a5b")) },
             session(
@@ -392,24 +392,33 @@ object DemoData {
                 yesterday + 60_000, title = "Read socket.rs", toolKind = "read", status = "completed",
             ),
             event(
-                s, 5, EventKind.ASSISTANT,
+                s, 5, EventKind.TOOL, "error: unused variable: `backoff`",
+                yesterday + 75_000, title = "Run `cargo clippy -p crok-remote -- -D warnings`", toolKind = "execute", status = "failed",
+            ),
+            event(
+                s, 6, EventKind.ASSISTANT,
                 "Found it. The test sleeps **500 ms** and then asserts, but the reconnect backoff starts at `250 ms` and " +
                     "doubles, so a second attempt lands at *750 ms*.\n\nI'll make the test wait for the connection instead:\n\n" +
                     "```rust\nclient.wait_connected(Duration::from_secs(5)).await?;\n```\n\n- no fixed sleep\n- fails fast with a clear message",
                 yesterday + 90_000,
             ),
             event(
-                s, 6, EventKind.TOOL,
+                s, 7, EventKind.TOOL,
                 "- tokio::time::sleep(Duration::from_millis(500)).await;\n+ client.wait_connected(Duration::from_secs(5)).await?;",
                 yesterday + 110_000, title = "Edit crates/codegen/crok-remote/src/socket.rs", toolKind = "edit", status = "completed",
             ),
-            event(s, 7, EventKind.SYSTEM, "", yesterday + 115_000, status = "end_turn"),
-            event(s, 8, EventKind.USER, "Run it 20 times to be sure", now - 6 * MIN, origin = "remote", commandId = "demo-cmd-1", fromLabel = PHONE_NAME),
+            // Stopped with its turn: still `in_progress`, but the turn ended after it.
             event(
-                s, 9, EventKind.TOOL, "running 20 iterations…\n12/20 passed",
+                s, 8, EventKind.TOOL, "",
+                yesterday + 112_000, title = "Run `cargo bench -p crok-remote`", toolKind = "execute", status = "in_progress",
+            ),
+            event(s, 9, EventKind.SYSTEM, "", yesterday + 115_000, status = "cancelled"),
+            event(s, 10, EventKind.USER, "Run it 20 times to be sure", now - 6 * MIN, origin = "remote", commandId = "demo-cmd-1", fromLabel = PHONE_NAME),
+            event(
+                s, 11, EventKind.TOOL, "running 20 iterations…\n12/20 passed",
                 now - 5 * MIN, title = "Run cargo test -p crok-remote relay_reconnect (20×)", toolKind = "execute", status = "in_progress",
             ),
-            event(s, 10, EventKind.ASSISTANT, STREAMING_TEXT, now - MIN),
+            event(s, 12, EventKind.ASSISTANT, STREAMING_TEXT, now - MIN),
         )
     }
 

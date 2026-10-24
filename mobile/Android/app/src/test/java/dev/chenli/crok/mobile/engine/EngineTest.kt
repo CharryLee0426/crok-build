@@ -170,10 +170,10 @@ class EngineOverDemoTest {
         engine.sessions.watch(DemoData.CATALOG_SESSION)
         val detail = engine.sessions.get(DemoData.CATALOG_SESSION).first { it.getOrNull()?.historyState == HistoryState.READY }.getOrThrow()!!
         assertEquals("MacBook Pro", detail.deviceName)
-        val pager = TranscriptPager(engine, DemoData.CATALOG_SESSION, scope)
-        pager.start()
-        assertEquals(3, pager.state.first { it.loaded && it.events.isNotEmpty() }.events.size)
-        pager.close()
+        val window = engine.events.window(DemoData.CATALOG_SESSION, scope)
+        window.start()
+        assertEquals(3, window.state.first { it.loaded && it.events.isNotEmpty() }.events.size)
+        window.close()
 
         // The Linux box is offline: nothing to fetch it from.
         engine.sessions.watch(DemoData.OFFLINE_SESSION)
@@ -181,19 +181,22 @@ class EngineOverDemoTest {
     }
 
     @Test
-    fun pagesTheTranscriptNewestFirst() = await {
-        val pager = TranscriptPager(engine, DemoData.RUNNING_SESSION, scope, pageSize = 4)
-        pager.start()
-        val first = pager.state.first { it.loaded }
-        assertEquals(listOf(10L, 9L, 8L, 7L), first.events.map { it.seq })
+    fun loadsTheTranscriptNewestFirstInParts() = await {
+        val window = engine.events.window(DemoData.RUNNING_SESSION, scope, openLimit = 4, olderLimit = 4)
+        window.start()
+        val first = window.state.first { it.loaded }
+        assertEquals(listOf(12L, 11L, 10L, 9L), first.events.map { it.seq })
         assertTrue(!first.historyComplete)
-        pager.loadMore()
-        val second = pager.state.first { it.events.size == 8 }
-        assertEquals((10L downTo 3L).toList(), second.events.map { it.seq })
-        pager.loadMore()
-        val all = pager.state.first { it.historyComplete }
-        assertEquals((10L downTo 1L).toList(), all.events.map { it.seq })
-        pager.close()
+        // Asked during the opening's hand-over to the live end: it happens once that has answered.
+        window.loadMore()
+        val second = window.state.first { it.events.size == 8 }
+        assertEquals((12L downTo 5L).toList(), second.events.map { it.seq })
+        window.loadMore()
+        val all = window.state.first { it.historyComplete && it.events.size == 12 }
+        assertEquals((12L downTo 1L).toList(), all.events.map { it.seq })
+        // Thoughts and tool calls arrive without their text, as from the relay.
+        assertTrue(all.events.filter { it.kind == "thought" || it.kind == "tool" }.all { it.text.isEmpty() })
+        window.close()
     }
 
     private suspend fun expectError(code: RelayErrorCode, block: suspend () -> Unit) {

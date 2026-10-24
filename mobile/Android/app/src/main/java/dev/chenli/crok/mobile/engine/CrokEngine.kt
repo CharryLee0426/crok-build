@@ -20,6 +20,7 @@ import dev.chenli.crok.mobile.data.SessionDetail
 import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.SessionListCache
 import dev.chenli.crok.mobile.data.SessionRow
+import dev.chenli.crok.mobile.data.TranscriptChunk
 import dev.chenli.crok.mobile.data.relayCode
 import dev.chenli.crok.mobile.logic.OrderChange
 import dev.chenli.crok.mobile.logic.SessionOrder
@@ -394,9 +395,17 @@ class CrokEngine(
     }
 
     inner class Events {
-        /** A bottom-anchored, paginated transcript (50 events per page, newest first). */
-        fun pager(sessionDocId: String, scope: CoroutineScope): TranscriptPager =
-            TranscriptPager(this@CrokEngine, sessionDocId, scope)
+        /** A part of the transcript (`sessions:transcript`), newest first, thoughts and tool calls without their text. */
+        fun transcript(sessionDocId: String, range: TranscriptRange): Flow<Result<TranscriptChunk>> =
+            live("sessions:transcript", TranscriptWindow.args(sessionDocId, range), TranscriptChunk.serializer())
+
+        /** The bottom-anchored transcript, as a window of live parts (relay/DESIGN.md §3 "Loading long transcripts"). */
+        fun window(
+            sessionDocId: String,
+            scope: CoroutineScope,
+            openLimit: Int = TranscriptWindow.OPEN_LIMIT,
+            olderLimit: Int = TranscriptWindow.OLDER_LIMIT,
+        ): TranscriptWindow = TranscriptWindow({ range -> transcript(sessionDocId, range) }, scope, openLimit, olderLimit)
     }
 
     inner class Commands {

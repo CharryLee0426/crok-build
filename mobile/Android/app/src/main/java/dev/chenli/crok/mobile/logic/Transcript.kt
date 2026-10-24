@@ -35,6 +35,28 @@ data class Grouping(val withOlder: Boolean = false, val withNewer: Boolean = fal
 
 enum class NoticeKind { Stopped, MaxTokens, Refusal, Error, Info }
 
+/** A tool call's state as the transcript shows it (mobile/DESIGN.md "Thinking and tool calls"). */
+enum class ToolState {
+    /** `pending` / `in_progress` (or no status yet) while its turn runs. */
+    Running,
+    Completed,
+    Failed,
+
+    /** `pending` / `in_progress` after its turn ended (stopped, or the computer went away). */
+    Stopped,
+
+    /** Any other status. */
+    Other,
+}
+
+/** [turnLive]: the call's turn still runs (the session works or waits, and nothing ended that turn since the call). */
+fun toolState(status: String?, turnLive: Boolean): ToolState = when (status) {
+    "completed" -> ToolState.Completed
+    "failed" -> ToolState.Failed
+    null, "pending", "in_progress" -> if (turnLive) ToolState.Running else ToolState.Stopped
+    else -> ToolState.Other
+}
+
 sealed interface TranscriptItem {
     val key: String
 
@@ -65,19 +87,20 @@ sealed interface TranscriptItem {
         val grouping: Grouping = Grouping(),
     ) : TranscriptItem
 
+    /** Reasoning, by its status only: [active] while it is the newest item of a running turn ("Thinking…"). */
     data class Thought(
         override val key: String,
-        val text: String,
         val at: Long,
+        val active: Boolean,
         val grouping: Grouping = Grouping(),
     ) : TranscriptItem
 
+    /** A tool call by its status only (the relay does not send its output to the phones). */
     data class Tool(
         override val key: String,
         val title: String,
         val toolKind: String?,
-        val status: String?,
-        val text: String,
+        val state: ToolState,
         val at: Long,
         val grouping: Grouping = Grouping(),
     ) : TranscriptItem
@@ -125,8 +148,10 @@ object Transcript {
      *
      * @param events any order, possibly with duplicates across pages
      * @param prompts `commands:forSession` — prompts from phones and the web, for ticks and failures
-     * @param historyComplete true when the oldest page is loaded (`isDone`)
+     * @param historyComplete true when the oldest item is loaded
      * @param cards the phone's bot cards (`/model`, `/think`), placed by when they were made
+     * @param turnRunning a turn runs (the session works, or waits on a permission request): the newest thought is
+     *   "Thinking…" and its unfinished tool calls are running
      */
     fun build(
         events: List<RelayEvent>,
@@ -136,6 +161,7 @@ object Transcript {
         historyComplete: Boolean,
         zone: ZoneId,
         cards: List<BotCard> = emptyList(),
+        turnRunning: Boolean = sessionRunning,
     ): List<TranscriptItem> {
         val ordered = events.distinctBy { it.id }.sortedBy { it.seq }
         val commandsById = prompts.associateBy { it.id }
@@ -149,13 +175,17 @@ object Transcript {
         } else {
             null
         }
+        // Where the running turn began: after the last turn marker or prompt. Calls before it belong to an ended turn.
+        val lastTurnEnd = ordered.lastOrNull { it.kind == EventKind.USER || it.kind == EventKind.SYSTEM && it.status != null }?.seq
+        val newestId = ordered.lastOrNull()?.id
+        val context = RowContext(commandsById, streamingId, turnRunning, lastTurnEnd, newestId)
 
         val rows = ArrayList<TranscriptItem>(ordered.size + optimistic.size + cards.size)
         // Bot cards go among the events by time: a card made before the computer's next reply stays above it.
         val botRows = cards.sortedBy { it.createdAt }.map { TranscriptItem.Bot("b:${it.id}", it, it.createdAt) }
         var nextCard = 0
         for (event in ordered) {
-            val row = rowFor(event, commandsById, streamingId) ?: continue
+            val row = rowFor(event, context) ?: continue
             while (nextCard < botRows.size && botRows[nextCard].at < atOf(row)) rows += botRows[nextCard++]
             rows += row
         }
@@ -210,16 +240,22 @@ object Transcript {
         return withDaysAndGrouping(rows, zone).asReversed().distinctBy { it.key }
     }
 
-    private fun rowFor(
-        event: RelayEvent,
-        commandsById: Map<String, PromptCommand>,
-        streamingId: String?,
-    ): TranscriptItem? {
+    private class RowContext(
+        val commandsById: Map<String, PromptCommand>,
+        val streamingId: String?,
+        val turnRunning: Boolean,
+        /** The seq of the last prompt or turn marker: a call after it belongs to the turn that runs now. */
+        val lastTurnEnd: Long?,
+        val newestId: String?,
+    )
+
+    private fun rowFor(event: RelayEvent, context: RowContext): TranscriptItem? {
         val key = "e:${event.id}"
+        val streamingId = context.streamingId
         return when (event.kind) {
             EventKind.USER -> {
                 val remote = event.origin == "remote"
-                val command = event.commandId?.let(commandsById::get)
+                val command = event.commandId?.let(context.commandsById::get)
                 // Status ticks belong to the sender: only prompts this device sent get them.
                 val mine = remote && command != null && command.isMine
                 TranscriptItem.User(
@@ -239,13 +275,13 @@ object Transcript {
                 if (event.text.isBlank() && event.id != streamingId) return null
                 TranscriptItem.Assistant(key, event.text, event.at, streaming = event.id == streamingId)
             }
-            EventKind.THOUGHT -> if (event.text.isBlank()) null else TranscriptItem.Thought(key, event.text, event.at)
+            // Its text never reaches the phones (`sessions:transcript`): only whether it is still going.
+            EventKind.THOUGHT -> TranscriptItem.Thought(key, event.at, active = context.turnRunning && event.id == context.newestId)
             EventKind.TOOL -> TranscriptItem.Tool(
                 key = key,
-                title = event.title?.takeIf { it.isNotBlank() } ?: event.text.lineSequence().firstOrNull().orEmpty(),
+                title = event.title?.takeIf { it.isNotBlank() } ?: event.text.trim().lineSequence().firstOrNull().orEmpty(),
                 toolKind = event.toolKind,
-                status = event.status,
-                text = event.text,
+                state = toolState(event.status, context.turnRunning && (context.lastTurnEnd == null || event.seq > context.lastTurnEnd)),
                 at = event.at,
             )
             EventKind.ERROR -> TranscriptItem.Notice(key, NoticeKind.Error, event.text, event.at)

@@ -9,7 +9,6 @@ import dev.chenli.crok.mobile.data.ConfigId
 import dev.chenli.crok.mobile.data.CreateResult
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.EventKind
-import dev.chenli.crok.mobile.data.EventPage
 import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.Me
 import dev.chenli.crok.mobile.data.ModelChoice
@@ -24,6 +23,7 @@ import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
 import dev.chenli.crok.mobile.data.RevokeOthersResult
 import dev.chenli.crok.mobile.data.SessionStatus
+import dev.chenli.crok.mobile.data.TranscriptChunk
 import dev.chenli.crok.mobile.engine.RelayTransport
 import dev.chenli.crok.mobile.logic.SessionOrder
 import dev.chenli.crok.mobile.logic.UserCode
@@ -138,7 +138,7 @@ class DemoTransport(
                 }
                 RelayJson.encodeToJsonElement(SessionCommands.serializer(), commands)
             }
-            "sessions:events" -> RelayJson.encodeToJsonElement(EventPage.serializer(), page(s, args))
+            "sessions:transcript" -> RelayJson.encodeToJsonElement(TranscriptChunk.serializer(), transcript(s, args))
             "commands:forSession" -> RelayJson.encodeToJsonElement(
                 ListSerializer(dev.chenli.crok.mobile.data.PromptCommand.serializer()),
                 s.commands.filter { it.sessionDocId == args["sessionDocId"] && (it.type == CommandType.PROMPT || it.type == CommandType.CREATE) }
@@ -165,23 +165,16 @@ class DemoTransport(
         }
     }
 
-    /** Convex-style pagination over the session's events, newest first; cursors are `seq:<n>`. */
-    private fun page(s: DemoState, args: Map<String, Any?>): EventPage {
+    /** `sessions:transcript` as the relay answers it (see [transcriptChunk]). */
+    private fun transcript(s: DemoState, args: Map<String, Any?>): TranscriptChunk {
         val sessionId = args["sessionDocId"] as? String
-        @Suppress("UNCHECKED_CAST")
-        val options = args["paginationOpts"] as? Map<String, Any?> ?: emptyMap()
-        val numItems = (options["numItems"] as? Number)?.toInt() ?: 50
-        val cursor = (options["cursor"] as? String)?.removePrefix("seq:")?.toLongOrNull()
-        val end = (options["endCursor"] as? String)?.removePrefix("seq:")?.toLongOrNull()
-        val all = s.events[sessionId].orEmpty().sortedByDescending { it.seq }
-        val after = if (cursor != null) all.filter { it.seq < cursor } else all
-        val items = if (end != null) after.filter { it.seq >= end } else after.take(numItems)
-        val continueCursor = when {
-            end != null -> "seq:$end"
-            items.isNotEmpty() -> "seq:${items.last().seq}"
-            else -> "seq:${cursor ?: 0}"
-        }
-        return EventPage(items, isDone = items.size == after.size, continueCursor = continueCursor)
+        if (s.sessions.none { it.id == sessionId }) throw RelayException(RelayErrorCode.NOT_FOUND, "No such session.")
+        return transcriptChunk(
+            s.events[sessionId].orEmpty(),
+            afterSeq = (args["afterSeq"] as? Number)?.toLong(),
+            throughSeq = (args["throughSeq"] as? Number)?.toLong(),
+            limit = (args["limit"] as? Number)?.toInt() ?: 40,
+        )
     }
 
     // ---- Mutations ----
@@ -624,6 +617,11 @@ class DemoTransport(
                 )
             }
             delay(600)
+            // It thinks first: the phone shows "Thinking…" while that is the newest item.
+            appendEvent(sessionDocId) { seq ->
+                RelayEvent("$sessionDocId-e$seq", seq, "k$seq", EventKind.THOUGHT, "Read the README before answering.", at = clock())
+            }
+            delay(1_200)
             val tool = appendEvent(sessionDocId) { seq ->
                 RelayEvent(
                     "$sessionDocId-e$seq", seq, "k$seq", EventKind.TOOL, "README.md",
