@@ -284,6 +284,11 @@ export default defineSchema({
   /** One transcript item. Streaming text updates the same row (same `key`). */
   events: defineTable({
     sessionDocId: v.id("sessions"),
+    /**
+     * The session's owner, so `sessions:transcript` can check access without reading the session (whose every change
+     * would re-run each loaded part of a long transcript). Unset on items from before it.
+     */
+    userId: v.optional(v.id("users")),
     seq: v.number(),
     key: v.string(),
     kind: eventKind,

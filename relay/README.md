@@ -153,6 +153,7 @@ npm run keys -- --apply
 npx convex env set CLERK_JWT_ISSUER_DOMAIN https://placeholder.clerk.accounts.dev   # any value for the scripts
 npm run test:e2e                                # the relay alone: sign-in, mirroring, commands, revocation
 node scripts/commands-e2e.mjs                   # new sessions from any device, model / thinking level, slash commands
+CROK_E2E_ROUNDS=3000 node scripts/transcript-e2e.mjs   # a 3,000-turn session over sessions:transcript, with costs
 CROK_BIN=…/xai-grok-pager CROK_HOME=/tmp/crok-e2e E2E_PROJECT=~/crok-e2e-project node scripts/bridge-e2e.mjs   # project outside the temp folder
 ```
 

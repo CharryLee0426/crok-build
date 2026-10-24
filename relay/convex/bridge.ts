@@ -413,7 +413,14 @@ export const pushEvents = mutation({
         seq += 1;
         inserted += 1;
         if (event.kind === "assistant") assistantCount += 1;
-        await ctx.db.insert("events", { sessionDocId, seq, key: event.key, at: event.at, ...fields });
+        await ctx.db.insert("events", {
+          sessionDocId,
+          userId: session.userId,
+          seq,
+          key: event.key,
+          at: event.at,
+          ...fields,
+        });
       }
     }
     if (replace) readAssistantCount = assistantCount;

@@ -277,7 +277,8 @@ historyState: null|"none"|"requested"|"ready", starting}`; `starting` = made by 
 computer yet. `historyState` `none`/`requested` with no events: the transcript is
 still only on the computer — show "Loading from <computer>…" while `deviceOnline`, else "<computer> is offline; this
 session's history shows once crok runs there".
-| `sessions:events` (paginated query) | `sessionDocId, paginationOpts:{numItems, cursor}` | `{page:[event], isDone, continueCursor}` newest first |
+| `sessions:events` (paginated query) | `sessionDocId, paginationOpts:{numItems, cursor}` | `{page:[event], isDone, continueCursor}` newest first — every field of every item (the web, crok's viewer) |
+| `sessions:transcript` (query) | `sessionDocId, afterSeq?, throughSeq?, limit?` | `{events:[event], more}` newest first — the items with `afterSeq < seq <= throughSeq`, at most `limit` (default 40, ≤ 200) and about 400 000 characters; thoughts and tool calls without `text` (a tool without a title gets its detail's first line as `title`); `more`: older items in the range than returned. The phones' window (below, "Loading long transcripts") |
 | `sessions:markRead` / `watch` (mutation) | `sessionDocId` | `null` — call `watch` on open and every 60 s (it also fetches a listed session's transcript) |
 | `sessions:setPinned` / `setArchived` (mutation) | `sessionDocId, pinned\|archived` | `null` |
 | `sessions:remove` (mutation) | `sessionDocId` | `null` (offline sessions only) |
@@ -293,6 +294,31 @@ An **event** is `{_id, seq, key, kind, text, title?, toolKind?, status?, origin?
   detail (command, path, output tail).
 - `kind: "system"` — a turn marker or notice (`status` carries the stop reason: `end_turn`, `cancelled`, `max_tokens`,
   `refusal`, …); `kind: "error"` — a failure line.
+
+#### Loading long transcripts (iOS, Android)
+
+A session mirrored for weeks holds thousands of turns, and one thought or tool output can be 32 000 characters.
+Convex re-sends a query's whole answer whenever anything it read changes, so the phones keep the transcript as a
+**window of seq ranges** over `sessions:transcript`, each range its own live query, sized so a change re-sends little:
+
+- **Open:** `{limit: 40}` (the newest 40). On its first answer, with `L` its oldest `seq`: the **live end** becomes
+  `{afterSeq: L − 1, limit: 200}` (everything from `L` on, growing as items arrive); keep showing the first answer
+  until it answers, then drop that query. An empty session keeps `{limit: 40}` as its live end until items arrive.
+- **Older:** reaching the top asks `{throughSeq: O − 1, limit: 60}`, `O` the oldest `seq` loaded; `more` false on
+  the oldest part = the beginning of the session.
+- **Split the live end** once it holds more than 80 items or more than 200 000 characters of text: with `S` the
+  `seq` of its 40th newest item (or its middle item, by text), subscribe `{afterSeq: L − 1, throughSeq: S − 1,
+  limit: 200}` (a fixed part) and `{afterSeq: S − 1, limit: 200}` (the new live end), and drop the old live end once
+  both have answered. A streamed reply then re-sends only the live end, never the whole loaded transcript.
+- **Start over** (from **Open**, keeping what shows until the new answer) when the live end answers `more: true`
+  (more arrived than it holds, e.g. after the phone slept) or a part that had items answers none (the computer
+  replaced the transcript: `bridge:pushEvents` with `replace`).
+- Items are merged by `_id` (a part's newer answer wins); parts never overlap, gaps never appear (seq only grows).
+- Thoughts and tool calls show their status only (mobile/DESIGN.md "Thinking and tool calls"), which is why
+  `sessions:transcript` leaves their text out.
+
+`sessions:transcript` reads only the items (each carries its session's `userId`), not the session row, so a part
+nothing changes is never re-run; only the live end is, as items arrive or stream.
 
 Session `status`: `idle`, `running` (a turn is in progress: show Stop), `waiting` (the agent asked a question or a
 permission; `pending` holds a permission request any device can answer), `error`. `online: false` = no crok process
@@ -731,7 +757,7 @@ Built from Telegram's patterns (structure and UX only; Telegram's code is GPL an
 | Chat-list row anatomy | avatar (project initials, online dot), title, time, computer · folder, preview or animated "working…", unread badge, pin, needs-approval badge | iOS `ChatListItem.swift`, `ChatListTypingNode.swift`, `ChatListBadgeNode.swift`; And `Cells/DialogCell.java` |
 | Folders as tabs | "All" + one tab per computer + "Archived" | iOS `ChatListFilterTabContainerNode`; And `Components/FilterTabsView.java` |
 | Swipe actions as data, semantic colours, list frozen during a swipe | Pin (constructive), Stop (destructive, while running), Archive (inactive) | iOS `ChatListItem.revealOptions`, `ItemListRevealOptionsNode.swift`; And `DialogsActivity.SwipeController`, `DialogsAdapter.setDialogsListFrozen` |
-| Bottom-anchored windowed history | 50 events per page, load older on scroll | iOS `ChatHistoryListNode.swift` (`historyMessageCount = 44`); And `ChatActivity` reversed layout |
+| Bottom-anchored windowed history | the newest 40 items, a live end that splits before it grows long, 60 older items per part on scroll (§3 "Loading long transcripts") | iOS `ChatHistoryListNode.swift` (`historyMessageCount = 44`); And `ChatActivity` reversed layout |
 | Grouping + day headers | merge consecutive items of one author within 10 min; sticky day headers | iOS `ChatMessageMergeFingerprint.swift`, `ChatMessageDateHeader.swift`; And `pinnedTop/pinnedBottom` |
 | Optimistic send with a client id and status ticks | clock → ✓ → ✓✓, red "!" with Retry / Delete | iOS `EnqueueMessage.swift`, `ChatMessageDateAndStatusNode.swift`, `ChatMessageDeliveryFailedNode`; And `SendMessagesHelper`, `ChatMessageCell.createStatusDrawableParams` |
 | Send / Stop / Blocked button | Stop while `status == running`, blocked while offline | iOS `ChatTextInputPanelNode` `displayStop`, `TypingDraftStop.swift`; And `BotForumHelper.SteamingSendButtonState`, `ChatActivityEnterView.setBlockedByStreaming` |
@@ -761,7 +787,10 @@ through a String Catalog, Android through `values-*/strings.xml`, the web app th
 
 Convex free tier: 1 GB/month database bandwidth, 0.5 GB storage. Events are capped at 32 000 characters (the computer
 keeps the full text), 100 per call; sessions keep their relay copy 30 days after their last activity. A busy streaming
-session watched from a phone costs about one small mutation per 0.75 s; unwatched, one per message.
+session watched from a phone costs about one small mutation per 0.75 s; unwatched, one per message. The phones'
+transcript window re-reads only its live end (at most 80 items) as a reply streams, and never a thought's or tool's
+text: measured on a local deployment with 3,000 turns (15,000 items, `scripts/transcript-e2e.mjs`), opening the
+session costs 19 kB instead of 118 kB with `sessions:events`, and walking it all back 6.8 MB instead of 35 MB.
 
 ## 8. Deployment
 

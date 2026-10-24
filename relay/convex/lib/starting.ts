@@ -108,6 +108,14 @@ export async function appendNotice(
   if (!session) return;
   const seq = session.eventSeq + 1;
   const now = Date.now();
-  await ctx.db.insert("events", { sessionDocId, seq, key: `relay-${now}-${seq}`, kind, text, at: now });
+  await ctx.db.insert("events", {
+    sessionDocId,
+    userId: session.userId,
+    seq,
+    key: `relay-${now}-${seq}`,
+    kind,
+    text,
+    at: now,
+  });
   await ctx.db.patch(sessionDocId, { eventSeq: seq, preview: text.slice(0, 280), previewKind: kind });
 }
