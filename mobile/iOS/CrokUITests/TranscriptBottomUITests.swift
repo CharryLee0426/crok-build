@@ -41,10 +41,13 @@ final class TranscriptBottomUITests: XCTestCase {
         app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Heading 6")).firstMatch
     }
 
-    /// The top of what sits over the transcript's bottom: the offline notice, or the composer's field.
+    /// The top of what sits over the transcript's bottom: the offline notice, or the composer (its model and
+    /// thinking-level pills when it shows them, else its field).
     private func bottomBarTop(_ app: XCUIApplication) -> CGFloat {
         let notice = element(app, "offlineNotice")
-        return notice.exists ? notice.frame.minY : element(app, "composerField").frame.minY
+        if notice.exists { return notice.frame.minY }
+        let pills = element(app, "modelPill")
+        return pills.exists ? pills.frame.minY : element(app, "composerField").frame.minY
     }
 
     /// The reply's last line is on screen, just above the bar (no blank stretch under it, nothing of it hidden).
@@ -120,6 +123,74 @@ final class TranscriptBottomUITests: XCTestCase {
         snap("bottom-stream-done")
         assertAtEnd(app, "after streaming")
         XCTAssertFalse(element(app, "scrollToBottom").exists, "at the end: no scroll-to-bottom button")
+    }
+
+    /// While a transcript shorter than the screen grows (the prompt, the computer's tool call, the start of its reply),
+    /// the prompt stays in sight between the navigation bar and the composer: samples for `seconds` and fails on any
+    /// sample out of sight (a transcript that fits never scrolls, so not even a jump midway). Logs every sample.
+    private func assertPromptStaysInSight(_ app: XCUIApplication, _ text: String, seconds: Double, _ context: String) {
+        // In the bubble (a new session's title is its first prompt too).
+        let bubble = app.descendants(matching: .any).matching(identifier: "userBubble")
+            .containing(NSPredicate(format: "label == %@", text)).staticTexts[text].firstMatch
+        XCTAssertTrue(bubble.waitForExistence(timeout: 10), "\(context): the prompt shows")
+        let field = element(app, "composerField")
+        let bar = app.navigationBars.firstMatch
+        var log: [String] = []
+        var missesInARow = 0
+        var failed = false
+        let start = Date()
+        var sample = 0
+        while Date().timeIntervalSince(start) < seconds {
+            if bubble.exists {
+                // Frames only: an element off screen has no hit point.
+                let frame = bubble.frame, top = bar.frame.maxY, bottom = field.frame.minY
+                let out = frame.maxY > bottom + 1 || frame.minY < top - 1
+                log.append(String(
+                    format: "%.1fs bubble %.0f–%.0f visible %.0f–%.0f%@", Date().timeIntervalSince(start), frame.minY,
+                    frame.maxY, top, bottom, out ? " OUT" : ""))
+                missesInARow = out ? missesInARow + 1 : 0
+                if missesInARow == 1 && !failed {
+                    failed = true
+                    snap("first-message-miss-\(context)")
+                }
+            }
+            if sample % 5 == 0 { snap(String(format: "first-message-\(context)-%02d", sample)) }
+            sample += 1
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        print("[first-message \(context)]\n" + log.joined(separator: "\n"))
+        XCTAssertFalse(failed, "\(context): the prompt went out of sight:\n\(log.joined(separator: "\n"))")
+    }
+
+    /// A new session's first prompt: the new-session screen becomes the session, and the prompt (then the reply) is in
+    /// sight right away, without a touch.
+    func testFirstPromptOfANewSessionStaysInSight() {
+        let app = launch()
+        app.openProject("crok-build")
+        element(app, "newSessionInProject").tap()
+        let field = element(app, "composerField")
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("Add a health check endpoint")
+        element(app, "sendButton").tap()
+        XCTAssertTrue(element(app, "sessionInfoButton").waitForExistence(timeout: 5), "the screen became the session")
+        assertPromptStaysInSight(app, "Add a health check endpoint", seconds: 8, "new-session")
+        snap("first-message-new-session")
+    }
+
+    /// A prompt sent in a session whose transcript is shorter than the screen.
+    func testPromptInAShortSessionStaysInSight() {
+        let app = launch()
+        app.openSession("Relay: device sign-in", in: "crok-build")
+        let field = element(app, "composerField")
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 1)
+        field.tap()
+        field.typeText("Add a test for it")
+        element(app, "sendButton").tap()
+        // Until the reply starts (~2.7 s): after that it grows past the screen and the prompt goes up, as it should.
+        assertPromptStaysInSight(app, "Add a test for it", seconds: 2.4, "short-session")
+        snap("first-message-short-session")
     }
 
     func testButtonAppearsInsideALongLastReplyAndReturnsToItsEnd() {

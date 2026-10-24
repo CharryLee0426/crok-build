@@ -63,11 +63,32 @@ struct UserMessage: Equatable, Sendable {
     var isPending: Bool
 }
 
+/// A tool call as the phones show it: by its status only (mobile/DESIGN.md "Thinking and tool calls").
 struct ToolCall: Equatable, Sendable {
     var title: String
     var toolKind: String
     var status: ToolStatus
-    var detail: String
+}
+
+/// How a tool call's row looks, from its status and whether the turn still runs (Crok Desktop's tones).
+enum ToolRowState: Equatable, Sendable {
+    /// Pending or in progress while the turn runs: a spinner.
+    case running
+    case completed
+    case failed
+    /// Pending or in progress after the turn ended (stopped, or the computer went away).
+    case stopped
+    /// A status the phone does not know.
+    case other
+
+    init(_ status: ToolStatus, turnRunning: Bool) {
+        switch status {
+        case .pending, .inProgress: self = turnRunning ? .running : .stopped
+        case .completed: self = .completed
+        case .failed: self = .failed
+        case .other: self = .other
+        }
+    }
 }
 
 enum NoticeStyle: Equatable, Sendable { case system, stopped, error }
@@ -77,7 +98,8 @@ struct TranscriptItem: Identifiable, Equatable, Sendable {
         case day
         case user(UserMessage)
         case assistant(text: String)
-        case thought(text: String)
+        /// Reasoning, shown by its status only.
+        case thought
         case tool(ToolCall)
         case notice(text: String, style: NoticeStyle)
         /// The phone's own answer to `/model` or `/think` (never on the relay).
@@ -217,11 +239,13 @@ enum TranscriptBuilder {
         case .assistant:
             return TranscriptItem(id: event.id, kind: .assistant(text: event.text), date: date, seq: event.seq)
         case .thought:
-            return TranscriptItem(id: event.id, kind: .thought(text: event.text), date: date, seq: event.seq)
+            return TranscriptItem(id: event.id, kind: .thought, date: date, seq: event.seq)
         case .tool:
+            let title = (event.title?.isEmpty == false ? event.title : nil)
+                ?? event.text.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
             let call = ToolCall(
-                title: event.title ?? event.text, toolKind: event.toolKind ?? "other", status: ToolStatus(event.status),
-                detail: event.text)
+                title: title.isEmpty ? String(localized: "Tool call") : title, toolKind: event.toolKind ?? "other",
+                status: ToolStatus(event.status))
             return TranscriptItem(id: event.id, kind: .tool(call), date: date, seq: event.seq)
         case .system, .unknown:
             guard let notice = systemNotice(text: event.text, status: event.status) else { return nil }

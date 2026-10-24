@@ -162,8 +162,13 @@ extension DemoWorld {
                 status: .idle, online: false, last: t - 5 * hour, created: t - 9 * hour, unread: 1, model: "grok-4",
                 usage: SessionUsage(inputTokens: 220_000, outputTokens: 18_000, cachedTokens: 190_000, reasoningTokens: 9_000, costUsd: 1.12, contextTokens: 130_000, contextWindow: 256_000)),
             events: [], commands: [], preview: "The SIMD path is 3.1× faster on long inputs; short inputs are unchanged.", previewKind: .assistant)
+        // A tool call still running when the computer went away: "stopped".
         bench.events = [
-            TranscriptEvent(id: "e-bench-1", seq: 1, key: "k1", kind: .assistant, text: "The SIMD path is 3.1× faster on long inputs; short inputs are unchanged.", at: t - 5 * hour),
+            TranscriptEvent(id: "e-bench-0", seq: 1, key: "k0", kind: .user, text: "Is the SIMD path faster?", at: t - 5.2 * hour),
+            TranscriptEvent(id: "e-bench-1", seq: 2, key: "k1", kind: .thought, text: "Run the benchmarks on both paths.", at: t - 5.2 * hour + 5_000),
+            TranscriptEvent(id: "e-bench-2", seq: 3, key: "k2", kind: .tool, text: "cargo bench --bench tokenize", title: "Execute `cargo bench --bench tokenize`", toolKind: "execute", status: "completed", at: t - 5.2 * hour + 9_000),
+            TranscriptEvent(id: "e-bench-3", seq: 4, key: "k3", kind: .assistant, text: "The SIMD path is 3.1× faster on long inputs; short inputs are unchanged.", at: t - 5 * hour),
+            TranscriptEvent(id: "e-bench-4", seq: 5, key: "k4", kind: .tool, text: "cargo bench --bench tokenize -- --save-baseline simd", title: "Execute `cargo bench --bench tokenize -- --save-baseline simd`", toolKind: "execute", status: "in_progress", at: t - 5 * hour + 4_000),
         ]
 
         // 5. Offline (the process exited).

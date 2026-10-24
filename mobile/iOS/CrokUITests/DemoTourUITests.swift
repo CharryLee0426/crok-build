@@ -649,6 +649,55 @@ final class DemoTourUITests: XCTestCase {
         XCTAssertTrue(app.waitFor(5) { modelPill.pillValue == "Grok 4" && thinkingPill.pillValue == "Low" })
     }
 
+    /// The status words of the tool calls on screen ("running", "done", "failed", "stopped").
+    private func toolStates(_ app: XCUIApplication) -> [String] {
+        app.descendants(matching: .any).matching(identifier: "toolCard").allElementsBoundByIndex.map {
+            $0.value as? String ?? ""
+        }
+    }
+
+    /// Reasoning and tool calls by their status only (mobile/DESIGN.md "Thinking and tool calls"), in light and dark and
+    /// on a wallpaper: done, failed, running and stopped tool calls; "Thinking…" while a turn reasons, then "Thought".
+    func testThinkingAndToolRows() {
+        for (appearance, theme) in [("light", "none"), ("dark", "none"), ("light", "tulip"), ("dark", "game")] {
+            let suffix = "\(theme)-\(appearance)"
+            let app = launch(appearance: appearance, theme: theme)
+            waitForList(app)
+            // Running: a tool call in progress, done and failed ones above it.
+            app.openSession("Fix the flaky upload test", in: "crok-build")
+            let tool = element(app, "toolCard")
+            XCTAssertTrue(tool.waitForExistence(timeout: 10))
+            let deadline = Date().addingTimeInterval(5)
+            while !toolStates(app).contains("running"), Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+            XCTAssertTrue(toolStates(app).contains("running"), "\(toolStates(app))")
+            Thread.sleep(forTimeInterval: 1)
+            snap("60-tools-running-\(suffix)")
+            app.swipeDown()
+            Thread.sleep(forTimeInterval: 0.6)
+            let shown = toolStates(app)
+            XCTAssertTrue(shown.contains("done"), "\(shown)")
+            snap("61-tools-done-failed-\(suffix)")
+            app.goBack()
+            app.goBack()
+
+            // A turn reasoning from the phone: "Thinking…", then "Thought" once the tool call follows.
+            app.openSession("Relay: device sign-in", in: "crok-build")
+            let field = element(app, "composerField")
+            XCTAssertTrue(field.waitForExistence(timeout: 5))
+            field.tap()
+            field.typeText("Check the expiry")
+            element(app, "sendButton").tap()
+            let thinking = element(app, "thoughtRowActive")
+            XCTAssertTrue(thinking.waitForExistence(timeout: 10), "Thinking… while the turn reasons")
+            Thread.sleep(forTimeInterval: 0.4)
+            snap("62-thinking-\(suffix)")
+            XCTAssertTrue(element(app, "thoughtRow").waitForExistence(timeout: 10), "then Thought")
+            XCTAssertFalse(thinking.exists)
+            snap("63-thought-\(suffix)")
+            app.terminate()
+        }
+    }
+
     /// The pills in dark mode, with a session theme, on an older crok (dimmed), and a refused change.
     func testModelPillsLook() {
         for (appearance, theme) in [("dark", "none"), ("light", "tulip"), ("dark", "game")] {

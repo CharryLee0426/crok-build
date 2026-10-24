@@ -142,15 +142,18 @@ private struct SessionContent: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ComposerView(model: model, focused: $composerFocused) {
-                    model.followBottom()
-                    withAnimation(.snappy) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                    // What was sent shows at the bottom. A transcript that fits is there already (see `contentFits`).
+                    let scrolling = !model.contentFits
+                    model.followBottom(scrolling: scrolling)
+                    if scrolling { withAnimation(.snappy) { proxy.scrollTo(Self.bottomID, anchor: .bottom) } }
                 }
                 .modifier(VisibleBottomEdge(model: model))
             }
             .onChange(of: model.contentTick) { _, _ in
-                if model.shouldFollowBottom { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                if model.shouldFollowBottom && !model.contentFits { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
             }
             .onChange(of: model.pinTick) { _, _ in
+                guard !model.contentFits else { return }
                 proxy.scrollTo(Self.bottomID, anchor: .bottom)
             }
             .onChange(of: composerFocused) { _, focused in
@@ -158,6 +161,7 @@ private struct SessionContent: View {
                 // After the keyboard has moved the composer up.
                 Task {
                     try? await Task.sleep(for: .milliseconds(350))
+                    guard !model.contentFits else { return }
                     withAnimation(.snappy) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
                 }
             }

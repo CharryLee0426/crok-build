@@ -1,34 +1,6 @@
 import Foundation
 import Observation
 
-/// One page of the transcript subscription. The newest page (`cursor == nil`) is live and grows as events arrive;
-/// once an older page is loaded below it, its end is pinned (`endCursor`) so pages stay contiguous (the same scheme
-/// Convex's own paginated queries use).
-@MainActor
-final class TranscriptPage {
-    let cursor: String?
-    private(set) var endCursor: String?
-    private(set) var query: LiveQuery<EventsPage>
-    private let make: @MainActor (String?, String?) -> LiveQuery<EventsPage>
-
-    init(cursor: String?, make: @escaping @MainActor (String?, String?) -> LiveQuery<EventsPage>) {
-        self.cursor = cursor
-        self.make = make
-        self.query = make(cursor, nil)
-    }
-
-    /// Fixes where this page ends and resubscribes; keeps showing the old value until the new one arrives.
-    func pin(to endCursor: String) {
-        guard self.endCursor == nil else { return }
-        self.endCursor = endCursor
-        let previous = query
-        query = make(cursor, endCursor)
-        if let value = previous.value { query.override(value) }
-        query.start()
-        previous.stop()
-    }
-}
-
 /// The session screen's state: header, plan, transcript (paged, bottom-anchored), prompt ticks, streaming reveal,
 /// composer draft and its slash commands (the Menu, `/model` and `/think` bot cards), the model and thinking-level pills
 /// above the composer, and the `watch` / `markRead` bookkeeping.
@@ -96,7 +68,8 @@ final class SessionViewModel {
         }
     }
 
-    @ObservationIgnored private(set) var pages: [TranscriptPage] = []
+    /// The loaded part of the transcript (`sessions:transcript`), made on first appearance.
+    @ObservationIgnored private(set) var window: TranscriptWindow?
     @ObservationIgnored private var events: [DocID: TranscriptEvent] = [:]
     @ObservationIgnored private var pacers: [DocID: TextRevealPacer] = [:]
     @ObservationIgnored private var watchTask: Task<Void, Never>?
@@ -125,12 +98,6 @@ final class SessionViewModel {
     /// Opens a new session in this session's project (`/new`); the screen wires it to navigation.
     @ObservationIgnored var onNewSession: ((NewSessionTarget, String?) -> Void)?
 
-    /// Events per page; `-CrokPageSize 8` makes paging easy to try with the demo data.
-    static var pageSize: Int {
-        let override = UserDefaults.standard.integer(forKey: "CrokPageSize")
-        return override > 0 ? override : 50
-    }
-
     init(sessionDocId: DocID, engine: CrokEngine) {
         self.sessionDocId = sessionDocId
         self.engine = engine
@@ -147,16 +114,19 @@ final class SessionViewModel {
     func appear() {
         guard !isVisible else { return }
         isVisible = true
-        if pages.isEmpty {
+        if window == nil {
             detail.onValue = { [weak self] value in self?.detailChanged(value) }
             commands.onValue = { [weak self] _ in self?.rebuild() }
             detail.start()
             commands.start()
             slashCommands.start()
             watchModels(of: engine.sessionRow(sessionDocId)?.deviceId)
-            let first = makePage(cursor: nil)
-            pages = [first]
-            first.query.start()
+            let sessions = engine.sessions
+            let id = sessionDocId
+            let window = TranscriptWindow(engine: engine) { range in sessions.transcript(id, range: range) }
+            window.onChange = { [weak self] in self?.windowChanged() }
+            self.window = window
+            window.start()
         }
         let sessions = engine.sessions
         let id = sessionDocId
@@ -189,48 +159,27 @@ final class SessionViewModel {
         modelQuery?.stop()
         for watch in configWatches.values { watch.stop() }
         configWatches.removeAll()
-        for page in pages { page.query.stop() }
-    }
-
-    private func makePage(cursor: String?) -> TranscriptPage {
-        let sessions = engine.sessions
-        let id = sessionDocId
-        let size = Self.pageSize
-        let page = TranscriptPage(cursor: cursor) { [weak self] cursor, endCursor in
-            let query = LiveQuery<EventsPage>(engine: self?.engine) {
-                sessions.events(id, cursor: cursor, endCursor: endCursor, numItems: size)
-            }
-            query.onValue = { [weak self] _ in self?.pagesChanged() }
-            return query
-        }
-        return page
+        window?.stop()
     }
 
     // MARK: Paging
 
-    /// Loads the next older page (scrolled to the top of the transcript).
+    /// Loads the next older part (scrolled to the top of the transcript).
     func loadOlder() {
-        guard hasOlder, !isLoadingOlder, let last = pages.last, let value = last.query.value else { return }
-        isLoadingOlder = true
-        last.pin(to: value.continueCursor)
-        let older = makePage(cursor: value.continueCursor)
-        pages.append(older)
-        older.query.start()
+        guard let window, hasOlder, !isLoadingOlder else { return }
+        window.loadOlder()
+        isLoadingOlder = window.isLoadingOlder
     }
 
-    private func pagesChanged() {
+    private func windowChanged() {
+        guard let window else { return }
         let previous = events
         let wasLoadingOlder = isLoadingOlder
-        var merged: [DocID: TranscriptEvent] = [:]
-        for page in pages {
-            for event in page.query.value?.page ?? [] { merged[event.id] = event }
-        }
+        let merged = window.events
         events = merged
-        if let last = pages.last, let value = last.query.value {
-            hasOlder = !value.isDone
-            isLoadingOlder = false
-        }
-        let firstLoad = !initialLoaded && pages.first?.query.value != nil
+        hasOlder = window.hasOlder
+        isLoadingOlder = window.isLoadingOlder
+        let firstLoad = !initialLoaded && window.loaded
         if initialLoaded {
             trackChanges(from: previous, to: merged, olderPageLoad: wasLoadingOlder)
         }
@@ -326,10 +275,21 @@ final class SessionViewModel {
         return visibleBottom - sentinelBottom > BottomFollower.slop
     }
 
-    /// The scroll-to-bottom button or a send is taking the transcript to its end: follow it from now on.
-    func followBottom() {
+    /// iOS 18+: the whole transcript fits the visible area. `defaultScrollAnchor(.bottom)` keeps such a transcript at
+    /// the bottom by itself; a `scrollTo` can then only move it away (toward a row the lazy stack has not measured yet
+    /// it lands under the composer, where the geometry still reads "all in sight", so nothing brings it back until a
+    /// touch: the first prompt of a session "disappeared"). The view scrolls only a transcript taller than the screen.
+    var contentFits: Bool { tracksGeometry && !contentOverflows }
+
+    /// The scroll-to-bottom button or a send is taking the transcript to its end: follow it from now on. `scrolling`:
+    /// the view animates to the end (not when the transcript fits).
+    func followBottom(scrolling: Bool = true) {
         guard tracksGeometry else { return }
         follower.follow()
+        guard scrolling else {
+            applyFollower(pin: follower.animationEnded())
+            return
+        }
         applyFollower(pin: false)
         followAnimation?.cancel()
         followAnimation = Task { [weak self] in
@@ -377,13 +337,26 @@ final class SessionViewModel {
 
     // MARK: Reveal
 
-    /// The part of an assistant reply to show at `time`.
+    /// The part of an assistant reply to show at `time`. A long reply grows in steps of a hundredth of its length, so
+    /// the frames between steps show a text the Markdown cache has parsed already (each new prefix is a full parse).
     func revealedText(_ id: DocID, full: String, at time: Date) -> String {
         guard var pacer = pacers[id] else { return full }
         if full.count != pacer.length { pacer.receive(length: full.count, at: time.timeIntervalSinceReferenceDate) }
-        let count = pacer.advance(to: time.timeIntervalSinceReferenceDate)
+        var count = pacer.advance(to: time.timeIntervalSinceReferenceDate)
         pacers[id] = pacer
-        return count >= full.count ? full : String(full.prefix(count))
+        if count >= full.count { return full }
+        count = Self.revealStep(count, of: full.count)
+        return String(full.prefix(count))
+    }
+
+    /// Replies up to this long reveal character by character.
+    static let smoothRevealLength = 2_000
+
+    /// `count` rounded down to a step of the reveal: itself for short replies, a hundredth of the length for long ones.
+    static func revealStep(_ count: Int, of length: Int) -> Int {
+        guard length > smoothRevealLength else { return count }
+        let step = length / 100
+        return count - count % step
     }
 
     private func finishReveal(_ id: DocID, at time: Double) {
@@ -430,9 +403,22 @@ final class SessionViewModel {
         let built = TranscriptBuilder.build(
             events: Array(events.values), commands: commands.value ?? [],
             local: engine.localPrompts[sessionDocId] ?? [], hasOlder: hasOlder, cards: botCards)
+        let start = events.values.filter { $0.kind == .user || ($0.kind == .system && $0.status != nil) }.map(\.seq).max()
+        if start != turnStartSeq { turnStartSeq = start }
         guard built != items else { return }
         items = built
         contentTick &+= 1
+    }
+
+    /// Where the running turn began: its prompt, or the last turn's end marker. A tool call before it belongs to an
+    /// ended turn and shows "stopped", not a spinner, whatever runs now.
+    private(set) var turnStartSeq: Double?
+
+    /// A tool call at `seq` is part of a turn that still runs.
+    func toolRuns(at seq: Double?) -> Bool {
+        guard isTurnActive else { return false }
+        guard let start = turnStartSeq, let seq else { return true }
+        return seq > start
     }
 
     var title: String {
@@ -454,6 +440,17 @@ final class SessionViewModel {
 
     var status: SessionStatus {
         detail.value?.status ?? engine.sessionRow(sessionDocId)?.status ?? .idle
+    }
+
+    /// The turn is still going: running, or waiting on a permission request (a tool call in it is still running).
+    var isTurnActive: Bool { isOnline && (status == .running || status == .waiting) }
+
+    /// The thought shown as "Thinking…": the transcript's newest event while the turn runs.
+    var activeThoughtID: String? {
+        guard isTurnActive, let newest = items.last(where: { $0.seq != nil }), case .thought = newest.kind else {
+            return nil
+        }
+        return newest.id
     }
 
     /// What the header says: offline only while the computer is.

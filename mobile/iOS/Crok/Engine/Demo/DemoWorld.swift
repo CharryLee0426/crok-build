@@ -230,19 +230,24 @@ final class DemoWorld {
         return index
     }
 
-    func eventsPage(_ id: DocID, cursor: String?, endCursor: String?, numItems: Int) throws -> EventsPage {
-        let all = sessions[try index(of: id)].events.sorted { $0.seq > $1.seq }
-        let startSeq = cursor.flatMap(Double.init) ?? .infinity
-        let candidates = all.filter { $0.seq < startSeq }
-        let page: [TranscriptEvent]
-        if let end = endCursor.flatMap(Double.init) {
-            page = candidates.filter { $0.seq >= end }
-        } else {
-            page = Array(candidates.prefix(numItems))
+    /// `sessions:transcript`: the newest `limit` items of the range, thoughts and tool calls without their text (a tool
+    /// without a title named by its detail's first line), as the relay answers.
+    func transcript(_ id: DocID, range: TranscriptRange) throws -> TranscriptChunk {
+        let inRange = sessions[try index(of: id)].events
+            .filter { event in
+                (range.afterSeq.map { event.seq > $0 } ?? true) && (range.throughSeq.map { event.seq <= $0 } ?? true)
+            }
+            .sorted { $0.seq > $1.seq }
+        let events = inRange.prefix(range.limit).map { event -> TranscriptEvent in
+            guard event.kind == .thought || event.kind == .tool else { return event }
+            var slim = event
+            if event.kind == .tool, slim.title?.isEmpty ?? true {
+                slim.title = event.text.split(separator: "\n", maxSplits: 1).first.map { String($0.prefix(200)) }
+            }
+            slim.text = ""
+            return slim
         }
-        let lastSeq = page.last?.seq ?? (startSeq.isFinite ? startSeq : 0)
-        let isDone = !candidates.contains(where: { $0.seq < lastSeq })
-        return EventsPage(page: page, isDone: isDone, continueCursor: String(lastSeq), splitCursor: nil, pageStatus: nil)
+        return TranscriptChunk(events: Array(events), more: inRange.count > events.count)
     }
 
     // MARK: Mutations
@@ -291,7 +296,16 @@ final class DemoWorld {
             self.sessions[s].previewKind = .user
             self.changed()
 
-            try? await Task.sleep(for: .milliseconds(700))
+            // Reasoning first ("Thinking…" while it is the newest item), then the tool call.
+            let thought = self.pushEvent(s, kind: .thought, text: "")
+            self.changed()
+            for step in 1...3 {
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                self.updateEvent(s, id: thought, text: String(repeating: "Look at the upload queue first. ", count: step))
+                self.changed()
+            }
+            try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             let tool = self.pushEvent(
                 s, kind: .tool, text: "Sources/Relay/Upload.swift", title: "Read Upload.swift", toolKind: "read",

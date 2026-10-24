@@ -160,8 +160,8 @@ private final class FailingReorderRelay: RelayBackend, SessionsAPI, @unchecked S
     func groups() -> RelayStream<[ProjectGroup]> { demo.groups() }
     func list(archived: Bool) -> RelayStream<[SessionRow]> { demo.list(archived: archived) }
     func get(_ sessionDocId: DocID) -> RelayStream<SessionDetail> { demo.get(sessionDocId) }
-    func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage> {
-        demo.events(sessionDocId, cursor: cursor, endCursor: endCursor, numItems: numItems)
+    func transcript(_ sessionDocId: DocID, range: TranscriptRange) -> RelayStream<TranscriptChunk> {
+        demo.transcript(sessionDocId, range: range)
     }
     func markRead(_ sessionDocId: DocID) async throws { try await demo.markRead(sessionDocId) }
     func watch(_ sessionDocId: DocID) async throws { try await demo.watch(sessionDocId) }

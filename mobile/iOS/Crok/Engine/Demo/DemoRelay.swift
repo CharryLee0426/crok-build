@@ -122,8 +122,8 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         try await mutate { world in world.resetOrder(projectKey: projectKey) }
     }
 
-    func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage> {
-        observe { try $0.eventsPage(sessionDocId, cursor: cursor, endCursor: endCursor, numItems: numItems) }
+    func transcript(_ sessionDocId: DocID, range: TranscriptRange) -> RelayStream<TranscriptChunk> {
+        observe { try $0.transcript(sessionDocId, range: range) }
     }
 
     func markRead(_ sessionDocId: DocID) async throws {

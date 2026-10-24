@@ -486,13 +486,11 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         observe("sessions:get", ["sessionDocId": .string(sessionDocId)])
     }
 
-    func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage> {
-        var options: [String: JSONValue] = [
-            "numItems": .number(Double(numItems)),
-            "cursor": cursor.map(JSONValue.string) ?? .null,
-        ]
-        if let endCursor { options["endCursor"] = .string(endCursor) }
-        return observe("sessions:events", ["sessionDocId": .string(sessionDocId), "paginationOpts": .object(options)])
+    func transcript(_ sessionDocId: DocID, range: TranscriptRange) -> RelayStream<TranscriptChunk> {
+        var args: [String: JSONValue] = ["sessionDocId": .string(sessionDocId), "limit": .number(Double(range.limit))]
+        if let afterSeq = range.afterSeq { args["afterSeq"] = .number(afterSeq) }
+        if let throughSeq = range.throughSeq { args["throughSeq"] = .number(throughSeq) }
+        return observe("sessions:transcript", args)
     }
 
     func markRead(_ sessionDocId: DocID) async throws {

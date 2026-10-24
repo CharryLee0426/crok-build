@@ -19,8 +19,8 @@ protocol SessionsAPI: Sendable {
     func reorderSessions(projectKey: String, _ sessionDocIds: [DocID]) async throws
     /// With a key, that project's sessions go back to most recent first; without, the projects do.
     func resetOrder(projectKey: String?) async throws
-    /// Newest first. `endCursor` pins where a page ends, so pages stay contiguous as new events arrive.
-    func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage>
+    /// A part of the transcript (`sessions:transcript`), newest first, thoughts and tool calls without their text.
+    func transcript(_ sessionDocId: DocID, range: TranscriptRange) -> RelayStream<TranscriptChunk>
     func markRead(_ sessionDocId: DocID) async throws
     func watch(_ sessionDocId: DocID) async throws
     func setPinned(_ sessionDocId: DocID, _ pinned: Bool) async throws
