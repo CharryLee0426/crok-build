@@ -13,17 +13,19 @@ weeks of traffic collected before the rules existed get quality scores too.
 Evaluators fork the stack's own templates (`gcx agento11y templates get`) where one fits, with the
 judge model resolved from `gcx agento11y judge list-models`; guards are always created in warn mode.
 `apply` is idempotent: an evaluator is upserted with a new version only when its definition changed,
-and rules and guards are created or updated to match.
+rules and guards are created, updated or (crok_ ones stack.json dropped) deleted to match, and the
+crok-regressions collection gets the conversations whose backfilled scores failed.
 
 `backfill` reads the conversations in the window (agent crok and its sub-agents, not eval traffic),
-runs each rule's evaluators on the generations its selector picks (`gcx agento11y evaluators test`,
-which uses the stack's judge but stores nothing), and exports the results as scores through the
-Agent Observability plugin (`scores:export`) with ids derived from evaluator and generation, so a
-second run adds nothing twice. Regex and heuristic evaluators run on every generation they select;
-LLM judges on a deterministic sample (--judge-sample). Results also land in backfill/scores.jsonl
-(git-ignored) for `report`.
+runs each rule's evaluators on the generations its selector picks (`eval:test` with the rule's
+selector, so turn variables are filled as in the online rule; the stack's judge runs, nothing is
+stored), keeps the results in backfill/scores.jsonl (git-ignored) for `report`, and exports them as
+scores to the ingest API (`scores:export`, a sigil:write token from ~/.crok/agento11y.env) with ids
+derived from evaluator and generation, so a second run adds nothing twice. Regex and heuristic
+evaluators run on every generation they select; LLM judges on a deterministic sample (--judge-sample).
 
-Needs gcx signed in to the stack (`gcx login <stack> --server https://<stack>.grafana.net --oauth`).
+Every call goes through the Agent Observability plugin API with gcx's Grafana sign-in (`gcx api`):
+gcx signed in to the stack (`gcx login <stack> --server https://<stack>.grafana.net --oauth`).
 Only the standard library is used.
 """
 
@@ -42,7 +44,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 STACK = HERE / "stack.json"
 BACKFILL = HERE / "backfill"
 SCORES_FILE = BACKFILL / "scores.jsonl"
-PLUGIN_EVAL = "/api/plugins/grafana-agento11y-app/resources/eval"
+PLUGIN = "/api/plugins/grafana-agento11y-app/resources"
+PLUGIN_EVAL = PLUGIN + "/eval"
 
 
 def log(msg: str) -> None:
@@ -131,11 +134,11 @@ def field(obj: dict, *names, default=None):
 def cmd_inventory(_args) -> int:
     ctx = subprocess.run(["gcx", "config", "current-context"], capture_output=True, text=True).stdout.strip()
     print(f"gcx context: {ctx.splitlines()[-1] if ctx else '?'}")
-    for label, args in (("agents", ("agents", "list", "--limit", "50")), ("evaluators", ("evaluators", "list")),
-                        ("rules", ("rules", "list")), ("guards", ("guards", "list")),
-                        ("templates", ("templates", "list")), ("judge providers", ("judge", "list-providers")),
-                        ("collections", ("collections", "list"))):
-        rows = items(gcx("agento11y", *args, check=False))
+    for label, path in (("agents", f"{PLUGIN}/query/agents"), ("evaluators", f"{PLUGIN_EVAL}/evaluators"),
+                        ("rules", f"{PLUGIN_EVAL}/rules"), ("guards", f"{PLUGIN_EVAL}/hook-rules"),
+                        ("templates", f"{PLUGIN_EVAL}/templates"), ("judge providers", f"{PLUGIN_EVAL}/judge/providers"),
+                        ("collections", f"{PLUGIN_EVAL}/collections")):
+        rows = items(gcx_api(path))
         names = [field(r, "name", "agent_name", "evaluator_id", "rule_id", "template_id", "id", default="?") for r in rows]
         print(f"{label}: {len(rows)}" + (f"  {', '.join(map(str, names[:30]))}" if names else ""))
     return 0
@@ -149,7 +152,7 @@ def cmd_inventory(_args) -> int:
 def resolve_judges(config: dict) -> dict:
     out = {}
     for name, want in config.get("judges", {}).items():
-        models = items(gcx("agento11y", "judge", "list-models", "--provider", want["provider"], check=False))
+        models = items(gcx_api(f"{PLUGIN_EVAL}/judge/models?provider={want['provider']}"))
         ids = [field(m, "id", "model", "name", default="") for m in models]
         match = sorted(i for i in ids if want["model_pattern"] in i)
         if not match:
@@ -160,7 +163,7 @@ def resolve_judges(config: dict) -> dict:
 
 def desired_evaluator(ev: dict, judges: dict) -> dict:
     if "template" in ev:
-        template = spec(gcx("agento11y", "templates", "get", ev["template"]))
+        template = gcx_api(f"{PLUGIN_EVAL}/templates/{ev['template']}")
         version = field(template, "latest_version", "current_version")
         body = template.get("versions", [{}])[-1] if not template.get("config") and template.get("versions") else template
         kind = field(body, "kind", default=field(template, "kind"))
@@ -175,7 +178,16 @@ def desired_evaluator(ev: dict, judges: dict) -> dict:
         config.update(judges[ev["judge"]])
     if ev.get("system_prompt"):
         config["system_prompt"] = ev["system_prompt"]
-    config.update(ev.get("config_overrides", {}))
+    if ev.get("user_prompt"):
+        config["user_prompt"] = ev["user_prompt"]
+    if ev.get("max_length"):
+        # A heuristic template's length bound is a max_length rule in its rule tree.
+        for rule in config.get("root", {}).get("rules", []):
+            if rule.get("type") == "max_length":
+                rule["value"] = ev["max_length"]
+        output_keys = [{**k, "description": f"True if the response is between 1 and {ev['max_length']} bytes"} for k in output_keys]
+    if ev.get("output_keys"):
+        output_keys = ev["output_keys"]
     out = {"evaluator_id": ev["evaluator_id"], "kind": kind, "config": config,
            "description": (ev.get("why") or description)[:500]}
     if output_keys:
@@ -189,13 +201,13 @@ def fingerprint(body: dict) -> str:
 
 
 def apply_evaluators(config: dict, judges: dict, dry: bool) -> None:
-    existing = {field(e, "evaluator_id", "id"): e for e in items(gcx("agento11y", "evaluators", "list", check=False))}
+    existing = {field(e, "evaluator_id", "id"): e for e in items(gcx_api(f"{PLUGIN_EVAL}/evaluators"))}
     today = dt.date.today().isoformat()
     for ev in config["evaluators"]:
         body = desired_evaluator(ev, judges)
         current = existing.get(ev["evaluator_id"])
         if current is not None:
-            current = spec(gcx("agento11y", "evaluators", "get", ev["evaluator_id"], check=False)) or current
+            current = gcx_api(f"{PLUGIN_EVAL}/evaluators/{ev['evaluator_id']}") or current
             if fingerprint(current) == fingerprint(body):
                 log(f"evaluator {ev['evaluator_id']}: unchanged")
                 continue
@@ -204,11 +216,20 @@ def apply_evaluators(config: dict, judges: dict, dry: bool) -> None:
         body["version"] = version
         log(f"evaluator {ev['evaluator_id']}: {'create' if current is None else 'update'} {version} ({body['kind']})")
         if not dry:
-            gcx("agento11y", "evaluators", "upsert", data=body)
+            gcx_api(f"{PLUGIN_EVAL}/evaluators", "POST", body)
 
 
 def apply_named(kind: str, config_items: list[dict], dry: bool) -> None:
-    existing = {field(r, "rule_id", "id") for r in items(gcx("agento11y", kind, "list", check=False))}
+    """Rules (`eval/rules`, updated with PATCH) or guards (`eval/hook-rules`, updated with PUT). A crok_
+    rule or guard the stack has but stack.json no longer lists is deleted."""
+    path, update = ("rules", "PATCH") if kind == "rules" else ("hook-rules", "PUT")
+    existing = {field(r, "rule_id", "id") for r in items(gcx_api(f"{PLUGIN_EVAL}/{path}"))}
+    for retired in sorted(existing - {item["rule_id"] for item in config_items}):
+        if not str(retired).startswith("crok_"):
+            continue
+        log(f"{kind[:-1]} {retired}: delete (no longer in stack.json)")
+        if not dry:
+            gcx_api(f"{PLUGIN_EVAL}/{path}/{retired}", "DELETE")
     for item in config_items:
         body = {k: v for k, v in item.items() if k != "why"}
         verb = "update" if item["rule_id"] in existing else "create"
@@ -216,37 +237,52 @@ def apply_named(kind: str, config_items: list[dict], dry: bool) -> None:
         if dry:
             continue
         if verb == "create":
-            gcx("agento11y", kind, "create", data=body)
+            gcx_api(f"{PLUGIN_EVAL}/{path}", "POST", body)
         else:
-            gcx("agento11y", kind, "update", item["rule_id"], data=body)
+            gcx_api(f"{PLUGIN_EVAL}/{path}/{item['rule_id']}", update, body)
 
 
-def apply_collections(config: dict, since: str, dry: bool) -> None:
-    existing = {field(c, "name"): field(c, "collection_id", "id") for c in items(gcx("agento11y", "collections", "list", check=False))}
+def failing_conversations(limit: int) -> list[tuple[str, list[str]]]:
+    """Conversations with a failed score in backfill/scores.jsonl, most failed evaluators first."""
+    failed: dict[str, set[str]] = {}
+    if SCORES_FILE.exists():
+        for line in SCORES_FILE.read_text().splitlines():
+            score = json.loads(line)
+            if score.get("passed") is False:
+                failed.setdefault(score["conversation_id"], set()).add(score["evaluator_id"])
+    ranked = sorted(failed.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    return [(conv_id, sorted(evaluators)) for conv_id, evaluators in ranked[:limit]]
+
+
+def apply_collections(config: dict, dry: bool) -> None:
+    """Saves each source conversation (saved id crok-<conversation id>, so a rerun finds it) and adds it
+    to the collection; adding a member twice is a no-op on the stack."""
+    existing = {field(c, "name"): field(c, "collection_id", "id") for c in items(gcx_api(f"{PLUGIN_EVAL}/collections"))}
     for col in config.get("collections", []):
+        if col.get("from") != "backfill_failures":
+            raise SystemExit(f"collection {col['name']}: unknown source {col.get('from')!r}")
+        conversations = failing_conversations(col.get("limit", 40))
         cid = existing.get(col["name"])
+        log(f"collection {col['name']}: {'create, ' if cid is None else ''}{len(conversations)} conversations")
+        if dry or not conversations:
+            continue
         if cid is None:
-            log(f"collection {col['name']}: create")
-            if dry:
-                continue
-            created = gcx("agento11y", "collections", "create", "--name", col["name"], "--description", col["description"])
-            cid = field(spec(created), "collection_id", "id")
-        conversations = items(gcx("agento11y", "conversations", "search", "--filters", col["from_search"],
-                                  "--from", since, "--limit", str(col.get("limit", 40)), check=False))
+            created = gcx_api(f"{PLUGIN_EVAL}/collections", "POST",
+                              {"name": col["name"], "description": col["description"], "created_by": "stack.py"})
+            cid = field(created, "collection_id", "id")
         saved_ids = []
-        for conv in conversations:
-            conv_id = field(conv, "conversation_id", "id")
-            title = field(conv, "title", "conversation_title", default=conv_id)
-            if dry:
-                log(f"  would save {conv_id} ({title})")
-                continue
-            saved = gcx("agento11y", "saved-conversations", "save", conv_id, "--name", f"{title}"[:120], check=False)
-            sid = field(spec(saved or {}), "saved_id", "saved_conversation_id", "id")
-            if sid:
-                saved_ids.append(sid)
-        if saved_ids and not dry:
-            gcx("agento11y", "collections", "add-conversations", cid, *saved_ids, check=False)
-        log(f"collection {col['name']}: {len(saved_ids)} conversations saved and added")
+        for conv_id, evaluators in conversations:
+            saved_id = f"crok-{conv_id}"
+            try:
+                gcx_api(f"{PLUGIN_EVAL}/saved-conversations", "POST", {
+                    "saved_id": saved_id, "conversation_id": conv_id, "saved_by": "stack.py",
+                    "name": "failed " + ", ".join(e.removeprefix("crok_") for e in evaluators)})
+            except RuntimeError as err:
+                if "409" not in str(err):
+                    log(f"  {conv_id}: {err}")
+                    continue
+            saved_ids.append(saved_id)
+        gcx_api(f"{PLUGIN_EVAL}/collections/{cid}/members", "POST", {"saved_ids": saved_ids, "added_by": "stack.py"})
 
 
 def cmd_apply(args) -> int:
@@ -256,7 +292,7 @@ def cmd_apply(args) -> int:
     apply_evaluators(config, judges, args.dry_run)
     apply_named("rules", config["rules"], args.dry_run)
     apply_named("guards", config["guards"], args.dry_run)
-    apply_collections(config, args.since, args.dry_run)
+    apply_collections(config, args.dry_run)
     return 0
 
 
@@ -270,10 +306,9 @@ def generation_parts(gen: dict) -> tuple[bool, bool]:
     text = calls = False
     for message in field(gen, "output", default=[]) or []:
         for part in field(message, "parts", default=[]) or []:
-            kind = field(part, "type", "kind", default="")
-            if "tool_call" in str(kind) or "toolCall" in part or "tool_call" in part:
+            if "tool_call" in part:
                 calls = True
-            elif str(field(part, "text", default="")).strip():
+            elif str(part.get("text") or "").strip():
                 text = True
     return text, calls
 
@@ -286,7 +321,7 @@ def selected(selector: str, gen: dict) -> bool:
         return calls
     if selector in ("user_visible_turn", "turn"):
         # The answer the user saw: a generation that ends its turn (no tool calls left).
-        return not calls and not field(gen, "call_error", "callError")
+        return text and not calls and not gen.get("error")
     return False
 
 
@@ -309,8 +344,8 @@ def evaluator_kinds(config: dict) -> dict:
 
 
 def ingest_target() -> tuple[str, dict] | None:
-    """The ingest endpoint and headers crok reports with (~/.crok/agento11y.env or the environment),
-    for score export when the plugin route refuses: scores take a sigil:write access-policy token."""
+    """The ingest endpoint and headers crok reports with (~/.crok/agento11y.env or the environment):
+    exported scores take a sigil:write access-policy token, which the plugin API does not accept."""
     import base64
     import os
 
@@ -334,12 +369,9 @@ def export_scores(scores: list[dict]) -> str:
 
     if not scores:
         return "nothing to export"
-    result = gcx("api", f"{PLUGIN_EVAL}/scores:export", data={"scores": scores}, check=False)
-    if result is not None:
-        return f"exported {len(scores)} through the plugin (accepted {field(result, 'accepted', default='?')})"
     target = ingest_target()
     if target is None:
-        return "the plugin refused scores:export and no ingest token is set up; kept in backfill/scores.jsonl only"
+        return "no sigil:write token in ~/.crok/agento11y.env; kept in backfill/scores.jsonl only"
     endpoint, headers = target
     req = urllib.request.Request(f"{endpoint}/api/v1/scores:export", data=json.dumps({"scores": scores}).encode(),
                                  headers=headers, method="POST")
@@ -355,7 +387,7 @@ def cmd_backfill(args) -> int:
     config = json.loads(STACK.read_text())
     kinds = evaluator_kinds(config)
     versions = {field(e, "evaluator_id", "id"): field(e, "version", default="1")
-                for e in items(gcx("agento11y", "evaluators", "list", check=False))}
+                for e in items(gcx_api(f"{PLUGIN_EVAL}/evaluators"))}
     missing = [e for e in kinds if e not in versions]
     if missing:
         raise SystemExit(f"evaluators not on the stack yet: {', '.join(missing)}; run `stack.py apply` first")
@@ -363,14 +395,21 @@ def cmd_backfill(args) -> int:
     done = set()
     if SCORES_FILE.exists():
         done = {json.loads(line)["score_id"] for line in SCORES_FILE.read_text().splitlines() if line.strip()}
-    filters = 'agent =~ "crok.*"'
-    convs = items(gcx("agento11y", "conversations", "search", "--filters", filters, "--from", args.since,
-                      "--to", args.until, "--limit", str(args.max_conversations)))
+    convs, cursor = [], ""
+    while len(convs) < args.max_conversations:
+        page = gcx_api(f"{PLUGIN}/query/conversations?limit=200" + (f"&cursor={cursor}" if cursor else ""))
+        convs += [c for c in items(page) if args.since <= str(c.get("last_generation_at", "")) and
+                  str(c.get("created_at", "")) <= args.until]
+        cursor = field(page, "next_cursor", default="")
+        if not cursor:
+            break
+    convs = convs[: args.max_conversations]
     log(f"{len(convs)} conversations from {args.since} to {args.until}")
     batch, totals = [], {"tested": 0, "skipped": 0, "failed_calls": 0}
+    definitions: dict[str, dict] = {}
     for conv in convs:
         conv_id = field(conv, "conversation_id", "id")
-        detail = spec(gcx("agento11y", "conversations", "get", conv_id, check=False) or {})
+        detail = gcx_api(f"{PLUGIN}/query/conversations/{conv_id}") or {}
         for gen in field(detail, "generations", default=[]) or []:
             tags = field(gen, "tags", default={}) or {}
             if tags.get("origin") == "eval":
@@ -390,9 +429,16 @@ def cmd_backfill(args) -> int:
                     if args.dry_run:
                         totals["tested"] += 1
                         continue
-                    result = gcx("agento11y", "evaluators", "test", "-e", ev_id, "-g", gen_id, check=False)
-                    if result is None:
+                    definition = definitions.get(ev_id) or definitions.setdefault(
+                        ev_id, gcx_api(f"{PLUGIN_EVAL}/evaluators/{ev_id}"))
+                    try:
+                        result = gcx_api(f"{PLUGIN}/eval:test", "POST", {
+                            "kind": definition["kind"], "config": definition["config"],
+                            "output_keys": definition.get("output_keys", []),
+                            "generation_id": gen_id, "selector": rule["selector"]})
+                    except RuntimeError as err:
                         totals["failed_calls"] += 1
+                        log(f"  {ev_id} on {gen_id}: {err}")
                         continue
                     for row in score_rows(result):
                         score = {
@@ -575,8 +621,6 @@ def main(argv: list[str]) -> int:
     sub.add_parser("inventory")
     a = sub.add_parser("apply")
     a.add_argument("--dry-run", action="store_true")
-    a.add_argument("--since", default=(dt.date.today() - dt.timedelta(days=30)).isoformat(),
-                   help="window the collections are filled from")
     b = sub.add_parser("backfill")
     b.add_argument("--since", default=(dt.date.today() - dt.timedelta(days=30)).isoformat())
     b.add_argument("--until", default=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))

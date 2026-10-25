@@ -1,6 +1,7 @@
 # crok's online evaluation, guards, alerts and SLOs
 
-What scores crok's real traffic in Grafana Agent Observability, kept as files and applied with gcx.
+What scores crok's real traffic in Grafana Agent Observability, kept as files and applied through the
+Agent Observability plugin API with gcx's Grafana sign-in (`gcx api`).
 The offline half (experiments over fixture repositories) is `evals/`; what crok itself sends (turns,
 tool runs, steps, verdicts, ratings, guard checks) is `crates/codegen/xai-grok-agento11y/README.md`.
 
@@ -29,12 +30,20 @@ python3 observability/agento11y/stack.py slos
 | `crok_all_generations_secrets` | every assistant generation | 100% | secret formats, private keys, labeled credentials, connection strings (regex, from the stack's templates) | crok has full shell and file access; keys live in `~/.crok` and `.env` files |
 | `crok_final_turns_checks` | the answer of a turn | 100% | response not empty (heuristic) | 3 of 32 sampled turns ended with no answer |
 | `crok_final_turns_judged` | the answer of a turn | 25% | tool-result groundedness and helpfulness (Haiku 4.5), claims verified (Sonnet 4.6) | answers summarize shell output; "tests pass" was claimed without a run; ten models need one yardstick |
-| `crok_tool_steps_judged` | generations with tool calls | 10% | external action authorized, prompt-injection resistance (Haiku 4.5) | permissions are often bypassed; browser, web and phone tools read untrusted text |
+| `crok_turn_actions_judged` | the answer of a turn, crok and its sub-agents | 25% | external action authorized, prompt-injection resistance (Haiku 4.5), over the turn's tool calls and results | permissions are often bypassed; browser, web and phone tools read untrusted text |
 | `crok_turn_summary_length` | `crok/turn-summary` | 100% | response length ≤ 140 (heuristic) | the one-line summary must stay one line |
 
 Regex and heuristic evaluators cost nothing; the judges run on Bedrock and count against the
 25 million evaluation tokens a month of the free tier (about 15 million at these samples). Lower a
 rule's `sample_rate` in `stack.json` and run `apply` again if the judge spend grows.
+
+Every judge reads the turn (`{{turn.latest_user_message}}`, `{{turn.transcript}}` or
+`{{turn.transcript_detailed}}`, `{{turn.agent_response}}`), not the generation. crok sends each
+generation's new input only, so a generation's own `{{latest_user_message}}` and `{{tool_results}}`
+are the last tool results, not the request: judged that way, helpfulness passed 12 of 37 answers
+("the user message is empty") and every tool step looked unrequested. On the turn the same answers
+score 8 to 9 of 10. A rule that judges tool use therefore runs at the end of the turn, once over all
+of its calls.
 
 `crok_claims_verified` is crok's own judge: it fails an answer that says tests, a build or a command
 succeeded when no tool result in the turn shows it. The offline suite checks the same with
@@ -58,8 +67,8 @@ answer: a guard never slows or blocks a turn. A failed check is recorded as a wa
 conversation (Agent Observability shows a "Guard" step), and crok's `crok_guard_checks_total{flagged}`
 counts them. `CROK_AGENTO11Y_GUARDS=off` stops the checks on one machine.
 
-To move a guard to deny, watch its warns for two weeks (`gcx agento11y conversations search
---filters 'agent = "crok"'` and the Guard steps), fix the patterns until the false positives are
+To move a guard to deny, watch its warns for two weeks (the Guard steps on crok's conversations in
+Agent Observability, and `crok_guard_checks_total{flagged="true"}`), fix the patterns until the false positives are
 rare, then set `"action_on_fail": "deny"` in `stack.json` and run `apply`. crok does not yet wait for
 guard verdicts, so a deny is recorded but does not stop the call; making crok enforce it (a
 `PolicyDeny` before the tool runs) is the next step on crok's side.
@@ -69,16 +78,19 @@ guard verdicts, so a deny is recorded but does not stop the call; making crok en
 Rules score traffic from the moment they exist. `stack.py backfill` scores what came before: it
 lists crok's conversations in the window (`--since`, up to Agent Observability's 30-day retention),
 picks the generations each rule's selector would, runs the rule's evaluators on them with
-`gcx agento11y evaluators test` (the stack's own judge; nothing stored) and exports the results as
-scores (`scores:export` through the plugin, `source: backfill`). Regex and heuristic evaluators run
-on everything; judges on a deterministic sample (`--judge-sample`, 25% by default). Score ids come
-from evaluator and generation, so running it again adds nothing twice. The results are also kept in
-`backfill/scores.jsonl` (git-ignored), and `stack.py report` prints the pass rates by evaluator and
-model.
+`eval:test` and the rule's selector (the stack's own judge, turn variables filled as in the online
+rule; nothing stored), keeps the results in `backfill/scores.jsonl` (git-ignored) and exports them as
+scores (`source: backfill`) to the ingest API. Exported scores take a `sigil:write` access-policy
+token, which the plugin API does not accept: `stack.py` reads it from `~/.crok/agento11y.env`, and
+without one the scores stay in the local file. Regex and heuristic evaluators run on everything;
+judges on a deterministic sample (`--judge-sample`, 25% by default). Score ids come from evaluator
+and generation, so running it again adds nothing twice. `stack.py report` prints the pass rates by
+evaluator and model.
 
-`apply` also saves crok's failed conversations of the last 30 days into the `crok-regressions`
-collection. Saved conversations outlive the 30-day retention and are the inputs for new regression
-cases in `evals/suites/s1`.
+`apply` then saves the conversations whose backfilled scores failed (saved id
+`crok-<conversation id>`, named after the evaluators that failed) and adds them to the
+`crok-regressions` collection. Saved conversations outlive the 30-day retention and are the inputs
+for new regression cases in `evals/suites/s1`.
 
 ## Alerts
 

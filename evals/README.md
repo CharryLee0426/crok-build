@@ -103,6 +103,6 @@ model and `--trials 3`, then `evals/run.py baseline <run dir> > evals/baselines/
 With DeepSeek V4.1 Flash a trial costs about $0.002 per model call and makes about 15 calls; the
 seven smoke cases cost a few cents. All 22 cases at 3 trials is 66 trials. A suite this size detects
 a pass@1 drop of roughly 15-20 points; the 65-case plan in the research report detects about 12.
-Add cases from real failures: save the conversation in Agent Observability
-(`gcx agento11y saved-conversations save <id>`), add it to the `crok-regressions` collection, and
-write it up as a new `s1` case directory.
+Add cases from real failures: the `crok-regressions` collection in Agent Observability holds the
+conversations an evaluator failed (`observability/agento11y/stack.py backfill`, then `apply`); write
+one up as a new `s1` case directory.
