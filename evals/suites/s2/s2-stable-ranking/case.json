@@ -1,0 +1,11 @@
+{
+  "name": "Fix tie-breaking in a sort",
+  "prompt": "rank() in ranking.py breaks ties in the wrong order: players with the same score must keep their original order. Fix it.",
+  "checks": [
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the unit tests pass"
+    }
+  ]
+}

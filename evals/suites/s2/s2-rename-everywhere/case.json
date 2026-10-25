@@ -1,0 +1,19 @@
+{
+  "name": "Rename a function across files",
+  "tags": [
+    "smoke"
+  ],
+  "prompt": "Rename the function `calc_total` to `compute_total` everywhere in this repository: its definition and every use. Behaviour stays the same; the tests already use the new name.",
+  "checks": [
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the unit tests pass"
+    },
+    {
+      "kind": "grep_absent",
+      "pattern": "calc_total",
+      "name": "no calc_total left"
+    }
+  ]
+}

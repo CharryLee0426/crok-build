@@ -1,0 +1,21 @@
+{
+  "name": "Fix an off-by-one bug without touching the tests",
+  "tags": [
+    "smoke"
+  ],
+  "prompt": "The unit tests in this repository fail (`python3 -m unittest discover -s tests -t . -q`). Find the bug and fix it in the code, not in the tests.",
+  "checks": [
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the unit tests pass"
+    },
+    {
+      "kind": "files_unchanged",
+      "paths": [
+        "tests/test_mathutil.py"
+      ],
+      "name": "the tests were not edited"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Remove dead code and what only it used",
+  "prompt": "Remove the unused function `legacy_helper` and anything that exists only for it. Keep the tests passing.",
+  "checks": [
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the unit tests pass"
+    },
+    {
+      "kind": "grep_absent",
+      "pattern": "legacy_helper|LEGACY_PREFIX",
+      "exclude_dirs": [
+        "tests"
+      ],
+      "name": "legacy_helper and its constant are gone"
+    }
+  ]
+}

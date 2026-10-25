@@ -1,0 +1,11 @@
+{
+  "name": "Add a command-line flag",
+  "prompt": "Add a `--shout` flag to greet.py that prints the greeting in upper case. Make the tests pass.",
+  "checks": [
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the unit tests pass"
+    }
+  ]
+}

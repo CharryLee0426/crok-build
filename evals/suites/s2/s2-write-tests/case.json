@@ -1,0 +1,26 @@
+{
+  "name": "Write and run unit tests",
+  "prompt": "Write unit tests for `parse_duration` (duration.py) in tests/test_duration.py: hours, minutes, combined values and invalid input. Run them and make sure they pass.",
+  "checks": [
+    {
+      "kind": "file_matches",
+      "path": "tests/test_duration.py",
+      "pattern": "^\\s*def test_",
+      "min": 4,
+      "name": "at least four tests"
+    },
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the new tests pass"
+    },
+    {
+      "kind": "command_ran",
+      "pattern": "unittest|pytest",
+      "name": "the tests were run"
+    }
+  ],
+  "solution_commands": [
+    "python3 -m unittest discover -s tests -t . -q"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "Handle empty and messy input",
+  "prompt": "parse_pairs in parser.py crashes on some inputs. Fix it so all the tests pass.",
+  "checks": [
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the unit tests pass"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "Change a default in one place and use it everywhere",
+  "prompt": "Raise the default network timeout from 30 to 60 seconds. Define it once, as DEFAULT_TIMEOUT in settings.py, and make every place that uses the default take it from there.",
+  "checks": [
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the unit tests pass"
+    }
+  ]
+}
