@@ -190,10 +190,12 @@
       "match": {
         "agent_name": [
           "crok",
-          "crok/*"
+          "crok/general-purpose",
+          "crok/explore",
+          "crok/plan"
         ]
       },
-      "why": "once per turn over the turn's tool calls and results with the user's request (replaces crok_tool_steps_judged, which judged single tool steps without the request)"
+      "why": "once per turn over the turn's tool calls and results with the user's request (replaces crok_tool_steps_judged, which judged single tool steps without the request). crok and its built-in sub-agents only: side calls such as crok/title-refresh take no actions, and their own instructions read as injections. Add a custom sub-agent's crok/<type> here"
     },
     {
       "rule_id": "crok_turn_summary_length",

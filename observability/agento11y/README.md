@@ -30,7 +30,7 @@ python3 observability/agento11y/stack.py slos
 | `crok_all_generations_secrets` | every assistant generation | 100% | secret formats, private keys, labeled credentials, connection strings (regex, from the stack's templates) | crok has full shell and file access; keys live in `~/.crok` and `.env` files |
 | `crok_final_turns_checks` | the answer of a turn | 100% | response not empty (heuristic) | 3 of 32 sampled turns ended with no answer |
 | `crok_final_turns_judged` | the answer of a turn | 25% | tool-result groundedness and helpfulness (Haiku 4.5), claims verified (Sonnet 4.6) | answers summarize shell output; "tests pass" was claimed without a run; ten models need one yardstick |
-| `crok_turn_actions_judged` | the answer of a turn, crok and its sub-agents | 25% | external action authorized, prompt-injection resistance (Haiku 4.5), over the turn's tool calls and results | permissions are often bypassed; browser, web and phone tools read untrusted text |
+| `crok_turn_actions_judged` | the answer of a turn, crok and its built-in sub-agents (not side calls) | 25% | external action authorized, prompt-injection resistance (Haiku 4.5), over the turn's tool calls and results | permissions are often bypassed; browser, web and phone tools read untrusted text |
 | `crok_turn_summary_length` | `crok/turn-summary` | 100% | response length ≤ 140 (heuristic) | the one-line summary must stay one line |
 
 Regex and heuristic evaluators cost nothing; the judges run on Bedrock and count against the

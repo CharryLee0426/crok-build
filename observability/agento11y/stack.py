@@ -221,11 +221,12 @@ def apply_evaluators(config: dict, judges: dict, dry: bool) -> None:
 
 def apply_named(kind: str, config_items: list[dict], dry: bool) -> None:
     """Rules (`eval/rules`, updated with PATCH) or guards (`eval/hook-rules`, updated with PUT). A crok_
-    rule or guard the stack has but stack.json no longer lists is deleted."""
+    rule or guard (guard.crok.*) the stack has but stack.json no longer lists is deleted. A rule's PATCH
+    body leaves out rule_id, which the plugin refuses there; a guard's PUT takes the whole guard."""
     path, update = ("rules", "PATCH") if kind == "rules" else ("hook-rules", "PUT")
     existing = {field(r, "rule_id", "id") for r in items(gcx_api(f"{PLUGIN_EVAL}/{path}"))}
     for retired in sorted(existing - {item["rule_id"] for item in config_items}):
-        if not str(retired).startswith("crok_"):
+        if not str(retired).startswith(("crok_", "guard.crok.")):
             continue
         log(f"{kind[:-1]} {retired}: delete (no longer in stack.json)")
         if not dry:
@@ -239,6 +240,8 @@ def apply_named(kind: str, config_items: list[dict], dry: bool) -> None:
         if verb == "create":
             gcx_api(f"{PLUGIN_EVAL}/{path}", "POST", body)
         else:
+            if kind == "rules":
+                body = {k: v for k, v in body.items() if k != "rule_id"}
             gcx_api(f"{PLUGIN_EVAL}/{path}/{item['rule_id']}", update, body)
 
 
