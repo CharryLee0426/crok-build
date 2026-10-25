@@ -375,6 +375,8 @@ impl std::fmt::Debug for SamplingClient {
 struct ClientDefaults {
     model: String,
     max_completion_tokens: Option<u32>,
+    /// The model's context window; `0` when unknown. OpenRouter requests fit their output into it.
+    context_window: u64,
     temperature: Option<f32>,
     top_p: Option<f32>,
     api_backend: ApiBackend,
@@ -701,6 +703,7 @@ impl SamplingClient {
         let defaults = ClientDefaults {
             model: config.model,
             max_completion_tokens: config.max_completion_tokens,
+            context_window: config.context_window,
             temperature: config.temperature,
             top_p: config.top_p,
             api_backend: config.api_backend,
@@ -1081,6 +1084,7 @@ impl SamplingClient {
                     .prompt_cache_key
                     .as_deref()
                     .or(payload.x_grok_conv_id.as_deref()),
+                self.defaults.context_window,
             );
             self.build_json_request(grok_headers.apply(builder), &body)
                 .await?
@@ -1247,6 +1251,7 @@ impl SamplingClient {
                     .prompt_cache_key
                     .as_deref()
                     .or(payload.x_grok_conv_id.as_deref()),
+                self.defaults.context_window,
             );
             self.build_json_request(http_request, &body).await?
         } else if let Some(dialect) =

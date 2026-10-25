@@ -387,6 +387,46 @@ async fn openrouter_replays_signed_reasoning_after_streamed_tool_call() {
     task.abort();
 }
 
+/// `~deepseek/deepseek-flash-latest` lists 943,718 output tokens in a 1,048,576-token window: sent as
+/// the output limit, OpenRouter refused every prompt over about 105K tokens.
+#[tokio::test]
+async fn openrouter_asks_for_no_more_output_than_fits_beside_the_prompt() {
+    const WINDOW: u64 = 1_048_576;
+    const CEILING: u64 = 943_718;
+    let events = vec![
+        json!({"id":"chat-fixture","object":"chat.completion.chunk","created":0,"model":"deepseek/test","choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}),
+    ];
+    let (base, captured, task) = server("/api/v1/chat/completions", events).await;
+    let client = SamplingClient::new(SamplerConfig {
+        base_url: format!("{base}/api/v1"),
+        model: "~deepseek/deepseek-flash-latest".into(),
+        api_backend: ApiBackend::OpenRouter,
+        api_key: Some("fixture-token".into()),
+        max_completion_tokens: Some(u32::try_from(CEILING).unwrap()),
+        context_window: WINDOW,
+        ..Default::default()
+    })
+    .unwrap();
+    client.conversation_collect(request()).await.unwrap();
+    let mut long = request();
+    // About 105K tokens of conversation, as in the refused request.
+    long.items.push(ConversationItem::user("x".repeat(420_000)));
+    client.conversation_collect(long).await.unwrap();
+
+    let requests = captured.lock().unwrap();
+    let [(_, short), (_, long)] = requests.as_slice() else {
+        panic!("expected two requests, got {}", requests.len());
+    };
+    assert_eq!(short.get("max_tokens"), Some(&json!(CEILING)));
+    let sent = long.get("max_tokens").and_then(Value::as_u64).unwrap();
+    assert!(sent + 105_000 < WINDOW, "{sent}");
+    assert!(
+        sent > 900_000,
+        "the rest of the window stays available: {sent}"
+    );
+    task.abort();
+}
+
 /// Where `cache_control` sits in an OpenRouter body: `/messages/{index}` for a whole message, or
 /// `/messages/{index}/content/{part}` for one content part.
 fn cache_breakpoints(body: &Value) -> Vec<String> {
