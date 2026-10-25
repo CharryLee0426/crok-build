@@ -196,6 +196,11 @@ transcript from disk, reads the live transcript, sends a prompt, asks for sessio
 the session goes offline when the process exits. The scripts
 stand in for the web approval with `npx convex run --identity`.
 
+`status-e2e.mjs` measures how soon other devices see a turn end. A real `crok agent stdio` mirrors its session through
+a proxy that adds `LATENCY_MS` (default 150) each way, while a phone watches the session directly. It runs a long turn
+(`busy N` for the mock model: N quick tool calls), stops a turn inside a tool call, and takes a queued prompt off the
+queue before sending one from the phone; each end must reach the phone within `MAX_LAG_MS` (default 3000).
+
 ## Costs and limits
 
 Convex's free plan (0.5 GB storage, 1 GB/month bandwidth) is plenty for one person. Transcript items are capped at
