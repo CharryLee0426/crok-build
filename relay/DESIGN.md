@@ -399,6 +399,15 @@ Network I/O runs on its own thread with its own Tokio runtime (`crok-remote`: th
 for subscriptions and mutations, reqwest for the token endpoints). The agent side and the network side talk over
 channels, so a slow network never stalls the agent.
 
+Mirror writes go out one at a time, in order, each a round trip. A relay far away answers slower than a busy turn
+changes (a tool call every few hundred milliseconds), so whatever waits is folded before each write: between two
+writes that must keep their place (claims, completions, closes, a replaced transcript, permission requests), a
+session's field updates become one upsert with each field's latest value, and its transcript items one push with each
+item once, in its latest state. The newest status is then never more than a few writes away. Unfolded, the queue only
+grew during a long turn, and its end reached the web and the phones long after the computer showed it (a 15 s turn of
+60 tool calls over a 300 ms round trip: 24 s late). An upsert that fails is reported back (`FieldsLost`), and the
+bridge sends all of the session's fields again 2 s later.
+
 Mirrored live: sessions that have a prompt or were loaded with history, not subagent children, hidden sessions or Crok
 Desktop's helper processes (`CROK_REMOTE_BRIDGE=0`). Listed: every session on disk (the catalog, §2), uploaded by one
 bridge per computer on sign-in and every 10 minutes after (`persistence::list_summaries`, cached by file time, so a
@@ -409,6 +418,14 @@ transcript from `updates.jsonl` (`x.ai/session/updates`).
 
 Turn state survives sign-in at any time: the tee always passes on the once-per-turn `x.ai/session/prompt_complete`,
 and on sign-in the bridge reads each session's running prompt from the agent instead of trusting what it saw before.
+
+A turn also ends once nothing runs: no prompt call from the front end or from another device is out, and the agent's
+session has no running prompt (`current_prompt_id`). Each tick the bridge checks the sessions it still shows as
+running and ends such a turn after 750 ms. That covers turns whose end signals name another prompt than the one the
+bridge waits for (a queued prompt that left the queue unrun or joined the running turn): they showed as working
+everywhere else until the next turn, and phone prompts waited behind them. Updates that arrive once nothing runs (a
+stopped turn's last tool update) do not start a turn, and a roster row saying idle does not end one the agent still
+runs.
 
 ### Created sessions, config changes and slash commands
 

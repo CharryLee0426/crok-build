@@ -84,6 +84,10 @@ pub(crate) enum Observed {
         prompt_id: Option<String>,
         text: String,
     },
+    /// That prompt's call is over: its turn ended or failed, it left the queue unrun, or the front end gave up on it.
+    PromptReturned {
+        session_id: String,
+    },
     SessionClosed {
         session_id: String,
     },
@@ -430,6 +434,20 @@ pub struct ObservedAgent<A> {
     observer: Option<Observer>,
 }
 
+/// A front end's prompt call in flight: the bridge hears it is over when this drops, however the call ended.
+struct PromptCall {
+    observer: Observer,
+    session_id: String,
+}
+
+impl Drop for PromptCall {
+    fn drop(&mut self) {
+        self.observer.send(Observed::PromptReturned {
+            session_id: std::mem::take(&mut self.session_id),
+        });
+    }
+}
+
 impl<A> ObservedAgent<A> {
     /// The same agent with nobody watching (a host where remote control is off).
     pub fn unobserved(agent: A) -> ObservedAgent<A> {
@@ -529,9 +547,13 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
             return self.viewer()?.prompt(&session_id, prompt_id, text).await;
         }
         self.tell(Observed::PromptSent {
-            session_id,
+            session_id: session_id.clone(),
             prompt_id,
             text: prompt_text(&args.prompt),
+        });
+        let _call = self.observer.clone().map(|observer| PromptCall {
+            observer,
+            session_id,
         });
         self.inner.prompt(args).await
     }
@@ -744,5 +766,97 @@ mod tests {
         assert_eq!(params_session(&raw).as_deref(), Some("s1"));
         let raw = serde_json::value::to_raw_value(&json!({ "cwd": "/" })).unwrap();
         assert_eq!(params_session(&raw), None);
+    }
+
+    /// An agent whose prompt answers once its gate opens (at once without one).
+    struct Gated(RefCell<Option<oneshot::Receiver<()>>>);
+
+    #[async_trait::async_trait(?Send)]
+    impl acp::Agent for Gated {
+        async fn initialize(
+            &self,
+            _: acp::InitializeRequest,
+        ) -> acp::Result<acp::InitializeResponse> {
+            Err(acp::Error::internal_error())
+        }
+
+        async fn authenticate(
+            &self,
+            _: acp::AuthenticateRequest,
+        ) -> acp::Result<acp::AuthenticateResponse> {
+            Err(acp::Error::internal_error())
+        }
+
+        async fn new_session(
+            &self,
+            _: acp::NewSessionRequest,
+        ) -> acp::Result<acp::NewSessionResponse> {
+            Err(acp::Error::internal_error())
+        }
+
+        async fn prompt(&self, _: acp::PromptRequest) -> acp::Result<acp::PromptResponse> {
+            let gate = self.0.borrow_mut().take();
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
+            Ok(acp::PromptResponse::new(acp::StopReason::EndTurn))
+        }
+
+        async fn cancel(&self, _: acp::CancelNotification) -> acp::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn observed(
+        gate: Option<oneshot::Receiver<()>>,
+    ) -> (ObservedAgent<Gated>, mpsc::UnboundedReceiver<Observed>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let observer = Observer(Rc::new(ObserverInner {
+            tx,
+            live: Cell::new(false),
+            hidden: RefCell::new(HashSet::new()),
+            shared: RefCell::new(HashSet::new()),
+            viewer: Viewer::new(),
+        }));
+        let agent = ObservedAgent {
+            inner: Gated(RefCell::new(gate)),
+            observer: Some(observer),
+        };
+        (agent, rx)
+    }
+
+    fn prompt() -> acp::PromptRequest {
+        acp::PromptRequest::new(
+            "s1".to_string(),
+            vec![acp::ContentBlock::Text(acp::TextContent::new("hi"))],
+        )
+    }
+
+    /// What the bridge heard, in order: `sent s1`, `returned s1`.
+    fn heard(rx: &mut mpsc::UnboundedReceiver<Observed>) -> Vec<String> {
+        std::iter::from_fn(|| rx.try_recv().ok())
+            .map(|observed| match observed {
+                Observed::PromptSent { session_id, .. } => format!("sent {session_id}"),
+                Observed::PromptReturned { session_id } => format!("returned {session_id}"),
+                _ => "other".to_string(),
+            })
+            .collect()
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_bridge_hears_a_prompt_call_end_however_it_ends() {
+        use acp::Agent as _;
+        let (agent, mut rx) = observed(None);
+        agent.prompt(prompt()).await.unwrap();
+        assert_eq!(heard(&mut rx), ["sent s1", "returned s1"]);
+
+        // The front end gave up on the call while the turn ran (the future was dropped).
+        let (_open, gate) = oneshot::channel();
+        let (agent, mut rx) = observed(Some(gate));
+        let gave_up =
+            tokio::time::timeout(std::time::Duration::from_millis(20), agent.prompt(prompt()))
+                .await;
+        assert!(gave_up.is_err());
+        assert_eq!(heard(&mut rx), ["sent s1", "returned s1"]);
     }
 }

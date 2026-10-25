@@ -5,7 +5,7 @@
 //! and streams `bridge:inbox` back. A device that was signed out elsewhere (`REVOKED`) deletes its credentials and
 //! reports [`FromRelay::SignedOut`].
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -152,6 +152,10 @@ pub enum FromRelay {
         event_seq: f64,
     },
     Inbox(Inbox),
+    /// A write of the session's fields failed: the relay may lack any of them (a turn's end among them).
+    FieldsLost {
+        session_id: String,
+    },
     /// A subscribed query's current value.
     Query {
         id: u64,
@@ -580,7 +584,27 @@ async fn write_loop(
     tokens: Arc<Tokens>,
 ) {
     let mut doc_ids: HashMap<String, String> = HashMap::new();
-    while let Some(message) = work.recv().await {
+    // Writes wait here while the previous one is out. Each takes a round trip, so a far relay can answer slower than a
+    // busy turn changes; what piles up meanwhile is folded, and the newest state is never more than a few writes away.
+    let mut backlog: VecDeque<ToRelay> = VecDeque::new();
+    loop {
+        if backlog.is_empty() {
+            match work.recv().await {
+                Some(message) => backlog.push_back(message),
+                None => break,
+            }
+        }
+        while let Ok(message) = work.try_recv() {
+            backlog.push_back(message);
+        }
+        fold_backlog(&mut backlog, &doc_ids);
+        let Some(message) = backlog.pop_front() else {
+            continue;
+        };
+        let fields_of = match &message {
+            ToRelay::UpsertSession { session_id, .. } => Some(session_id.clone()),
+            _ => None,
+        };
         let result = match message {
             ToRelay::UpsertSession { session_id, fields } => {
                 let args = json!({ "hostId": host_id, "sessionId": session_id, "fields": fields });
@@ -753,6 +777,11 @@ async fn write_loop(
                 continue;
             }
         };
+        if let Some(session_id) = fields_of
+            && !matches!(result, Ok(FunctionResult::Value(_)))
+        {
+            let _ = from_relay.send(FromRelay::FieldsLost { session_id });
+        }
         match result {
             Ok(FunctionResult::Value(_)) => {}
             Ok(other) => {
@@ -769,6 +798,83 @@ async fn write_loop(
                 }
             }
             Err(error) => tracing::debug!(%error, "remote link: write failed"),
+        }
+    }
+}
+
+/// Folds the writes waiting in `backlog`. Between two writes that must keep their place (claims, completions, closes, a
+/// replaced transcript, …), each session's field updates become one upsert with the latest value of every field, and its
+/// transcript items one push with each item once, in its latest state. They go where the session's first upsert and
+/// first push were. A session the relay has given no row yet (not in `registered`) keeps its writes as they are: its
+/// first upsert creates the row.
+fn fold_backlog(backlog: &mut VecDeque<ToRelay>, registered: &HashMap<String, String>) {
+    if backlog.len() < 2 {
+        return;
+    }
+    let mut folded: VecDeque<ToRelay> = VecDeque::with_capacity(backlog.len());
+    // Where each session's upsert and push went since the last write that keeps its place.
+    let mut upserts: HashMap<String, usize> = HashMap::new();
+    let mut pushes: HashMap<String, usize> = HashMap::new();
+    for message in backlog.drain(..) {
+        match message {
+            ToRelay::UpsertSession { session_id, fields }
+                if registered.contains_key(&session_id) =>
+            {
+                let at = upserts.get(&session_id).copied();
+                if let Some(ToRelay::UpsertSession {
+                    fields: earlier, ..
+                }) = at.and_then(|at| folded.get_mut(at))
+                {
+                    earlier.merge(*fields);
+                } else {
+                    upserts.insert(session_id.clone(), folded.len());
+                    folded.push_back(ToRelay::UpsertSession { session_id, fields });
+                }
+            }
+            ToRelay::PushEvents {
+                session_id,
+                events,
+                replace: false,
+            } if registered.contains_key(&session_id) => {
+                let at = pushes.get(&session_id).copied();
+                if let Some(ToRelay::PushEvents {
+                    events: earlier, ..
+                }) = at.and_then(|at| folded.get_mut(at))
+                {
+                    merge_events(earlier, events);
+                } else {
+                    pushes.insert(session_id.clone(), folded.len());
+                    folded.push_back(ToRelay::PushEvents {
+                        session_id,
+                        events,
+                        replace: false,
+                    });
+                }
+            }
+            other => {
+                upserts.clear();
+                pushes.clear();
+                folded.push_back(other);
+            }
+        }
+    }
+    *backlog = folded;
+}
+
+/// Adds `later` to `events`: an item already there (same key) takes its later state where it is, new ones go last.
+fn merge_events(events: &mut Vec<EventInput>, later: Vec<EventInput>) {
+    let mut at: HashMap<String, usize> = events
+        .iter()
+        .enumerate()
+        .map(|(index, event)| (event.key.clone(), index))
+        .collect();
+    for event in later {
+        match at.get(&event.key).and_then(|index| events.get_mut(*index)) {
+            Some(existing) => *existing = event,
+            None => {
+                at.insert(event.key.clone(), events.len());
+                events.push(event);
+            }
         }
     }
 }
@@ -853,5 +959,152 @@ mod tests {
             to_args_with_nulls(json!({"paginationOpts": {"numItems": 40.0, "cursor": null}}));
         let opts = args.get("paginationOpts").unwrap().clone().export();
         assert_eq!(opts, json!({"numItems": 40.0, "cursor": null}));
+    }
+
+    fn event(key: &str, text: &str) -> EventInput {
+        EventInput {
+            key: key.into(),
+            kind: EventKind::Assistant,
+            text: text.into(),
+            title: None,
+            tool_kind: None,
+            status: None,
+            origin: None,
+            command_id: None,
+            from_label: None,
+            at: 1.0,
+        }
+    }
+
+    fn upsert(
+        session: &str,
+        status: Option<crate::types::SessionStatus>,
+        preview: Option<&str>,
+    ) -> ToRelay {
+        ToRelay::UpsertSession {
+            session_id: session.into(),
+            fields: Box::new(SessionFields {
+                status,
+                preview: preview.map(str::to_owned),
+                ..SessionFields::default()
+            }),
+        }
+    }
+
+    fn push(session: &str, events: Vec<EventInput>) -> ToRelay {
+        ToRelay::PushEvents {
+            session_id: session.into(),
+            events,
+            replace: false,
+        }
+    }
+
+    fn registered(sessions: &[&str]) -> HashMap<String, String> {
+        sessions
+            .iter()
+            .map(|s| (s.to_string(), format!("doc-{s}")))
+            .collect()
+    }
+
+    /// What a folded backlog holds, in order: `U s status preview`, `P s key=text…`, or another write's name.
+    fn shape(backlog: &VecDeque<ToRelay>) -> Vec<String> {
+        backlog
+            .iter()
+            .map(|message| match message {
+                ToRelay::UpsertSession { session_id, fields } => format!(
+                    "U {session_id} {:?} {}",
+                    fields.status,
+                    fields.preview.as_deref().unwrap_or("-")
+                ),
+                ToRelay::PushEvents {
+                    session_id,
+                    events,
+                    replace,
+                } => format!(
+                    "P{} {session_id} {}",
+                    if *replace { "!" } else { "" },
+                    events
+                        .iter()
+                        .map(|e| format!("{}={}", e.key, e.text))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ),
+                ToRelay::Complete { command_id, .. } => format!("C {command_id}"),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_busy_sessions_backlog_folds_into_one_push_and_one_upsert_with_the_latest_state() {
+        use crate::types::SessionStatus::{Idle, Running};
+        let mut backlog: VecDeque<ToRelay> = VecDeque::from(vec![
+            push("s", vec![event("a", "He")]),
+            upsert("s", Some(Running), None),
+            push("s", vec![event("a", "Hello"), event("b", "ls")]),
+            push("t", vec![event("x", "other")]),
+            upsert("s", None, Some("Hello")),
+            push("s", vec![event("b", "ls -la"), event("c", "Done")]),
+            upsert("s", Some(Idle), Some("Done")),
+        ]);
+        fold_backlog(&mut backlog, &registered(&["s", "t"]));
+        assert_eq!(
+            shape(&backlog),
+            [
+                "P s a=Hello,b=ls -la,c=Done",
+                "U s Some(Idle) Done",
+                "P t x=other",
+            ]
+        );
+    }
+
+    #[test]
+    fn writes_that_keep_their_place_are_never_crossed() {
+        use crate::types::SessionStatus::{Idle, Running};
+        let mut backlog: VecDeque<ToRelay> = VecDeque::from(vec![
+            upsert("s", Some(Running), None),
+            push("s", vec![event("a", "Hi")]),
+            ToRelay::Complete {
+                command_id: "c1".into(),
+                outcome: CommandOutcome::Done,
+                result: None,
+                error: None,
+            },
+            push("s", vec![event("a", "Hi there")]),
+            upsert("s", Some(Idle), None),
+            ToRelay::PushEvents {
+                session_id: "s".into(),
+                events: vec![event("z", "history")],
+                replace: true,
+            },
+            push("s", vec![event("b", "new")]),
+        ]);
+        fold_backlog(&mut backlog, &registered(&["s"]));
+        assert_eq!(
+            shape(&backlog),
+            [
+                "U s Some(Running) -",
+                "P s a=Hi",
+                "C c1",
+                "P s a=Hi there",
+                "U s Some(Idle) -",
+                "P! s z=history",
+                "P s b=new",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_session_without_a_row_keeps_its_writes() {
+        use crate::types::SessionStatus::{Idle, Running};
+        let mut backlog: VecDeque<ToRelay> = VecDeque::from(vec![
+            upsert("new", Some(Running), None),
+            upsert("new", Some(Idle), None),
+        ]);
+        fold_backlog(&mut backlog, &registered(&[]));
+        assert_eq!(
+            shape(&backlog),
+            ["U new Some(Running) -", "U new Some(Idle) -"]
+        );
     }
 }
