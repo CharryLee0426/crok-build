@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::time::{Duration, Instant};
 
-use xai_grok_sampler::observe::ObservedCall;
+use xai_grok_sampler::observe::{HarnessEvent, ObservedCall};
 
 use crate::settings::{Settings, is_bridge_var};
 
@@ -106,9 +106,31 @@ fn bridge_env(settings: &Settings, agent_version: &str) -> BTreeMap<String, Stri
     env
 }
 
-/// One call and the settings it is to be sent with.
+/// What the bridge is sent: a model call, or what happened around one.
+pub(crate) enum Record {
+    Call(ObservedCall),
+    Event(HarnessEvent),
+}
+
+impl Record {
+    fn to_json_line(&self) -> String {
+        match self {
+            Record::Call(call) => call.to_json_line(),
+            Record::Event(event) => event.to_json_line(),
+        }
+    }
+
+    fn describe(&self) -> String {
+        match self {
+            Record::Call(call) => call.generation_id().to_owned(),
+            Record::Event(event) => event.kind().to_owned(),
+        }
+    }
+}
+
+/// One record and the settings it is to be sent with.
 struct Job {
-    call: ObservedCall,
+    record: Record,
     settings: Arc<Settings>,
 }
 
@@ -119,17 +141,17 @@ pub(crate) struct Writer {
 }
 
 impl Writer {
-    /// Queues one call; never waits.
-    pub(crate) fn send(&self, call: ObservedCall, settings: Arc<Settings>) {
-        match self.tx.try_send(Job { call, settings }) {
+    /// Queues one record; never waits.
+    pub(crate) fn send(&self, record: Record, settings: Arc<Settings>) {
+        match self.tx.try_send(Job { record, settings }) {
             Ok(()) | Err(TrySendError::Disconnected(_)) => {}
             Err(TrySendError::Full(job)) => {
                 let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
                 if dropped == 1 || dropped.is_multiple_of(100) {
                     tracing::warn!(
                         dropped,
-                        generation = job.call.generation_id(),
-                        "agento11y bridge is behind; model-call records are being dropped"
+                        record = job.record.describe(),
+                        "agento11y bridge is behind; records are being dropped"
                     );
                 }
             }
@@ -221,8 +243,8 @@ fn run_writer(rx: Receiver<Job>, base: Base) {
     loop {
         let idle = current.as_ref().map_or(DEFAULT_IDLE, Destination::idle);
         match rx.recv_timeout(idle) {
-            Ok(Job { call, settings }) => {
-                let mut line = call.to_json_line();
+            Ok(Job { record, settings }) => {
+                let mut line = record.to_json_line();
                 if line.is_empty() {
                     continue;
                 }
@@ -366,12 +388,12 @@ fn spawn(launch: &Launch, base: &Base) -> io::Result<Bridge> {
     cmd.env_remove("NODE_OPTIONS");
     cmd.envs(&launch.env);
     let surface = xai_grok_sampler::observe::surface();
+    let eval = EvalRun::from_env();
     cmd.env(
         "AGENTO11Y_TAGS",
         client_tags(
             &launch.user_tags,
-            surface.as_deref(),
-            host_name().as_deref(),
+            &process_tags(surface.as_deref(), host_name().as_deref(), eval.as_ref()),
         ),
     );
     xai_tty_utils::detach_std_command(&mut cmd);
@@ -390,21 +412,69 @@ fn spawn(launch: &Launch, base: &Base) -> io::Result<Bridge> {
     })
 }
 
-/// The bridge's client tags: the configured ones plus `surface` and `host`, each unless they set
-/// it themselves. Client tags reach the spans and metrics too, so the Performance view can split
-/// TUI from desktop, and one machine from another now that every install reports to one stack.
-pub(crate) fn client_tags(user_tags: &str, surface: Option<&str>, host: Option<&str>) -> String {
+/// The experiment trial this crok runs in, from the runner's `CROK_EVAL_RUN` and `CROK_EVAL_TRIAL`
+/// (`evals/run.py`): its traffic is tagged `origin=eval`, so production rules and dashboards can
+/// leave it out.
+pub(crate) struct EvalRun {
+    run: String,
+    trial: Option<String>,
+}
+
+impl EvalRun {
+    fn from_env() -> Option<Self> {
+        let clean = |value: String| {
+            let value: String = value
+                .trim()
+                .chars()
+                .map(|c| if c == ',' || c == '=' { '-' } else { c })
+                .collect();
+            (!value.is_empty()).then_some(value)
+        };
+        let run = std::env::var("CROK_EVAL_RUN").ok().and_then(clean)?;
+        let trial = std::env::var("CROK_EVAL_TRIAL").ok().and_then(clean);
+        Some(Self { run, trial })
+    }
+}
+
+/// What this process adds to the configured tags: `surface`, `host`, and `origin` (`local` for the
+/// TUI and Crok Desktop, `headless` for `crok -p`, `eval` with `eval_run` and `eval_trial` under the
+/// experiment runner). A turn started from the web or a phone says `origin=relay` on its own records.
+pub(crate) fn process_tags<'a>(
+    surface: Option<&'a str>,
+    host: Option<&'a str>,
+    eval: Option<&'a EvalRun>,
+) -> Vec<(&'static str, &'a str)> {
+    let origin = match (eval, surface) {
+        (Some(_), _) => "eval",
+        (None, Some("headless")) => "headless",
+        (None, _) => "local",
+    };
+    let mut tags = vec![("origin", origin)];
+    tags.extend(surface.map(|surface| ("surface", surface)));
+    tags.extend(host.map(|host| ("host", host)));
+    if let Some(eval) = eval {
+        tags.push(("eval_run", eval.run.as_str()));
+        tags.extend(eval.trial.as_deref().map(|trial| ("eval_trial", trial)));
+    }
+    tags
+}
+
+/// The bridge's client tags: the configured ones plus the process's own ([`process_tags`]), each
+/// unless the configured ones set it. Client tags reach the spans and metrics too, so the
+/// Performance view can split TUI from desktop, one machine from another now that every install
+/// reports to one stack, and real work from experiment runs.
+pub(crate) fn client_tags(user_tags: &str, process: &[(&str, &str)]) -> String {
     let mut tags: Vec<String> = user_tags
         .split(',')
         .map(str::trim)
         .filter(|pair| !pair.is_empty())
         .map(str::to_owned)
         .collect();
-    for (key, value) in [("surface", surface), ("host", host)] {
+    for (key, value) in process {
         let named = tags
             .iter()
-            .any(|pair| pair.split('=').next().map(str::trim) == Some(key));
-        if let Some(value) = value.filter(|_| !named) {
+            .any(|pair| pair.split('=').next().map(str::trim) == Some(*key));
+        if !named {
             tags.push(format!("{key}={value}"));
         }
     }
@@ -528,21 +598,44 @@ mod tests {
     }
 
     #[test]
-    fn surface_and_host_join_the_configured_tags_unless_they_name_them() {
-        assert_eq!(client_tags("", Some("desktop"), None), "surface=desktop");
+    fn process_tags_join_the_configured_tags_unless_they_name_them() {
+        let tags =
+            |user: &str, surface, host| client_tags(user, &process_tags(surface, host, None));
         assert_eq!(
-            client_tags("team=me,", Some("tui"), Some("mbp")),
-            "team=me,surface=tui,host=mbp"
+            tags("", Some("desktop"), None),
+            "origin=local,surface=desktop"
         );
         assert_eq!(
-            client_tags("surface=laptop", Some("tui"), Some("mbp")),
-            "surface=laptop,host=mbp"
+            tags("team=me,", Some("tui"), Some("mbp")),
+            "team=me,origin=local,surface=tui,host=mbp"
         );
         assert_eq!(
-            client_tags("host=build-box", None, Some("mbp")),
-            "host=build-box"
+            tags("surface=laptop", Some("tui"), Some("mbp")),
+            "surface=laptop,origin=local,host=mbp"
         );
-        assert_eq!(client_tags("team=me", None, None), "team=me");
+        assert_eq!(
+            tags("host=build-box", None, Some("mbp")),
+            "host=build-box,origin=local"
+        );
+        assert_eq!(
+            tags("team=me", Some("headless"), None),
+            "team=me,origin=headless,surface=headless"
+        );
+    }
+
+    #[test]
+    fn an_experiment_trial_is_tagged_as_eval_traffic() {
+        let eval = EvalRun {
+            run: "nightly-1".to_owned(),
+            trial: Some("s2-fix-test-3".to_owned()),
+        };
+        assert_eq!(
+            client_tags(
+                "",
+                &process_tags(Some("headless"), Some("mbp"), Some(&eval))
+            ),
+            "origin=eval,surface=headless,host=mbp,eval_run=nightly-1,eval_trial=s2-fix-test-3"
+        );
     }
 
     #[test]

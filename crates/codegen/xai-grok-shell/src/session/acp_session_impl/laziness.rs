@@ -560,6 +560,16 @@ impl SessionActor {
         let confidence = parsed.confidence;
         let decision =
             evaluate_laziness(&parsed, &cfg, nudges_used, LAZINESS_DEFAULT_MIN_CONFIDENCE);
+        // Agent Observability: the classifier's verdict on the turn it just read, as a score.
+        let category_name = category.as_const_str();
+        xai_grok_sampler::observe::record_verdict(xai_grok_sampler::observe::Verdict {
+            session_id: &self.session_info.id.0,
+            evaluator: "crok.laziness",
+            key: "category",
+            value: xai_grok_sampler::observe::VerdictValue::Label(category_name),
+            passed: Some(!category_name.starts_with("stalled")),
+            explanation: Some(&format!("confidence {confidence}")),
+        });
 
         let goal_active = laziness_injection_active(
             self.goal_harness_enabled(),

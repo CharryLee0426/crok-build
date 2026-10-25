@@ -14776,7 +14776,7 @@ var require_RandomIdGenerator = __commonJS({
     exports.RandomIdGenerator = void 0;
     var SPAN_ID_BYTES = 8;
     var TRACE_ID_BYTES = 16;
-    var RandomIdGenerator = class {
+    var RandomIdGenerator2 = class {
       /**
        * Returns a random 16-byte trace ID formatted/encoded as a 32 lowercase hex
        * characters corresponding to 128 bits.
@@ -14788,7 +14788,7 @@ var require_RandomIdGenerator = __commonJS({
        */
       generateSpanId = getIdGenerator(SPAN_ID_BYTES);
     };
-    exports.RandomIdGenerator = RandomIdGenerator;
+    exports.RandomIdGenerator = RandomIdGenerator2;
     var SHARED_BUFFER = Buffer.allocUnsafe(TRACE_ID_BYTES);
     function getIdGenerator(bytes) {
       return function generateId() {
@@ -15386,6 +15386,9 @@ var defaultLogger = {
   }
 };
 var defaultContentCaptureMode = "default";
+function configFromEnv(env2 = defaultEnv()) {
+  return mergeConfig({}, env2);
+}
 function mergeConfig(config, env2 = defaultEnv()) {
   const logger = config.logger ?? defaultLogger;
   const envCfg = envOverrides(env2, logger);
@@ -18049,11 +18052,11 @@ var Agento11yClient = class {
     const completedMs = generation.completedAt.getTime();
     const durationSeconds = Math.max(0, (completedMs - startedMs) / 1e3);
     const identityAttributes = metricIdentityAttributes(generation.model.provider, generation.model.name, generation.agentName, generation.agentVersion);
-    const tagAttributes = tagMetricAttributes(this.config.tags);
+    const tagAttributes2 = tagMetricAttributes(this.config.tags);
     this.operationDurationHistogram.record(durationSeconds, {
       [spanAttrOperationName]: generation.operationName,
       ...identityAttributes,
-      ...tagAttributes,
+      ...tagAttributes2,
       [spanAttrErrorType]: errorType,
       [spanAttrErrorCategory]: errorCategory
     });
@@ -18067,14 +18070,14 @@ var Agento11yClient = class {
     }
     this.toolCallsHistogram.record(countToolCallParts(generation.output ?? []), {
       ...identityAttributes,
-      ...tagAttributes
+      ...tagAttributes2
     });
     if (generation.operationName === "streamText" && firstTokenAt !== void 0) {
       const ttftSeconds = (firstTokenAt.getTime() - startedMs) / 1e3;
       if (ttftSeconds >= 0) {
         this.ttftHistogram.record(ttftSeconds, {
           ...identityAttributes,
-          ...tagAttributes
+          ...tagAttributes2
         });
       }
     }
@@ -18082,11 +18085,11 @@ var Agento11yClient = class {
   recordEmbeddingMetrics(seed, result, startedAt, completedAt, errorType, errorCategory) {
     const durationSeconds = Math.max(0, (completedAt.getTime() - startedAt.getTime()) / 1e3);
     const identityAttributes = metricIdentityAttributes(seed.model.provider, seed.model.name, seed.agentName, seed.agentVersion);
-    const tagAttributes = tagMetricAttributes(this.config.tags);
+    const tagAttributes2 = tagMetricAttributes(this.config.tags);
     this.operationDurationHistogram.record(durationSeconds, {
       [spanAttrOperationName]: defaultEmbeddingOperationName,
       ...identityAttributes,
-      ...tagAttributes,
+      ...tagAttributes2,
       [spanAttrErrorType]: errorType,
       [spanAttrErrorCategory]: errorCategory
     });
@@ -18094,7 +18097,7 @@ var Agento11yClient = class {
       this.tokenUsageHistogram.record(result.inputTokens, {
         [spanAttrOperationName]: defaultEmbeddingOperationName,
         ...identityAttributes,
-        ...tagAttributes,
+        ...tagAttributes2,
         [metricAttrTokenType]: metricTokenTypeInput
       });
     }
@@ -19517,6 +19520,12 @@ var consoleLogger = {
   }
 };
 
+// src/main.ts
+init_esm();
+
+// src/harness.ts
+init_esm();
+
 // src/log.ts
 function stderrLog(debugEnabled) {
   const write = (level, message) => {
@@ -19570,8 +19579,10 @@ function startOtel(options) {
   const spanExporter = new LoggedSpanExporter(options.spanExporter ?? new import_exporter_trace_otlp_http.OTLPTraceExporter(), options.log);
   const metricExporter = new LoggedMetricExporter(options.metricExporter ?? new import_exporter_metrics_otlp_http.OTLPMetricExporter(), options.log);
   const spanAttributes = new CrokSpanAttributes();
+  const ids = new PresetIds();
   const tracerProvider = new import_sdk_trace.TracerProvider({
     resource,
+    idGenerator: ids,
     spanProcessors: [spanAttributes, new import_sdk_trace.BatchSpanProcessor({ exporter: spanExporter })]
   });
   const meterProvider = new import_sdk_metrics.MeterProvider({
@@ -19585,24 +19596,85 @@ function startOtel(options) {
   });
   trace.setGlobalTracerProvider(tracerProvider);
   metrics.setGlobalMeterProvider(meterProvider);
-  return { tracerProvider, meterProvider, spanAttributes };
+  context.setGlobalContextManager(new SyncContextManager());
+  return { tracerProvider, meterProvider, spanAttributes, ids };
+}
+var PresetIds = class {
+  random = new import_sdk_trace.RandomIdGenerator();
+  traceId;
+  spanId;
+  /** Runs `start` with the next span's ids set to these; a span with a parent keeps the parent's trace id. */
+  with(traceId, spanId, start) {
+    this.traceId = traceId;
+    this.spanId = spanId;
+    try {
+      return start();
+    } finally {
+      this.traceId = void 0;
+      this.spanId = void 0;
+    }
+  }
+  generateTraceId() {
+    const preset = this.traceId;
+    this.traceId = void 0;
+    return preset ?? this.random.generateTraceId();
+  }
+  generateSpanId() {
+    const preset = this.spanId;
+    this.spanId = void 0;
+    return preset ?? this.random.generateSpanId();
+  }
+};
+var SyncContextManager = class {
+  stack = [];
+  active() {
+    return this.stack[this.stack.length - 1] ?? ROOT_CONTEXT;
+  }
+  with(ctx, fn, thisArg, ...args) {
+    this.stack.push(ctx);
+    try {
+      return fn.call(thisArg, ...args);
+    } finally {
+      this.stack.pop();
+    }
+  }
+  bind(_ctx, target) {
+    return target;
+  }
+  enable() {
+    return this;
+  }
+  disable() {
+    this.stack.length = 0;
+    return this;
+  }
+};
+function contextOf(ref) {
+  return ref === void 0 ? ROOT_CONTEXT : trace.setSpanContext(ROOT_CONTEXT, {
+    traceId: ref.traceId,
+    spanId: ref.spanId,
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: true
+  });
 }
 var CrokSpanAttributes = class {
   pending = /* @__PURE__ */ new Map();
-  /** Attributes for the span of generation `id`, written when that span ends. */
+  /** Attributes for the span of generation `id` (or tool run `tool:<call id>`), written when that span ends. */
   expect(id, attributes) {
     this.pending.set(id, attributes);
   }
-  /** Drops what no span took (the SDK refused the generation before starting one). */
+  /** Drops what no span took (the SDK refused the record before starting one). */
   forget(id) {
     this.pending.delete(id);
   }
   onStart() {
   }
   onEnding(span) {
-    const id = span.attributes["agento11y.generation.id"];
-    const attributes = typeof id === "string" ? this.pending.get(id) : void 0;
-    if (attributes !== void 0) {
+    const generation = span.attributes["agento11y.generation.id"];
+    const toolCall = span.attributes["gen_ai.tool.call.id"];
+    const id = typeof generation === "string" ? generation : typeof toolCall === "string" && span.attributes["gen_ai.operation.name"] === "execute_tool" ? `tool:${toolCall}` : void 0;
+    const attributes = id === void 0 ? void 0 : this.pending.get(id);
+    if (id !== void 0 && attributes !== void 0) {
       span.setAttributes(attributes);
       this.pending.delete(id);
     }
@@ -19690,6 +19762,15 @@ var LoggedMetricExporter = class {
 };
 
 // src/protocol.ts
+var HARNESS_TYPES = /* @__PURE__ */ new Set(["turn", "tool", "step", "score", "rating", "guard"]);
+var HARNESS_FIELDS = {
+  turn: { span: "object", conversationId: "string", agentName: "string", startedAtMs: "number", completedAtMs: "number" },
+  tool: { conversationId: "string", agentName: "string", toolName: "string", toolCallId: "string", startedAtMs: "number", completedAtMs: "number" },
+  step: { id: "string", conversationId: "string", stepName: "string", startedAtMs: "number", completedAtMs: "number" },
+  score: { scoreId: "string", evaluatorId: "string", scoreKey: "string", value: "object", generationId: "string" },
+  rating: { conversationId: "string", ratingId: "string", rating: "string" },
+  guard: { phase: "string", conversationId: "string", model: "object", input: "object" }
+};
 function parseLine(text) {
   const trimmed = text.trim();
   if (trimmed.length === 0) {
@@ -19706,6 +19787,17 @@ function parseLine(text) {
   }
   if (value.type === "flush") {
     return { type: "flush" };
+  }
+  if (typeof value.type === "string" && HARNESS_TYPES.has(value.type)) {
+    const required = HARNESS_FIELDS[value.type] ?? {};
+    const missing = Object.entries(required).filter(([field, kind]) => {
+      const got = value[field];
+      return kind === "object" ? !isRecord4(got) : typeof got !== kind;
+    });
+    if (missing.length > 0) {
+      return new Error(`${value.type} line without ${missing.map(([field]) => field).join(", ")}`);
+    }
+    return value;
   }
   if (value.type !== "generation") {
     return new Error(`unknown line type ${JSON.stringify(value.type)}`);
@@ -19729,13 +19821,27 @@ function toResult(fields) {
   return { ...rest, completedAt: new Date(completedAtMs) };
 }
 function spanAttributesOf(line) {
-  const given = line.spanAttributes;
+  const given = line.type === "generation" ? line.spanAttributes : line.attributes;
   if (!isRecord4(given)) {
     return void 0;
   }
   const kept = Object.entries(given).filter(
     (entry) => typeof entry[1] === "string" || typeof entry[1] === "boolean" || typeof entry[1] === "number" && Number.isFinite(entry[1])
   );
+  return kept.length > 0 ? Object.fromEntries(kept) : void 0;
+}
+function validSpanRef(ref) {
+  if (!isRecord4(ref)) {
+    return void 0;
+  }
+  const { traceId, spanId } = ref;
+  return typeof traceId === "string" && typeof spanId === "string" && /^[0-9a-f]{32}$/.test(traceId) && /^[0-9a-f]{16}$/.test(spanId) && !/^0+$/.test(traceId) && !/^0+$/.test(spanId) ? { traceId, spanId } : void 0;
+}
+function stringTags(tags) {
+  if (!isRecord4(tags)) {
+    return void 0;
+  }
+  const kept = Object.entries(tags).filter((entry) => typeof entry[1] === "string");
   return kept.length > 0 ? Object.fromEntries(kept) : void 0;
 }
 function toCallError(error) {
@@ -19747,8 +19853,288 @@ function isRecord4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// src/harness.ts
+function recordHarness(deps, line) {
+  switch (line.type) {
+    case "turn":
+      return recordTurn(deps, line);
+    case "tool":
+      return recordTool(deps, line);
+    case "step":
+      deps.client.enqueueWorkflowStep(toWorkflowStep(line, deps.agentVersion));
+      return void 0;
+    case "score":
+      deps.scores.add(line);
+      return void 0;
+    case "rating":
+      track(deps, submitRating(deps, line));
+      return void 0;
+    case "guard":
+      if (deps.guards) {
+        track(deps, evaluateGuard(deps, line));
+      }
+      return void 0;
+  }
+}
+async function settle(deps) {
+  while (deps.pending.size > 0) {
+    await Promise.allSettled([...deps.pending]);
+  }
+}
+function track(deps, work) {
+  const tracked = work.catch((error) => deps.log.warn(describe(error)));
+  deps.pending.add(tracked);
+  void tracked.finally(() => deps.pending.delete(tracked));
+}
+function recordTurn(deps, line) {
+  const own = validSpanRef(line.span);
+  if (own === void 0) {
+    return new Error("turn line with an invalid span");
+  }
+  const attributes = {
+    "gen_ai.operation.name": "invoke_agent",
+    "gen_ai.agent.name": line.agentName,
+    "gen_ai.conversation.id": line.conversationId,
+    ...tagAttributes({ ...deps.client.internalTags(), ...stringTags(line.tags) }),
+    ...spanAttributesOf(line)
+  };
+  if (deps.agentVersion !== void 0 && deps.agentVersion.length > 0) {
+    attributes["gen_ai.agent.version"] = deps.agentVersion;
+  }
+  if (typeof line.conversationTitle === "string" && line.conversationTitle.length > 0) {
+    attributes["agento11y.conversation.title"] = line.conversationTitle;
+  }
+  const span = deps.ids.with(
+    own.traceId,
+    own.spanId,
+    () => deps.tracer.startSpan(
+      `invoke_agent ${line.agentName}`,
+      { kind: SpanKind.INTERNAL, startTime: new Date(line.startedAtMs), attributes },
+      contextOf(validSpanRef(line.parent))
+    )
+  );
+  if (typeof line.error === "string" && line.error.length > 0) {
+    span.setAttribute("error.type", "turn_error");
+    span.setStatus({ code: SpanStatusCode.ERROR, message: line.error });
+  } else {
+    span.setStatus({ code: SpanStatusCode.OK });
+  }
+  span.end(new Date(line.completedAtMs));
+  return void 0;
+}
+function recordTool(deps, line) {
+  const run = () => {
+    const key = `tool:${line.toolCallId}`;
+    deps.spanAttributes.expect(key, { ...spanAttributesOf(line), ...tagAttributes(stringTags(line.tags)) });
+    const recorder = deps.client.startToolExecution({
+      toolName: line.toolName,
+      toolCallId: line.toolCallId,
+      toolType: "function",
+      conversationId: line.conversationId,
+      conversationTitle: line.conversationTitle ?? void 0,
+      agentName: line.agentName,
+      agentVersion: deps.agentVersion,
+      requestModel: line.requestModel ?? void 0,
+      startedAt: new Date(line.startedAtMs)
+    });
+    try {
+      if (typeof line.error === "string" && line.error.length > 0) {
+        recorder.setCallError(new Error(line.error));
+      }
+      recorder.setResult({ completedAt: new Date(line.completedAtMs) });
+    } finally {
+      recorder.end();
+      deps.spanAttributes.forget(key);
+    }
+    const error = recorder.getError();
+    return error !== void 0 && error.message !== line.error ? error : void 0;
+  };
+  const parent = validSpanRef(line.parent);
+  return parent === void 0 ? run() : context.with(contextOf(parent), run);
+}
+function toWorkflowStep(line, agentVersion) {
+  const parent = validSpanRef(line.parent);
+  return {
+    id: line.id,
+    conversationId: line.conversationId,
+    stepName: line.stepName,
+    framework: "crok",
+    startedAt: new Date(line.startedAtMs),
+    completedAt: new Date(line.completedAtMs),
+    inputState: line.inputState,
+    outputState: line.outputState,
+    error: typeof line.error === "string" && line.error.length > 0 ? line.error : void 0,
+    tags: stringTags(line.tags),
+    linkedGenerationIds: line.linkedGenerationIds,
+    agentName: line.agentName,
+    agentVersion,
+    traceId: parent?.traceId,
+    spanId: parent?.spanId
+  };
+}
+async function submitRating(deps, line) {
+  const response = await deps.client.submitConversationRating(line.conversationId, {
+    ratingId: line.ratingId,
+    rating: line.rating,
+    comment: line.comment ?? void 0,
+    generationId: line.generationId ?? void 0,
+    source: "crok",
+    metadata: typeof line.category === "string" ? { category: line.category } : void 0
+  });
+  deps.log.info(
+    `rating ${line.rating === "CONVERSATION_RATING_VALUE_GOOD" ? "good" : "bad"} on ${line.conversationId}: ${response.summary.goodCount} good, ${response.summary.badCount} bad`
+  );
+}
+async function evaluateGuard(deps, line) {
+  const response = await deps.client.evaluateHook(
+    {
+      phase: line.phase,
+      context: {
+        agentName: line.agentName,
+        agentVersion: deps.agentVersion,
+        model: line.model,
+        tags: stringTags(line.tags),
+        conversationId: line.conversationId,
+        traceId: line.traceId ?? void 0,
+        spanId: line.spanId ?? void 0
+      },
+      input: line.input
+    },
+    { enabled: true, phases: ["preflight", "postflight"], failOpen: true, timeoutMs: 1e4 }
+  );
+  const failed = response.evaluations.filter((evaluation) => !evaluation.passed);
+  if (response.action === "deny" || failed.length > 0) {
+    const rules = failed.map((evaluation) => `${evaluation.ruleId}${evaluation.reason ? ` (${evaluation.reason})` : ""}`);
+    deps.log.info(`guard ${line.phase} on ${line.conversationId}: ${response.action}; ${rules.join(", ")}`);
+  } else {
+    deps.log.debug(`guard ${line.phase} on ${line.conversationId}: ${response.action}`);
+  }
+}
+function tagAttributes(tags) {
+  const out = {};
+  for (const [key, value] of Object.entries(tags ?? {})) {
+    out[`agento11y.tag.${key}`] = value;
+  }
+  return out;
+}
+var ScoreExporter = class {
+  constructor(client2, log2, agentVersion, target, delayMs = 3e3, post = postJson) {
+    this.client = client2;
+    this.log = log2;
+    this.agentVersion = agentVersion;
+    this.target = target;
+    this.delayMs = delayMs;
+    this.post = post;
+  }
+  client;
+  log;
+  agentVersion;
+  target;
+  delayMs;
+  post;
+  queue = [];
+  timer;
+  running = Promise.resolve();
+  add(line) {
+    this.queue.push(line);
+    if (this.timer === void 0) {
+      this.timer = setTimeout(() => void this.flush(), this.delayMs);
+      this.timer.unref?.();
+    }
+  }
+  /** Sends everything queued; resolves when it is sent (or failed and logged). */
+  flush() {
+    if (this.timer !== void 0) {
+      clearTimeout(this.timer);
+      this.timer = void 0;
+    }
+    this.running = this.running.then(() => this.sendQueued());
+    return this.running;
+  }
+  async sendQueued() {
+    while (this.queue.length > 0) {
+      const batch = this.queue.splice(0, 100);
+      try {
+        await this.client.flush();
+        const target = this.target();
+        const base = target.endpoint.replace(/\/+$/, "");
+        const response = await this.post(`${base}/api/v1/scores:export`, target.headers ?? {}, {
+          scores: batch.map((line) => wireScore(line, this.agentVersion))
+        });
+        const rejected2 = rejectedScores(response);
+        if (rejected2.length > 0) {
+          this.log.warn(`${rejected2.length} of ${batch.length} scores rejected: ${rejected2.slice(0, 3).join("; ")}`);
+        } else {
+          this.log.debug(`scores export ok (${batch.length})`);
+        }
+      } catch (error) {
+        this.log.warn(`scores export failed (${batch.length}): ${describe(error)}`);
+      }
+    }
+  }
+};
+function wireScore(line, agentVersion) {
+  const out = {
+    score_id: line.scoreId,
+    evaluator_id: line.evaluatorId,
+    evaluator_version: agentVersion !== void 0 && agentVersion.length > 0 ? agentVersion : "1",
+    score_key: line.scoreKey,
+    value: line.value,
+    generation_id: line.generationId,
+    evaluator_kind: "heuristic",
+    metadata: { source: "crok-harness" }
+  };
+  const optional = {
+    conversation_id: line.conversationId,
+    trace_id: line.traceId,
+    span_id: line.spanId,
+    passed: line.passed,
+    explanation: line.explanation
+  };
+  for (const [key, value] of Object.entries(optional)) {
+    if (value !== void 0 && value !== null && value !== "") {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+function rejectedScores(response) {
+  if (typeof response !== "object" || response === null) {
+    return [];
+  }
+  const results = response.results;
+  if (!Array.isArray(results)) {
+    return [];
+  }
+  return results.filter((result) => typeof result === "object" && result !== null && result.status === "rejected").map((result) => {
+    const { score_id: id, error } = result;
+    return `${String(id)}: ${String(error)}`;
+  });
+}
+async function postJson(url, headers, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(3e4)
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${text.slice(0, 300)}`);
+  }
+  return text.length > 0 ? JSON.parse(text) : {};
+}
+
 // src/record.ts
+init_esm();
 function recordGeneration(client2, line, spanAttributes) {
+  const parent = validSpanRef(line.parent);
+  if (parent === void 0) {
+    return recordGenerationHere(client2, line, spanAttributes);
+  }
+  return context.with(contextOf(parent), () => recordGenerationHere(client2, line, spanAttributes));
+}
+function recordGenerationHere(client2, line, spanAttributes) {
   const extra = spanAttributesOf(line);
   if (extra !== void 0) {
     spanAttributes?.expect(line.start.id, extra);
@@ -19779,12 +20165,26 @@ var otel = startOtel({
   metricIntervalMs: positiveInt(env.CROK_AGENTO11Y_METRIC_INTERVAL_MS) ?? 15e3,
   log
 });
+var apiEndpoint = env.AGENTO11Y_ENDPOINT?.trim();
 var client = new Agento11yClient({
+  ...apiEndpoint ? { api: { endpoint: apiEndpoint } } : {},
   logger: sdkLogger(log),
   // Coding sessions read .env files and print keys; the SDK's redactor keeps known secret
   // formats out of exported text. CROK_AGENTO11Y_REDACT_SECRETS=false turns it off.
   generationSanitizer: isOff(env.CROK_AGENTO11Y_REDACT_SECRETS) ? void 0 : createSecretRedactionSanitizer()
 });
+var harness = {
+  client,
+  tracer: trace.getTracer("crok-agento11y-bridge"),
+  ids: otel.ids,
+  spanAttributes: otel.spanAttributes,
+  scores: new ScoreExporter(client, log, env.AGENTO11Y_AGENT_VERSION, () => configFromEnv().generationExport),
+  log,
+  agentVersion: env.AGENTO11Y_AGENT_VERSION,
+  // Guards run in warn mode: crok never waits for them. CROK_AGENTO11Y_GUARDS=off stops the checks.
+  guards: !isOff(env.CROK_AGENTO11Y_GUARDS),
+  pending: /* @__PURE__ */ new Set()
+};
 var recorded = 0;
 var rejected = 0;
 var shuttingDown = false;
@@ -19803,6 +20203,22 @@ lines.on("line", (text) => {
   }
   if (line.type === "flush") {
     void flush();
+    return;
+  }
+  if (line.type !== "generation") {
+    try {
+      const error = recordHarness(harness, line);
+      if (error === void 0) {
+        recorded += 1;
+        log.debug(`recorded ${line.type}`);
+      } else {
+        rejected += 1;
+        log.warn(`${line.type} not recorded: ${error.message}`);
+      }
+    } catch (error) {
+      rejected += 1;
+      log.warn(`${line.type} not recorded: ${describe(error)}`);
+    }
     return;
   }
   try {
@@ -19834,6 +20250,8 @@ async function flush() {
   } catch (error) {
     log.warn(`flush: ${describe(error)}`);
   }
+  await harness.scores.flush();
+  await settle(harness);
   await flushOtel(otel);
   log.debug("flushed");
 }
@@ -19847,6 +20265,8 @@ async function shutdown(reason) {
     log.warn("stop deadline passed, exiting with exports still pending");
     process.exit(1);
   }, SHUTDOWN_DEADLINE_MS);
+  await harness.scores.flush();
+  await settle(harness);
   try {
     await client.shutdown();
   } catch (error) {

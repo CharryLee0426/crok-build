@@ -174,6 +174,8 @@ pub(crate) async fn submit_feedback_workflow(
         }
     }
 
+    observe_rating(submission);
+
     let request_id = submission.request_id.clone();
     let appearance_id = request_id.clone();
 
@@ -1197,6 +1199,24 @@ fn tier_to_priority(tier: crate::session::feedback::FeedbackTier) -> i32 {
 }
 
 #[allow(clippy::disallowed_methods)] // test clients hit localhost mocks
+/// Sends the user's rating to Agent Observability as well, folded to good or bad: thumbs up or down,
+/// 4-5 stars or 1-2, NPS 9-10 or 0-6. A neutral rating sends nothing.
+fn observe_rating(submission: &FeedbackSubmission) {
+    use prod_mc_cli_chat_proxy_types::feedback_types::RatingType;
+    let good = match (submission.rating_type, submission.rating_value) {
+        (Some(RatingType::Thumbs), Some(value)) if value != 0 => value > 0,
+        (Some(RatingType::Stars), Some(value)) if value != 3 => value >= 4,
+        (Some(RatingType::Nps), Some(value)) if !(7..=8).contains(&value) => value >= 9,
+        _ => return,
+    };
+    xai_grok_sampler::observe::record_rating(xai_grok_sampler::observe::Rating {
+        session_id: &submission.session_id,
+        good,
+        comment: submission.feedback_text.as_deref(),
+        category: submission.feedback_categories.first().map(String::as_str),
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

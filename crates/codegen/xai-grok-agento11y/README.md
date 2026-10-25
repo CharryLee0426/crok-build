@@ -94,7 +94,31 @@ Text parts are cut at 64 KiB each (the SDK refuses a generation over 4 MiB). Ima
 The SDK's secret redaction runs before export (`CROK_AGENTO11Y_REDACT_SECRETS=false` turns it off),
 and `AGENTO11Y_CONTENT_CAPTURE_MODE=metadata_only` keeps all text out.
 
-Not recorded: compaction (it streams outside the sampler), image generation, embeddings, voice.
+Not recorded as generations: compaction (it streams outside the sampler; it is a workflow step,
+below), image generation, embeddings, voice.
+
+### Around the calls: turns, tools, steps, verdicts, ratings, guards
+
+The session reports what happens between model calls through the same sink
+(`xai-grok-sampler/src/observe_harness.rs`), and the bridge records it (`bridge/src/harness.ts`):
+
+| | |
+|---|---|
+| turn | span `invoke_agent crok` (or `crok/<sub-agent>`), the root of the turn's trace. crok makes its trace and span ids when the turn starts, so the turn's generations and tool runs, recorded earlier, are its children; a sub-agent's turn is a child of the parent turn that started it. `crok.turn.outcome` (`completed`, `cancelled`, `max_turns`, `stationarity`, `error`), `crok.turn_index`, `crok.model_calls`, `crok.tool_calls`, `crok.tool_errors`, `crok.permission_mode`, `crok.origin`, `gen_ai.request.model` |
+| tool run | span `execute_tool <tool>` through the SDK's tool recorder (no arguments or output: `no_tool_content`), with `crok.tool.outcome` (`success`, `error`, `cancelled`), `crok.tool.kind` (`read_only`, `mutating`, `other`), `crok.tool.exit_code`, `crok.tool.result_bytes`, `crok.tool.backgrounded`; the error's first line as the span status |
+| steps | Agent Observability workflow steps on the conversation, linked to the newest generation: `permission` (decision, source, wait), `hook PreToolUse` (allow, ask, rewrite, deny; only when hooks are set up), `compaction` (trigger, model, tokens before and after, outcome) |
+| verdicts | scores on the newest generation (`POST /api/v1/scores:export`, after the generation is flushed): `crok.goal_verdict` (`continue`, `candidate_complete`, `blocked`), `crok.laziness` (the classifier's category), `crok.identical_call_guard` (`nudged` with the run length, `halted`), `crok.max_turns_hit` |
+| rating | the user's feedback, folded to good or bad (thumbs, 4-5 or 1-2 stars, NPS 9-10 or 0-6), as an Agent Observability conversation rating, beside the xAI feedback it already went to |
+| guards | `POST /api/v1/hooks:evaluate` against the stack's guards (hook rules) in warn mode: postflight with the tool calls that can change something, before they run; preflight with each tool result before it goes back to the model. crok never waits for the answer and never blocks; the stack records a warn on the conversation. `CROK_AGENTO11Y_GUARDS=off` stops the checks |
+| tags | on everything a session reports: `repo` (the `origin` remote's owner/name, else the folder), `branch`, `user`; on the process: `origin` (`local`, `headless` for `crok -p`, `eval` under `evals/run.py`, `relay` on the turns the web and phones start), `surface`, `host`, and `eval_run` / `eval_trial` in experiments |
+
+`gen_ai.agent.version` is the release plus the commit (`2.0.1+5ba03440`), so a dev build or an
+experiment run is told apart from the release. Side calls that keep the session's conversation id
+for the prompt cache are named by their request id (`crok/goal-eval`), and session titles are
+`crok/title` under their session.
+
+`devtools/fake_stack.py` is a local stand-in for a stack: point an `agento11y.env` at it to see
+every record crok sends, and `fake_stack.py summary` prints each turn's tree.
 
 ## How it works
 
@@ -117,7 +141,8 @@ sampler (Rust)                               bridge (Node, TypeScript SDK)
 - `bridge/` is the TypeScript side. It creates the OpenTelemetry tracer and meter providers the
   SDK records into (without them every span and metric is silently lost), replays each call with
   crok's own timestamps, and logs every export result to `~/.crok/logs/agento11y.log`
-  (`AGENTO11Y_DEBUG=1` logs the successes too).
+  (`AGENTO11Y_DEBUG=1` logs the successes too). A synchronous context manager makes a call's span
+  the child of its turn, and a preset id generator gives the turn's span the ids crok chose.
 
 ## Changing the bridge
 

@@ -5,6 +5,7 @@ use super::*;
 use futures::StreamExt;
 use tracing::Instrument;
 use xai_grok_hooks::result::HookDecision;
+use xai_grok_tools::types::tool::ToolKind;
 
 /// Numbers each model response's batch of tool calls, so a tool can tell one response from the next.
 static NEXT_TOOL_BATCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -64,6 +65,101 @@ pub(super) fn tool_output_span_outcome(
         Err(_) => "error",
     }
 }
+/// `crok.tool.kind`: whether a tool can change anything. Unknown tools (MCP, browser, phone) are
+/// `other`, and guards treat them like `mutating`.
+pub(super) fn tool_kind_label(kind: Option<ToolKind>) -> &'static str {
+    match kind {
+        Some(
+            ToolKind::Edit
+            | ToolKind::Delete
+            | ToolKind::Write
+            | ToolKind::Move
+            | ToolKind::Execute
+            | ToolKind::KillTaskAction,
+        ) => "mutating",
+        Some(
+            ToolKind::Read
+            | ToolKind::ListDir
+            | ToolKind::Search
+            | ToolKind::Lsp
+            | ToolKind::Plan
+            | ToolKind::WebSearch
+            | ToolKind::WebFetch
+            | ToolKind::List
+            | ToolKind::MemorySearch
+            | ToolKind::MemoryGet
+            | ToolKind::WaitTasksAction
+            | ToolKind::BackgroundTaskAction,
+        ) => "read_only",
+        _ => "other",
+    }
+}
+
+/// Reports one finished tool run to Agent Observability, as an `execute_tool` span under the turn.
+fn observe_tool_run(
+    session_id: &str,
+    prepared: &PreparedToolCall,
+    kind: Option<ToolKind>,
+    result: &Result<ToolRunResult, xai_tool_runtime::ToolError>,
+    wait_aborted: bool,
+    started_at: std::time::SystemTime,
+) {
+    use xai_grok_sampler::observe::ToolRunOutcome;
+    let output = result.as_ref().ok().map(|tool_result| &tool_result.output);
+    let outcome = match result {
+        _ if wait_aborted => ToolRunOutcome::Cancelled,
+        Err(_) => ToolRunOutcome::Error,
+        Ok(tool_result) if tool_result.output.is_error() => ToolRunOutcome::Error,
+        Ok(_) => ToolRunOutcome::Success,
+    };
+    let exit_code = match output {
+        Some(ToolsToolOutput::Bash(bash)) => Some(bash.exit_code),
+        _ => None,
+    };
+    let error = match result {
+        Err(error) => Some(error.to_string()),
+        Ok(tool_result) if tool_result.output.is_error() => Some(match exit_code {
+            Some(code) => format!("exit status {code}"),
+            None => tool_result.prompt_text.clone(),
+        }),
+        Ok(_) => None,
+    };
+    // Guards (warn mode): the result is checked before it goes back to the model, so a secret a
+    // command printed shows up as a warning on the conversation.
+    if let Ok(tool_result) = result
+        && !tool_result.prompt_text.is_empty()
+    {
+        let model = prepared.model_id.as_deref().unwrap_or("unknown");
+        xai_grok_sampler::observe::check_guard(xai_grok_sampler::observe::GuardCheck::Preflight {
+            session_id,
+            provider: xai_grok_sampler::observe::guard_provider(model),
+            model,
+            results: vec![xai_grok_sampler::observe::GuardToolResult {
+                id: &prepared.call_id,
+                name: &prepared.tool_name,
+                content: &tool_result.prompt_text,
+            }],
+        });
+    }
+    xai_grok_sampler::observe::record_tool(xai_grok_sampler::observe::ToolRun {
+        session_id,
+        tool_name: &prepared.tool_name,
+        tool_call_id: &prepared.call_id,
+        started_at,
+        completed_at: std::time::SystemTime::now(),
+        outcome,
+        kind: tool_kind_label(kind),
+        exit_code,
+        result_bytes: result
+            .as_ref()
+            .ok()
+            .map(|tool_result| tool_result.prompt_text.len() as u64),
+        backgrounded: matches!(output, Some(ToolsToolOutput::BackgroundTaskStarted(_))),
+        error: error.as_deref(),
+        model: prepared.model_id.as_deref(),
+    });
+}
+
 /// Blocking wait tools that should abort when a mid-turn interjection is pending.
 fn is_interruptible_wait_tool(tool_name: &str, args: &serde_json::Value) -> bool {
     match tool_name {
@@ -809,6 +905,7 @@ impl SessionActor {
                 let tools_execute_span = tracing::Span::current();
                 async move {
                     let exec_start = std::time::Instant::now();
+                    let exec_started_at = std::time::SystemTime::now();
                     let tool_span = crate::session::telemetry::tool_execution_span(
                         &tools_execute_span,
                         session_id.as_ref(),
@@ -1004,6 +1101,14 @@ impl SessionActor {
                             summary: Some(&summary),
                             origin: Some(&origin),
                         },
+                    );
+                    observe_tool_run(
+                        session_id.as_ref(),
+                        &prepared,
+                        authored_tool_kind,
+                        &result,
+                        wait_aborted,
+                        exec_started_at,
                     );
                     xai_grok_telemetry::unified_log::info(
                         "shell.tool.exec_done",
@@ -1652,7 +1757,8 @@ impl SessionActor {
         let has_pre_tool_use_hooks =
             self.may_have_hooks_for(xai_grok_hooks::event::HookEventName::PreToolUse);
         if has_pre_tool_use_hooks {
-            let gate = match self
+            let gate_started_at = std::time::SystemTime::now();
+            let gate = self
                 .apply_pre_tool_use_gate(
                     &call,
                     &tool_call_id,
@@ -1661,8 +1767,28 @@ impl SessionActor {
                     &raw_input,
                     &mcp_preparation,
                 )
-                .await?
-            {
+                .await?;
+            let hook_result = match &gate {
+                Err(_) => "deny",
+                Ok(gate) if gate.hook_ask.is_some() => "ask",
+                Ok(gate) if gate.rewrite.is_some() => "rewrite",
+                Ok(_) => "allow",
+            };
+            let mut input = serde_json::Map::new();
+            input.insert("tool".to_owned(), call.function.name.clone().into());
+            input.insert("tool_call_id".to_owned(), call.id.clone().into());
+            let mut output = serde_json::Map::new();
+            output.insert("result".to_owned(), hook_result.into());
+            xai_grok_sampler::observe::record_step(xai_grok_sampler::observe::Step {
+                session_id: &self.session_info.id.0,
+                name: "hook PreToolUse",
+                started_at: gate_started_at,
+                completed_at: std::time::SystemTime::now(),
+                input,
+                output,
+                error: None,
+            });
+            let gate = match gate {
                 Ok(gate) => gate,
                 Err(blocked) => return Ok(Err(blocked)),
             };
@@ -1907,6 +2033,33 @@ impl SessionActor {
                 shell_wait_ms,
                 self.permissions.is_yolo_mode(),
             );
+            {
+                let completed_at = std::time::SystemTime::now();
+                let mut input = serde_json::Map::new();
+                input.insert("tool".to_owned(), call.function.name.clone().into());
+                input.insert("tool_call_id".to_owned(), call.id.clone().into());
+                input.insert(
+                    "permission_mode".to_owned(),
+                    self.permission_mode_label().into(),
+                );
+                let mut output = serde_json::Map::new();
+                output.insert("decision".to_owned(), decision_outcome.as_ref().into());
+                if let Some(source) = resolved.source.as_deref() {
+                    output.insert("source".to_owned(), source.into());
+                }
+                output.insert("wait_ms".to_owned(), resolved.wait_ms.into());
+                xai_grok_sampler::observe::record_step(xai_grok_sampler::observe::Step {
+                    session_id: &self.session_info.id.0,
+                    name: "permission",
+                    started_at: completed_at
+                        .checked_sub(perm_start.elapsed())
+                        .unwrap_or(completed_at),
+                    completed_at,
+                    input,
+                    output,
+                    error: None,
+                });
+            }
             xai_grok_telemetry::event_span!(
                 "tool.decision",
                 tool_name = %call.function.name,

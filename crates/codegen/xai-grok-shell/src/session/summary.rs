@@ -25,6 +25,9 @@ pub(crate) struct SummaryConfig {
     /// Channel back to the persistence actor for sequential storage writes.
     /// Weak: a strong sender here would keep the actor's own channel and task alive.
     pub(crate) persistence_tx: mpsc::WeakUnboundedSender<PersistenceMsg>,
+    /// The session the title is for, sent with the request so Agent Observability files the call
+    /// under it (`crok/title`) instead of as a call of no conversation.
+    pub(crate) session_id: String,
 }
 
 /// Created once per persistence actor. The only public method is [`update`], which is called from the `ContentChunk` handler.
@@ -60,11 +63,17 @@ impl SummaryGenerator {
                 let sampling_client = self.config.sampling_client.clone();
                 let model = self.config.model.clone();
                 let persistence_tx = self.config.persistence_tx.clone();
+                let session_id = self.config.session_id.clone();
 
                 // A background task runs the LLM call so the persistence actor keeps processing messages (updates, flushes)
                 tokio::spawn(async move {
-                    let mut title =
-                        generate_session_summary(content.clone(), sampling_client, &model).await;
+                    let mut title = generate_session_summary(
+                        content.clone(),
+                        sampling_client,
+                        &model,
+                        &session_id,
+                    )
+                    .await;
                     if title.trim().is_empty() {
                         title =
                             crate::session::helpers::session_summary::title_fallback_from_user_text(
@@ -272,6 +281,7 @@ mod tests {
             sampling_client,
             model: String::new(),
             persistence_tx: tx.downgrade(),
+            session_id: String::new(),
         });
         assert!(generator.is_idle());
         generator.mark_done();
@@ -310,6 +320,7 @@ mod tests {
             sampling_client: OaiCompatClient::new(title_config(&old_server, "minimax")).unwrap(),
             model: "minimax".into(),
             persistence_tx: tx.downgrade(),
+            session_id: String::new(),
         });
         generator.set_sampling_config(title_config(&new_server, "deepseek-flash"));
         generator.update("Fix the failing build".into());

@@ -1,15 +1,29 @@
 import type { Agento11yClient } from "@grafana/agento11y-core";
+import { context } from "@opentelemetry/api";
 
-import type { CrokSpanAttributes } from "./otel.js";
-import { type GenerationLine, spanAttributesOf, toCallError, toResult, toStart } from "./protocol.js";
+import { contextOf, type CrokSpanAttributes } from "./otel.js";
+import { type GenerationLine, spanAttributesOf, toCallError, toResult, toStart, validSpanRef } from "./protocol.js";
 
 /**
  * Records one finished model call through the SDK recorder, the same way a provider
  * wrapper would around a live call, but with crok's timestamps.
- * The line's span attributes go on the call's span through `spanAttributes`.
+ * The line's span attributes go on the call's span through `spanAttributes`, and a call made in a
+ * turn gets the turn's span as its parent.
  * Returns the recorder's own error (validation or enqueue), which the SDK otherwise keeps silent.
  */
 export function recordGeneration(
+  client: Agento11yClient,
+  line: GenerationLine,
+  spanAttributes?: CrokSpanAttributes,
+): Error | undefined {
+  const parent = validSpanRef(line.parent);
+  if (parent === undefined) {
+    return recordGenerationHere(client, line, spanAttributes);
+  }
+  return context.with(contextOf(parent), () => recordGenerationHere(client, line, spanAttributes));
+}
+
+function recordGenerationHere(
   client: Agento11yClient,
   line: GenerationLine,
   spanAttributes?: CrokSpanAttributes,

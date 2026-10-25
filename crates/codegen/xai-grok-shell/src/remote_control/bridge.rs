@@ -2262,6 +2262,8 @@ impl Bridge {
         };
         let text = command.text.clone().unwrap_or_default();
         let prompt_id = format!("remote-{}", command.id);
+        // Agent Observability tags the turn this prompt starts `origin=relay`.
+        xai_grok_sampler::observe::note_prompt_origin(&session_id, "relay");
         mirror.idle_since = None;
         mirror.remote_running = Some(command.id.clone());
         mirror.turn_running = true;

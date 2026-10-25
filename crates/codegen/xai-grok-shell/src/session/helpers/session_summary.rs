@@ -191,6 +191,7 @@ pub async fn generate_session_summary(
     user_message: String,
     client: OaiCompatClient,
     model: &str,
+    session_id: &str,
 ) -> String {
     let clean_message = title_source_text(&user_message);
     let request = ConversationRequest::from_items(vec![
@@ -230,6 +231,7 @@ Just generate the session_title and nothing else"#,
     .with_max_output_tokens(100)
     .with_temperature(1.0)
     .with_tool_choice(ConversationToolChoice::Function("session_title".to_owned()));
+    let request = with_title_ids(request, session_id);
 
     match client.conversation_collect(request).await {
         Ok(response) => {
@@ -252,10 +254,22 @@ Just generate the session_title and nothing else"#,
             );
         }
     }
-    if let Some(title) = generate_session_summary_plain(&clean_message, &client, model).await {
+    if let Some(title) =
+        generate_session_summary_plain(&clean_message, &client, model, session_id).await
+    {
         return title;
     }
     title_fallback_from_user_text(&clean_message)
+}
+
+/// Names the title call for Agent Observability: its session, and `title-<uuid>` as the conversation
+/// id so it is reported as `crok/title` (a title is not part of the session's own conversation).
+fn with_title_ids(mut request: ConversationRequest, session_id: &str) -> ConversationRequest {
+    if !session_id.is_empty() {
+        request.x_grok_session_id = Some(session_id.to_owned());
+        request.x_grok_conv_id = Some(format!("title-{}", uuid::Uuid::new_v4()));
+    }
+    request
 }
 
 /// Plain-text retry for providers that refuse a forced tool call (some OpenRouter models answer 400).
@@ -263,6 +277,7 @@ async fn generate_session_summary_plain(
     clean_message: &str,
     client: &OaiCompatClient,
     model: &str,
+    session_id: &str,
 ) -> Option<String> {
     let request = ConversationRequest::from_items(vec![
         ConversationItem::system(
@@ -275,6 +290,7 @@ async fn generate_session_summary_plain(
     .with_model(model)
     .with_max_output_tokens(100)
     .with_temperature(1.0);
+    let request = with_title_ids(request, session_id);
     match client.conversation_collect(request).await {
         Ok(response) => {
             let title = clean_title_text(&response.assistant_text());

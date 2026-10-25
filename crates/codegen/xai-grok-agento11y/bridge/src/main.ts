@@ -1,7 +1,8 @@
 // crok's Agent Observability bridge.
 //
 // crok (Rust) starts this with `node agento11y-bridge.mjs` the first time a session makes a
-// model call, and writes one JSON line per finished call to its stdin (see protocol.ts).
+// model call, and writes one JSON line per finished call to its stdin (see protocol.ts), and one
+// per turn, tool run, workflow step, verdict, rating and guard check (harness.ts).
 // The bridge records each call with the agento11y TypeScript SDK: the generation goes to the
 // Agent Observability ingest API (AGENTO11Y_*), and the SDK's spans and gen_ai.client.* metrics
 // go over OTLP (OTEL_EXPORTER_OTLP_*). When crok closes stdin (it exits, or the bridge sat idle)
@@ -9,8 +10,10 @@
 
 import { createInterface } from "node:readline";
 
-import { Agento11yClient, createSecretRedactionSanitizer, SDK_VERSION } from "@grafana/agento11y-core";
+import { Agento11yClient, configFromEnv, createSecretRedactionSanitizer, SDK_VERSION } from "@grafana/agento11y-core";
+import { trace } from "@opentelemetry/api";
 
+import { type HarnessDeps, recordHarness, ScoreExporter, settle } from "./harness.js";
 import { describe, sdkLogger, stderrLog } from "./log.js";
 import { flushOtel, shutdownOtel, startOtel } from "./otel.js";
 import { parseLine } from "./protocol.js";
@@ -28,12 +31,28 @@ const otel = startOtel({
 });
 // Built with no export settings: the SDK reads AGENTO11Y_ENDPOINT, _PROTOCOL, _AUTH_MODE,
 // _AUTH_TENANT_ID, _AUTH_TOKEN, _AGENT_NAME, _AGENT_VERSION, _TAGS and _CONTENT_CAPTURE_MODE itself.
+// Ratings and guard checks use the same Agent Observability API, which the SDK takes only here.
+const apiEndpoint = env.AGENTO11Y_ENDPOINT?.trim();
 const client = new Agento11yClient({
+  ...(apiEndpoint ? { api: { endpoint: apiEndpoint } } : {}),
   logger: sdkLogger(log),
   // Coding sessions read .env files and print keys; the SDK's redactor keeps known secret
   // formats out of exported text. CROK_AGENTO11Y_REDACT_SECRETS=false turns it off.
   generationSanitizer: isOff(env.CROK_AGENTO11Y_REDACT_SECRETS) ? undefined : createSecretRedactionSanitizer(),
 });
+
+const harness: HarnessDeps = {
+  client,
+  tracer: trace.getTracer("crok-agento11y-bridge"),
+  ids: otel.ids,
+  spanAttributes: otel.spanAttributes,
+  scores: new ScoreExporter(client, log, env.AGENTO11Y_AGENT_VERSION, () => configFromEnv().generationExport),
+  log,
+  agentVersion: env.AGENTO11Y_AGENT_VERSION,
+  // Guards run in warn mode: crok never waits for them. CROK_AGENTO11Y_GUARDS=off stops the checks.
+  guards: !isOff(env.CROK_AGENTO11Y_GUARDS),
+  pending: new Set(),
+};
 
 let recorded = 0;
 let rejected = 0;
@@ -56,6 +75,22 @@ lines.on("line", (text) => {
   }
   if (line.type === "flush") {
     void flush();
+    return;
+  }
+  if (line.type !== "generation") {
+    try {
+      const error = recordHarness(harness, line);
+      if (error === undefined) {
+        recorded += 1;
+        log.debug(`recorded ${line.type}`);
+      } else {
+        rejected += 1;
+        log.warn(`${line.type} not recorded: ${error.message}`);
+      }
+    } catch (error) {
+      rejected += 1;
+      log.warn(`${line.type} not recorded: ${describe(error)}`);
+    }
     return;
   }
   try {
@@ -89,6 +124,8 @@ async function flush(): Promise<void> {
   } catch (error) {
     log.warn(`flush: ${describe(error)}`);
   }
+  await harness.scores.flush();
+  await settle(harness);
   await flushOtel(otel);
   log.debug("flushed");
 }
@@ -103,6 +140,10 @@ async function shutdown(reason: string): Promise<void> {
     log.warn("stop deadline passed, exiting with exports still pending");
     process.exit(1);
   }, SHUTDOWN_DEADLINE_MS);
+  // Scores need their generations exported first (ScoreExporter flushes the client), and ratings
+  // and guard checks use the client, so both go before it shuts down.
+  await harness.scores.flush();
+  await settle(harness);
   try {
     await client.shutdown();
   } catch (error) {

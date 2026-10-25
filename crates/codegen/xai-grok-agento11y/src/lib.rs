@@ -29,7 +29,7 @@ use std::sync::Arc;
 use settings::Settings;
 use switch::{Followed, Switch};
 use xai_grok_config_types::Feature;
-use xai_grok_sampler::observe::{GenerationSink, ObservedCall};
+use xai_grok_sampler::observe::{GenerationSink, HarnessEvent, ObservedCall};
 
 pub struct InstallOptions<'a> {
     /// crok's release version, sent as `gen_ai.agent.version` (the Performance view groups by it).
@@ -154,7 +154,16 @@ impl GenerationSink for Reporter {
             return;
         }
         if let Some(settings) = self.destination() {
-            self.writer.send(call, settings);
+            self.writer.send(bridge::Record::Call(call), settings);
+        }
+    }
+
+    fn record_event(&self, event: HarnessEvent) {
+        if !self.switch.is_on() {
+            return;
+        }
+        if let Some(settings) = self.destination() {
+            self.writer.send(bridge::Record::Event(event), settings);
         }
     }
 }
