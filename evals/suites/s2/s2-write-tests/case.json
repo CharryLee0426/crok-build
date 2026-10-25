@@ -1,6 +1,6 @@
 {
   "name": "Write and run unit tests",
-  "prompt": "Write unit tests for `parse_duration` (duration.py) in tests/test_duration.py: hours, minutes, combined values and invalid input. Run them and make sure they pass.",
+  "prompt": "Write unit tests for `parse_duration` (duration.py) in tests/test_duration.py with the standard library's unittest (pytest is not installed): hours, minutes, combined values and invalid input. Run them and make sure they pass.",
   "checks": [
     {
       "kind": "file_matches",

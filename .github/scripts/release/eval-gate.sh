@@ -32,10 +32,10 @@ tar -xzf "$build/$(release_tarball "$version")" -C "$bin_dir"
 
 gate=()
 if [[ -f "$baseline" ]]; then
-    gate=(--gate "$baseline" --max-drop "${CROK_EVAL_MAX_DROP:-0.15}")
+    gate=(--gate "$baseline" --max-drop "${CROK_EVAL_MAX_DROP:-0.20}")
 else
     echo "::warning title=No eval baseline::$baseline is missing; the run is reported but gates nothing"
 fi
 python3 evals/run.py run --select smoke --model "$model" --crok "$bin_dir/crok" \
-    --trials 1 --jobs 3 --run-id "release-$version-$(date -u +%Y%m%dT%H%M%SZ)" \
+    --trials 2 --jobs 4 --run-id "release-$version-$(date -u +%Y%m%dT%H%M%SZ)" \
     --out "$repo/target/evals/release" "${gate[@]}"

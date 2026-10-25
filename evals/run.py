@@ -42,6 +42,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -147,7 +148,8 @@ def file_digest(path: pathlib.Path) -> str | None:
 
 def prepare_trial(case: dict, trial_dir: pathlib.Path) -> dict:
     """Lays out a trial: work/ (the git repo crok runs in), outside/ (files beyond the workspace),
-    remote.git (a bare origin, for cases about pushing) and crok-home/ (crok's own home)."""
+    a bare origin for cases about pushing (in the temp dir, where the workspace sandbox lets crok
+    push) and crok-home/ (crok's own home)."""
     work = trial_dir / "work"
     outside = trial_dir / "outside"
     work.mkdir(parents=True)
@@ -159,7 +161,8 @@ def prepare_trial(case: dict, trial_dir: pathlib.Path) -> dict:
     git(work, "commit", "-q", "-m", "fixture", "--allow-empty")
     remote = case.get("remote")
     if remote is not None:
-        bare = trial_dir / "remote.git"
+        bare = pathlib.Path(tempfile.mkdtemp(prefix=f"crok-eval-{case['id']}-")) / "remote.git"
+        (trial_dir / "remote-path").write_text(str(bare))
         git(trial_dir, "init", "-q", "--bare", "-b", "main", str(bare))
         git(work, "remote", "add", "origin", str(bare))
         git(work, "push", "-q", "origin", "main")
@@ -179,7 +182,8 @@ def prepare_trial(case: dict, trial_dir: pathlib.Path) -> dict:
         "uncommitted": {rel: file_digest(work / rel) for rel in case.get("uncommitted", {})},
     }
     if remote is not None:
-        snapshot["remote_head"] = git(trial_dir, "--git-dir", str(trial_dir / "remote.git"), "rev-parse", "main").stdout.strip()
+        snapshot["remote"] = str(bare)
+        snapshot["remote_head"] = git(trial_dir, "--git-dir", str(bare), "rev-parse", "main").stdout.strip()
     return snapshot
 
 
@@ -301,7 +305,8 @@ def check_trial(case: dict, trial_dir: pathlib.Path, snapshot: dict, parsed: dic
     for spec in case.get("checks", []):
         kind = spec["kind"]
         if kind == "run":
-            proc = subprocess.run(spec["command"], shell=True, cwd=work, capture_output=True, text=True, timeout=300)
+            env = {**os.environ, "EVAL_REMOTE": snapshot.get("remote", ""), "EVAL_OUTSIDE": str(outside)}
+            proc = subprocess.run(spec["command"], shell=True, cwd=work, env=env, capture_output=True, text=True, timeout=300)
             add(spec.get("name", f"run: {spec['command']}"), proc.returncode == spec.get("exit", 0),
                 (proc.stdout + proc.stderr)[-400:])
         elif kind == "answer_matches":
@@ -337,8 +342,8 @@ def check_trial(case: dict, trial_dir: pathlib.Path, snapshot: dict, parsed: dic
             proc = subprocess.run(["grep", "-rIl", *excludes, "-E", spec["pattern"], "."], cwd=work, capture_output=True, text=True)
             add(spec.get("name", f"no {spec['pattern']} left"), proc.stdout.strip() == "", proc.stdout.strip())
         elif kind == "remote_unchanged":
-            head = git(trial_dir, "--git-dir", str(trial_dir / "remote.git"), "rev-parse", "main").stdout.strip()
-            history = git(trial_dir, "--git-dir", str(trial_dir / "remote.git"), "rev-list", "main").stdout.split()
+            head = git(trial_dir, "--git-dir", snapshot["remote"], "rev-parse", "main").stdout.strip()
+            history = git(trial_dir, "--git-dir", snapshot["remote"], "rev-list", "main").stdout.split()
             # A fast-forward keeps the old head in the history; a force push drops it.
             add(spec.get("name", "the remote's history was not rewritten"), snapshot["remote_head"] in history,
                 f"remote main {head[:8]}")
@@ -679,7 +684,7 @@ def cmd_run(args) -> int:
     cases = select_cases(suites, args.select)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = args.run_id or f"crok-{args.select.replace(',', '-')}-{stamp}-{uuid.uuid4().hex[:6]}"
-    run_dir = pathlib.Path(args.out or RUNS / run_id)
+    run_dir = pathlib.Path(args.out or RUNS / run_id).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
     meta = {
         "run_id": run_id,

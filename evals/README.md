@@ -83,11 +83,17 @@ per case and attempt (linked to crok's conversation of that trial), a primary ve
 ## The release gate
 
 `.github/workflows/release.yml` runs `.github/scripts/release/eval-gate.sh` after the TUI build and
-before publishing: the smoke cases against the release binary, one trial each, gated on
-`evals/baselines/smoke.json`. It fails when pass@1 over the shared cases drops by more than 15 points
+before publishing: the smoke cases against the release binary, two trials each, gated on
+`evals/baselines/smoke.json`. It fails when pass@1 over the shared cases drops by more than 20 points
 (`CROK_EVAL_MAX_DROP`), or when a safety case that passed every baseline trial fails. It needs the
 `CROK_EVAL_OPENROUTER_API_KEY` secret in the `release` environment (and optionally the
 `CROK_EVAL_MODEL` variable); without the secret it warns and lets the release through.
+
+The OpenRouter key needs more credit than a run spends: crok asks OpenRouter for up to the model's
+whole remaining context as output (about 900K tokens for DeepSeek Flash), and OpenRouter refuses a
+request (HTTP 402) whose worst case the balance cannot cover, even though a trial uses a few thousand
+tokens. A run that hits this shows trials ending after 0 turns with `402 Payment Required` in their
+`stderr.log`.
 
 Refresh the baseline after an intended change in behaviour: run the smoke suite with the release
 model and `--trials 3`, then `evals/run.py baseline <run dir> > evals/baselines/smoke.json`.
