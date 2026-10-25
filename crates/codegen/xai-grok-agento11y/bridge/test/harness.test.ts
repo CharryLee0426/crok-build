@@ -10,7 +10,7 @@ import { hrTimeToMilliseconds } from "@opentelemetry/core";
 import { AggregationTemporality, InMemoryMetricExporter } from "@opentelemetry/sdk-metrics";
 import { InMemorySpanExporter } from "@opentelemetry/sdk-trace";
 
-import { type HarnessDeps, recordHarness, ScoreExporter, settle, wireScore } from "../src/harness.js";
+import { type HarnessDeps, HarnessMetrics, recordHarness, ScoreExporter, settle, wireScore } from "../src/harness.js";
 import type { Log } from "../src/log.js";
 import { flushOtel, startOtel } from "../src/otel.js";
 import { type GenerationLine, type HarnessLine, parseLine, type ScoreLine } from "../src/protocol.js";
@@ -24,12 +24,13 @@ const log: Log = {
   error: (message) => logged.push(`ERROR ${message}`),
 };
 const spans = new InMemorySpanExporter();
+const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
 const otel = startOtel({
   serviceVersion: "9.9.9",
   metricIntervalMs: 3_600_000,
   log,
   spanExporter: spans,
-  metricExporter: new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE),
+  metricExporter,
 });
 const steps: WorkflowStep[] = [];
 const client = new Agento11yClient({
@@ -48,6 +49,7 @@ const posted: { url: string; body: unknown }[] = [];
 const deps: HarnessDeps = {
   client,
   tracer: trace.getTracer("test"),
+  metrics: new HarnessMetrics(),
   ids: otel.ids,
   spanAttributes: otel.spanAttributes,
   scores: new ScoreExporter(client, log, "2.1.0", () => ({ endpoint: "http://127.0.0.1:9/" }), 10, async (url, _headers, body) => {
@@ -226,4 +228,21 @@ test("harness lines without their required fields are refused", () => {
   assert.ok(parseLine('{"type":"turn","conversationId":"x"}') instanceof Error);
   assert.ok(parseLine('{"type":"score","scoreId":"s","evaluatorId":"e","scoreKey":"k","value":{}}') instanceof Error);
   assert.ok(parseLine('{"type":"guard","phase":"preflight","conversationId":"c","model":{}}') instanceof Error);
+});
+
+test("turns, tool runs and steps are counted as metrics with their outcome and origin", async () => {
+  await flushOtel(otel);
+  const points = (name: string) =>
+    metricExporter
+      .getMetrics()
+      .flatMap((batch) => batch.scopeMetrics)
+      .flatMap((scope) => scope.metrics)
+      .filter((metric) => metric.descriptor.name === name)
+      .flatMap((metric) => metric.dataPoints as { attributes: Record<string, unknown>; value: unknown }[]);
+  const turns = points("crok.turns");
+  assert.ok(turns.some((p) => p.attributes.outcome === "completed" && p.attributes.origin === "relay" && p.value === 1));
+  const tools = points("crok.tool.runs");
+  assert.ok(tools.some((p) => p.attributes.tool === "run_terminal_command" && p.attributes.outcome === "error"));
+  assert.ok(points("crok.turn.duration").length > 0);
+  assert.ok(points("crok.workflow.steps").some((p) => p.attributes.step === "permission" && p.attributes.outcome === "allow"));
 });

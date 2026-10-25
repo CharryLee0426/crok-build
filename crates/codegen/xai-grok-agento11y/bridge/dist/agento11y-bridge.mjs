@@ -19862,6 +19862,7 @@ function recordHarness(deps, line) {
       return recordTool(deps, line);
     case "step":
       deps.client.enqueueWorkflowStep(toWorkflowStep(line, deps.agentVersion));
+      deps.metrics.step(line);
       return void 0;
     case "score":
       deps.scores.add(line);
@@ -19920,6 +19921,7 @@ function recordTurn(deps, line) {
     span.setStatus({ code: SpanStatusCode.OK });
   }
   span.end(new Date(line.completedAtMs));
+  deps.metrics.turn(line, deps.client.internalTags());
   return void 0;
 }
 function recordTool(deps, line) {
@@ -19946,6 +19948,7 @@ function recordTool(deps, line) {
       recorder.end();
       deps.spanAttributes.forget(key);
     }
+    deps.metrics.tool(line, deps.client.internalTags());
     const error = recorder.getError();
     return error !== void 0 && error.message !== line.error ? error : void 0;
   };
@@ -20003,6 +20006,7 @@ async function evaluateGuard(deps, line) {
     { enabled: true, phases: ["preflight", "postflight"], failOpen: true, timeoutMs: 1e4 }
   );
   const failed = response.evaluations.filter((evaluation) => !evaluation.passed);
+  deps.metrics.guard(line.phase, response.action, failed.length > 0);
   if (response.action === "deny" || failed.length > 0) {
     const rules = failed.map((evaluation) => `${evaluation.ruleId}${evaluation.reason ? ` (${evaluation.reason})` : ""}`);
     deps.log.info(`guard ${line.phase} on ${line.conversationId}: ${response.action}; ${rules.join(", ")}`);
@@ -20010,6 +20014,57 @@ async function evaluateGuard(deps, line) {
     deps.log.debug(`guard ${line.phase} on ${line.conversationId}: ${response.action}`);
   }
 }
+var HarnessMetrics = class {
+  turns;
+  turnDuration;
+  toolRuns;
+  toolDuration;
+  steps;
+  guards;
+  constructor(meter = metrics.getMeter("crok-harness")) {
+    this.turns = meter.createCounter("crok.turns", { description: "Turns crok ran, by how they ended" });
+    this.turnDuration = meter.createHistogram("crok.turn.duration", { unit: "s", description: "Turn time, prompt to answer" });
+    this.toolRuns = meter.createCounter("crok.tool.runs", { description: "Tool runs, by tool and outcome" });
+    this.toolDuration = meter.createHistogram("crok.tool.duration", { unit: "s", description: "Tool run time" });
+    this.steps = meter.createCounter("crok.workflow.steps", { description: "Permission, hook, compaction and MCP steps" });
+    this.guards = meter.createCounter("crok.guard.checks", { description: "Guard (hook rule) checks, by phase and verdict" });
+  }
+  turn(line, clientTags) {
+    const attrs = spanAttributesOf(line) ?? {};
+    const tags = { ...clientTags, ...stringTags(line.tags) };
+    const labels = {
+      outcome: String(attrs["crok.turn.outcome"] ?? "unknown"),
+      origin: tags.origin ?? "unknown",
+      agent: line.agentName,
+      model: String(attrs["gen_ai.request.model"] ?? "unknown")
+    };
+    this.turns.add(1, labels);
+    this.turnDuration.record(Math.max(0, line.completedAtMs - line.startedAtMs) / 1e3, {
+      outcome: labels.outcome,
+      origin: labels.origin,
+      agent: labels.agent
+    });
+  }
+  tool(line, clientTags) {
+    const attrs = spanAttributesOf(line) ?? {};
+    const origin = { ...clientTags, ...stringTags(line.tags) }.origin ?? "unknown";
+    this.toolRuns.add(1, {
+      tool: line.toolName,
+      outcome: String(attrs["crok.tool.outcome"] ?? "unknown"),
+      kind: String(attrs["crok.tool.kind"] ?? "other"),
+      origin
+    });
+    this.toolDuration.record(Math.max(0, line.completedAtMs - line.startedAtMs) / 1e3, { tool: line.toolName, origin });
+  }
+  step(line) {
+    const out = line.outputState ?? {};
+    const outcome = [out.outcome, out.decision, out.result].find((v) => typeof v === "string") ?? "recorded";
+    this.steps.add(1, { step: line.stepName.split(" ")[0] ?? line.stepName, outcome: String(outcome) });
+  }
+  guard(phase, action, flagged) {
+    this.guards.add(1, { phase, action, flagged: String(flagged) });
+  }
+};
 function tagAttributes(tags) {
   const out = {};
   for (const [key, value] of Object.entries(tags ?? {})) {
@@ -20176,6 +20231,7 @@ var client = new Agento11yClient({
 var harness = {
   client,
   tracer: trace.getTracer("crok-agento11y-bridge"),
+  metrics: new HarnessMetrics(),
   ids: otel.ids,
   spanAttributes: otel.spanAttributes,
   scores: new ScoreExporter(client, log, env.AGENTO11Y_AGENT_VERSION, () => configFromEnv().generationExport),

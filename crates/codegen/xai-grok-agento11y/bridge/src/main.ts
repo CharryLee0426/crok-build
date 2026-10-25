@@ -13,7 +13,7 @@ import { createInterface } from "node:readline";
 import { Agento11yClient, configFromEnv, createSecretRedactionSanitizer, SDK_VERSION } from "@grafana/agento11y-core";
 import { trace } from "@opentelemetry/api";
 
-import { type HarnessDeps, recordHarness, ScoreExporter, settle } from "./harness.js";
+import { type HarnessDeps, HarnessMetrics, recordHarness, ScoreExporter, settle } from "./harness.js";
 import { describe, sdkLogger, stderrLog } from "./log.js";
 import { flushOtel, shutdownOtel, startOtel } from "./otel.js";
 import { parseLine } from "./protocol.js";
@@ -44,6 +44,7 @@ const client = new Agento11yClient({
 const harness: HarnessDeps = {
   client,
   tracer: trace.getTracer("crok-agento11y-bridge"),
+  metrics: new HarnessMetrics(),
   ids: otel.ids,
   spanAttributes: otel.spanAttributes,
   scores: new ScoreExporter(client, log, env.AGENTO11Y_AGENT_VERSION, () => configFromEnv().generationExport),

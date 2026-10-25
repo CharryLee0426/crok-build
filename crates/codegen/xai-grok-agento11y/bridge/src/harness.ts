@@ -4,7 +4,17 @@
 // and guard checks against the stack's hook rules.
 
 import type { Agento11yClient, WorkflowStep } from "@grafana/agento11y-core";
-import { type Attributes, context, SpanKind, SpanStatusCode, type Tracer } from "@opentelemetry/api";
+import {
+  type Attributes,
+  type Counter,
+  context,
+  type Histogram,
+  type Meter,
+  metrics,
+  SpanKind,
+  SpanStatusCode,
+  type Tracer,
+} from "@opentelemetry/api";
 
 import { describe, type Log } from "./log.js";
 import { contextOf, type CrokSpanAttributes, type PresetIds } from "./otel.js";
@@ -24,6 +34,7 @@ import {
 export interface HarnessDeps {
   client: Agento11yClient;
   tracer: Tracer;
+  metrics: HarnessMetrics;
   ids: PresetIds;
   spanAttributes: CrokSpanAttributes;
   scores: ScoreExporter;
@@ -44,6 +55,7 @@ export function recordHarness(deps: HarnessDeps, line: HarnessLine): Error | und
       return recordTool(deps, line);
     case "step":
       deps.client.enqueueWorkflowStep(toWorkflowStep(line, deps.agentVersion));
+      deps.metrics.step(line);
       return undefined;
     case "score":
       deps.scores.add(line);
@@ -109,6 +121,7 @@ function recordTurn(deps: HarnessDeps, line: TurnLine): Error | undefined {
     span.setStatus({ code: SpanStatusCode.OK });
   }
   span.end(new Date(line.completedAtMs));
+  deps.metrics.turn(line, deps.client.internalTags());
   return undefined;
 }
 
@@ -137,6 +150,7 @@ function recordTool(deps: HarnessDeps, line: ToolLine): Error | undefined {
       recorder.end();
       deps.spanAttributes.forget(key);
     }
+    deps.metrics.tool(line, deps.client.internalTags());
     // The recorder reports the run's own failure here too; only a refused record is an error.
     const error = recorder.getError();
     return error !== undefined && error.message !== line.error ? error : undefined;
@@ -203,11 +217,75 @@ async function evaluateGuard(deps: HarnessDeps, line: GuardLine): Promise<void> 
     { enabled: true, phases: ["preflight", "postflight"], failOpen: true, timeoutMs: 10_000 },
   );
   const failed = response.evaluations.filter((evaluation) => !evaluation.passed);
+  deps.metrics.guard(line.phase, response.action, failed.length > 0);
   if (response.action === "deny" || failed.length > 0) {
     const rules = failed.map((evaluation) => `${evaluation.ruleId}${evaluation.reason ? ` (${evaluation.reason})` : ""}`);
     deps.log.info(`guard ${line.phase} on ${line.conversationId}: ${response.action}; ${rules.join(", ")}`);
   } else {
     deps.log.debug(`guard ${line.phase} on ${line.conversationId}: ${response.action}`);
+  }
+}
+
+/**
+ * Counters and histograms of the harness, exported with the SDK's gen_ai.client.* metrics, so
+ * Prometheus has them for SLOs and alerts: crok_turns_total, crok_turn_duration_seconds,
+ * crok_tool_runs_total, crok_tool_duration_seconds, crok_workflow_steps_total, crok_guard_checks_total.
+ * Every series carries `origin`, so experiment runs (origin=eval) can be left out.
+ */
+export class HarnessMetrics {
+  private readonly turns: Counter;
+  private readonly turnDuration: Histogram;
+  private readonly toolRuns: Counter;
+  private readonly toolDuration: Histogram;
+  private readonly steps: Counter;
+  private readonly guards: Counter;
+
+  constructor(meter: Meter = metrics.getMeter("crok-harness")) {
+    this.turns = meter.createCounter("crok.turns", { description: "Turns crok ran, by how they ended" });
+    this.turnDuration = meter.createHistogram("crok.turn.duration", { unit: "s", description: "Turn time, prompt to answer" });
+    this.toolRuns = meter.createCounter("crok.tool.runs", { description: "Tool runs, by tool and outcome" });
+    this.toolDuration = meter.createHistogram("crok.tool.duration", { unit: "s", description: "Tool run time" });
+    this.steps = meter.createCounter("crok.workflow.steps", { description: "Permission, hook, compaction and MCP steps" });
+    this.guards = meter.createCounter("crok.guard.checks", { description: "Guard (hook rule) checks, by phase and verdict" });
+  }
+
+  turn(line: TurnLine, clientTags: Record<string, string> | undefined): void {
+    const attrs = spanAttributesOf(line) ?? {};
+    const tags = { ...clientTags, ...stringTags(line.tags) };
+    const labels = {
+      outcome: String(attrs["crok.turn.outcome"] ?? "unknown"),
+      origin: tags.origin ?? "unknown",
+      agent: line.agentName,
+      model: String(attrs["gen_ai.request.model"] ?? "unknown"),
+    };
+    this.turns.add(1, labels);
+    this.turnDuration.record(Math.max(0, line.completedAtMs - line.startedAtMs) / 1000, {
+      outcome: labels.outcome,
+      origin: labels.origin,
+      agent: labels.agent,
+    });
+  }
+
+  tool(line: ToolLine, clientTags: Record<string, string> | undefined): void {
+    const attrs = spanAttributesOf(line) ?? {};
+    const origin = { ...clientTags, ...stringTags(line.tags) }.origin ?? "unknown";
+    this.toolRuns.add(1, {
+      tool: line.toolName,
+      outcome: String(attrs["crok.tool.outcome"] ?? "unknown"),
+      kind: String(attrs["crok.tool.kind"] ?? "other"),
+      origin,
+    });
+    this.toolDuration.record(Math.max(0, line.completedAtMs - line.startedAtMs) / 1000, { tool: line.toolName, origin });
+  }
+
+  step(line: StepLine): void {
+    const out = line.outputState ?? {};
+    const outcome = [out.outcome, out.decision, out.result].find((v) => typeof v === "string") ?? "recorded";
+    this.steps.add(1, { step: line.stepName.split(" ")[0] ?? line.stepName, outcome: String(outcome) });
+  }
+
+  guard(phase: string, action: string, flagged: boolean): void {
+    this.guards.add(1, { phase, action, flagged: String(flagged) });
   }
 }
 
