@@ -15,7 +15,7 @@ Nothing to set up for them.
 | File | What it is |
 | --- | --- |
 | `setup.sh` | The guided setup, one subcommand per step. Made for agents to run; people can run it too. |
-| `build_dashboards.py` | Builds the six dashboards and the history recording rules for a stack (standard library only). |
+| `build_dashboards.py` | Builds the seven dashboards and the history recording rules for a stack (standard library only). |
 | `prices.json` | Claude list prices used to estimate Claude spend, and Codex, DeepSeek and GLM prices for the calls of crok 2.0.0 and older. Same tables as `xai-grok-models::pricing`. |
 | `dashboards/` | The last built dashboards as gcx manifests (folder `llm-observability`). |
 | `rules/llm-history.json` | The last built recording-rule group (Grafana provisioning API format). |
@@ -78,6 +78,15 @@ Rules:
   model; spend by model, provider and agent; token kinds; duration, time to first token (the SDK's
   Prometheus histogram) and output speed; finish reasons, failure categories, backend, agent,
   surface (TUI or Desktop) and machine; latest calls. Filters: provider and model.
+- **crok Harness** (`llm-crok-harness`): what crok does between model calls, from the turn traces crok
+  releases after 2.0.1 send (a turn is one trace: its `invoke_agent` root span holds its model calls
+  and `execute_tool` spans). Turns, completion rate, p50 and p90 turn time, model calls and tool
+  runs per turn; turns by outcome over time, by origin (local, headless, relay), model and agent
+  version; p90 turn time and model calls per turn by model; tool runs, failures and p90 time by tool,
+  tool failure rate, tool kinds, backgrounded commands; tables of the latest turns, the turns that
+  did not complete and the failed tool runs. Filter: repository (regex). Experiment runs
+  (`origin=eval`) are left out. Evaluation scores, rules and guards are in Agent Observability
+  (`observability/agento11y/`).
 - **LLM Request Explorer**: find single calls by source (Claude Platform, OpenRouter, crok),
   model, minimum duration and status (failed, succeeded, cancelled), over any range up to 14 days,
   plus saved searches: failed, slow, cut off by max_tokens, huge prompts, expensive calls
@@ -223,5 +232,5 @@ Checked against Grafana Cloud Traces (Tempo) on 2026-10-15. If Grafana changes t
 - Drop the backfill: delete `backfill/llm-backfill.json`, then `setup.sh dashboards`.
 - Remove everything: `gcx api /api/v1/provisioning/folder/llm-observability/rule-groups/llm-history
   -X DELETE`, then `gcx resources delete dashboards/llm-overview dashboards/llm-claude-platform
-  dashboards/llm-openrouter dashboards/llm-crok dashboards/llm-request-explorer
+  dashboards/llm-openrouter dashboards/llm-crok dashboards/llm-crok-harness dashboards/llm-request-explorer
   dashboards/llm-history folders/llm-observability`.

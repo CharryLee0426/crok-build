@@ -1,0 +1,4162 @@
+{
+  "apiVersion": "dashboard.grafana.app/v1beta1",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "llm-crok-harness",
+    "annotations": {
+      "grafana.app/folder": "llm-observability"
+    }
+  },
+  "spec": {
+    "title": "crok Harness",
+    "description": "What crok does between model calls: each turn is one trace whose root span (invoke_agent) holds its model calls and tool runs (execute_tool). Where a turn's time goes, which tools fail, how turns end, by origin (local, headless crok -p, relay from the web and phones). crok releases after 2.0.1; experiment runs (origin eval) are left out.",
+    "tags": [
+      "llm-observability",
+      "crok",
+      "harness"
+    ],
+    "timezone": "browser",
+    "editable": true,
+    "graphTooltip": 1,
+    "schemaVersion": 41,
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "refresh": "5m",
+    "timepicker": {
+      "refresh_intervals": [
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h"
+      ]
+    },
+    "links": [
+      {
+        "type": "dashboards",
+        "tags": [
+          "llm-observability"
+        ],
+        "asDropdown": false,
+        "title": "LLM dashboards",
+        "includeVars": false,
+        "keepTime": true,
+        "targetBlank": false
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "type": "datasource",
+          "name": "ds",
+          "label": "Traces",
+          "query": "tempo",
+          "regex": "",
+          "refresh": 1,
+          "hide": 0,
+          "current": {
+            "selected": true,
+            "text": "grafanacloud-narrowgrotto289-traces",
+            "value": "grafanacloud-traces"
+          }
+        },
+        {
+          "type": "textbox",
+          "name": "repo_re",
+          "label": "Repo (regex)",
+          "description": "Filter by repository, for example CharryLee0426/crok-build",
+          "query": ".*",
+          "current": {
+            "text": ".*",
+            "value": ".*"
+          },
+          "options": [
+            {
+              "selected": true,
+              "text": ".*",
+              "value": ".*"
+            }
+          ]
+        }
+      ]
+    },
+    "annotations": {
+      "list": []
+    },
+    "panels": [
+      {
+        "type": "row",
+        "title": "Turns (whole time range)",
+        "collapsed": false,
+        "panels": [],
+        "id": 1,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Turns",
+        "description": "Turns crok ran: one per prompt, plus the retries a completion requirement asks for. Grafana Cloud runs a TraceQL metrics query over 25 hours at most, so keep the time range at 24 hours or less.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "/^Total$/",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "transformations": [
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|count_over_time()",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 2,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 0,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Completed",
+        "description": "Share of turns that ended with an answer (the SLO is 95%). The rest were cancelled, hit --max-turns, were stopped for repeating the same call, or failed. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 0.9
+                },
+                {
+                  "color": "green",
+                  "value": 0.95
+                }
+              ]
+            },
+            "decimals": 1
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`&&span.crok.turn.outcome=\"completed\"}|count_over_time())/({resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|count_over_time())",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 3,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 4,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "p50 turn time",
+        "description": "Half the turns took less than this, from the prompt to the answer. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            },
+            "decimals": 0
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|quantile_over_time(duration,.5)",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 4,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 8,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "p90 turn time",
+        "description": "90% of turns took less than this. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            },
+            "decimals": 0
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|quantile_over_time(duration,.9)",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 5,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 12,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Model calls per turn",
+        "description": "Mean model calls a turn made. A weak model needs many more for the same task. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            },
+            "decimals": 1
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|avg_over_time(span.crok.model_calls)",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 6,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 16,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Tool runs per turn",
+        "description": "Mean tool runs a turn made. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "–",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            },
+            "decimals": 1
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|avg_over_time(span.crok.tool_calls)",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 7,
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 20,
+          "y": 1
+        }
+      },
+      {
+        "type": "row",
+        "title": "How turns end",
+        "collapsed": false,
+        "panels": [],
+        "id": 8,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 5
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Turns by outcome",
+        "description": "completed, cancelled (the user interrupted), max_turns, stationarity (the identical-call guard stopped a loop), error. Grafana Cloud runs a TraceQL metrics query over 25 hours at most, so keep the time range at 24 hours or less.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 70,
+              "lineWidth": 1,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "none",
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "sum"
+            ],
+            "showLegend": true,
+            "sortBy": "Total",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|count_over_time() by(span.crok.turn.outcome)",
+            "metricsQueryType": "range"
+          }
+        ],
+        "id": 9,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 6
+        }
+      },
+      {
+        "type": "table",
+        "title": "Turns by origin",
+        "description": "local (the TUI and Crok Desktop), headless (crok -p), relay (a prompt from the web or a phone).",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Origin"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Turns"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|count_over_time() by(span.agento11y.tag.origin)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 10,
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 6
+        }
+      },
+      {
+        "type": "table",
+        "title": "Turns by model",
+        "description": "The model the turn started with.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Turns"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "purple"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|count_over_time() by(span.gen_ai.request.model)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 11,
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 6
+        }
+      },
+      {
+        "type": "table",
+        "title": "p90 turn time by model",
+        "description": "How long the slowest tenth of turns took, per model. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Last * (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "p90"
+                },
+                {
+                  "id": "unit",
+                  "value": "s"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                },
+                {
+                  "id": "decimals",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^\\{p=0\\.5, [^=]+=\"?([^\"]*)\"?\\}$",
+              "renamePattern": "$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(\\{p=0\\.5\\}|0\\.5)$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^\\{p=0\\.95, [^=]+=\"?([^\"]*)\"?\\}$",
+              "renamePattern": "$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(\\{p=0\\.95\\}|0\\.95)$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^\\{p=0\\.99, [^=]+=\"?([^\"]*)\"?\\}$",
+              "renamePattern": "$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(\\{p=0\\.99\\}|0\\.99)$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "lastNotNull"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Last *": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Last * (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|quantile_over_time(duration,.9) by(span.gen_ai.request.model)",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 12,
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 14
+        }
+      },
+      {
+        "type": "table",
+        "title": "Model calls per turn by model",
+        "description": "Mean model calls per turn: the cost of a weak model is mostly time. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Last * (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Calls"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "orange"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                },
+                {
+                  "id": "decimals",
+                  "value": 1
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "lastNotNull"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Last *": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Last * (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|avg_over_time(span.crok.model_calls) by(span.gen_ai.request.model)",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 13,
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 14
+        }
+      },
+      {
+        "type": "table",
+        "title": "Turns by agent version",
+        "description": "crok's release and commit (2.0.2+1a2b3c4d).",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Version"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Turns"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|count_over_time() by(span.gen_ai.agent.version)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 14,
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 14
+        }
+      },
+      {
+        "type": "row",
+        "title": "Tools",
+        "collapsed": false,
+        "panels": [],
+        "id": 15,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 22
+        }
+      },
+      {
+        "type": "table",
+        "title": "Tool runs by tool",
+        "description": "Every tool run, by tool.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Runs"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"execute_tool\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|count_over_time() by(span.gen_ai.tool.name)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 16,
+        "gridPos": {
+          "h": 9,
+          "w": 8,
+          "x": 0,
+          "y": 23
+        }
+      },
+      {
+        "type": "table",
+        "title": "Failed tool runs by tool",
+        "description": "Tool runs that failed: a non-zero exit, a tool error, or a failure to start.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Failed"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "red"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"execute_tool\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`&&span.crok.tool.outcome=\"error\"}|count_over_time() by(span.gen_ai.tool.name)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 17,
+        "gridPos": {
+          "h": 9,
+          "w": 8,
+          "x": 8,
+          "y": 23
+        }
+      },
+      {
+        "type": "table",
+        "title": "p90 tool time by tool",
+        "description": "How long the slowest tenth of each tool's runs took. Covers the time range up to about 15 minutes ago.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Last * (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "p90"
+                },
+                {
+                  "id": "unit",
+                  "value": "s"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                },
+                {
+                  "id": "decimals",
+                  "value": 1
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^\\{p=0\\.5, [^=]+=\"?([^\"]*)\"?\\}$",
+              "renamePattern": "$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(\\{p=0\\.5\\}|0\\.5)$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^\\{p=0\\.95, [^=]+=\"?([^\"]*)\"?\\}$",
+              "renamePattern": "$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(\\{p=0\\.95\\}|0\\.95)$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^\\{p=0\\.99, [^=]+=\"?([^\"]*)\"?\\}$",
+              "renamePattern": "$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(\\{p=0\\.99\\}|0\\.99)$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "lastNotNull"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Last *": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Last * (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"execute_tool\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|quantile_over_time(duration,.9) by(span.gen_ai.tool.name)",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "id": 18,
+        "gridPos": {
+          "h": 9,
+          "w": 8,
+          "x": 16,
+          "y": 23
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Tool failure rate",
+        "description": "Share of tool runs that failed, over time.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 12,
+              "lineWidth": 2,
+              "showPoints": "never",
+              "spanNulls": false,
+              "barAlignment": 0,
+              "gradientMode": "opacity",
+              "stacking": {
+                "mode": "none",
+                "group": "A"
+              },
+              "axisSoftMin": 0
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "decimals": 1
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "mean",
+              "max"
+            ],
+            "showLegend": true,
+            "sortBy": "Mean",
+            "sortDesc": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "({resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"execute_tool\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`&&span.crok.tool.outcome=\"error\"}|count_over_time())/({resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"execute_tool\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|count_over_time())",
+            "metricsQueryType": "range"
+          }
+        ],
+        "id": 19,
+        "gridPos": {
+          "h": 7,
+          "w": 12,
+          "x": 0,
+          "y": 32
+        }
+      },
+      {
+        "type": "table",
+        "title": "Tool runs by kind",
+        "description": "read_only, mutating (edits, shell commands), other (MCP, browser, phone).",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Field"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Kind"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 230
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total (sum)"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Runs"
+                },
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "gauge",
+                    "mode": "basic",
+                    "valueDisplayMode": "text"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          }
+        },
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^nil$",
+              "renamePattern": "(not set)"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Total (sum)",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"execute_tool\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|count_over_time() by(span.crok.tool.kind)",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 20,
+        "gridPos": {
+          "h": 7,
+          "w": 6,
+          "x": 12,
+          "y": 32
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Backgrounded",
+        "description": "Commands crok moved to the background and polled later.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "text",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "sum"
+            ],
+            "fields": "/^Total$/",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "value",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": false
+        },
+        "transformations": [
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "sum"
+              ],
+              "mode": "seriesToRows"
+            }
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"execute_tool\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`&&span.crok.tool.backgrounded=true}|count_over_time()",
+            "metricsQueryType": "range",
+            "step": "1m"
+          }
+        ],
+        "id": 21,
+        "gridPos": {
+          "h": 7,
+          "w": 6,
+          "x": 18,
+          "y": 32
+        }
+      },
+      {
+        "type": "row",
+        "title": "Turns and tool runs",
+        "collapsed": false,
+        "panels": [],
+        "id": 22,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 39
+        }
+      },
+      {
+        "type": "table",
+        "title": "Latest turns",
+        "description": "The newest turns. Open a trace to see the turn's model calls and tool runs in order.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`}|select(span.gen_ai.conversation.id,span.crok.turn.outcome,span.gen_ai.request.model,span.crok.model_calls,span.crok.tool_calls,span.crok.tool_errors,span.crok.permission_mode,span.agento11y.tag.origin,span.agento11y.tag.repo,span.agento11y.tag.host)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.provider.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.agent.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Agent"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.backend"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Backend"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read_input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read (crok)"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cost.usd"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost (crok)"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reasons"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reasons"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.category"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error category"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cancelled"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cancelled"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Upstream provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.surface"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Surface"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.host"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Machine"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.origin"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Origin"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.repo"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Repo"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.branch"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Branch"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.conversation.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.turn.outcome"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Outcome"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.model_calls"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model calls"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool_calls"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool calls"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool_errors"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool errors"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.permission_mode"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Permissions"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.tool.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.outcome"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool outcome"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.kind"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool kind"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.exit_code"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Exit code"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.result_bytes"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Result bytes"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cost.usd"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 23,
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 40
+        }
+      },
+      {
+        "type": "table",
+        "title": "Turns that did not complete",
+        "description": "Cancelled, max_turns, stationarity and failed turns: where to look for regressions.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"invoke_agent\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`&&span.crok.turn.outcome!=\"completed\"}|select(span.gen_ai.conversation.id,span.crok.turn.outcome,span.gen_ai.request.model,span.crok.model_calls,span.crok.tool_calls,span.agento11y.tag.origin,span.agento11y.tag.repo)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.provider.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.agent.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Agent"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.backend"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Backend"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read_input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read (crok)"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cost.usd"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost (crok)"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reasons"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reasons"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.category"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error category"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cancelled"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cancelled"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Upstream provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.surface"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Surface"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.host"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Machine"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.origin"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Origin"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.repo"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Repo"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.branch"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Branch"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.conversation.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.turn.outcome"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Outcome"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.model_calls"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model calls"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool_calls"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool calls"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool_errors"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool errors"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.permission_mode"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Permissions"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.tool.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.outcome"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool outcome"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.kind"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool kind"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.exit_code"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Exit code"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.result_bytes"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Result bytes"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cost.usd"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 24,
+        "gridPos": {
+          "h": 9,
+          "w": 24,
+          "x": 0,
+          "y": 50
+        }
+      },
+      {
+        "type": "table",
+        "title": "Failed tool runs",
+        "description": "The error's first line is the span status; the full output is in the conversation in Agent Observability.",
+        "datasource": {
+          "type": "tempo",
+          "uid": "${ds}"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.operation.name=\"execute_tool\"&&span.agento11y.tag.origin!=\"eval\"&&span.agento11y.tag.repo=~`$repo_re`&&span.crok.tool.outcome=\"error\"}|select(span.gen_ai.tool.name,span.crok.tool.exit_code,span.crok.tool.kind,span.gen_ai.conversation.id,span.agento11y.tag.repo)",
+            "tableType": "spans",
+            "limit": 20,
+            "spss": 100
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "filterable": true
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "nil": {
+                    "text": "(not set)"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "service.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Source"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.provider.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.model"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.agent.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Agent"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.backend"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Backend"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Input tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_read_input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache read (crok)"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.cache_write.input_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cache write"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.output_tokens"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output tokens"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cost.usd"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cost (crok)"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.message.stop_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Stop reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reason"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reason"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.response.finish_reasons"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Finish reasons"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.request.reasoning.level"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Effort"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.type"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "error.category"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Error category"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cancelled"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cancelled"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "anthropic.request.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Request ID"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.provider_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Upstream provider"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "trace.metadata.openrouter.api_key_name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "API key"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.surface"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Surface"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.host"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Machine"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.origin"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Origin"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.repo"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Repo"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.branch"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Branch"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.conversation.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.turn.outcome"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Outcome"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.model_calls"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model calls"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool_calls"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool calls"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool_errors"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool errors"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.permission_mode"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Permissions"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.tool.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.outcome"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool outcome"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.kind"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool kind"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.exit_code"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Exit code"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.result_bytes"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Result bytes"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "user.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "User"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "session.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.usage.total_cost"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.cost.usd"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "currencyUSD"
+                },
+                {
+                  "id": "decimals",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "traceIdHidden"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Trace ID"
+                },
+                {
+                  "id": "custom.width",
+                  "value": 130
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Service"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Trace Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "kind"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Span ID"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 150
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Start time"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 165
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Name"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 200
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": false
+          },
+          "sortBy": [
+            {
+              "displayName": "Start time",
+              "desc": true
+            }
+          ]
+        },
+        "id": 25,
+        "gridPos": {
+          "h": 9,
+          "w": 24,
+          "x": 0,
+          "y": 59
+        }
+      }
+    ]
+  }
+}
