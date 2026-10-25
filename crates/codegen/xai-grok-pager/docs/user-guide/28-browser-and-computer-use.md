@@ -2,7 +2,7 @@
 
 Two optional tools let Crok work outside the terminal:
 
-- **`browser`** drives a web browser of Crok's own: it opens pages, reads them, clicks, types, fills in forms, and manages tabs.
+- **`browser`** works in your own web browser, signed in to your accounts, or in one of Crok's own: it opens pages, reads them, clicks, types, fills in forms, and manages tabs.
 - **`computer`** sees your screen and uses the mouse and keyboard, in any app (macOS only).
 
 Both are off until you turn them on. They are Crok's own tools, so they work with every model provider you can sign in to (OpenRouter, OpenAI Codex, the Claude API, DeepSeek, and the GLM Coding Plan), not only with Anthropic's API. Their actions follow Anthropic's browser and computer toolsets (`browser_toolset_20260801` and `computer_toolset_20260801`), so a model that knows those finds the same names, inputs, and replies.
@@ -30,9 +30,31 @@ The switches are read when a session starts. In the terminal, restart Crok after
 
 ## The Browser
 
-Crok runs the first Chromium-based browser it finds (Google Chrome, Chromium, Microsoft Edge, or Brave), or the one named by `[toolset.browser] executable`. It uses a profile of its own, `$CROK_HOME/browser/profile`, never your everyday browsing profile: sites Crok should be signed in to, you sign in to once in that window. The browser starts on the first browser action, or Crok connects to the one already running with that profile. Every session works in tabs of its own, and closes them when it ends.
+By default Crok works in **your own browser**: it opens a window of its own in the Chrome you already use, on the profile you used last, so every site you are signed in to stays signed in and you never sign in again for Crok. It uses the first Chromium-based browser it finds (Google Chrome, Chromium, Microsoft Edge, or Brave), or the one named by `[toolset.browser] executable`. Crok sees and controls only the tabs it opens; your own tabs and windows are never shown to the model. Every session works in tabs of its own, and closes them when it ends.
 
-What the model can do:
+### Letting Crok In
+
+Chrome lets another app into your browser only when you say so, in two steps:
+
+1. **Once:** in Chrome, open `chrome://inspect/#remote-debugging` and turn on **Allow remote debugging for this browser instance** (Chrome 144 or later). It stays on, across restarts, until you turn it off there.
+2. **Each session:** the first time a Crok session uses the browser, Chrome asks **Allow remote debugging?** Click **Allow**. That is once per Crok Desktop task, or once per run of `crok` in a terminal; Crok waits two minutes for your answer.
+
+While Crok is connected, Chrome shows "Chrome is being controlled by automated test software" across its windows. If Chrome is not running, Crok starts it as you would; when a session ends, Chrome keeps running. Downloads go where your browser's settings say.
+
+Chrome's own warning applies: an app you allow gets the same control of the browser that you have, including your signed-in sites. Crok still asks before it acts in a page and before it opens each new site (see [Permissions](#permissions)), and the switch only lets apps *ask*: nothing gets in without your **Allow**. Other Chromium-based browsers work the same way where their inspect page has the same switch.
+
+### A Profile of Crok's Own
+
+To keep Crok apart from your own browsing, give it a browser profile of its own:
+
+```toml
+[toolset.browser]
+profile = "crok"
+```
+
+Crok then runs a browser with the profile `$CROK_HOME/browser/profile` (or `profile_dir`): sites Crok should be signed in to, you sign in to once in that window. Nothing needs allowing, the browser can run without a window (`headless = true`), and downloads go to `$CROK_HOME/browser/downloads`. The browser starts on the first browser action, or Crok connects to the one already running with that profile, and Crok quits it when the last session leaves it with no tabs. In Crok Desktop, choose it under **Settings** → **Browser and computer use** → **Browser profile**.
+
+### What the Model Can Do
 
 | Kind | Actions |
 |---|---|
@@ -92,9 +114,11 @@ Any model that calls tools can use both. Screenshots need a model that reads ima
 
 ```toml
 [toolset.browser]
+profile = "user"                       # "user": your own browser, signed in as you; "crok": a profile of Crok's own
 # executable = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
-headless = false                       # true = no window
-# profile_dir = "/Users/me/crok-browser"   # absolute path (default: $CROK_HOME/browser/profile)
+headless = false                       # true = no window (profile = "crok" only)
+# profile_dir = "/Users/me/crok-browser"   # absolute path; "crok": its profile (default: $CROK_HOME/browser/profile)
+                                       # "user": the browser's user data folder, when it is not the usual one
 # allowed_domains = ["example.com"]    # hosts navigate may open, subdomains included (default: any)
 blocked_domains = []                   # hosts navigate refuses, subdomains included
 javascript = true                      # offer javascript_exec
@@ -110,7 +134,11 @@ Every key is listed in the [Configuration Reference](26-config-reference.md).
 | What you see | What to do |
 |---|---|
 | "No Chromium-based browser was found" | Install Chrome, Chromium, Edge, or Brave, or set `[toolset.browser] executable`. |
-| The browser asks you to sign in again | Crok's browser has its own profile; sign in once in its window. |
+| "Google Chrome is running, but it does not let Crok connect" | Turn on **Allow remote debugging for this browser instance** at `chrome://inspect/#remote-debugging` (Chrome 144 or later). Where your browser has no such switch, set `[toolset.browser] profile = "crok"`. |
+| "Google Chrome refused the connection" | Click **Allow** when Chrome asks. **Cancel**, closing the dialog, and **Turn off in settings** all refuse; the next browser action asks again. |
+| "refused the connection without asking" | Chrome asks in one of its windows and none was open. Open a Chrome window and try again. |
+| "No one answered … within 120 s" | The dialog may be behind other windows or on another desktop. Try again and look for it in Chrome. |
+| The browser asks you to sign in again | With `profile = "crok"`, Crok's browser has its own profile: sign in once in its window, or use `profile = "user"` to work in your own browser. |
 | Computer screenshots fail or show only the desktop | Grant Screen Recording to the app Crok runs in, then quit and reopen that app. |
 | Clicks and typing do nothing | Grant Accessibility to the app Crok runs in. |
 | System Settings shows Crok Desktop switched on, but Crok says it is not allowed | The permission was given to a differently signed copy (an ad hoc signed version before the update). Remove Crok Desktop from that list with **−**, then allow it again. |

@@ -252,10 +252,13 @@ allowed_domains = ["docs.x.ai", "arxiv.org"]
 # excluded_domains = ["reddit.com", "pinterest.com"]
 
 [toolset.browser]                      # the browser tool, on with [features] browser_use
+profile = "user"                       # "user": your own browser, signed in as you (default)
+                                       # "crok": a browser with a profile of Crok's own
 # executable = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
                                        # default: the first Chromium-based browser found
-headless = false                       # true = no window
-# profile_dir = "/Users/me/crok-browser"   # absolute path (default: $CROK_HOME/browser/profile)
+headless = false                       # true = no window (profile = "crok" only)
+# profile_dir = "/Users/me/crok-browser"   # absolute path; "crok": its profile (default: $CROK_HOME/browser/profile)
+                                       # "user": the browser's user data folder, when it is not the usual one
 # allowed_domains = ["example.com"]    # hosts navigate may open, subdomains included (default: any)
 blocked_domains = []                   # hosts navigate refuses, subdomains included
 javascript = true                      # offer javascript_exec (asked about every time)

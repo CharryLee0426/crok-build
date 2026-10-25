@@ -53,7 +53,7 @@ pub enum Feature {
     TerminalTheme,
     /// Hand local sessions' file systems to an installed file accelerator.
     FileAcceleration,
-    /// The `browser` tool: drive a browser with a profile of its own.
+    /// The `browser` tool: drive the user's own browser, or one with a profile of Crok's own.
     BrowserUse,
     /// The `computer` tool: see the screen and use the mouse and keyboard (macOS).
     ComputerUse,

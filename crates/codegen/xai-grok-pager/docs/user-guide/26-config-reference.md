@@ -200,7 +200,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `features.ask_user_question` | `boolean` | `pin` | `user` | Enable or disable `ask_user_question`. Default true. Also `CROK_ASK_USER_QUESTION`. |
 | `features.auto_wake` | `boolean` | `pin` | `user` | Enable or disable `auto_wake`. Default true. Also `CROK_AUTO_WAKE`. |
 | `features.backend_tools` | `boolean` | `pin` | `user` | Enable or disable `backend_tools`. Default true. Also `CROK_BACKEND_SEARCH`. |
-| `features.browser_use` | `boolean` | `pin` | `user` | The `browser` tool: open web pages in a browser of Crok's own and click, type, and read in them. Default false. Also `CROK_BROWSER_USE`. Read when a session starts. See [Browser and Computer Use](28-browser-and-computer-use.md). |
+| `features.browser_use` | `boolean` | `pin` | `user` | The `browser` tool: open web pages in your own browser (or one of Crok's own) and click, type, and read in them. Default false. Also `CROK_BROWSER_USE`. Read when a session starts. See [Browser and Computer Use](28-browser-and-computer-use.md). |
 | `features.campaigns` | `boolean` | `yes` | `user` | Enable remote campaign patches. `CROK_CAMPAIGNS=0` still disables even when requirements set this true. |
 | `features.cancel_rewind` | `boolean` | `pin` | `user` | Enable or disable `cancel_rewind`. Default true. Also `CROK_CANCEL_REWIND`. |
 | `features.codebase_indexing` | `boolean / string[]` | `pin` | `user` | Codebase graph indexing; true indexes git repos, or pass include/exclude globs. |
@@ -612,9 +612,10 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `toolset.browser.blocked_domains` | `string[]` | `yes` | `user` | Hosts `navigate` refuses, subdomains included. |
 | `toolset.browser.executable` | `string` | `yes` | `user` | The Chromium-based browser to run. Default: the first of Chrome, Chromium, Edge, or Brave found. |
 | `toolset.browser.file_upload` | `boolean` | `yes` | `user` | Offer `file_upload`, for files inside the session's working directory. Default true. |
-| `toolset.browser.headless` | `boolean` | `yes` | `user` | Run the browser without a window. Default false. |
+| `toolset.browser.headless` | `boolean` | `yes` | `user` | Run the browser without a window (`profile = "crok"` only). Default false. |
 | `toolset.browser.javascript` | `boolean` | `yes` | `user` | Offer `javascript_exec`; each script is approved on its own. Default true. |
-| `toolset.browser.profile_dir` | `string` | `yes` | `user` | Absolute path of the browser's profile. Default `$CROK_HOME/browser/profile`. |
+| `toolset.browser.profile` | `string` | `yes` | `user` | `"user"`: a window of your own browser, on the profile you used last, signed in to your accounts (turn on remote debugging at `chrome://inspect/#remote-debugging` once; Chrome asks to allow each session). `"crok"`: a browser with a profile of Crok's own. Default `"user"`. |
+| `toolset.browser.profile_dir` | `string` | `yes` | `user` | Absolute path. With `profile = "crok"`, the browser's profile (default `$CROK_HOME/browser/profile`); with `"user"`, your browser's user data folder when it is not the usual one. |
 | `toolset.file_toolset` | `standard / hashline` | `yes` | `user` | File edit tool scheme. |
 | `toolset.web_fetch.allowed_domains` | `string[]` | `yes` | `user` | Domain allowlist override for web_fetch. |
 | `toolset.web_fetch.proxy_endpoint` | `string` | `yes` | `user` | Egress proxy URL for web_fetch. Also CROK_WEB_FETCH_PROXY. |

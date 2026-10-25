@@ -4,7 +4,8 @@
 //! (`browser_toolset_20260801`): the same 31 members, inputs, acknowledgments, refusals and
 //! batch rule, with the tab inventory rendered as the API renders a `browser_state` block. It is
 //! offered to every provider, so models without that toolset browse the same way Claude does.
-//! The browser runs with a profile of its own, apart from the user's everyday browsing.
+//! By default it works in a window of the user's own browser, signed in as they are; with
+//! `profile = "crok"` it runs a browser with a profile of its own, apart from the user's browsing.
 
 pub mod cdp;
 #[cfg(test)]
@@ -49,15 +50,33 @@ impl BrowserUseConfig {
     }
 }
 
+/// Whose browser profile the tool works in.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserProfile {
+    /// The browser the user runs every day, on the profile they used last, signed in to their
+    /// accounts: Crok opens windows of its own in it. Chrome asks the user to allow each
+    /// connection, and only once they turned on remote debugging at chrome://inspect.
+    #[default]
+    User,
+    /// A browser Crok starts with a profile of its own (`profile_dir`).
+    Crok,
+}
+
 /// `[toolset.browser]`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default)]
 pub struct BrowserParams {
-    /// The browser to run; the first Chromium-based browser found when unset.
+    /// The browser to use; the first Chromium-based browser found when unset.
     pub executable: Option<PathBuf>,
-    /// Run without a window.
+    /// Whose profile: the user's own browser, or one of Crok's own.
+    pub profile: BrowserProfile,
+    /// Run without a window (Crok's own profile only).
     pub headless: bool,
-    /// The browser profile; `$CROK_HOME/browser/profile` when unset.
+    /// Crok's own profile: `$CROK_HOME/browser/profile` when unset. The user's profile: the
+    /// browser's user data folder, when it is not the one the browser uses by default.
     pub profile_dir: Option<PathBuf>,
     /// Hosts `navigate` may open (and their subdomains); every host when unset.
     pub allowed_domains: Option<Vec<String>>,
@@ -73,6 +92,7 @@ impl Default for BrowserParams {
     fn default() -> Self {
         Self {
             executable: None,
+            profile: BrowserProfile::default(),
             headless: false,
             profile_dir: None,
             allowed_domains: None,
@@ -443,7 +463,7 @@ impl xai_tool_runtime::ToolOutput for BrowserOutput {
 #[derive(Debug, Default)]
 pub struct BrowserTool;
 
-const DESCRIPTION: &str = r#"Use a web browser: open pages, read them, and click, type and scroll in them. The browser is a separate Chromium window with a profile of its own, not the user's everyday browser. Each call performs one `action`; several calls in one turn run in order, and after one fails the rest are not run.
+const DESCRIPTION: &str = r#"Use a web browser: open pages, read them, and click, type and scroll in them. The browser is a window opened for this session: usually in the user's own Chrome (or other Chromium-based browser), signed in to the user's accounts, so act as carefully as the user would; otherwise a separate browser with a profile of its own. Either way you see only the tabs this session opened, never the user's other tabs. Each call performs one `action`; several calls in one turn run in order, and after one fails the rest are not run.
 
 Observe:
 - screenshot: capture the current tab's viewport.
@@ -566,6 +586,23 @@ mod tests {
         );
         assert!(
             matches!(BrowserInput::new(BrowserAction::JavascriptExec).access_kind(), AccessKind::Tool(ref t) if t == BROWSER_JAVASCRIPT_ACCESS)
+        );
+    }
+
+    #[test]
+    fn the_users_own_browser_is_the_default_profile() {
+        assert_eq!(BrowserParams::default().profile, BrowserProfile::User);
+        let own: BrowserParams =
+            serde_json::from_value(serde_json::json!({ "profile": "crok", "headless": true }))
+                .unwrap();
+        assert_eq!(own.profile, BrowserProfile::Crok);
+        assert!(own.headless && own.javascript);
+        let users: BrowserParams =
+            serde_json::from_value(serde_json::json!({ "profile": "user" })).unwrap();
+        assert_eq!(users.profile, BrowserProfile::User);
+        assert!(
+            serde_json::from_value::<BrowserParams>(serde_json::json!({ "profile": "mine" }))
+                .is_err()
         );
     }
 

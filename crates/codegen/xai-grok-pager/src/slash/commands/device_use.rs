@@ -42,7 +42,7 @@ pub struct BrowserUseCommand;
 impl SlashCommand for BrowserUseCommand {
     slash_meta! {
         name: "browser-use",
-        description: tlm("Turn browser use on or off: Crok works in web pages in a browser of its own"),
+        description: tlm("Turn browser use on or off: Crok works in web pages in your own browser"),
         usage: "/browser-use [on|off]",
         arg_placeholder: tlm("on/off"),
     }

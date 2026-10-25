@@ -47,7 +47,9 @@ pub mod workflow;
 pub use app_builder::AppBuilderDeployerConfig;
 pub use ask_user_question::AskUserQuestionTool;
 pub use bash::BashTool;
-pub use browser_use::{BROWSER_TOOL_NAME, BrowserParams, BrowserTool, BrowserUseConfig};
+pub use browser_use::{
+    BROWSER_TOOL_NAME, BrowserParams, BrowserProfile, BrowserTool, BrowserUseConfig,
+};
 pub use computer_use::{COMPUTER_TOOL_NAME, ComputerTool};
 pub use deploy_app::DEPLOY_APP_TOOL_NAME;
 pub use enter_plan_mode::EnterPlanModeTool;

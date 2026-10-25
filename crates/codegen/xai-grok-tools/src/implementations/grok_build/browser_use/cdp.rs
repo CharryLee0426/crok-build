@@ -37,6 +37,9 @@ pub enum CdpError {
     Timeout { method: String, secs: u64 },
     #[error("could not connect to the browser: {0}")]
     Connect(String),
+    /// The browser answered the WebSocket handshake with this HTTP status instead of opening it.
+    #[error("the browser refused the connection (HTTP {0})")]
+    Rejected(u16),
 }
 
 type Pending = Arc<parking_lot::Mutex<HashMap<u64, oneshot::Sender<Result<Value, CdpError>>>>>;
@@ -65,7 +68,12 @@ impl CdpConnection {
         let (stream, _) = tokio::time::timeout(timeout, tokio_tungstenite::connect_async(ws_url))
             .await
             .map_err(|_| CdpError::Connect(format!("no answer from {ws_url}")))?
-            .map_err(|e| CdpError::Connect(e.to_string()))?;
+            .map_err(|e| match e {
+                tokio_tungstenite::tungstenite::Error::Http(response) => {
+                    CdpError::Rejected(response.status().as_u16())
+                }
+                e => CdpError::Connect(e.to_string()),
+            })?;
         let (mut sink, mut source) = stream.split();
         let (outgoing, mut outgoing_rx) = mpsc::unbounded_channel::<Message>();
         let pending: Pending = Arc::default();

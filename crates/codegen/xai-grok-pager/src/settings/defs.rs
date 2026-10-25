@@ -1346,8 +1346,9 @@ pub fn default_settings() -> Vec<SettingMeta> {
             category: SettingCategory::Agent,
             owner: SettingOwner::Shell,
             label: "Browser use",
-            description: "Let Crok open web pages and click, type and read in them, in a browser \
-                          window with a profile of its own. Applies to new sessions.",
+            description: "Let Crok open web pages and click, type and read in them, in a window \
+                          of your own browser, signed in as you, or in a browser of Crok's own \
+                          ([toolset.browser] profile). Applies to new sessions.",
             keywords: &[
                 "browser",
                 "chrome",

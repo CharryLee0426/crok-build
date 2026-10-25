@@ -154,6 +154,23 @@ final class DeviceUseTests: XCTestCase {
         XCTAssertEqual(settings.set(.browser, true), "✓ Utilisation du navigateur : activé · s'applique aux nouvelles tâches")
     }
 
+    func testTheBrowserProfileIsSavedUnderToolsetBrowser() throws {
+        let url = directory.appendingPathComponent("config.toml")
+        try "[features]\nbrowser_use = true\n".write(to: url, atomically: true, encoding: .utf8)
+        let settings = DeviceUseSettings(configURL: url)
+        XCTAssertEqual(settings.browserProfile, .user, "the user's own browser when config.toml says nothing")
+        XCTAssertEqual(settings.setBrowserProfile(.crok), "✓ Browser profile: Crok's own profile · new tasks get it")
+        XCTAssertEqual(GrokConfig(url: url).string("profile", in: "toolset.browser"), "crok")
+        XCTAssertEqual(GrokConfig(url: url).bool("browser_use", in: "features"), true, "the rest of the file is kept")
+
+        // Changed in the terminal meanwhile: Settings reads the file again.
+        try GrokConfig.update(url: url) { try $0.set("profile", to: .string("user"), in: "toolset.browser") }
+        settings.refresh()
+        XCTAssertEqual(settings.browserProfile, .user)
+        L10n.setLanguage(.de)
+        XCTAssertEqual(settings.setBrowserProfile(.crok), "✓ Browserprofil: Eigenes Profil für Crok · gilt für neue Aufgaben")
+    }
+
     func testAFileThatCannotBeEditedIsLeftAlone() throws {
         let url = directory.appendingPathComponent("config.toml")
         let broken = "[features\nbrowser_use = "

@@ -271,7 +271,8 @@ extension PermissionOption {
 }
 
 /// Whether new tasks get the `browser`, `computer` and `phone` tools (`[features]` in config.toml,
-/// shared with the terminal), and the macOS permissions computer use and the iPhone need.
+/// shared with the terminal), whose browser profile the `browser` tool uses (`[toolset.browser]`),
+/// and the macOS permissions computer use and the iPhone need.
 @MainActor
 final class DeviceUseSettings: ObservableObject {
     /// Tests that run `/browser-use` or open Settings write a file of their own, never the user's config.toml.
@@ -292,6 +293,25 @@ final class DeviceUseSettings: ObservableObject {
         var defaultOn: Bool { self == .phone }
     }
 
+    /// `[toolset.browser] profile`: whose browser the `browser` tool works in.
+    enum BrowserProfile: String, CaseIterable {
+        /// The user's own browser, signed in as they are; what applies when config.toml says nothing.
+        case user
+        /// A browser with a profile of Crok's own.
+        case crok
+
+        var title: String {
+            switch self {
+            case .user: return L10n.t("device_browser_profile_user", "Your own browser")
+            case .crok: return L10n.t("device_browser_profile_crok", "Crok's own profile")
+            }
+        }
+    }
+
+    /// Where Chrome turns remote debugging on. Chrome opens `chrome://` addresses only from its own
+    /// address bar, so Settings copies it rather than opening it.
+    static let remoteDebuggingAddress = "chrome://inspect/#remote-debugging"
+
     enum Permission {
         case screenRecording, accessibility
         /// Its page in System Settings › Privacy & Security.
@@ -301,6 +321,7 @@ final class DeviceUseSettings: ObservableObject {
     }
 
     @Published private(set) var browserUse = false
+    @Published private(set) var browserProfile = BrowserProfile.user
     @Published private(set) var computerUse = false
     @Published private(set) var phoneUse = true
     @Published private(set) var screenRecording = false
@@ -329,6 +350,7 @@ final class DeviceUseSettings: ObservableObject {
     func refresh() {
         let config = GrokConfig(url: configURL)
         browserUse = config.bool(Feature.browser.key, in: "features") ?? false
+        browserProfile = config.string("profile", in: "toolset.browser").flatMap(BrowserProfile.init(rawValue:)) ?? .user
         computerUse = config.bool(Feature.computer.key, in: "features") ?? false
         phoneUse = config.bool(Feature.phone.key, in: "features") ?? Feature.phone.defaultOn
         screenRecording = CGPreflightScreenCaptureAccess()
@@ -361,6 +383,26 @@ final class DeviceUseSettings: ObservableObject {
         }
     }
 
+    /// Saves whose browser new tasks work in; returns the banner that says what happened.
+    @discardableResult
+    func setBrowserProfile(_ profile: BrowserProfile) -> String {
+        do {
+            try GrokConfig.update(url: configURL) { try $0.set("profile", to: .string(profile.rawValue), in: "toolset.browser") }
+        } catch {
+            refresh()
+            return L10n.t("device_profile_save_failed", "Could not save [toolset.browser].profile: {error}", ["error": error.localizedDescription])
+        }
+        browserProfile = profile
+        return L10n.t("device_banner_browser_profile", "✓ Browser profile: {profile} · new tasks get it", ["profile": profile.title])
+    }
+
+    /// Puts chrome://inspect/#remote-debugging on the clipboard; returns the banner.
+    func copyRemoteDebuggingAddress() -> String {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Self.remoteDebuggingAddress, forType: .string)
+        return L10n.t("device_copied_inspect_address", "✓ Copied chrome://inspect/#remote-debugging · paste it into Chrome's address bar")
+    }
+
     /// `/browser-use`, `/computer-use` and `/phone-use`: on, off, or nothing to switch it, as in the terminal.
     func command(_ feature: Feature, arguments: String) -> String {
         refresh()
@@ -387,8 +429,8 @@ final class DeviceUseSettings: ObservableObject {
     }
 }
 
-/// Settings › Browser and computer use: the two switches, and for computer use the macOS
-/// permissions it needs.
+/// Settings › Browser and computer use: the two switches, for browser use whose browser it works
+/// in, and for computer use the macOS permissions it needs.
 struct DeviceUseSettingsSection: View {
     @ObservedObject private var language = L10n.state
     @EnvironmentObject var store: AppStore
@@ -404,8 +446,11 @@ struct DeviceUseSettingsSection: View {
         VStack(alignment: .leading, spacing: 14) {
             Label(L10n.t("device_settings_title", "Browser and computer use"), systemImage: "cursorarrow.rays").font(.system(size: 15, weight: .semibold))
             row(L10n.t("device_browser_use", "Browser use"),
-                detail: L10n.t("device_browser_use_detail", "Crok opens web pages in a Chrome, Edge, Brave, or Chromium window with a profile of its own, apart from yours, and clicks, types, and reads in them. New tasks get it.")) {
+                detail: L10n.t("device_browser_use_detail", "Crok opens web pages in a window of your own Chrome, Edge, Brave, or Chromium, signed in as you, or in a browser with a profile of its own, and clicks, types, and reads in them. New tasks get it.")) {
                 Toggle(L10n.t("device_browser_use", "Browser use"), isOn: binding(.browser)).labelsHidden().toggleStyle(.switch)
+            }
+            if model.browserUse {
+                browserProfileRows.padding(.leading, 16)
             }
             Divider()
             row(L10n.t("device_computer_use", "Computer use"),
@@ -433,6 +478,33 @@ struct DeviceUseSettingsSection: View {
 
     private func binding(_ feature: DeviceUseSettings.Feature) -> Binding<Bool> {
         Binding(get: { model.isOn(feature) }, set: { store.banner = model.set(feature, $0) })
+    }
+
+    /// Which browser profile, and what that one needs from the user.
+    private var browserProfileRows: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            row(L10n.t("device_browser_profile", "Browser profile"),
+                detail: L10n.t("device_browser_profile_detail", "Your own browser keeps every sign-in. A profile of Crok's own keeps Crok apart from your browsing.")) {
+                Picker(L10n.t("device_browser_profile", "Browser profile"),
+                       selection: Binding(get: { model.browserProfile }, set: { store.banner = model.setBrowserProfile($0) })) {
+                    ForEach(DeviceUseSettings.BrowserProfile.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
+            if model.browserProfile == .user {
+                HStack(alignment: .center, spacing: 16) {
+                    Text(L10n.t("device_browser_user_note", "Once, in Chrome: open chrome://inspect/#remote-debugging and turn on “Allow remote debugging for this browser instance” (Chrome 144 or later). After that, Chrome asks you to allow each new task: click Allow."))
+                        .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 12)
+                    Button(L10n.t("device_copy_inspect_address", "Copy Address")) { store.banner = model.copyRemoteDebuggingAddress() }
+                        .buttonStyle(.bordered)
+                        .help(L10n.t("device_copy_inspect_help", "Chrome opens chrome:// addresses only from its own address bar"))
+                }
+            } else {
+                Text(L10n.t("device_browser_crok_note", "Crok runs a separate browser with a profile of its own: sign in to sites once in its window."))
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func permissionRow(_ permission: DeviceUseSettings.Permission) -> some View {

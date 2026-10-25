@@ -19,7 +19,7 @@ use tokio::time::Instant;
 use super::cdp::{CdpConnection, CdpError, CdpEvent};
 use super::keys::{self, Chord};
 use super::launch;
-use super::{BrowserAction, BrowserInput, BrowserParams, ReadPageFilter};
+use super::{BrowserAction, BrowserInput, BrowserParams, BrowserProfile, ReadPageFilter};
 use crate::implementations::grok_build::device_use::screenshot::{self, FittedImage, Scale};
 use crate::implementations::grok_build::device_use::{
     BROWSER_HALT_TEXT, BatchHalt, ConfirmationFields, DeviceActionResult, Modifiers, TabSummary,
@@ -49,6 +49,35 @@ pub struct BrowserSessionHandle(pub Arc<BrowserSession>);
 
 static SESSIONS: LazyLock<parking_lot::Mutex<HashMap<String, Weak<BrowserSession>>>> =
     LazyLock::new(Default::default);
+
+/// Which copy of the user's own browser: its executable and user data folder as configured.
+type UserBrowserKey = (Option<PathBuf>, Option<PathBuf>);
+
+/// Connections to the user's own browser, one per copy, shared by every session in this process:
+/// the browser asks the user about each new connection, so a process asks once. The lock is held
+/// while one connects, so two sessions starting together do not ask twice.
+static USER_BROWSERS: LazyLock<tokio::sync::Mutex<HashMap<UserBrowserKey, Weak<CdpConnection>>>> =
+    LazyLock::new(Default::default);
+
+/// The connection to the user's own browser, opened (and allowed by the user) if there is none.
+async fn user_browser(params: &BrowserParams) -> Result<launch::Connected, String> {
+    let key = (params.executable.clone(), params.profile_dir.clone());
+    let mut browsers = USER_BROWSERS.lock().await;
+    browsers.retain(|_, connection| connection.strong_count() > 0);
+    if let Some(connection) = browsers.get(&key).and_then(Weak::upgrade)
+        && !connection.is_closed()
+    {
+        return Ok(launch::Connected {
+            connection,
+            launched: false,
+        });
+    }
+    let connected =
+        launch::connect_user_browser(params.executable.as_deref(), params.profile_dir.as_deref())
+            .await?;
+    browsers.insert(key, Arc::downgrade(&connected.connection));
+    Ok(connected)
+}
 
 impl BrowserSessionHandle {
     /// The browser session for the Crok session `key`. Every agent built for that session shares
@@ -93,7 +122,9 @@ struct Shared {
     dialogs: Vec<(String, String)>,
     downloads: HashMap<String, Download>,
     next_download: u32,
-    download_dir: PathBuf,
+    /// Where Crok's own browser saves downloads, under their GUIDs until Crok names them; `None`
+    /// in the user's browser, which saves them where the user's settings say.
+    download_dir: Option<PathBuf>,
     /// Pages our tabs opened, not yet attached.
     popups: Vec<String>,
 }
@@ -302,6 +333,7 @@ impl Drop for BrowserSession {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
         };
+        let quit_when_empty = self.params.profile == BrowserProfile::Crok;
         runtime.spawn(async move {
             let quick = Duration::from_secs(3);
             for target in &targets {
@@ -314,10 +346,12 @@ impl Drop for BrowserSession {
                     )
                     .await;
             }
-            // A browser left with no pages holds nothing of the user's: quit it
-            if let Ok(list) = connection
-                .send_with_timeout(None, "Target.getTargets", json!({}), quick)
-                .await
+            // Crok's own browser left with no pages holds nothing of the user's: quit it. The
+            // user's own browser is theirs to quit.
+            if quit_when_empty
+                && let Ok(list) = connection
+                    .send_with_timeout(None, "Target.getTargets", json!({}), quick)
+                    .await
             {
                 let pages = at(&list, "/targetInfos")
                     .as_array()
@@ -423,13 +457,18 @@ impl BrowserSession {
             shared.active = None;
             shared.popups.clear();
         }
-        let profile = launch::profile_dir(self.params.profile_dir.as_deref())?;
-        let connected = launch::connect_or_launch(
-            &profile,
-            self.params.executable.as_deref(),
-            self.params.headless,
-        )
-        .await?;
+        let connected = match self.params.profile {
+            BrowserProfile::User => user_browser(&self.params).await?,
+            BrowserProfile::Crok => {
+                let profile = launch::profile_dir(self.params.profile_dir.as_deref())?;
+                launch::connect_or_launch(
+                    &profile,
+                    self.params.executable.as_deref(),
+                    self.params.headless,
+                )
+                .await?
+            }
+        };
         let connection = connected.connection;
         inner.pump = Some(tokio::spawn(pump(
             Arc::downgrade(&connection),
@@ -444,18 +483,26 @@ impl BrowserSession {
             )
             .await
             .map_err(|e| e.to_string())?;
-        let downloads = launch::default_download_dir();
-        launch::create_private_dir(&downloads)?;
-        self.shared.lock().download_dir = downloads.clone();
+        // The behavior is the whole browser's: in the user's browser their own downloads keep going
+        // where their settings say, and Crok only listens
+        let behavior = match self.params.profile {
+            BrowserProfile::User => {
+                self.shared.lock().download_dir = None;
+                json!({ "behavior": "default", "eventsEnabled": true })
+            }
+            BrowserProfile::Crok => {
+                let downloads = launch::default_download_dir();
+                launch::create_private_dir(&downloads)?;
+                self.shared.lock().download_dir = Some(downloads.clone());
+                json!({ "behavior": "allowAndName", "downloadPath": downloads, "eventsEnabled": true })
+            }
+        };
         let _ = connection
-            .send(
-                None,
-                "Browser.setDownloadBehavior",
-                json!({ "behavior": "allowAndName", "downloadPath": downloads, "eventsEnabled": true }),
-            )
+            .send(None, "Browser.setDownloadBehavior", behavior)
             .await;
         inner.connection = Some(Arc::clone(&connection));
-        if connected.launched {
+        // Every page the user's browser opens with is the user's; Crok opens a window of its own
+        if connected.launched && self.params.profile == BrowserProfile::Crok {
             // The window the browser opened with becomes this session's first tab
             if let Ok(list) = connection.send(None, "Target.getTargets", json!({})).await
                 && let Some(target) = at(&list, "/targetInfos").as_array().and_then(|infos| {
@@ -2130,7 +2177,10 @@ fn record(
             }
             let download = s.downloads.remove(guid)?;
             let change = if state == "completed" {
-                let path = name_download(&s.download_dir, guid, &download.suggested);
+                let path = match &s.download_dir {
+                    Some(dir) => name_download(dir, guid, &download.suggested),
+                    None => at(p, "/filePath").as_str().map(str::to_owned),
+                };
                 Change::DownloadCompleted {
                     id: download.id,
                     url: download.url,
