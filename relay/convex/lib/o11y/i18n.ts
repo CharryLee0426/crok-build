@@ -337,6 +337,20 @@ export const STRINGS: Record<string, Translations> = {
     fr: "Conversations",
     de: "Unterhaltungen",
   },
+  "copies of crok calls left out": {
+    zh: "份 crok 调用的副本已排除",
+    ja: "件の crok 呼び出しのコピーを除外",
+    es: "copias de llamadas de crok excluidas",
+    fr: "copies d'appels de crok exclues",
+    de: "Kopien von crok-Aufrufen ausgelassen",
+  },
+  "copy of a crok call left out": {
+    zh: "份 crok 调用的副本已排除",
+    ja: "件の crok 呼び出しのコピーを除外",
+    es: "copia de una llamada de crok excluida",
+    fr: "copie d'un appel de crok exclue",
+    de: "Kopie eines crok-Aufrufs ausgelassen",
+  },
   "Cost per call": {
     zh: "每次调用费用",
     ja: "呼び出しあたりのコスト",

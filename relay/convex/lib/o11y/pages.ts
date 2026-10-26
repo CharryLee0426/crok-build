@@ -148,7 +148,9 @@ async function agentLinks(ctx: BuildCtx): Promise<Block> {
     settle(ctx.g.get(`${AO}/query/agents?limit=100`).then((doc) => items(doc).length)),
     settle(
       ctx.g.get(`${AO}/query/conversations?limit=100`).then(
-        (doc) => items(doc).filter((c) => (time(c.last_generation_at) ?? 0) > ctx.to - 86_400_000).length,
+        (doc) =>
+          items<Conversation>(doc).filter((c) => held(c) && (time(c.last_generation_at) ?? 0) > ctx.to - 86_400_000)
+            .length,
       ),
     ),
     settle(sloStates(ctx)),
@@ -784,14 +786,51 @@ type Agent = {
   token_estimate?: { total?: number };
 };
 
+/** Claude Platform's own export, stored as an agent beside crok: crok 2.0.2 and older sent each Claude call to it too. */
+const PLATFORM_AGENT = "claude-platform";
+/** Claude Platform names a conversation after the trace id: 32 hex digits, where crok's are session ids. */
+const TRACE_ID = /^[0-9a-f]{32}$/;
+
+type Annotated = Conversation & { annotation_summary?: { annotation_count?: number } };
+
+/**
+ * How many of claude-platform's generations are copies of calls crok recorded itself. Agent Observability cannot delete
+ * them; `observability/agento11y/stack.py duplicates --label` marks each copy with an annotation, so a claude-platform
+ * conversation's annotation count is its number of copies.
+ */
+async function platformCopies(ctx: BuildCtx): Promise<number> {
+  let copies = 0;
+  let cursor = "";
+  for (let page = 0; page < 20; page++) {
+    const doc = (await ctx.g.get(
+      `${AO}/query/conversations?has_annotations=true&limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    )) as { next_cursor?: string } | null;
+    for (const c of items<Annotated>(doc)) {
+      if (TRACE_ID.test(c.id ?? "")) copies += c.annotation_summary?.annotation_count ?? 0;
+    }
+    cursor = doc?.next_cursor ?? "";
+    if (!cursor) break;
+  }
+  return copies;
+}
+
 async function agentList(ctx: BuildCtx): Promise<Block> {
   const t = ctx.t;
-  const agents = items<Agent>(await ctx.g.get(`${AO}/query/agents?limit=100`));
+  const [agents, copies] = await Promise.all([
+    ctx.g.get(`${AO}/query/agents?limit=100`).then((doc) => items<Agent>(doc)),
+    // Without the labels the list shows Agent Observability's own counts, copies included.
+    settle(platformCopies(ctx)),
+  ]);
   const rows: ListRow[] = agents
+    .map((a) => {
+      const left = a.agent_name === PLATFORM_AGENT ? Math.min(copies ?? 0, a.generation_count ?? 0) : 0;
+      return { ...a, generation_count: (a.generation_count ?? 0) - left, left };
+    })
     .map((a) => ({
       title: a.agent_name ?? "—",
       detail: [
         ...(a.generation_count ? [counted(ctx, a.generation_count, "generation", "generations")] : []),
+        ...(a.left ? [counted(ctx, a.left, "copy of a crok call left out", "copies of crok calls left out")] : []),
         ...(a.version_count ? [counted(ctx, a.version_count, "version", "versions")] : []),
         ...(a.tool_count ? [counted(ctx, a.tool_count, "tool", "tools")] : []),
         ...(a.token_estimate?.total ? [{ v: a.token_estimate.total, u: "tokens" as const, s: t("tokens of prompt") }] : []),
@@ -863,6 +902,12 @@ const agents: PageDef = {
 
 type Conversation = { id?: string; title?: string; generation_count?: number; last_generation_at?: string; created_at?: string };
 
+/**
+ * A conversation whose title is its id is a lone call (a session title, a summary) or Claude Platform's trace of one crok
+ * turn (agent claude-platform, named by the trace id): not a conversation anyone held.
+ */
+const held = (c: Conversation) => !!c.title && c.title !== c.id;
+
 const conversations: PageDef = {
   id: "conversations",
   title: "Conversations",
@@ -874,9 +919,8 @@ const conversations: PageDef = {
     const t = ctx.t;
     return sections([
       section(t("Latest conversations"), async () => {
-        // A conversation whose title is its id is a lone call (a title, a summary): left out.
         const list = items<Conversation>(await ctx.g.get(`${AO}/query/conversations?limit=60`))
-          .filter((c) => c.title && c.title !== c.id)
+          .filter(held)
           .slice(0, 30);
         const rows: ListRow[] = list.map((c) => {
           const at = time(c.last_generation_at ?? c.created_at);

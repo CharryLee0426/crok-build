@@ -440,7 +440,7 @@ A block whose queries fail becomes an `error` block; the page still builds. Pane
 
 | page | from | ranges (default) | what it shows |
 |---|---|---|---|
-| `home` | the pages below | `24h` only | spend, calls, tokens and failures today (LLM Overview's stats), spend per day for 14 days, then links: Dashboards, Evaluation, Agent Observability |
+| `home` | the pages below | `24h` only | spend, calls, tokens and failures today (LLM Overview's stats), spend per day for 14 days, then links: Dashboards, Evaluation, Agent Observability (its conversation count leaves out what `conversations` does) |
 | `overview` | `llm-overview` | 1h 6h 24h (24h) | at a glance, week over week, spend per day by provider, requests per minute, latency p50/p95, spend and requests by model, latest calls |
 | `claude` | `llm-claude-platform` | 1h 6h 24h | requests, estimated spend, tokens, cache hit rate, latency, errors, spend by model, token mix, stop reasons, latest requests |
 | `openrouter` | `llm-openrouter` | 1h 6h 24h | requests, spend, cost per request, cached share, spend by model, upstream provider and API key, finish reasons, latest generations |
@@ -451,8 +451,8 @@ A block whose queries fail becomes an `error` block; the page still builds. Pane
 | `evaluators` | Prometheus `agento11y_eval_*` | 24h 7d 14d (7d) | scores, pass rate, failed scores, judge spend, pass rate by evaluator, scores per day, failed scores by model, by rule |
 | `guards` | Prometheus `agento11y_hook_*`, `crok_guard_checks_total` | 24h 7d 14d (7d) | checks, warns, warns by guard, checks per day, crok's own flagged checks |
 | `experiments` | plugin `eval/experiments`, Prometheus `agento11y_tag_eval_run` | 24h 7d 14d (14d) | published experiment runs, and the eval runs seen in the traffic (calls, tokens, failures) |
-| `agents` | plugin `query/agents`, Prometheus `gen_ai_client_*`, `agento11y_generation_cost_usd_total` | 24h 7d 14d (24h) | every agent (generations, versions, last seen), calls and cost by agent, calls per hour, time to first token |
-| `conversations` | plugin `query/conversations` | none | the 30 most recent titled conversations (title, generations, last activity); lone untitled calls left out |
+| `agents` | plugin `query/agents`, Prometheus `gen_ai_client_*`, `agento11y_generation_cost_usd_total` | 24h 7d 14d (24h) | every agent (generations, versions, last seen), calls and cost by agent, calls per hour, time to first token; `claude-platform` counted without its copies of crok's calls (the annotations `observability/agento11y/stack.py duplicates --label` puts on them, summed from `query/conversations?has_annotations=true`) |
+| `conversations` | plugin `query/conversations` | none | the 30 most recent titled conversations (title, generations, last activity); conversations titled by their id left out: lone calls, and Claude Platform's trace of one crok turn |
 | `slos` | SLO plugin, `grafana_slo_*` | none | each SLO's 28-day SLI against its objective and the error budget left, per provider |
 | `alerts` | alert rules | none | crok's alert rules and their state, the recording rule groups' health |
 
