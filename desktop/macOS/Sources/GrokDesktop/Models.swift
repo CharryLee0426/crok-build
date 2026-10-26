@@ -227,13 +227,16 @@ struct DesktopState: Codable, Sendable {
     /// opened here, by device id: what a task of that computer's lists until its session loads.
     /// Kept apart from `modelCatalog`, which is this Mac's own.
     var remoteModelCatalogs: [String: [ModelOption]] = [:]
+    /// Sessions another device started on this Mac that were added as tasks (crok session ids): each is added
+    /// once, so one whose task or project the person removed does not come back.
+    var startedHereSessionIDs: Set<String> = []
 }
 
 extension DesktopState {
     private enum CodingKeys: String, CodingKey {
         case projects, conversations, selectedProjectID, selectedConversationID
         case selectedModelID, selectedReasoningID, modelCatalog, deletedSessionIDs, collapsedProjectIDs
-        case taskOrder, pinnedOrder, remoteModelCatalogs
+        case taskOrder, pinnedOrder, remoteModelCatalogs, startedHereSessionIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -250,6 +253,7 @@ extension DesktopState {
         taskOrder = try values.decodeIfPresent([String: [UUID]].self, forKey: .taskOrder) ?? [:]
         pinnedOrder = try values.decodeIfPresent([UUID].self, forKey: .pinnedOrder) ?? []
         remoteModelCatalogs = (try? values.decodeIfPresent([String: [ModelOption]].self, forKey: .remoteModelCatalogs)) ?? [:]
+        startedHereSessionIDs = try values.decodeIfPresent(Set<String>.self, forKey: .startedHereSessionIDs) ?? []
     }
 }
 

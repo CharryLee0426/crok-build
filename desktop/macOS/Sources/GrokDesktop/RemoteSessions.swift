@@ -67,6 +67,41 @@ struct RemoteSessionEntry: Identifiable, Equatable, Sendable {
     }
 }
 
+/// One of this Mac's sessions that another device started (a phone, the web, another computer), as
+/// `x.ai/remote/sessions` lists it under `here`. Its crok opened it out of the app's sight; the app lists it
+/// as one of its own tasks.
+struct StartedHereSession: Equatable, Sendable {
+    /// Its crok session id (not a `relay:` one: it is this Mac's).
+    var sessionID: String
+    var title: String
+    var cwd: String
+    /// The folder it is grouped under on the relay: a worktree's source workspace, its git root, or its folder.
+    var projectPath: String
+    var status: String
+    var lastActivityAt: Date
+    /// The device that started it.
+    var from: String
+
+    var isWorking: Bool { status == "running" || status == "waiting" }
+
+    init?(json: [String: Any]) {
+        guard let sessionID = RemoteAccount.text(json["sessionId"]), !RemoteSessions.isRemote(sessionID) else { return nil }
+        self.sessionID = sessionID
+        cwd = json["cwd"] as? String ?? ""
+        projectPath = RemoteAccount.text(json["projectPath"]) ?? cwd
+        title = RemoteAccount.text(json["title"]) ?? URL(fileURLWithPath: projectPath).lastPathComponent
+        status = json["status"] as? String ?? "idle"
+        lastActivityAt = Date(timeIntervalSince1970: ((json["lastActivityAt"] as? NSNumber)?.doubleValue ?? 0) / 1000)
+        from = RemoteAccount.text((json["startedFrom"] as? [String: Any])?["name"]) ?? ""
+    }
+
+    /// `x.ai/remote/sessions`'s `here.sessions`; nil when the harness's list has no `here` (an older crok).
+    static func list(_ payload: [String: Any]) -> [StartedHereSession]? {
+        guard let here = payload["here"] as? [String: Any] else { return nil }
+        return (here["sessions"] as? [[String: Any]] ?? []).compactMap(StartedHereSession.init(json:))
+    }
+}
+
 /// A folder of another computer and its sessions, in the relay's order.
 struct RemoteProjectGroup: Identifiable, Equatable, Sendable {
     var key: String
@@ -437,7 +472,11 @@ extension AppStore {
             let method = method.hasPrefix("_") ? String(method.dropFirst()) : method
             switch method {
             case "x.ai/remote/status":
-                self.noteRemoteStatus(RemoteBridgeStatus(params: params), from: hostID)
+                let status = RemoteBridgeStatus(params: params)
+                self.noteRemoteStatus(status, from: hostID)
+                // The relay link (re)connected after the list was asked for: ask again, so the sidebar has every
+                // computer's sessions now rather than at the next renewal.
+                if status?.state == .connected, self.remoteHostReady { Task { await self.askRemoteSessions() } }
             case "x.ai/remote/sessions_changed":
                 self.noteRemoteComputers(params)
             default:
@@ -494,12 +533,18 @@ extension AppStore {
     }
 
     /// `x.ai/remote/sessions {watch: true}`: the list now, and `x.ai/remote/sessions_changed` after each change.
+    /// Until the host's bridge has a relay link, the answer is empty: ask again at the next tend (5 s), not at the
+    /// next renewal.
     func askRemoteSessions() async {
         guard let client = remoteHost, remoteHostReady else { return }
         remoteSessionsAskedAt = Date()
         guard let response = try? await client.request("_x.ai/remote/sessions", params: ["watch": true], timeout: 30),
-              let payload = try? ExtensionResponse.unwrap(response) else { return }
+              let payload = try? ExtensionResponse.unwrap(response) else {
+            if remoteHost === client { remoteSessionsAskedAt = nil }
+            return
+        }
         guard remoteHost === client else { return }
+        if payload["signedIn"] as? Bool != true { remoteSessionsAskedAt = nil }
         noteRemoteComputers(payload)
     }
 
@@ -508,6 +553,56 @@ extension AppStore {
         if computers != remoteComputers { remoteComputers = computers }
         applyRemoteSessionInfo(computers)
         settleStartingTurns(computers)
+        if let started = StartedHereSession.list(payload) { noteStartedHere(started) }
+    }
+
+    /// Sessions another device started on this Mac are tasks of this app: each appears in its project as soon
+    /// as the relay lists it (the project is added when the app has none for that folder), shows as working
+    /// while a turn runs there, and opens like any task (its harness loads the session). Each is added once: a
+    /// task (or project) removed from the sidebar stays removed.
+    func noteStartedHere(_ sessions: [StartedHereSession]) {
+        var changed = false
+        for session in sessions {
+            if let index = state.conversations.firstIndex(where: { $0.sessionID == session.sessionID }) {
+                // Until the task is opened here its title and time follow the relay's (crok names a session
+                // after its first turn).
+                let id = state.conversations[index].id
+                guard clients[id] == nil, !loaded.contains(id), state.conversations[index].messages.isEmpty else { continue }
+                if !session.title.isEmpty, state.conversations[index].title != session.title {
+                    state.conversations[index].title = String(session.title.prefix(200)); changed = true
+                }
+                if session.lastActivityAt > state.conversations[index].updatedAt {
+                    state.conversations[index].updatedAt = session.lastActivityAt; changed = true
+                }
+                continue
+            }
+            guard !state.startedHereSessionIDs.contains(session.sessionID), !state.deletedSessionIDs.contains(session.sessionID),
+                  !session.projectPath.isEmpty else { continue }
+            state.startedHereSessionIDs.insert(session.sessionID)
+            let project = features.sessions.project(forPath: session.projectPath)
+            let task = Conversation(projectID: project.id, title: String(session.title.prefix(200)), sessionID: session.sessionID,
+                                    updatedAt: session.lastActivityAt)
+            state.conversations.insert(task, at: 0)
+            if state.selectedConversationID != task.id { unreadConversationIDs.insert(task.id) }
+            changed = true
+            DesktopLog.info("remote.started_here", session: session.sessionID, ["from": session.from, "task": task.id.uuidString])
+        }
+        let working = Set(sessions.filter(\.isWorking).map(\.sessionID))
+        // A turn that ended there leaves its task unread, as a turn that ends here does.
+        for session in workingElsewhere.subtracting(working) {
+            if let task = state.conversations.first(where: { $0.sessionID == session }), task.id != state.selectedConversationID,
+               clients[task.id] == nil {
+                unreadConversationIDs.insert(task.id)
+            }
+        }
+        if working != workingElsewhere { workingElsewhere = working }
+        if changed { save() }
+    }
+
+    /// A task of this Mac that another device's turn is working in, while no harness of this app runs it.
+    func isWorkingElsewhere(_ task: Conversation) -> Bool {
+        guard let session = task.sessionID, clients[task.id] == nil else { return false }
+        return workingElsewhere.contains(session)
     }
 
     /// `x.ai/remote/permission_resolved`: another device answered a request a task still shows.

@@ -535,6 +535,57 @@ LoggingHarness().run()
         XCTAssertEqual(store.conversation?.id, task.id)
     }
 
+    /// A session a phone (or the web, or another computer) started on this Mac is a task here at once, in its
+    /// project (added when the app has none for that folder); it shows as working while the phone's turn runs
+    /// there, is unread when that turn ends, and a task the person removed does not come back.
+    func testASessionStartedOnThisMacFromAPhoneBecomesATaskInItsProject() throws {
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
+        defer { store.shutdown() }
+        let local = Project(path: directory.path)
+        store.state = DesktopState(projects: [local], selectedProjectID: local.id)
+        let other = directory.appendingPathComponent("api").path
+        func payload(_ sessions: [[String: Any]]) -> [String: Any] {
+            ["signedIn": true, "computers": [], "here": ["deviceId": "me", "sessions": sessions]]
+        }
+        func row(_ id: String, _ title: String, project: String, status: String) -> [String: Any] {
+            ["sessionId": id, "relayId": "relay:\(id)", "title": title, "cwd": project, "projectPath": project, "status": status,
+             "running": true, "lastActivityAt": 1_792_000_000_000.0, "startedFrom": ["kind": "phone", "name": "iPhone", "at": 1.0]]
+        }
+        store.noteRemoteComputers(payload([row("s1", "Fix the login redirect", project: directory.path, status: "running"),
+                                           row("s2", "Add the health check", project: other, status: "idle")]))
+        let first = try XCTUnwrap(store.state.conversations.first { $0.sessionID == "s1" })
+        XCTAssertEqual(first.projectID, local.id, "the project the app already has")
+        XCTAssertEqual(first.title, "Fix the login redirect")
+        XCTAssertNil(first.remote, "this Mac's own session, not another computer's")
+        let second = try XCTUnwrap(store.state.conversations.first { $0.sessionID == "s2" })
+        XCTAssertEqual(store.projectRecord(second.projectID)?.path, other, "a folder the app did not have is added")
+        XCTAssertEqual(store.state.projects.count, 2)
+        XCTAssertTrue(store.unreadConversationIDs.isSuperset(of: [first.id, second.id]))
+        XCTAssertTrue(store.isWorkingElsewhere(first))
+        XCTAssertFalse(store.isWorkingElsewhere(second))
+
+        store.unreadConversationIDs = []
+        // The phone's turn ends, and crok named the session: the task follows until it is opened here.
+        store.noteRemoteComputers(payload([row("s1", "Login redirect fixed", project: directory.path, status: "idle"),
+                                           row("s2", "Add the health check", project: other, status: "idle")]))
+        XCTAssertFalse(store.isWorkingElsewhere(first))
+        XCTAssertTrue(store.unreadConversationIDs.contains(first.id))
+        XCTAssertEqual(store.state.conversations.first { $0.id == first.id }?.title, "Login redirect fixed")
+        XCTAssertEqual(store.state.conversations.filter { $0.sessionID == "s1" }.count, 1, "listed again, not added again")
+
+        store.state.deletedSessionIDs.insert("s3")
+        store.noteRemoteComputers(payload([row("s3", "Removed here", project: directory.path, status: "idle")]))
+        XCTAssertNil(store.state.conversations.first { $0.sessionID == "s3" })
+        // A project the person removed does not come back with the session another device started there.
+        store.removeProject(second.projectID)
+        store.noteRemoteComputers(payload([row("s2", "Add the health check", project: other, status: "idle")]))
+        XCTAssertNil(store.state.conversations.first { $0.sessionID == "s2" })
+        XCTAssertEqual(store.state.projects, [local])
+        // An older crok's list has no `here`: nothing changes.
+        store.noteRemoteComputers(["signedIn": true, "computers": []])
+        XCTAssertEqual(store.state.conversations.map(\.sessionID), ["s1"])
+    }
+
     func testAnApprovalAnsweredOnAnotherDeviceLeavesTheTask() throws {
         let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
         defer { store.shutdown() }
