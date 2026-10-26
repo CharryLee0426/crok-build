@@ -1,8 +1,9 @@
 import SwiftUI
 import UIKit
 
-/// Signed in: Sessions and Profile (mobile/DESIGN.md "Tabs"). Holding Sessions offers Mark All as Read for the
-/// selected computer; holding Profile opens the computer switcher, the way Telegram switches accounts.
+/// Signed in: Sessions and Profile (mobile/DESIGN.md "Tabs"), and o11y in dev builds ("o11y"). Holding Sessions
+/// offers Mark All as Read for the selected computer; holding Profile opens the computer switcher, the way Telegram
+/// switches accounts.
 struct MainView: View {
     @Environment(CrokEngine.self) private var engine
     @State private var tab: MainTab = .sessions
@@ -11,7 +12,7 @@ struct MainView: View {
     @State private var picture = AccountPicture()
     @State private var actionError: RelayError?
 
-    enum MainTab: Hashable { case sessions, profile }
+    enum MainTab: Hashable { case sessions, profile, o11y }
 
     var body: some View {
         let user = engine.account.value??.user ?? engine.credentials.user
@@ -46,6 +47,19 @@ struct MainView: View {
             }
             .badge(engine.otherComputersUnread)
             .tag(MainTab.profile)
+
+            if AppInfo.showsO11yTab {
+                O11yTab()
+                    .tabItem {
+                        Label {
+                            Text(verbatim: "o11y")
+                        } icon: {
+                            Image(systemName: "chart.xyaxis.line")
+                        }
+                    }
+                    .tag(MainTab.o11y)
+                    .accessibilityIdentifier("o11yTab")
+            }
         }
         .environment(\.openLinkComputer, OpenLinkComputerAction { showsLink = true })
         .onAppear { picture.load(user.imageUrl) }

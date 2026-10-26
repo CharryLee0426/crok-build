@@ -13,6 +13,7 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
     var commands: any CommandsAPI { self }
     var devices: any DevicesAPI { self }
     var account: any AccountAPI { self }
+    let o11y: any O11yAPI = DemoO11y()
 
     private let lock = NSLock()
     private var signalSinks: [UUID: AsyncStream<ConnectionSignal>.Continuation] = [:]

@@ -413,17 +413,20 @@ cards, radius 10, on `systemGroupedBackground`, 16 pt side margins plus the safe
   a 10 % area wash) or `bars` (≤ 24 pt/dp wide with a 2 pt gap between neighbours, 4 pt rounded top, square at the
   baseline; `stacked`: segments stacked with a 2 pt surface-coloured gap, only the top segment rounded). A series
   with `dashed: true` is a dashed line (8 on, 6 off) in the secondary text colour, drawn over the bars or lines
-  (Grafana's "7 days earlier"). One y-axis at the leading edge: 3 hairline gridlines at round values from 0, labels
-  in the chart's unit, compact (caption2 / `labelSmall`, secondary); x-axis labels: 3–4 times, "HH:mm" when `step` <
-  1 day, else "MMM d" (localized). **Colours**: series `slot` 1–8 → the categorical palette (light / dark):
+  (Grafana's "7 days earlier"). One y-axis at the leading edge: 4 hairline gridlines at round values from 0 (steps of
+  1, 2, 2.5 or 5 × 10ⁿ), each label over its line at the leading edge, all in the unit the top one needs and without
+  trailing zeros ("$0 $5 $10 $15", "0 s 25 s 50 s 75 s", "0 500 1K 1.5K"; caption2 / `labelSmall`, secondary); x-axis
+  labels: 3 times on a narrow chart (< 360 pt/dp), else 4, "HH:mm" when `step` < 1 day, else "MMM d" (localized), the
+  first and last flush with the plot's edges. **Colours**: series `slot` 1–8 → the categorical palette (light / dark):
   blue `#2A78D6` / `#3987E5`, orange `#EB6834` / `#D95926`, aqua `#1BAF7A` / `#199E70`, yellow `#EDA100` /
   `#C98500`, magenta `#E87BA4` / `#D55181`, green `#008300` / `#008300`, violet `#6250D6` / `#9085E9`, red
   `#E34948` / `#E66767`; slot 0 ("Other") the secondary text colour at 60 %. **Legend** (≥ 2 series): chips under
   the chart, wrapping — a 8 pt dot in the series colour, the name (caption / `labelMedium`, primary text) and its
   `total` formatted (secondary); a tap hides or shows that series (the last visible one stays), a hidden chip is
-  dimmed with an outlined dot; colours never move. **Touch**: pressing or dragging on the plot shows a vertical
-  hairline at the nearest point and a callout card (radius 8, `.regularMaterial` / `colors.sheet`) with the time and
-  each visible series' value at that point, largest first, with its dot; it follows the finger and goes on release.
+  dimmed with an outlined dot; colours never move. **Touch**: a tap on the plot shows a vertical hairline at the
+  nearest point (with a dot on each line) and a callout card (radius 8, `.regularMaterial` / `colors.sheet`) with the
+  time and each visible series' value at that point, largest first, with its dot; a tap on the same point hides it.
+  Holding (0.25 s) then dragging moves it with the finger, and it goes on release. A plain drag scrolls the page.
   No series or every value null: "No data in this range", centred, secondary, in the chart's height. `more` > 0: a
   footer line "and %lld more" under the legend.
 - `ranking` — ranked rows (Telegram's top lists): the label (body, one line, truncated in the middle), the value at
@@ -536,8 +539,11 @@ Activity", "Search sessions", "Archived", "Archive", "Unarchive", "Pin", "Online
 | o11y is not set up | o11y 尚未设置 | o11y は未設定です | o11y no está configurado | o11y n'est pas configuré | o11y ist nicht eingerichtet |
 | The relay has no Grafana token yet. Run relay/scripts/o11y-setup.sh on the relay owner's computer. | 中继还没有 Grafana 令牌。请在中继所有者的电脑上运行 relay/scripts/o11y-setup.sh。 | リレーにはまだ Grafana トークンがありません。リレーの所有者のコンピュータで relay/scripts/o11y-setup.sh を実行してください。 | El relay aún no tiene un token de Grafana. Ejecuta relay/scripts/o11y-setup.sh en el ordenador de quien gestiona el relay. | Le relais n'a pas encore de jeton Grafana. Exécutez relay/scripts/o11y-setup.sh sur l'ordinateur du propriétaire du relais. | Das Relay hat noch kein Grafana-Token. Führe relay/scripts/o11y-setup.sh auf dem Computer der Person aus, der das Relay gehört. |
 | This relay doesn't serve o11y yet. | 此中继尚未提供 o11y。 | このリレーはまだ o11y に対応していません。 | Este relay aún no ofrece o11y. | Ce relais ne propose pas encore o11y. | Dieses Relay bietet o11y noch nicht an. |
-| %lldh (range) | %lld小时 | %lld時間 | %lld h | %lld h | %lld Std. |
-| %lldd (range) | %lld天 | %lld日 | %lld d | %lld j | %lld T. |
+| %lldh (range; the session rows' existing string) | %lld小时 | %lld時間 | %lld h | %lld h | %lld Std |
+| %lldd (range; the session rows' existing string) | %lld天 | %lld日 | %lld d | %lld j | %lld T |
+| Range (the range control's label) | 时间范围 | 期間 | Periodo | Période | Zeitraum |
+| %@, up %@ / %@, down %@ (a stat read aloud: "Spend, $2.75, up 12%") | %1$@，上升 %2$@ / %1$@，下降 %2$@ | %1$@、%2$@ 増加 / %1$@、%2$@ 減少 | %1$@, sube %2$@ / %1$@, baja %2$@ | %1$@, en hausse de %2$@ / %1$@, en baisse de %2$@ | %1$@, gestiegen um %2$@ / %1$@, gesunken um %2$@ |
+| Warning (a list row's status, read aloud) | 警告 | 警告 | Advertencia | Avertissement | Warnung |
 | No data in this range | 此时间范围内没有数据 | この期間のデータはありません | No hay datos en este periodo | Aucune donnée sur cette période | Keine Daten in diesem Zeitraum |
 | and %lld more | 还有 %lld 项 | ほか %lld 件 | y %lld más | et %lld de plus | und %lld weitere |
 | Couldn't read this panel | 无法读取此面板 | このパネルを読み込めませんでした | No se pudo leer este panel | Impossible de lire ce panneau | Dieses Panel konnte nicht gelesen werden |

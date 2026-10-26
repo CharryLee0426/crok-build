@@ -7,3 +7,6 @@ CROK_RELAY_URL = https:/$()/tacit-finch-29.convex.cloud
 
 // The blue icon; Debug builds wear the yellow one (mobile/DESIGN.md "Dev builds").
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+
+// No o11y tab: it is for the relay owner's dev builds (mobile/DESIGN.md "o11y").
+CROK_O11Y_TAB = NO

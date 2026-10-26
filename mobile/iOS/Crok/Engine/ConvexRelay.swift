@@ -47,7 +47,7 @@ final class CancelBox: @unchecked Sendable {
 /// JWT. The client is replaceable (`replaceClient`): ConvexMobile's own reconnect can hang for good (its connect has no
 /// timeout, and every query and mutation then waits behind it), so the engine's `ConnectionKeeper` swaps in a new one;
 /// subscriptions move over through the `QueryHub`, and calls waiting on the old client are sent again on the new one.
-final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, AccountAPI, @unchecked Sendable {
+final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, AccountAPI, O11yAPI, @unchecked Sendable {
     /// One ConvexMobile client and its auth provider.
     private final class Generation: @unchecked Sendable {
         let number: Int
@@ -143,6 +143,7 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
     var commands: any CommandsAPI { self }
     var devices: any DevicesAPI { self }
     var account: any AccountAPI { self }
+    var o11y: any O11yAPI { self }
 
     private var isStopped: Bool {
         lock.withLock { stopped }
@@ -371,15 +372,17 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         }
     }
 
-    /// A mutation on the current client. If the client is replaced while the call waits (a stuck socket), it is sent
-    /// again on the new one; calls that create things carry a client id, so a repeat is harmless.
-    private func call<T: Decodable & Sendable>(_ name: String, _ args: [String: JSONValue] = [:]) async throws -> T {
+    /// A mutation (or an action) on the current client. If the client is replaced while the call waits (a stuck
+    /// socket), it is sent again on the new one; calls that create things carry a client id, so a repeat is harmless.
+    private func call<T: Decodable & Sendable>(_ name: String, _ args: [String: JSONValue] = [:], action: Bool = false)
+        async throws -> T
+    {
         await gate.wait()
         while true {
             if isStopped { throw RelayError(.unauthenticated, String(localized: "Signed out.")) }
             let generation = current
             do {
-                return try await send(name, args, on: generation)
+                return try await send(name, args, on: generation, action: action)
             } catch is Replaced {
                 continue
             } catch {
@@ -391,16 +394,18 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
 
     /// Runs one mutation on `generation`, giving up with `Replaced` as soon as that client is retired. A stuck
     /// ConvexMobile call cannot be cancelled, so it is left behind rather than awaited.
-    private func send<T: Decodable & Sendable>(_ name: String, _ args: [String: JSONValue], on generation: Generation)
-        async throws -> T
-    {
+    private func send<T: Decodable & Sendable>(
+        _ name: String, _ args: [String: JSONValue], on generation: Generation, action: Bool = false
+    ) async throws -> T {
         let client = UncheckedClient(client: generation.client)
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
             let outcome = FirstOutcome(continuation)
             let mutation = Task {
                 do {
                     let convexArgs: [String: ConvexEncodable?] = args.mapValues { $0 }
-                    let value: T = try await client.client.mutation(name, with: convexArgs)
+                    let value: T = action
+                        ? try await client.client.action(name, with: convexArgs)
+                        : try await client.client.mutation(name, with: convexArgs)
                     outcome.finish(.success(value))
                 } catch {
                     outcome.finish(.failure(error))
@@ -616,6 +621,24 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
 
     func deny(userCode: String) async throws {
         try await run("deviceAuth:deny", ["userCode": .string(userCode)])
+    }
+
+    // MARK: O11yAPI
+
+    private static func o11yArgs(_ id: String, range: String?, lang: String) -> [String: JSONValue] {
+        var args: [String: JSONValue] = ["page": .string(id), "lang": .string(lang)]
+        if let range { args["range"] = .string(range) }
+        return args
+    }
+
+    func page(_ id: String, range: String?, lang: String) -> RelayStream<O11yPageState> {
+        observe("o11y:page", Self.o11yArgs(id, range: range, lang: lang))
+    }
+
+    func refresh(_ id: String, range: String?, lang: String, force: Bool) async throws -> O11yRefreshResult {
+        var args = Self.o11yArgs(id, range: range, lang: lang)
+        args["force"] = .bool(force)
+        return try await call("o11y:refresh", args, action: true)
     }
 }
 
