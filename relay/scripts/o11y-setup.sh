@@ -9,7 +9,11 @@
 #
 # A viewer is an account's email, Clerk user id (user_…) or relay users id: only they see the pages, which carry the
 # stack's spend and conversation titles. Running it again makes a new token and deletes this deployment's older ones;
-# `--viewers-only` changes O11Y_VIEWERS alone.
+# `--viewers-only` changes O11Y_VIEWERS alone; `--grants-only` only gives the account its read access again.
+#
+# The account's read access, beyond its Viewer role: View on the LLM Observability dashboards' folder (a folder made
+# through the API can have no role permissions at all, so a Viewer would not see it) and the Agent Observability
+# plugin's "Agento11y Reader" role (its agents, conversations and evaluation APIs).
 #
 # Needs: gcx signed in to the stack (gcx login <stack> --server https://<stack>.grafana.net --oauth) as someone who
 # may manage service accounts, and the Convex CLI signed in to the team that owns the deployments. The token is
@@ -30,11 +34,13 @@ esac
 shift
 list_users=0
 viewers_only=0
+grants_only=0
 viewers=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --users) list_users=1 ;;
         --viewers-only) viewers_only=1 ;;
+        --grants-only) grants_only=1 ;;
         -h|--help) usage; exit 0 ;;
         -*) fail "unknown option $1" ;;
         *) viewers+=("$1") ;;
@@ -67,8 +73,8 @@ for line in sys.stdin:
     print("%-40s %-34s %s  %s" % (u.get("email") or "-", subject, u["_id"], u.get("name") or ""))'
     exit 0
 fi
-[[ ${#viewers[@]} -gt 0 ]] || fail "name at least one viewer (an email, user_… or users id); --users lists them"
-viewer_list="$(IFS=,; printf '%s' "${viewers[*]}")"
+[[ ${#viewers[@]} -gt 0 || "$grants_only" == 1 ]] || fail "name at least one viewer (an email, user_… or users id); --users lists them"
+viewer_list="$(IFS=,; printf '%s' "${viewers[*]:-}")"
 
 # `gcx api` prints hint lines and may spill a large answer to a file; this prints the answer's JSON alone.
 gcx_json() {
@@ -111,6 +117,7 @@ for a in d.get("serviceAccounts") or []:
     if a.get("name") == "crok-relay-o11y":
         print(a["id"]); break')" || fail "cannot list service accounts on $grafana_url (does your gcx sign-in manage them?)"
     if [[ -z "$account_id" ]]; then
+        [[ "$grants_only" == 0 ]] || fail "there is no crok-relay-o11y service account yet: run without --grants-only"
         printf '{"name":"crok-relay-o11y","role":"Viewer","isDisabled":false}' > "$work/account.json"
         account_id="$(gcx_json /api/serviceaccounts -X POST -d "@$work/account.json" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" \
             || fail "cannot create the service account"
@@ -118,6 +125,37 @@ for a in d.get("serviceAccounts") or []:
     else
         printf 'service account %s\n' "$account_id"
     fi
+
+    # Read access beyond the Viewer role: the dashboards' folder, and Agent Observability's reader role.
+    folder="$(gcx_json /api/dashboards/uid/llm-overview | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["meta"].get("folderUid") or "")')" \
+        || fail "cannot read the llm-overview dashboard (observability/grafana-llm/setup.sh dashboards pushes it)"
+    if [[ -n "$folder" ]]; then
+        printf '{"permission":"View"}' > "$work/view.json"
+        gcx_json "/api/access-control/folders/$folder/serviceAccounts/$account_id" -X POST -d "@$work/view.json" >/dev/null \
+            || fail "cannot give the service account View on folder $folder"
+        printf 'View on folder %s\n' "$folder"
+    fi
+    role="$(gcx_json "/api/access-control/roles?delegatable=false" | /usr/bin/python3 -c '
+import json, sys
+for r in json.load(sys.stdin):
+    if r.get("name") == "plugins:grafana-agento11y-app:agento11y-reader":
+        print(r["uid"]); break')"
+    if [[ -n "$role" ]]; then
+        has="$(gcx_json "/api/access-control/users/$account_id/roles" | /usr/bin/python3 -c '
+import json, sys
+print("yes" if any(r.get("uid") == sys.argv[1] for r in json.load(sys.stdin) or []) else "")' "$role")"
+        if [[ -z "$has" ]]; then
+            printf '{"roleUid":"%s","global":false}' "$role" > "$work/role.json"
+            gcx_json "/api/access-control/users/$account_id/roles" -X POST -d "@$work/role.json" >/dev/null \
+                || fail "cannot give the service account the Agento11y Reader role"
+        fi
+        printf 'role Agento11y Reader (agents, conversations, evaluation)\n'
+    else
+        printf 'note: no Agent Observability plugin on this stack; its pages will show errors\n'
+    fi
+fi
+
+if [[ "$viewers_only" == 0 && "$grants_only" == 0 ]]; then
     old_tokens="$(gcx_json "/api/serviceaccounts/$account_id/tokens" | /usr/bin/python3 -c '
 import json, sys
 for t in json.load(sys.stdin) or []:
@@ -145,8 +183,10 @@ with open(sys.argv[1], "w") as f:
     done
 fi
 
-convex env set O11Y_VIEWERS "$viewer_list" --deployment "$deployment" >/dev/null
-printf 'set O11Y_VIEWERS=%s\n' "$viewer_list"
+if [[ "$grants_only" == 0 ]]; then
+    convex env set O11Y_VIEWERS "$viewer_list" --deployment "$deployment" >/dev/null
+    printf 'set O11Y_VIEWERS=%s\n' "$viewer_list"
+fi
 
 say "Checking: o11y:check builds the home page with the token"
 convex run o11y:check '{"page":"home"}' --deployment "$deployment" || fail "o11y:check failed: are the functions deployed (relay/scripts/deploy.sh $env_name --functions-only)?"
