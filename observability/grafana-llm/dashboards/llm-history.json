@@ -170,7 +170,7 @@
       {
         "type": "stat",
         "title": "Claude, estimated",
-        "description": "Claude spend from tokens at list prices. Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
+        "description": "Claude spend from tokens at list prices. crok after 2.0.2 asks Claude Platform not to export the Claude calls it reports itself, so those calls count from crok's own span (its cost is crok's figure at the same list prices). Recorded every 10 minutes for the window that ended 20 minutes earlier, so the newest 20-30 minutes are not in yet. History starts when the recording rules were installed. Days are UTC days.",
         "datasource": {
           "type": "datasource",
           "uid": "-- Mixed --"
@@ -2842,6 +2842,13 @@
             "options": {
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
             }
           }
         ],

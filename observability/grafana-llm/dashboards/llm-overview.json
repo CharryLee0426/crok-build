@@ -156,7 +156,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|count_over_time()",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))}|count_over_time()",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -172,7 +172,7 @@
       {
         "type": "stat",
         "title": "Spend",
-        "description": "Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. The rest is what crok worked out per call: the provider's cost when it reports one, else the model's standard API price. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much).",
+        "description": "Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. The rest is what crok worked out per call: the provider's cost when it reports one, else the model's standard API price. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much). crok after 2.0.2 asks Claude Platform not to export the Claude calls it reports itself, so those calls count from crok's own span (its cost is crok's figure at the same list prices).",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -375,7 +375,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd)",
+            "query": "{(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd)",
             "metricsQueryType": "range",
             "step": "1m"
           },
@@ -648,7 +648,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))+({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))",
+            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))+({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens))",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -664,7 +664,7 @@
       {
         "type": "stat",
         "title": "Claude cache hit rate",
-        "description": "Share of Claude input tokens read from the prompt cache. A cache read costs a tenth of input or less, so higher is cheaper. Long agent sessions usually stay above 80%. Covers the time range up to about 15 minutes ago.",
+        "description": "Share of Claude input tokens read from the prompt cache. A cache read costs a tenth of input or less, so higher is cheaper. Long agent sessions usually stay above 80%. crok after 2.0.2 asks Claude Platform not to export the Claude calls it reports itself, so those calls count from crok's own span (its cost is crok's figure at the same list prices). Covers the time range up to about 15 minutes ago.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -721,7 +721,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))",
+            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"crok\"&&span.crok.unsampled=true))&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"crok\"&&span.crok.unsampled=true))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))",
             "metricsQueryType": "instant"
           }
         ],
@@ -793,7 +793,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&status=error&&span.crok.cancelled=nil}|count_over_time())/({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|count_over_time())",
+            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&status=error&&span.crok.cancelled=nil}|count_over_time())/({(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))}|count_over_time())",
             "metricsQueryType": "instant"
           }
         ],
@@ -857,7 +857,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|quantile_over_time(duration,.95)",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))}|quantile_over_time(duration,.95)",
             "metricsQueryType": "instant"
           }
         ],
@@ -1419,6 +1419,13 @@
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
+            }
           }
         ],
         "targets": [
@@ -1513,6 +1520,13 @@
             "options": {
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
             }
           }
         ],
@@ -1623,6 +1637,13 @@
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
+            }
           }
         ],
         "targets": [
@@ -1643,7 +1664,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|rate() by(span.gen_ai.provider.name))*60",
+            "query": "({resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)}|rate() by(span.gen_ai.provider.name))*60",
             "metricsQueryType": "range"
           }
         ],
@@ -1723,6 +1744,13 @@
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
+            }
           }
         ],
         "targets": [
@@ -1743,7 +1771,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.provider.name))+({resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.provider.name))",
+            "query": "({(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.provider.name))+({(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.provider.name))",
             "metricsQueryType": "range"
           }
         ],
@@ -1771,7 +1799,7 @@
       {
         "type": "timeseries",
         "title": "Spend over time",
-        "description": "Spend in each time bucket by model (claude-* models through Claude Platform, provider/model ids through OpenRouter, the rest as crok reported them). The legend total is the spend over the range. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. The rest is what crok worked out per call: the provider's cost when it reports one, else the model's standard API price. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much).",
+        "description": "Spend in each time bucket by model (claude-* models through Claude Platform, provider/model ids through OpenRouter, the rest as crok reported them). The legend total is the spend over the range. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. The rest is what crok worked out per call: the provider's cost when it reports one, else the model's standard API price. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much). crok after 2.0.2 asks Claude Platform not to export the Claude calls it reports itself, so those calls count from crok's own span (its cost is crok's figure at the same list prices).",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -2018,7 +2046,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
+            "query": "{(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
             "metricsQueryType": "range"
           },
           {
@@ -2213,7 +2241,7 @@
       {
         "type": "table",
         "title": "Spend by model",
-        "description": "Spend over the time range for each model, largest first. Claude Haiku 5.5 prompts over 100K tokens pay five times the base rates; that extra has its own bar. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. The rest is what crok worked out per call: the provider's cost when it reports one, else the model's standard API price. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much).",
+        "description": "Spend over the time range for each model, largest first. Claude Haiku 5.5 prompts over 100K tokens pay five times the base rates; that extra has its own bar. Claude spend is estimated from tokens at standard Claude API list prices (prices.json, read on 2026-10-14); batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed. The rest is what crok worked out per call: the provider's cost when it reports one, else the model's standard API price. crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much). crok after 2.0.2 asks Claude Platform not to export the Claude calls it reports itself, so those calls count from crok's own span (its cost is crok's figure at the same list prices).",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -2496,7 +2524,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
+            "query": "{(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(span.gen_ai.request.model)",
             "metricsQueryType": "range",
             "step": "1m"
           },
@@ -2831,6 +2859,13 @@
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
+            }
           }
         ],
         "targets": [
@@ -2851,7 +2886,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"}|quantile_over_time(duration,.5,.95) by(span.gen_ai.provider.name)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)}|quantile_over_time(duration,.5,.95) by(span.gen_ai.provider.name)",
             "metricsQueryType": "range"
           }
         ],
@@ -2938,6 +2973,13 @@
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
+            }
           }
         ],
         "targets": [
@@ -2958,7 +3000,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&status=error&&span.crok.cancelled=nil}|count_over_time() by(span.gen_ai.provider.name,span.error.category)",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)&&status=error&&span.crok.cancelled=nil}|count_over_time() by(span.gen_ai.provider.name,span.error.category)",
             "metricsQueryType": "range"
           }
         ],
@@ -3115,7 +3157,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|count_over_time() by(span.gen_ai.request.model)",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))}|count_over_time() by(span.gen_ai.request.model)",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -3260,7 +3302,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))+({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))",
+            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(span.gen_ai.request.model))+({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))",
             "metricsQueryType": "range",
             "step": "1m"
           }
@@ -3447,7 +3489,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|quantile_over_time(duration,.95) by(span.gen_ai.request.model)",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))}|quantile_over_time(duration,.95) by(span.gen_ai.request.model)",
             "metricsQueryType": "instant"
           }
         ],
@@ -3488,7 +3530,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\")}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
+            "query": "{(resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true))}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
             "tableType": "spans",
             "limit": 20,
             "spss": 100

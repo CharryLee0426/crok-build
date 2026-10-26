@@ -219,7 +219,7 @@
         "title": "How to use",
         "options": {
           "mode": "markdown",
-          "content": "Set **Source**, **Model (regex)** (`.*` for all, `claude-opus.*` for one family, `gpt-.*` for Codex, `deepseek-.*`), **Slower than** and **Status** at the top; the first table follows all four, the saved searches follow Source and Model. Source **crok** is what crok reported for providers without traces of their own (Codex, GLM, DeepSeek, xAI). Searches reach back 14 days: widen the time range to find older calls. Click a **trace ID** to open the trace: each span's attributes hold tokens, cache use, the stop reason, crok's cost and, with full-content export, the prompt and the response.\n\nFor anything else open **Explore** (compass icon), pick the traces datasource and write TraceQL, for example `{ resource.service.name = \"crok\" && span.gen_ai.provider.name = \"deepseek\" && span.gen_ai.usage.input_tokens > 150000 }`."
+          "content": "Set **Source**, **Model (regex)** (`.*` for all, `claude-opus.*` for one family, `gpt-.*` for Codex, `deepseek-.*`), **Slower than** and **Status** at the top; the first table follows all four, the saved searches follow Source and Model. Source **crok** is what crok reported for providers without traces of their own (Codex, GLM, DeepSeek, xAI), and the Claude calls crok after 2.0.2 reports in Claude Platform's place. Searches reach back 14 days: widen the time range to find older calls. Click a **trace ID** to open the trace: each span's attributes hold tokens, cache use, the stop reason, crok's cost and, with full-content export, the prompt and the response.\n\nFor anything else open **Explore** (compass icon), pick the traces datasource and write TraceQL, for example `{ resource.service.name = \"crok\" && span.gen_ai.provider.name = \"deepseek\" && span.gen_ai.usage.input_tokens > 150000 }`."
         },
         "id": 2,
         "gridPos": {
@@ -245,7 +245,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&duration>=$min_duration&&$status}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&duration>=$min_duration&&$status}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
             "tableType": "spans",
             "limit": 50,
             "spss": 100
@@ -921,7 +921,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&status=error&&span.crok.cancelled=nil}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.error.category)",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&status=error&&span.crok.cancelled=nil}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.error.category)",
             "tableType": "spans",
             "limit": 20,
             "spss": 100
@@ -1584,7 +1584,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&duration>30s}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&duration>30s}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
             "tableType": "spans",
             "limit": 20,
             "spss": 100
@@ -2247,7 +2247,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&(span.anthropic.message.stop_reason=\"max_tokens\"||span.gen_ai.response.finish_reason=\"length\"||span.gen_ai.response.finish_reasons=\"length\")}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&(span.anthropic.message.stop_reason=\"max_tokens\"||span.gen_ai.response.finish_reason=\"length\"||span.gen_ai.response.finish_reasons=\"length\")}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
             "tableType": "spans",
             "limit": 20,
             "spss": 100
@@ -2910,7 +2910,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&span.gen_ai.usage.input_tokens>150000}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.gen_ai.usage.cache_read.input_tokens,span.gen_ai.usage.cache_read_input_tokens)",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&span.gen_ai.usage.input_tokens>150000}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.gen_ai.usage.cache_read.input_tokens,span.gen_ai.usage.cache_read_input_tokens)",
             "tableType": "spans",
             "limit": 20,
             "spss": 100
@@ -3560,7 +3560,7 @@
       {
         "type": "table",
         "title": "Expensive calls (over $0.05)",
-        "description": "Single calls that cost more than 5 cents: billed by OpenRouter, or as crok worked out (Claude calls and those of crok 2.0.0 and older are priced on the dashboards, not per span).",
+        "description": "Single calls that cost more than 5 cents: billed by OpenRouter, or as crok worked out (Claude Platform's calls and those of crok 2.0.0 and older are priced on the dashboards, not per span).",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -3573,7 +3573,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&(span.gen_ai.usage.total_cost>0.05||span.crok.cost.usd>0.05)}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&(span.gen_ai.usage.total_cost>0.05||span.crok.cost.usd>0.05)}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type)",
             "tableType": "spans",
             "limit": 20,
             "spss": 100
@@ -4236,7 +4236,7 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&span.gen_ai.usage.input_tokens>20000&&(span.gen_ai.usage.cache_read.input_tokens<1000||(resource.service.name=\"crok\"&&span.gen_ai.usage.cache_read_input_tokens=nil))}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.gen_ai.usage.cache_write.input_tokens)",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&resource.service.name=~`${source:regex}`&&(span.gen_ai.request.model=~`$model_re`||span.gen_ai.request.model=nil)&&span.gen_ai.usage.input_tokens>20000&&(span.gen_ai.usage.cache_read.input_tokens<1000||(resource.service.name=\"crok\"&&span.gen_ai.usage.cache_read_input_tokens=nil))}|select(resource.service.name,span.gen_ai.provider.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.output_tokens,span.gen_ai.usage.total_cost,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reason,span.error.type,span.gen_ai.usage.cache_write.input_tokens)",
             "tableType": "spans",
             "limit": 20,
             "spss": 100
