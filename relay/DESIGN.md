@@ -356,6 +356,86 @@ computer accepted it (it is in the transcript or queued behind the running turn)
 `failed` = `error` says why (offline, busy, rejected). A viewer shows its own prompt optimistically from the moment
 of sending (keyed by `clientId`) until the transcript holds the user event whose `commandId` matches.
 
+### o11y (allowlisted viewers; the phones' o11y tab)
+
+Added 2026-10-26 for the phones' dev builds (mobile/DESIGN.md "o11y"). The relay reads its owner's Grafana Cloud stack
+with a read-only service-account token and hands the phones finished **pages**: the LLM Observability dashboards
+(`observability/grafana-llm`), crok's evaluation and guards (`observability/agento11y`, `evals/`) and Agent
+Observability. The phones never see the token, a query or a dashboard; they draw blocks.
+
+| function | args | returns |
+|---|---|---|
+| `o11y:page` (query) | `page, range?, lang?` | `{state: "ok", page: Page\|null, builtAt\|null, refreshing, error\|null}`, or `{state: "forbidden"}` / `{state: "unconfigured"}` |
+| `o11y:refresh` (action) | `page, range?, lang?, force?` | `{status: "built"\|"fresh"\|"busy"\|"failed", builtAt\|null, error\|null}` |
+
+- **Access.** The Convex environment of the deployment holds `GRAFANA_URL` (the stack, e.g.
+  `https://narrowgrotto289.grafana.net`), `GRAFANA_TOKEN` (a Viewer service-account token, `glsa_…`) and
+  `O11Y_VIEWERS` (comma-separated: `users` ids, Clerk subjects or emails of the accounts allowed to see it). Without
+  a token (or URL) every caller gets `unconfigured`; a caller not on the list gets `forbidden`, as does anyone when the
+  list is empty. A page holds the stack's conversation titles and spend, so nobody else may read it.
+  `relay/scripts/o11y-setup.sh dev|prod` makes the service account and token with gcx and sets the three variables.
+- **Cache.** `o11yPages` keeps the last page per `page|range|lang` (`builtAt`, `refreshing` since, `error`). The
+  query only reads it, so opening a screen is instant; `refresh` rebuilds it from Grafana when it is older than 90 s
+  (`fresh` otherwise; `force` lowers that to 10 s), and only one refresh per key runs at a time (`busy`, for 60 s).
+  A failed build keeps the old page and stores `error`. Pages are the same for every allowed viewer.
+- **Arguments.** `page` is a page id; `range` one of the page's `ranges` (else its default); `lang` `en`, `zh`, `ja`,
+  `es`, `fr` or `de` (else `en`). An unknown page is `NOT_FOUND`.
+
+**Page** (JSON, at most ~200 kB):
+
+```
+{ id, title, subtitle?, range, ranges: ["1h","6h","24h"] | ["24h","7d","14d"] | [], url?, builtAt,
+  sections: [{ title?, footer?, block }] }
+block =
+  { kind: "stats",   items: [{ label, value: number|null, unit, change?: number|null, better?: "up"|"down"|"none" }] }
+| { kind: "chart",   style: "line"|"bars", stacked?, unit, step (ms),
+                     series: [{ name, slot (0 = Other, 1–8), total: number|null, dashed?, points: [[ms, number|null]] }],
+                     more? }
+| { kind: "ranking", unit, rows: [{ label, value, slot?, detail?: chip[], change?, better? }], more?, empty }
+| { kind: "list",    rows: [{ title, detail?: chip[], value?: {v, u}, time?: ms, status?: "ok"|"warn"|"bad"|"info",
+                              page? }], empty }
+| { kind: "links",   rows: [{ page, title, subtitle?, icon, color: "#RRGGBB", value?: {v, u} }] }
+| { kind: "note",    text }
+| { kind: "error",   message }
+chip = { t: text } | { v: number, u: unit, s?: suffix }
+unit = "usd" | "count" | "tokens" | "ratio" | "seconds" | "ms" | "bytes" | "perMin" | "tps"
+```
+
+Text is already in `lang`; numbers are raw (the phones format them). A chart keeps at most 6 series (the largest by
+`total`) and folds the rest into "Other" (slot 0) for `bars`, or drops them (`more`) for `line`; slots go to the kept
+series in alphabetical order, so a series keeps its colour as long as the set does. Charts carry ≤ 150 points.
+
+**How a page is built** (`convex/lib/o11y/`): each page is a spec of blocks. A dashboard block names a panel of a
+live Grafana dashboard by title; the relay fetches the dashboard (`/api/dashboards/uid/<uid>`), fills its variables
+with their defaults, runs the panel's own queries through `/api/ds/query` (so the phone shows the numbers Grafana
+shows, Claude's estimated spend and all) and reads them the way the panel does: totals over the range (stat panels
+summing a range, ranked tables, pies), the last value (instant stats), the week-over-week pair (value and change), a
+ratio of two totals (calculated fields), series after the panel's renames with same-named series added up
+(time series), span rows (span tables). Chart queries get a step of range / 120 (at least 1 minute) instead of the
+dashboard's; totals keep the dashboard's step. Other blocks run their own PromQL (evaluation scores, guard outcomes,
+judge cost, crok's harness metrics, SLO SLIs) or read the Agent Observability plugin
+(`/api/plugins/grafana-agento11y-app/resources/query/agents`, `…/query/conversations`, `…/eval/experiments`), the
+SLO plugin (`/api/plugins/grafana-slo-app/resources/v1/slo`) and the alert rules (`/api/prometheus/grafana/api/v1/rules`).
+A block whose queries fail becomes an `error` block; the page still builds. Panels run 4 at a time.
+
+| page | from | ranges (default) | what it shows |
+|---|---|---|---|
+| `home` | the pages below | `24h` only | spend, calls, tokens and failures today (LLM Overview's stats), spend per day for 14 days, then links: Dashboards, Evaluation, Agent Observability |
+| `overview` | `llm-overview` | 1h 6h 24h (24h) | at a glance, week over week, spend per day by provider, requests per minute, latency p50/p95, spend and requests by model, latest calls |
+| `claude` | `llm-claude-platform` | 1h 6h 24h | requests, estimated spend, tokens, cache hit rate, latency, errors, spend by model, token mix, stop reasons, latest requests |
+| `openrouter` | `llm-openrouter` | 1h 6h 24h | requests, spend, cost per request, cached share, spend by model, upstream provider and API key, finish reasons, latest generations |
+| `crok` | `llm-crok` | 1h 6h 24h | Codex, GLM and DeepSeek: at a glance, week over week, spend by model and provider, time to first token, failures, machines, latest calls |
+| `harness` | `llm-crok-harness` | 1h 6h 24h | turns, completion, turn time, calls and tool runs per turn, turns by outcome and model, tools, latest and failed turns, failed tool runs |
+| `history` | `llm-history` | 24h 7d 14d (14d) | recorded spend, requests, tokens and error rate, week over week, spend and requests per day (and 7 days earlier), spend by price group |
+| `explorer` | `llm-request-explorer` | 1h 6h 24h | the saved searches: failed, slowest, expensive, cut off, huge prompts, cache misses |
+| `evaluators` | Prometheus `agento11y_eval_*` | 24h 7d 14d (7d) | scores, pass rate, failed scores, judge spend, pass rate by evaluator, scores per day, failed scores by model, by rule |
+| `guards` | Prometheus `agento11y_hook_*`, `crok_guard_checks_total` | 24h 7d 14d (7d) | checks, warns, warns by guard, checks per day, crok's own flagged checks |
+| `experiments` | plugin `eval/experiments`, Prometheus `agento11y_tag_eval_run` | 24h 7d 14d (14d) | published experiment runs, and the eval runs seen in the traffic (calls, tokens, failures) |
+| `agents` | plugin `query/agents`, Prometheus `gen_ai_client_*`, `agento11y_generation_cost_usd_total` | 24h 7d 14d (24h) | every agent (generations, versions, last seen), calls and cost by agent, calls per hour, time to first token |
+| `conversations` | plugin `query/conversations` | none | the 30 most recent conversations (title, generations, last activity) |
+| `slos` | SLO plugin, `grafana_slo_*` | none | each SLO's 28-day SLI against its objective and the error budget left, per provider |
+| `alerts` | alert rules | none | crok's alert rules and their state, the recording rule groups' health |
+
 ### Bridge (linked computers only)
 
 | function | args | returns |

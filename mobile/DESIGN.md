@@ -348,6 +348,135 @@ Debug builds (`mobile/scripts/build-apps.sh test`, the dev relay) carry a **yell
 the blue one: the same mark on a yellow tile (`#FFD84D` → `#F6B800` top to bottom on iOS, flat `#F6B800` on
 Android) with the mark in dark brown `#3D2E00`; the iOS dark variant keeps the dark tile with the mark in `#FFC933`.
 
+## o11y (dev builds)
+
+Added 2026-10-26. Debug builds (`build-apps.sh test`, the dev relay) have a third tab, **o11y**, to the right of
+Profile: the relay owner's Grafana Cloud stack on a phone — the LLM Observability dashboards, crok's evaluation
+(online evaluators, guards, offline experiments) and Agent Observability (agents, conversations, SLOs, alerts). Release
+builds have no such tab. The relay reads Grafana and sends each screen as a **page** of ready-made blocks
+(relay/DESIGN.md §3 "o11y"); the phones only draw pages, so both draw exactly the same thing and a new dashboard needs
+no app update. The look is Telegram's channel statistics: grouped cards, a numbers grid with changes, charts with a
+legend under them, ranked rows.
+
+**Tab.** Label "o11y" (not translated: it is a numeronym), icon iOS `chart.xyaxis.line`, Android `Insights`
+(outlined; filled when selected). No badge, no long-press menu. Its root is the page `home`; rows of a page push
+other pages on the tab's own stack.
+
+**Top bar.** Title = the page's `title` (inline on iOS, as Profile), subtitle = the page's `subtitle` and, after a
+" · ", "Updated %@" with the relative age of `builtAt` ("Updated 2 min ago"), replaced by the connection state while
+the relay is not live (as the Sessions titles). Trailing: **Open in Grafana** (iOS `safari`, Android `OpenInBrowser`)
+when the page has a `url`; it opens the system browser.
+
+**Range.** When a page offers more than one range (`ranges`), a segmented control at the top of the content
+(iOS `Picker(.segmented)`, Android `SingleChoiceSegmentedButtonRow`) with the page's ranges in order, labelled
+"%lldh" / "%lldd" (`1h`, `6h`, `24h`, `7d`, `14d`; translated in the Words table). The phone remembers the choice
+per page (`crok.o11y.range.<page id>`, default the page's `range` as the relay first sent it).
+
+**Loading and refresh** (relay/DESIGN.md §3):
+
+- The screen subscribes to `o11y:page({page, range, lang})` (`lang` = the app's UI language: `en`, `zh`, `ja`, `es`,
+  `fr`, `de`) and shows whatever page it holds at once, however old.
+- It calls the action `o11y:refresh({page, range, lang})` when it appears with no page or a page older than
+  90 seconds, and again every 60 seconds while it stays on screen and the page is older than 90 s. The new page
+  arrives through the subscription.
+- Pull to refresh calls `o11y:refresh({…, force: true})` and ends when the action returns.
+- While a refresh runs (`refreshing`) and a page is on screen: a small spinner after the subtitle. With no page
+  yet: a centred spinner and "Loading o11y…".
+- `error` (the last refresh failed; an older page may still be there): a banner card at the top, red exclamation
+  glyph, "Couldn't update" and the message, over the old page.
+- `state: "forbidden"`: the empty state "o11y is not available" / "This account can't see the relay's Grafana
+  stack. Ask whoever runs the relay to add it." `state: "unconfigured"`: "o11y is not set up" / "The relay has no
+  Grafana token yet. Run relay/scripts/o11y-setup.sh on the relay owner's computer." A relay without the query (the
+  call fails with "Could not find public function"): "o11y is not set up" / "This relay doesn't serve o11y yet."
+  Each with the `chart.xyaxis.line` / `Insights` glyph, large and secondary, centred.
+
+**Layout.** The page's sections in order, each a card in the grouped-list look (iOS: `secondarySystemGroupedBackground`
+cards, radius 10, on `systemGroupedBackground`, 16 pt side margins plus the safe area; Android: `colors.card` on
+`colors.background`, radius 12, the Profile list margins). A section's `title` sits above its card as a list header
+(iOS footnote uppercase secondary; Android `labelLarge` in the accent, as Profile's headers), its `footer` under it
+(footnote / `bodySmall` secondary).
+
+- **Narrow** (content width < 600 pt/dp; a phone held upright): one column.
+- **Wide** (≥ 600; a phone on its side, or a tablet): `stats` and `chart` sections span the width; the others
+  (`ranking`, `list`, `links`, `note`, `error`) are half width, two consecutive half sections side by side (top
+  aligned, 16 gap); a half section without a partner next to it spans the width. Charts are 180 pt/dp high when the
+  screen is shorter than 500 (landscape phone), else 200. Rotating keeps the scroll position on the same section.
+
+**Blocks** (one per section; values come raw with a unit and are formatted on the phone, see Numbers):
+
+- `stats` — a grid of tiles, 2 columns narrow, 4 wide, hairline separators between them (Telegram's overview).
+  Tile: the value (title3 / `titleMedium`, semibold, monospaced digits; "—" when null), then on the same line the
+  `change` when there is one: "+12%" / "−8%" (caption, semibold) in green `#3B7751` / `#91C5A1` when it moved the
+  `better` way, red `#B3261E` / `#F2877E` when the other way, secondary when `better` is `none`; under them the
+  label (footnote / `bodySmall`, secondary, up to 2 lines). Accessibility: "label, value, up 12 percent".
+- `chart` — a time chart in the card (12 inset): `style` `line` (2 pt lines, round caps; a single series also gets
+  a 10 % area wash) or `bars` (≤ 24 pt/dp wide with a 2 pt gap between neighbours, 4 pt rounded top, square at the
+  baseline; `stacked`: segments stacked with a 2 pt surface-coloured gap, only the top segment rounded). A series
+  with `dashed: true` is a dashed line (8 on, 6 off) in the secondary text colour, drawn over the bars or lines
+  (Grafana's "7 days earlier"). One y-axis at the leading edge: 3 hairline gridlines at round values from 0, labels
+  in the chart's unit, compact (caption2 / `labelSmall`, secondary); x-axis labels: 3–4 times, "HH:mm" when `step` <
+  1 day, else "MMM d" (localized). **Colours**: series `slot` 1–8 → the categorical palette (light / dark):
+  blue `#2A78D6` / `#3987E5`, orange `#EB6834` / `#D95926`, aqua `#1BAF7A` / `#199E70`, yellow `#EDA100` /
+  `#C98500`, magenta `#E87BA4` / `#D55181`, green `#008300` / `#008300`, violet `#6250D6` / `#9085E9`, red
+  `#E34948` / `#E66767`; slot 0 ("Other") the secondary text colour at 60 %. **Legend** (≥ 2 series): chips under
+  the chart, wrapping — a 8 pt dot in the series colour, the name (caption / `labelMedium`, primary text) and its
+  `total` formatted (secondary); a tap hides or shows that series (the last visible one stays), a hidden chip is
+  dimmed with an outlined dot; colours never move. **Touch**: pressing or dragging on the plot shows a vertical
+  hairline at the nearest point and a callout card (radius 8, `.regularMaterial` / `colors.sheet`) with the time and
+  each visible series' value at that point, largest first, with its dot; it follows the finger and goes on release.
+  No series or every value null: "No data in this range", centred, secondary, in the chart's height. `more` > 0: a
+  footer line "and %lld more" under the legend.
+- `ranking` — ranked rows (Telegram's top lists): the label (body, one line, truncated in the middle), the value at
+  the trailing edge (subheadline semibold, monospaced digits) with the row's `change` after it when there is one
+  (coloured as a stat's), `detail` chips under the label (caption, secondary, joined with " · "), and under the row
+  a 4 pt rounded bar from the leading edge, its length = value / the largest value (a `ratio` ranking: value / 1),
+  in the slot-1 blue (or the row's `slot`). Row height ≥ 44. `more` > 0: a last line "and %lld more" (secondary).
+  No rows: the block's `empty` text, centred, secondary.
+- `list` — rows: a leading status glyph when `status` is set (`ok` checkmark.circle.fill green, `bad`
+  xmark.circle.fill red, `warn` exclamationmark.triangle.fill orange `#F09A37`, `info` info.circle secondary; 18 pt),
+  the title (body, one line, truncated at the end), `detail` chips (footnote / `bodySmall`, secondary, " · ", up to
+  2 lines); trailing: the `value` (subheadline semibold) over the `time` (caption secondary: "HH:mm" today, "MMM d"
+  before). A row with a `page` gets a chevron and pushes that page. A long press offers Copy (title and details).
+  No rows: `empty`, centred, secondary.
+- `links` — Profile-style rows: the coloured square icon (29 pt radius 7 on iOS, `IconBadge` on Android; colour =
+  the row's `color`, glyph from its `icon`, table below), the title, the `subtitle` under it (footnote secondary, one
+  line), trailing the `value` formatted (secondary) and a chevron; a tap pushes the row's `page`.
+- `note` — a footnote paragraph with an info glyph, secondary.
+- `error` — a red exclamation glyph and "Couldn't read this panel" over the `message` (footnote secondary): one
+  panel failed, the rest of the page stands.
+
+**Chips** (`detail`): a chip is text (`{"t": "anthropic"}`) or a value (`{"v": 12345, "u": "tokens", "s": "in"}`:
+formatted value, then a space and the suffix when there is one, "12.3K in").
+
+**Icons** (`links` rows and nothing else): `overview` square.grid.2x2 / `Dashboard`, `claude` sparkle /
+`AutoAwesome`, `openrouter` arrow.triangle.branch / `AltRoute`, `crok` cpu / `Memory`, `harness` hammer / `Build`,
+`history` calendar / `CalendarMonth`, `explorer` magnifyingglass / `Search`, `evaluators` checkmark.seal /
+`Verified`, `guards` shield.lefthalf.filled / `Shield`, `experiments` flask / `Science`, `agents` person.2 /
+`Groups`, `conversations` bubble.left.and.text.bubble.right / `Forum`, `slos` target / `TrackChanges`, `alerts`
+bell / `NotificationsActive`; anything else chart.bar / `BarChart`.
+
+**Numbers** (both apps the same; the locale's decimal separator, K / M / B in every language):
+
+| unit | rule | examples |
+|---|---|---|
+| `usd` | 0 → "$0"; under 0.01 → 4 decimals, trailing zeros dropped; under 1,000 → 2 decimals; else compact with 1 decimal | $0.0042, $1.79, $1.2K |
+| `count` | under 1,000: whole when whole, else 1 decimal; else compact (1 decimal under 100K, none above) | 7, 3.4, 1.2K, 340K, 1.2M |
+| `tokens` | as `count` | 12.3M |
+| `ratio` | × 100 with 1 decimal and "%", ".0" dropped; exactly 0 and 1 → "0%", "100%" | 2.9%, 96%, 99.4% |
+| `seconds` | under 1 → "340 ms"; under 60 → 1 decimal "4.3 s"; under 3,600 → "2.1 min"; else "1.5 h" | |
+| `ms` | divided by 1,000, then `seconds` | |
+| `bytes` | 1,024 steps: "B", "KB", "MB", "GB", 1 decimal | 4.2 KB |
+| `perMin` | `count` + "/min" | 12.3/min |
+| `tps` | `count` + " tok/s" | 45 tok/s |
+
+A `change` is a fraction: "+" or "−" (U+2212), × 100, no decimals ("+12%", "−8%"; under 1 % in size: "+0.4%");
+null or a value the previous period divided by zero gives no change text.
+
+**Demo mode** serves pages from the bundled fixture `o11y-demo.json` (iOS `Crok/Resources/`, Android
+`app/src/main/assets/`; both copies made by `relay/scripts/o11y-demo.mjs`): synthetic numbers built from the relay's own
+page specs, English text plus a `strings` table per language that the demo applies to every title, label and chip.
+`o11y:refresh` there only moves `builtAt` to now.
+
 ## Words (en, zh-Hans, ja, es, fr, de)
 
 New strings; both apps use exactly these. Existing strings keep their translations ("Sessions", "Computers",
@@ -397,3 +526,21 @@ Activity", "Search sessions", "Archived", "Archive", "Unarchive", "Pin", "Online
 | Couldn't change the thinking level | 无法更改思考级别 | 思考レベルを変更できませんでした | No se pudo cambiar el nivel de razonamiento | Impossible de changer le niveau de réflexion | Die Denkstufe konnte nicht geändert werden |
 | No Results | 无结果 | 結果なし | Sin resultados | Aucun résultat | Keine Ergebnisse |
 | Choose a session (web) | 选择一个会话 | セッションを選択 | Elige una sesión | Choisissez une session | Wähle eine Sitzung |
+| o11y (tab; every language) | o11y | o11y | o11y | o11y | o11y |
+| Updated %@ ("2 min ago") | 更新于%@ | %@に更新 | Actualizado %@ | Mis à jour %@ | Aktualisiert %@ |
+| Open in Grafana | 在 Grafana 中打开 | Grafana で開く | Abrir en Grafana | Ouvrir dans Grafana | In Grafana öffnen |
+| Loading o11y… | 正在加载 o11y… | o11y を読み込み中… | Cargando o11y… | Chargement d'o11y… | o11y wird geladen … |
+| Couldn't update | 无法更新 | 更新できませんでした | No se pudo actualizar | Mise à jour impossible | Aktualisierung fehlgeschlagen |
+| o11y is not available | o11y 不可用 | o11y は利用できません | o11y no está disponible | o11y n'est pas disponible | o11y ist nicht verfügbar |
+| This account can't see the relay's Grafana stack. Ask whoever runs the relay to add it. | 此账号无法查看中继的 Grafana 栈。请让管理中继的人把它加进去。 | このアカウントではリレーの Grafana スタックを表示できません。リレーの管理者に追加を依頼してください。 | Esta cuenta no puede ver el stack de Grafana del relay. Pide a quien gestiona el relay que la añada. | Ce compte ne peut pas voir la pile Grafana du relais. Demandez à la personne qui gère le relais de l'ajouter. | Dieses Konto kann den Grafana-Stack des Relays nicht sehen. Bitte die Person, die das Relay betreibt, es hinzuzufügen. |
+| o11y is not set up | o11y 尚未设置 | o11y は未設定です | o11y no está configurado | o11y n'est pas configuré | o11y ist nicht eingerichtet |
+| The relay has no Grafana token yet. Run relay/scripts/o11y-setup.sh on the relay owner's computer. | 中继还没有 Grafana 令牌。请在中继所有者的电脑上运行 relay/scripts/o11y-setup.sh。 | リレーにはまだ Grafana トークンがありません。リレーの所有者のコンピュータで relay/scripts/o11y-setup.sh を実行してください。 | El relay aún no tiene un token de Grafana. Ejecuta relay/scripts/o11y-setup.sh en el ordenador de quien gestiona el relay. | Le relais n'a pas encore de jeton Grafana. Exécutez relay/scripts/o11y-setup.sh sur l'ordinateur du propriétaire du relais. | Das Relay hat noch kein Grafana-Token. Führe relay/scripts/o11y-setup.sh auf dem Computer der Person aus, der das Relay gehört. |
+| This relay doesn't serve o11y yet. | 此中继尚未提供 o11y。 | このリレーはまだ o11y に対応していません。 | Este relay aún no ofrece o11y. | Ce relais ne propose pas encore o11y. | Dieses Relay bietet o11y noch nicht an. |
+| %lldh (range) | %lld小时 | %lld時間 | %lld h | %lld h | %lld Std. |
+| %lldd (range) | %lld天 | %lld日 | %lld d | %lld j | %lld T. |
+| No data in this range | 此时间范围内没有数据 | この期間のデータはありません | No hay datos en este periodo | Aucune donnée sur cette période | Keine Daten in diesem Zeitraum |
+| and %lld more | 还有 %lld 项 | ほか %lld 件 | y %lld más | et %lld de plus | und %lld weitere |
+| Couldn't read this panel | 无法读取此面板 | このパネルを読み込めませんでした | No se pudo leer este panel | Impossible de lire ce panneau | Dieses Panel konnte nicht gelesen werden |
+
+The relay translates the pages' own words (titles, labels, chips, notes) into the six languages itself
+(`relay/convex/lib/o11y/i18n.ts`); the phones translate only the words above.
