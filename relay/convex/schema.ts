@@ -363,6 +363,20 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_device", ["deviceId"]),
 
+  /**
+   * The phones' o11y pages as last built from the owner's Grafana stack (relay/DESIGN.md §3 "o11y"), one row per
+   * `page|range|lang`. `refreshingSince` is set while `o11y:refresh` builds it; `error` is the last build's failure
+   * (the older page stays).
+   */
+  o11yPages: defineTable({
+    key: v.string(),
+    page: v.optional(v.any()),
+    builtAt: v.optional(v.number()),
+    refreshingSince: v.optional(v.number()),
+    error: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
   /** A viewer has this session open; while `until` is ahead the bridge streams text at a fine grain. */
   sessionViews: defineTable({
     sessionDocId: v.id("sessions"),
