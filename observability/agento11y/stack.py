@@ -9,6 +9,7 @@ weeks of traffic collected before the rules existed get quality scores too.
     stack.py report                    # the backfilled scores by model and version
     stack.py alerts [--dry-run]        # the crok-alerts rule group (alerts.json)
     stack.py slos [--dry-run]          # the SLOs (slos.json)
+    stack.py duplicates [--label]      # Claude Platform's stored copies of crok's calls, labelled
 
 Evaluators fork the stack's own templates (`gcx agento11y templates get`) where one fits, with the
 judge model resolved from `gcx agento11y judge list-models`; guards are always created in warn mode.
@@ -32,6 +33,7 @@ Only the standard library is used.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import datetime as dt
 import hashlib
 import json
@@ -513,12 +515,115 @@ def cmd_report(_args) -> int:
 
 
 # ---------------------------------------------------------------------------------------------
+# Claude Platform's copies of crok's calls
+# ---------------------------------------------------------------------------------------------
+
+PLATFORM_AGENT = "claude-platform"
+COPIES_FILE = BACKFILL / "claude-platform-copies.json"
+
+
+def stored_conversations(workers: int) -> list[dict]:
+    """Every conversation Agent Observability keeps (30 days), each with its generations."""
+    listed, cursor = [], ""
+    while True:
+        page = gcx_api(f"{PLUGIN}/query/conversations?limit=200" + (f"&cursor={cursor}" if cursor else ""))
+        listed += items(page)
+        cursor = field(page, "next_cursor", default="")
+        if not cursor:
+            break
+    log(f"{len(listed)} conversations stored; reading each")
+    read = lambda conv: gcx_api(f"{PLUGIN}/query/conversations/{field(conv, 'id', 'conversation_id')}?format=v2") or {}
+    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+        return list(pool.map(read, listed))
+
+
+def cmd_duplicates(args) -> int:
+    """crok 2.0.2 and older sent each Claude call with a sampled traceparent, so Claude Platform's
+    telemetry export stored it a second time: a generation of agent `claude-platform`, in a
+    conversation named by the trace id, with the same response id as crok's. Agent Observability
+    cannot delete what it stored, so this finds those copies, prints the counts without them, and
+    with --label marks each with a LABEL annotation (`crok-copy-<generation id>`, tag
+    `copy_of=crok`) that readers can leave out: a claude-platform conversation's annotation count
+    is then its number of copies. Calls only Claude Platform recorded (crok's reporting was off, or
+    the call was never recorded) are not copies and stay as they are. Running it again labels only
+    what is new."""
+    convs = stored_conversations(args.workers)
+    crok, platform = {}, []
+    for conv in convs:
+        conv_id = field(conv, "conversation_id", "id")
+        labelled = {field(a, "annotation_id") for a in field(conv, "annotations", default=[]) or []}
+        for gen in field(conv, "generations", default=[]) or []:
+            if field(gen, "agent_name") == PLATFORM_AGENT:
+                platform.append((conv_id, gen, labelled))
+            elif field(gen, "response_id"):
+                crok[gen["response_id"]] = (conv_id, gen)
+    copies = [(conv_id, gen, labelled, crok[gen["response_id"]]) for conv_id, gen, labelled in platform
+              if field(gen, "response_id") in crok]
+    by_agent: dict[str, int] = {}
+    for conv in convs:
+        for gen in field(conv, "generations", default=[]) or []:
+            name = field(gen, "agent_name", default="?")
+            by_agent[name] = by_agent.get(name, 0) + 1
+    stored = sum(by_agent.values())
+    print(f"{stored} generations stored, {len(copies)} of them Claude Platform's copies of crok's calls: "
+          f"{stored - len(copies)} without them")
+    print(f"{PLATFORM_AGENT}: {len(platform)} generations in "
+          f"{len({c for c, _, _ in platform})} conversations; {len(copies)} copies in "
+          f"{len({c for c, _, _, _ in copies})} conversations; {len(platform) - len(copies)} calls only it recorded")
+    for name, n in sorted(by_agent.items(), key=lambda kv: -kv[1]):
+        print(f"  {name:<24} {n:>6}" + (f"  ({n - len(copies)} without copies)" if name == PLATFORM_AGENT else ""))
+    days: dict[str, int] = {}
+    versions: dict[str, int] = {}
+    for _, gen, _, (_, original) in copies:
+        day = str(field(gen, "created_at", default=""))[:10]
+        days[day] = days.get(day, 0) + 1
+        version = field(original, "agent_version", default="?")
+        versions[version] = versions.get(version, 0) + 1
+    print("copies by day:", ", ".join(f"{d} {n}" for d, n in sorted(days.items())))
+    print("copies by crok version:", ", ".join(f"{v} {n}" for v, n in sorted(versions.items())))
+    BACKFILL.mkdir(exist_ok=True)
+    COPIES_FILE.write_text(json.dumps([{"conversation_id": conv_id, "generation_id": gen["generation_id"],
+                                        "response_id": gen["response_id"], "created_at": field(gen, "created_at"),
+                                        "crok_conversation_id": original_conv, "crok_generation_id": original["generation_id"]}
+                                       for conv_id, gen, _, (original_conv, original) in copies], indent=1))
+    log(f"the copies are listed in {COPIES_FILE}")
+
+    todo = [c for c in copies if f"crok-copy-{c[1]['generation_id']}" not in c[2]]
+    if not args.label:
+        print(f"{len(todo)} copies not labelled yet; `stack.py duplicates --label` labels them")
+        return 0
+
+    def label(copy) -> str | None:
+        conv_id, gen, _, (original_conv, original) = copy
+        gen_id = gen["generation_id"]
+        body = (f"Claude Platform's copy of a call crok recorded (generation {original['generation_id']} in "
+                f"conversation {original_conv}), stored again because crok 2.0.2 and older sent a sampled "
+                "traceparent. Leave it out of counts; crok after 2.0.2 sends no copies.")
+        proc = subprocess.run(
+            ["gcx", "agento11y", "conversations", "annotate", conv_id, "--annotation-id", f"crok-copy-{gen_id}",
+             "--type", "LABEL", "--generation-id", gen_id, "--body", body, "--tag", "copy_of=crok",
+             "--tag", f"crok_conversation={original_conv}", "--tag", f"crok_generation={original['generation_id']}",
+             "-o", "json"], capture_output=True, text=True)
+        return None if proc.returncode == 0 else f"{gen_id}: {(proc.stderr or proc.stdout).strip()[:300]}"
+
+    with concurrent.futures.ThreadPoolExecutor(args.workers) as pool:
+        failed = [e for e in pool.map(label, todo) if e]
+    for error in failed[:10]:
+        log(f"  {error}")
+    print(f"labelled {len(todo) - len(failed)} copies, {len(failed)} failed, "
+          f"{len(copies) - len(todo)} were labelled before")
+    return 1 if failed else 0
+
+
+# ---------------------------------------------------------------------------------------------
 # alerts and SLOs
 # ---------------------------------------------------------------------------------------------
 
 
 def gcx_api(path: str, method: str = "GET", body=None, headers: tuple[str, ...] = ()):
-    cmd = ["gcx", "api", path, "-X", method]
+    # Plain JSON: gcx's default output writes a large answer (a long conversation) to a temp file
+    # and prints only a reference to it.
+    cmd = ["gcx", "api", path, "-X", method, "-o", "json"]
     for header in headers:
         cmd += ["-H", header]
     tmp = None
@@ -635,9 +740,12 @@ def main(argv: list[str]) -> int:
     al.add_argument("--dry-run", action="store_true")
     sl = sub.add_parser("slos", help="create or update the SLOs (slos.json)")
     sl.add_argument("--dry-run", action="store_true")
+    d = sub.add_parser("duplicates", help="count Claude Platform's copies of crok's calls; --label marks them")
+    d.add_argument("--label", action="store_true")
+    d.add_argument("--workers", type=int, default=8)
     args = p.parse_args(argv)
     commands = {"inventory": cmd_inventory, "apply": cmd_apply, "backfill": cmd_backfill, "report": cmd_report,
-                "alerts": cmd_alerts, "slos": cmd_slos}
+                "alerts": cmd_alerts, "slos": cmd_slos, "duplicates": cmd_duplicates}
     return commands[args.command](args)
 
 
