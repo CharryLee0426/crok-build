@@ -1,0 +1,424 @@
+// What crok reports around its model calls (`observe_harness.rs` in the sampler): each turn as the
+// root span of its trace, each tool run as an `execute_tool` span under it, workflow steps
+// (permission and hook decisions, compaction), crok's own verdicts as scores, the user's ratings,
+// and guard checks against the stack's hook rules.
+
+import type { Agento11yClient, WorkflowStep } from "@grafana/agento11y-core";
+import {
+  type Attributes,
+  type Counter,
+  context,
+  type Histogram,
+  type Meter,
+  metrics,
+  SpanKind,
+  SpanStatusCode,
+  type Tracer,
+} from "@opentelemetry/api";
+
+import { describe, type Log } from "./log.js";
+import { contextOf, type CrokSpanAttributes, type PresetIds } from "./otel.js";
+import {
+  type GuardLine,
+  type HarnessLine,
+  type RatingLine,
+  type ScoreLine,
+  type StepLine,
+  spanAttributesOf,
+  stringTags,
+  type ToolLine,
+  type TurnLine,
+  validSpanRef,
+} from "./protocol.js";
+
+export interface HarnessDeps {
+  client: Agento11yClient;
+  tracer: Tracer;
+  metrics: HarnessMetrics;
+  ids: PresetIds;
+  spanAttributes: CrokSpanAttributes;
+  scores: ScoreExporter;
+  log: Log;
+  agentVersion?: string;
+  /** Guard checks go to the stack unless CROK_AGENTO11Y_GUARDS turns them off. */
+  guards: boolean;
+  /** Ratings and guard checks still in flight; flush and shutdown wait for them. */
+  pending: Set<Promise<unknown>>;
+}
+
+/** Records one harness line. Returns why it could not be, for the bridge log. */
+export function recordHarness(deps: HarnessDeps, line: HarnessLine): Error | undefined {
+  switch (line.type) {
+    case "turn":
+      return recordTurn(deps, line);
+    case "tool":
+      return recordTool(deps, line);
+    case "step":
+      deps.client.enqueueWorkflowStep(toWorkflowStep(line, deps.agentVersion));
+      deps.metrics.step(line);
+      return undefined;
+    case "score":
+      deps.scores.add(line);
+      return undefined;
+    case "rating":
+      track(deps, submitRating(deps, line));
+      return undefined;
+    case "guard":
+      if (deps.guards) {
+        track(deps, evaluateGuard(deps, line));
+      }
+      return undefined;
+  }
+}
+
+/** Waits for the ratings and guard checks in flight. */
+export async function settle(deps: Pick<HarnessDeps, "pending">): Promise<void> {
+  while (deps.pending.size > 0) {
+    await Promise.allSettled([...deps.pending]);
+  }
+}
+
+function track(deps: HarnessDeps, work: Promise<unknown>): void {
+  const tracked = work.catch((error: unknown) => deps.log.warn(describe(error)));
+  deps.pending.add(tracked);
+  void tracked.finally(() => deps.pending.delete(tracked));
+}
+
+/**
+ * The turn's span, with the ids crok gave it when the turn started: its generations and tool runs,
+ * written earlier, already name it as their parent. A sub-agent's turn is a child of the turn that
+ * started it.
+ */
+function recordTurn(deps: HarnessDeps, line: TurnLine): Error | undefined {
+  const own = validSpanRef(line.span);
+  if (own === undefined) {
+    return new Error("turn line with an invalid span");
+  }
+  const attributes: Attributes = {
+    "gen_ai.operation.name": "invoke_agent",
+    "gen_ai.agent.name": line.agentName,
+    "gen_ai.conversation.id": line.conversationId,
+    ...tagAttributes({ ...deps.client.internalTags(), ...stringTags(line.tags) }),
+    ...spanAttributesOf(line),
+  };
+  if (deps.agentVersion !== undefined && deps.agentVersion.length > 0) {
+    attributes["gen_ai.agent.version"] = deps.agentVersion;
+  }
+  if (typeof line.conversationTitle === "string" && line.conversationTitle.length > 0) {
+    attributes["agento11y.conversation.title"] = line.conversationTitle;
+  }
+  const span = deps.ids.with(own.traceId, own.spanId, () =>
+    deps.tracer.startSpan(
+      `invoke_agent ${line.agentName}`,
+      { kind: SpanKind.INTERNAL, startTime: new Date(line.startedAtMs), attributes },
+      contextOf(validSpanRef(line.parent)),
+    ),
+  );
+  if (typeof line.error === "string" && line.error.length > 0) {
+    span.setAttribute("error.type", "turn_error");
+    span.setStatus({ code: SpanStatusCode.ERROR, message: line.error });
+  } else {
+    span.setStatus({ code: SpanStatusCode.OK });
+  }
+  span.end(new Date(line.completedAtMs));
+  deps.metrics.turn(line, deps.client.internalTags());
+  return undefined;
+}
+
+/** A tool run through the SDK's tool recorder, under its turn, with crok's attributes on its span. */
+function recordTool(deps: HarnessDeps, line: ToolLine): Error | undefined {
+  const run = (): Error | undefined => {
+    const key = `tool:${line.toolCallId}`;
+    deps.spanAttributes.expect(key, { ...spanAttributesOf(line), ...tagAttributes(stringTags(line.tags)) });
+    const recorder = deps.client.startToolExecution({
+      toolName: line.toolName,
+      toolCallId: line.toolCallId,
+      toolType: "function",
+      conversationId: line.conversationId,
+      conversationTitle: line.conversationTitle ?? undefined,
+      agentName: line.agentName,
+      agentVersion: deps.agentVersion,
+      requestModel: line.requestModel ?? undefined,
+      startedAt: new Date(line.startedAtMs),
+    });
+    try {
+      if (typeof line.error === "string" && line.error.length > 0) {
+        recorder.setCallError(new Error(line.error));
+      }
+      recorder.setResult({ completedAt: new Date(line.completedAtMs) });
+    } finally {
+      recorder.end();
+      deps.spanAttributes.forget(key);
+    }
+    deps.metrics.tool(line, deps.client.internalTags());
+    // The recorder reports the run's own failure here too; only a refused record is an error.
+    const error = recorder.getError();
+    return error !== undefined && error.message !== line.error ? error : undefined;
+  };
+  const parent = validSpanRef(line.parent);
+  return parent === undefined ? run() : context.with(contextOf(parent), run);
+}
+
+export function toWorkflowStep(line: StepLine, agentVersion: string | undefined): WorkflowStep {
+  const parent = validSpanRef(line.parent);
+  return {
+    id: line.id,
+    conversationId: line.conversationId,
+    stepName: line.stepName,
+    framework: "crok",
+    startedAt: new Date(line.startedAtMs),
+    completedAt: new Date(line.completedAtMs),
+    inputState: line.inputState,
+    outputState: line.outputState,
+    error: typeof line.error === "string" && line.error.length > 0 ? line.error : undefined,
+    tags: stringTags(line.tags),
+    linkedGenerationIds: line.linkedGenerationIds,
+    agentName: line.agentName,
+    agentVersion,
+    traceId: parent?.traceId,
+    spanId: parent?.spanId,
+  };
+}
+
+async function submitRating(deps: HarnessDeps, line: RatingLine): Promise<void> {
+  const response = await deps.client.submitConversationRating(line.conversationId, {
+    ratingId: line.ratingId,
+    rating: line.rating,
+    comment: line.comment ?? undefined,
+    generationId: line.generationId ?? undefined,
+    source: "crok",
+    metadata: typeof line.category === "string" ? { category: line.category } : undefined,
+  });
+  deps.log.info(
+    `rating ${line.rating === "CONVERSATION_RATING_VALUE_GOOD" ? "good" : "bad"} on ${line.conversationId}: ` +
+      `${response.summary.goodCount} good, ${response.summary.badCount} bad`,
+  );
+}
+
+/**
+ * Asks the stack's hook rules about a turn step. Warn mode: crok never waits for the answer; the
+ * stack records a `warn` (or `deny`) on the conversation, and the bridge log says what fired.
+ */
+async function evaluateGuard(deps: HarnessDeps, line: GuardLine): Promise<void> {
+  const response = await deps.client.evaluateHook(
+    {
+      phase: line.phase,
+      context: {
+        agentName: line.agentName,
+        agentVersion: deps.agentVersion,
+        model: line.model,
+        tags: stringTags(line.tags),
+        conversationId: line.conversationId,
+        traceId: line.traceId ?? undefined,
+        spanId: line.spanId ?? undefined,
+      },
+      input: line.input,
+    },
+    { enabled: true, phases: ["preflight", "postflight"], failOpen: true, timeoutMs: 10_000 },
+  );
+  const failed = response.evaluations.filter((evaluation) => !evaluation.passed);
+  deps.metrics.guard(line.phase, response.action, failed.length > 0);
+  if (response.action === "deny" || failed.length > 0) {
+    const rules = failed.map((evaluation) => `${evaluation.ruleId}${evaluation.reason ? ` (${evaluation.reason})` : ""}`);
+    deps.log.info(`guard ${line.phase} on ${line.conversationId}: ${response.action}; ${rules.join(", ")}`);
+  } else {
+    deps.log.debug(`guard ${line.phase} on ${line.conversationId}: ${response.action}`);
+  }
+}
+
+/**
+ * Counters and histograms of the harness, exported with the SDK's gen_ai.client.* metrics, so
+ * Prometheus has them for SLOs and alerts: crok_turns_total, crok_turn_duration_seconds,
+ * crok_tool_runs_total, crok_tool_duration_seconds, crok_workflow_steps_total, crok_guard_checks_total.
+ * Every series carries `origin`, so experiment runs (origin=eval) can be left out.
+ */
+export class HarnessMetrics {
+  private readonly turns: Counter;
+  private readonly turnDuration: Histogram;
+  private readonly toolRuns: Counter;
+  private readonly toolDuration: Histogram;
+  private readonly steps: Counter;
+  private readonly guards: Counter;
+
+  constructor(meter: Meter = metrics.getMeter("crok-harness")) {
+    this.turns = meter.createCounter("crok.turns", { description: "Turns crok ran, by how they ended" });
+    this.turnDuration = meter.createHistogram("crok.turn.duration", { unit: "s", description: "Turn time, prompt to answer" });
+    this.toolRuns = meter.createCounter("crok.tool.runs", { description: "Tool runs, by tool and outcome" });
+    this.toolDuration = meter.createHistogram("crok.tool.duration", { unit: "s", description: "Tool run time" });
+    this.steps = meter.createCounter("crok.workflow.steps", { description: "Permission, hook, compaction and MCP steps" });
+    this.guards = meter.createCounter("crok.guard.checks", { description: "Guard (hook rule) checks, by phase and verdict" });
+  }
+
+  turn(line: TurnLine, clientTags: Record<string, string> | undefined): void {
+    const attrs = spanAttributesOf(line) ?? {};
+    const tags = { ...clientTags, ...stringTags(line.tags) };
+    const labels = {
+      outcome: String(attrs["crok.turn.outcome"] ?? "unknown"),
+      origin: tags.origin ?? "unknown",
+      agent: line.agentName,
+      model: String(attrs["gen_ai.request.model"] ?? "unknown"),
+    };
+    this.turns.add(1, labels);
+    this.turnDuration.record(Math.max(0, line.completedAtMs - line.startedAtMs) / 1000, {
+      outcome: labels.outcome,
+      origin: labels.origin,
+      agent: labels.agent,
+    });
+  }
+
+  tool(line: ToolLine, clientTags: Record<string, string> | undefined): void {
+    const attrs = spanAttributesOf(line) ?? {};
+    const origin = { ...clientTags, ...stringTags(line.tags) }.origin ?? "unknown";
+    this.toolRuns.add(1, {
+      tool: line.toolName,
+      outcome: String(attrs["crok.tool.outcome"] ?? "unknown"),
+      kind: String(attrs["crok.tool.kind"] ?? "other"),
+      origin,
+    });
+    this.toolDuration.record(Math.max(0, line.completedAtMs - line.startedAtMs) / 1000, { tool: line.toolName, origin });
+  }
+
+  step(line: StepLine): void {
+    const out = line.outputState ?? {};
+    const outcome = [out.outcome, out.decision, out.result].find((v) => typeof v === "string") ?? "recorded";
+    this.steps.add(1, { step: line.stepName.split(" ")[0] ?? line.stepName, outcome: String(outcome) });
+  }
+
+  guard(phase: string, action: string, flagged: boolean): void {
+    this.guards.add(1, { phase, action, flagged: String(flagged) });
+  }
+}
+
+/** Tags as span attributes, the way the SDK writes them (`agento11y.tag.<key>`). */
+function tagAttributes(tags: Record<string, string> | undefined): Attributes {
+  const out: Attributes = {};
+  for (const [key, value] of Object.entries(tags ?? {})) {
+    out[`agento11y.tag.${key}`] = value;
+  }
+  return out;
+}
+
+export type ScorePoster = (url: string, headers: Record<string, string>, body: unknown) => Promise<unknown>;
+
+/** Where scores go: the generation export's endpoint and headers (credentials included). */
+export interface ScoreTarget {
+  endpoint: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * crok's verdicts, sent in batches to `POST /api/v1/scores:export` on the generation endpoint, with
+ * the generation export's credentials. A score names a generation, so the SDK's generation queue is
+ * flushed first: the scored generation reaches the stack before its score.
+ */
+export class ScoreExporter {
+  private queue: ScoreLine[] = [];
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private running: Promise<void> = Promise.resolve();
+
+  constructor(
+    private readonly client: Agento11yClient,
+    private readonly log: Log,
+    private readonly agentVersion: string | undefined,
+    private readonly target: () => ScoreTarget,
+    private readonly delayMs = 3_000,
+    private readonly post: ScorePoster = postJson,
+  ) {}
+
+  add(line: ScoreLine): void {
+    this.queue.push(line);
+    if (this.timer === undefined) {
+      this.timer = setTimeout(() => void this.flush(), this.delayMs);
+      this.timer.unref?.();
+    }
+  }
+
+  /** Sends everything queued; resolves when it is sent (or failed and logged). */
+  flush(): Promise<void> {
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+    this.running = this.running.then(() => this.sendQueued());
+    return this.running;
+  }
+
+  private async sendQueued(): Promise<void> {
+    while (this.queue.length > 0) {
+      const batch = this.queue.splice(0, 100);
+      try {
+        await this.client.flush();
+        const target = this.target();
+        const base = target.endpoint.replace(/\/+$/, "");
+        const response = await this.post(`${base}/api/v1/scores:export`, target.headers ?? {}, {
+          scores: batch.map((line) => wireScore(line, this.agentVersion)),
+        });
+        const rejected = rejectedScores(response);
+        if (rejected.length > 0) {
+          this.log.warn(`${rejected.length} of ${batch.length} scores rejected: ${rejected.slice(0, 3).join("; ")}`);
+        } else {
+          this.log.debug(`scores export ok (${batch.length})`);
+        }
+      } catch (error) {
+        this.log.warn(`scores export failed (${batch.length}): ${describe(error)}`);
+      }
+    }
+  }
+}
+
+/** The score as `scores:export` takes it (snake_case, the Python SDK's `_serialize_score`). */
+export function wireScore(line: ScoreLine, agentVersion: string | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    score_id: line.scoreId,
+    evaluator_id: line.evaluatorId,
+    evaluator_version: agentVersion !== undefined && agentVersion.length > 0 ? agentVersion : "1",
+    score_key: line.scoreKey,
+    value: line.value,
+    generation_id: line.generationId,
+    evaluator_kind: "heuristic",
+    metadata: { source: "crok-harness" },
+  };
+  const optional: Record<string, unknown> = {
+    conversation_id: line.conversationId,
+    trace_id: line.traceId,
+    span_id: line.spanId,
+    passed: line.passed,
+    explanation: line.explanation,
+  };
+  for (const [key, value] of Object.entries(optional)) {
+    if (value !== undefined && value !== null && value !== "") {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function rejectedScores(response: unknown): string[] {
+  if (typeof response !== "object" || response === null) {
+    return [];
+  }
+  const results = (response as { results?: unknown }).results;
+  if (!Array.isArray(results)) {
+    return [];
+  }
+  return results
+    .filter((result) => typeof result === "object" && result !== null && (result as { status?: unknown }).status === "rejected")
+    .map((result) => {
+      const { score_id: id, error } = result as { score_id?: unknown; error?: unknown };
+      return `${String(id)}: ${String(error)}`;
+    });
+}
+
+async function postJson(url: string, headers: Record<string, string>, body: unknown): Promise<unknown> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${text.slice(0, 300)}`);
+  }
+  return text.length > 0 ? JSON.parse(text) : {};
+}

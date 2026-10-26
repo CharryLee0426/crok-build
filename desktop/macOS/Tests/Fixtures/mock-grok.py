@@ -597,12 +597,42 @@ Final paragraph.
         if not os.path.isabs(params.get("path", "")):
             self.error(request_id, -32603, "Choose a folder on the computer (a full path).")
             return
-        encoded = base64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
-        self.result(request_id, {"sessionId": "relay:fixture-new-" + encoded})
+        def encode(value):
+            return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
+        session_id = "relay:fixture-new-" + encode(text)
+        # The model and thinking level picked for it ride along too: that computer opens the session with them.
+        if params.get("model"):
+            if not any(m["modelId"] == params["model"] for m in self.RELAY_MODELS):
+                self.error(request_id, -32603, "That model is not one of the computer's.")
+                return
+            session_id += "~" + encode(params["model"]) + "~" + encode(params.get("effort") or "")
+        self.result(request_id, {"sessionId": session_id})
+
+    @staticmethod
+    def decode_part(part):
+        return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)).decode()
+
+    @classmethod
+    def relay_start_choice(cls, session_id):
+        """The model and thinking level a new session was started with, if any (see `remote_new_session`)."""
+        parts = session_id.split("~")
+        if not session_id.startswith("relay:fixture-new-") or len(parts) != 3:
+            return None
+        return cls.decode_part(parts[1]), cls.decode_part(parts[2])
+
+    def remote_models(self, request_id, params):
+        """`_x.ai/remote/models`: what another computer can run before a session there exists."""
+        if params.get("deviceId") == "fixture-offline":
+            self.result(request_id, {"deviceId": params["deviceId"], "models": None, "availableModels": []})
+            return
+        listed = self.relay_models()["availableModels"]
+        for entry in listed:
+            entry["_meta"].pop("reasoningEffort", None)
+        self.result(request_id, {"deviceId": params.get("deviceId"), "models": [], "availableModels": listed})
 
     @staticmethod
     def relay_first_prompt(session_id):
-        encoded = session_id[len("relay:fixture-new-"):] if session_id.startswith("relay:fixture-new-") else ""
+        encoded = session_id[len("relay:fixture-new-"):].split("~")[0] if session_id.startswith("relay:fixture-new-") else ""
         if not encoded:
             return None
         return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode()
@@ -614,6 +644,11 @@ Final paragraph.
         prompt and the reply come with the history and nothing announces the turn."""
         session_id = params["sessionId"]
         self.sessions.setdefault(session_id, {"sessionId": session_id, "cwd": params.get("cwd", ""), "title": "Remote task (fixture)", "updatedAt": "2026-10-16T12:00:00Z"})
+        choice = self.relay_start_choice(session_id)
+        if choice and session_id not in self.relay_started:
+            model = next(m for m in self.RELAY_MODELS if m["modelId"] == choice[0])
+            self.relay_model_id = model["modelId"]
+            self.relay_reasoning_id = choice[1] or (model["efforts"][0] if model["efforts"] else "")
         first = self.relay_first_prompt(session_id)
         answer = "Started on the other computer: this reply is **fixture** data."
         if first and "fixture:quick" in first and session_id not in self.relay_started:
@@ -971,6 +1006,8 @@ Final paragraph.
             self.error(request_id, -32000, "Authenticate the offline fixture first.")
         elif method == "_x.ai/remote/new_session":
             self.remote_new_session(request_id, params)
+        elif method == "_x.ai/remote/models":
+            self.remote_models(request_id, params)
         elif method == "session/load" and str(params.get("sessionId", "")).startswith("relay:"):
             self.load_relay_session(request_id, params)
         elif method == "session/set_config_option" and str(params.get("sessionId", "")).startswith("relay:"):

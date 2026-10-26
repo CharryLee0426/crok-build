@@ -529,6 +529,266 @@ final class DemoTourUITests: XCTestCase {
         snap("33-session-command-sent")
     }
 
+    // MARK: Model and thinking level
+
+    /// A thinking menu's item (the menu shows above everything else).
+    private func menuItem(_ app: XCUIApplication, _ name: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", name, "\(name),")).firstMatch
+    }
+
+    /// The model and thinking level (mobile/DESIGN.md "Model and thinking level"): a new session started on a model
+    /// picked in Choose a Model (by search) and a level from the thinking menu; then, in a session, both changed from
+    /// the pills and from Session info.
+    func testModelAndThinkingLevel() {
+        let app = launch()
+        waitForList(app)
+        app.openProject("crok-build")
+        element(app, "newSessionInProject").tap()
+        XCTAssertTrue(element(app, "newSessionPlaceholder").waitForExistence(timeout: 5))
+        let modelPill = element(app, "modelPill")
+        let thinkingPill = element(app, "thinkingPill")
+        XCTAssertTrue(modelPill.waitForExistence(timeout: 5))
+        XCTAssertEqual(modelPill.pillValue, "Default")
+        XCTAssertFalse(thinkingPill.exists, "Default hides the thinking pill")
+        snap("41-new-session-pills")
+
+        // Choose a Model: Default first, then the computer's models by provider; search narrows them.
+        modelPill.tap()
+        XCTAssertTrue(element(app, "modelRow-default").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "modelRow-grok-code-fast-1").exists)
+        snap("42-choose-model-new-session")
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("gpt")
+        let gpt = element(app, "modelRow-openrouter/openai/gpt-5")
+        XCTAssertTrue(gpt.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "modelRow-grok-code-fast-1").exists, "only the matches")
+        XCTAssertFalse(element(app, "modelRow-default").exists)
+        snap("43-choose-model-search")
+        search.typeText("zzz")
+        XCTAssertTrue(element(app, "modelNoResults").waitForExistence(timeout: 5))
+        search.typeText(XCUIKeyboardKey.delete.rawValue + XCUIKeyboardKey.delete.rawValue + XCUIKeyboardKey.delete.rawValue)
+        XCTAssertTrue(gpt.waitForExistence(timeout: 5))
+        gpt.tap()
+        XCTAssertTrue(app.waitFor(5) { modelPill.pillValue == "OpenAI: GPT-5" }, modelPill.pillValue)
+
+        // GPT-5 has thinking levels: the pill shows, Default until one is picked.
+        XCTAssertTrue(thinkingPill.waitForExistence(timeout: 5))
+        XCTAssertEqual(thinkingPill.pillValue, "Default")
+        thinkingPill.tap()
+        let high = menuItem(app, "High")
+        XCTAssertTrue(high.waitForExistence(timeout: 5))
+        XCTAssertTrue(menuItem(app, "Minimal").exists)
+        snap("44-thinking-menu-new-session")
+        high.tap()
+        XCTAssertTrue(app.waitFor(5) { thinkingPill.pillValue == "High" }, thinkingPill.pillValue)
+        snap("45-new-session-picked")
+
+        let field = element(app, "composerField")
+        field.tap()
+        field.typeText("Add a health check endpoint")
+        element(app, "sendButton").tap()
+        XCTAssertTrue(element(app, "sessionInfoButton").waitForExistence(timeout: 5), "the screen became the session")
+        // Once a crok there opened it, its pills say what it runs.
+        XCTAssertTrue(app.waitFor(10) { modelPill.exists && modelPill.pillValue == "OpenAI: GPT-5" }, modelPill.pillValue)
+        XCTAssertEqual(thinkingPill.pillValue, "High")
+        app.goBack()
+        app.goBack()
+
+        // An open session: the pills change it on the computer.
+        app.openSession("Relay: device sign-in", in: "crok-build")
+        XCTAssertTrue(app.waitFor(5) { modelPill.exists && modelPill.pillValue == "Grok Code Fast 1" }, modelPill.pillValue)
+        XCTAssertEqual(thinkingPill.pillValue, "High")
+        snap("46-session-pills")
+        modelPill.tap()
+        let current = element(app, "modelRow-grok-code-fast-1")
+        XCTAssertTrue(current.waitForExistence(timeout: 5))
+        XCTAssertTrue(current.isSelected, "the current model is checked")
+        XCTAssertFalse(element(app, "modelRow-default").exists, "Default only for a new session")
+        snap("47-choose-model-session")
+        app.swipeUp()
+        snap("47b-choose-model-session-large")
+        search.tap()
+        search.typeText("sonnet")
+        let sonnet = element(app, "modelRow-claude-sonnet-4-5")
+        XCTAssertTrue(sonnet.waitForExistence(timeout: 5))
+        sonnet.tap()
+        // On its way (a spinner, "Sending"), then applied.
+        XCTAssertTrue(app.waitFor(5) { modelPill.pillValue.hasPrefix("Claude Sonnet 4.5") }, modelPill.pillValue)
+        snap("48-session-model-changing")
+        XCTAssertTrue(app.waitFor(10) { modelPill.pillValue == "Claude Sonnet 4.5" }, modelPill.pillValue)
+        thinkingPill.tap()
+        let max = menuItem(app, "Max")
+        XCTAssertTrue(max.waitForExistence(timeout: 5))
+        snap("49-thinking-menu-session")
+        max.tap()
+        XCTAssertTrue(app.waitFor(10) { thinkingPill.pillValue == "Max" }, thinkingPill.pillValue)
+        XCTAssertTrue(app.waitFor(10) { modelPill.isHittable }, "nothing left on its way")
+
+        // Session info: the same choices, from its Model and Thinking level rows.
+        element(app, "sessionInfoButton").tap()
+        let infoModel = element(app, "infoModelRow")
+        XCTAssertTrue(infoModel.waitForExistence(timeout: 5))
+        XCTAssertTrue(infoModel.label.contains("Claude Sonnet 4.5"), infoModel.label)
+        snap("50-info-model-rows")
+        infoModel.tap()
+        let grok4 = element(app, "modelRow-grok-4")
+        XCTAssertTrue(grok4.waitForExistence(timeout: 5))
+        grok4.tap()
+        XCTAssertTrue(app.waitFor(10) { infoModel.label.contains("Grok 4") && !infoModel.label.contains("Fast") }, infoModel.label)
+        let infoThinking = element(app, "infoThinkingRow")
+        XCTAssertTrue(app.waitFor(10) { infoThinking.exists && infoThinking.isEnabled })
+        infoThinking.tap()
+        let low = menuItem(app, "Low")
+        XCTAssertTrue(low.waitForExistence(timeout: 5))
+        low.tap()
+        XCTAssertTrue(app.waitFor(10) { infoThinking.label.contains("Low") }, infoThinking.label)
+        snap("51-info-changed")
+        element(app, "infoDone").tap()
+        XCTAssertTrue(app.waitFor(5) { modelPill.pillValue == "Grok 4" && thinkingPill.pillValue == "Low" })
+    }
+
+    /// The status words of the tool calls on screen ("running", "done", "failed", "stopped").
+    private func toolStates(_ app: XCUIApplication) -> [String] {
+        app.descendants(matching: .any).matching(identifier: "toolCard").allElementsBoundByIndex.map {
+            $0.value as? String ?? ""
+        }
+    }
+
+    /// Reasoning and tool calls by their status only (mobile/DESIGN.md "Thinking and tool calls"), in light and dark and
+    /// on a wallpaper: done, failed, running and stopped tool calls; "Thinking…" while a turn reasons, then "Thought".
+    func testThinkingAndToolRows() {
+        for (appearance, theme) in [("light", "none"), ("dark", "none"), ("light", "tulip"), ("dark", "game")] {
+            let suffix = "\(theme)-\(appearance)"
+            let app = launch(appearance: appearance, theme: theme)
+            waitForList(app)
+            // Running: a tool call in progress, done and failed ones above it.
+            app.openSession("Fix the flaky upload test", in: "crok-build")
+            let tool = element(app, "toolCard")
+            XCTAssertTrue(tool.waitForExistence(timeout: 10))
+            let deadline = Date().addingTimeInterval(5)
+            while !toolStates(app).contains("running"), Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+            XCTAssertTrue(toolStates(app).contains("running"), "\(toolStates(app))")
+            Thread.sleep(forTimeInterval: 1)
+            snap("60-tools-running-\(suffix)")
+            app.swipeDown()
+            Thread.sleep(forTimeInterval: 0.6)
+            let shown = toolStates(app)
+            XCTAssertTrue(shown.contains("done"), "\(shown)")
+            snap("61-tools-done-failed-\(suffix)")
+            app.goBack()
+            app.goBack()
+
+            // A turn reasoning from the phone: "Thinking…", then "Thought" once the tool call follows.
+            app.openSession("Relay: device sign-in", in: "crok-build")
+            let field = element(app, "composerField")
+            XCTAssertTrue(field.waitForExistence(timeout: 5))
+            field.tap()
+            field.typeText("Check the expiry")
+            element(app, "sendButton").tap()
+            let thinking = element(app, "thoughtRowActive")
+            XCTAssertTrue(thinking.waitForExistence(timeout: 10), "Thinking… while the turn reasons")
+            Thread.sleep(forTimeInterval: 0.4)
+            snap("62-thinking-\(suffix)")
+            XCTAssertTrue(element(app, "thoughtRow").waitForExistence(timeout: 10), "then Thought")
+            XCTAssertFalse(thinking.exists)
+            snap("63-thought-\(suffix)")
+            app.terminate()
+        }
+    }
+
+    /// The pills in dark mode, with a session theme, on an older crok (dimmed), and a refused change.
+    func testModelPillsLook() {
+        for (appearance, theme) in [("dark", "none"), ("light", "tulip"), ("dark", "game")] {
+            let app = launch(appearance: appearance, theme: theme)
+            waitForList(app)
+            app.openSession("Relay: device sign-in", in: "crok-build")
+            let modelPill = element(app, "modelPill")
+            XCTAssertTrue(app.waitFor(5) { modelPill.exists && modelPill.pillValue == "Grok Code Fast 1" })
+            Thread.sleep(forTimeInterval: 1.5)
+            snap("52-session-pills-\(theme)-\(appearance)")
+            // The row sits above the field, left-aligned with the Menu pill. (Not checked against the transcript: under
+            // XCUITest's polling a short transcript sometimes lands below the composer, with or without the pills.)
+            XCTAssertLessThan(modelPill.frame.maxY, element(app, "composerField").frame.minY)
+            XCTAssertLessThan(abs(modelPill.frame.minX - element(app, "menuButton").frame.minX), 1, "aligned with the Menu pill")
+            if theme == "none" {
+                element(app, "thinkingPill").tap()
+                XCTAssertTrue(menuItem(app, "Medium").waitForExistence(timeout: 5))
+                snap("53-thinking-menu-dark")
+                menuItem(app, "Medium").tap()
+                modelPill.tap()
+                XCTAssertTrue(element(app, "modelRow-grok-code-fast-1").waitForExistence(timeout: 5))
+                snap("54-choose-model-dark")
+                element(app, "modelPickerCancel").tap()
+            }
+            app.goBack()
+            element(app, "newSessionInProject").tap()
+            XCTAssertTrue(element(app, "newSessionPlaceholder").waitForExistence(timeout: 5))
+            XCTAssertTrue(element(app, "modelPill").waitForExistence(timeout: 5))
+            Thread.sleep(forTimeInterval: 1)
+            snap("55-new-session-pills-\(theme)-\(appearance)")
+            app.terminate()
+        }
+
+        // A long model name: truncated in the middle, the thinking pill still whole and on screen.
+        let long = launch()
+        waitForList(long)
+        long.openSession("Relay: device sign-in", in: "crok-build")
+        let longPill = element(long, "modelPill")
+        XCTAssertTrue(longPill.waitForExistence(timeout: 5))
+        longPill.tap()
+        let search = long.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("nemotron")
+        let nemotron = element(long, "modelRow-openrouter/nvidia/llama-3.3-nemotron-super-49b-v1.5")
+        XCTAssertTrue(nemotron.waitForExistence(timeout: 5))
+        nemotron.tap()
+        XCTAssertTrue(long.waitFor(10) { longPill.pillValue.hasPrefix("NVIDIA") && !longPill.pillValue.hasSuffix("Sending") })
+        let longThinking = element(long, "thinkingPill")
+        XCTAssertTrue(longThinking.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 1)
+        snap("59-long-model-name")
+        XCTAssertLessThan(longPill.frame.maxX, longThinking.frame.minX)
+        XCTAssertLessThanOrEqual(longThinking.frame.maxX, long.windows.firstMatch.frame.maxX - 8)
+        XCTAssertGreaterThan(longThinking.frame.width, 60, "the thinking pill keeps its label")
+        long.terminate()
+
+        // Studio online with an older crok: the session's model, dimmed; a tap says why.
+        let older = launch(["-CrokDemoStudioOnline", "YES"])
+        waitForList(older)
+        older.openSession("Benchmark the tokenizer", in: "tokenizer", on: "Studio")
+        let dimmed = element(older, "modelPill")
+        XCTAssertTrue(dimmed.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(older, "thinkingPill").exists)
+        snap("56-session-pills-older-crok")
+        dimmed.tap()
+        XCTAssertTrue(older.alerts.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(older.alerts.firstMatch.label.contains("doesn't offer model choices"), older.alerts.firstMatch.label)
+        snap("57-older-crok-alert")
+        older.alerts.firstMatch.buttons.firstMatch.tap()
+        older.terminate()
+
+        // The computer refuses: the pill goes back and an alert says why.
+        // Quoted: launch argument values are read as property-list strings.
+        let refusing = launch(["-CrokDemoConfigFails", "\"Your plan does not include this model.\""])
+        waitForList(refusing)
+        refusing.openSession("Relay: device sign-in", in: "crok-build")
+        let pill = element(refusing, "modelPill")
+        XCTAssertTrue(pill.waitForExistence(timeout: 5))
+        pill.tap()
+        let grok4 = element(refusing, "modelRow-grok-4")
+        XCTAssertTrue(grok4.waitForExistence(timeout: 5))
+        grok4.tap()
+        let alert = refusing.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        XCTAssertTrue(alert.label.contains("Couldn't change the model"), alert.label)
+        snap("58-model-change-refused")
+        alert.buttons.firstMatch.tap()
+        XCTAssertEqual(pill.pillValue, "Grok Code Fast 1", "back to the old value")
+    }
+
     func testCommandsDark() {
         let app = launch(appearance: "dark")
         waitForList(app)
@@ -569,4 +829,9 @@ final class DemoTourUITests: XCTestCase {
         XCTAssertFalse(element(app, "sessionRow-Fix the flaky upload test").exists)
         snap("03h-search")
     }
+}
+
+private extension XCUIElement {
+    /// A pill's current choice (its accessibility value).
+    var pillValue: String { (value as? String) ?? "" }
 }

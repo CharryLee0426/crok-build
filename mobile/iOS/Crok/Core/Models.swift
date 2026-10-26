@@ -325,13 +325,20 @@ struct TranscriptEvent: Codable, Identifiable, Hashable, Sendable {
     var isRemote: Bool { origin == "remote" }
 }
 
-/// A page of `sessions:events`, newest first.
-struct EventsPage: Decodable, Sendable, Equatable {
-    var page: [TranscriptEvent]
-    var isDone: Bool
-    var continueCursor: String
-    var splitCursor: String?
-    var pageStatus: String?
+/// Which items a part of the transcript holds (`sessions:transcript`): those with `afterSeq < seq <= throughSeq`
+/// (either bound optional), the newest `limit` of them.
+struct TranscriptRange: Hashable, Sendable {
+    var afterSeq: Double?
+    var throughSeq: Double?
+    var limit: Int
+}
+
+/// A part of the transcript (`sessions:transcript`), newest first. Thoughts and tool calls come without their text
+/// (the phones show their status only).
+struct TranscriptChunk: Decodable, Sendable, Equatable {
+    var events: [TranscriptEvent]
+    /// The range holds older items than these.
+    var more: Bool
 }
 
 /// A prompt sent from a phone or the web (`commands:forSession`).

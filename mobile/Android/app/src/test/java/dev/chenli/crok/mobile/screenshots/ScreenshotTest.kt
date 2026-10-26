@@ -33,8 +33,12 @@ import dev.chenli.crok.mobile.ui.HomeScaffold
 import dev.chenli.crok.mobile.ui.HomeTabsUi
 import dev.chenli.crok.mobile.ui.common.GlassLevel
 import dev.chenli.crok.mobile.ui.common.LocalGlassLevel
+import dev.chenli.crok.mobile.logic.SetupChange
+import dev.chenli.crok.mobile.logic.SetupChoice
+import dev.chenli.crok.mobile.ui.session.InfoSetup
 import dev.chenli.crok.mobile.ui.session.NewSessionTarget
 import dev.chenli.crok.mobile.ui.session.InfoRefresh
+import dev.chenli.crok.mobile.ui.session.SetupPickers
 import dev.chenli.crok.mobile.ui.session.SessionActions
 import dev.chenli.crok.mobile.ui.session.SessionContent
 import dev.chenli.crok.mobile.ui.session.SessionInfoActions
@@ -154,7 +158,10 @@ class ScreenshotTest {
         version = "1.0 (1)",
     )
 
-    private fun runningSession(): SessionUiState {
+    /** What `devices:models` answers for [deviceId] (the demo computers' lists). */
+    private fun deviceModels(deviceId: String) = Result.success(DemoData.modelsFor(deviceId))
+
+    private fun runningSession(changing: SetupChange = SetupChange()): SessionUiState {
         val session = DemoData.sessions(now).first { it.id == DemoData.RUNNING_SESSION }
         return SessionUiState.build(
             row = session.row(),
@@ -165,6 +172,8 @@ class ScreenshotTest {
             optimistic = listOf(OptimisticPrompt("local-1", "Then run the whole crok-remote suite", now - 20_000)),
             connection = ConnectionState.Connected,
             zone = zone,
+            deviceModels = deviceModels(session.detail.deviceId),
+            changing = changing,
         )
     }
 
@@ -181,6 +190,7 @@ class ScreenshotTest {
             connection = ConnectionState.Connected,
             zone = zone,
             answering = if (answering) DemoData.WAITING_REQUEST else null,
+            deviceModels = deviceModels(session.detail.deviceId),
         )
     }
 
@@ -196,6 +206,7 @@ class ScreenshotTest {
             optimistic = emptyList(),
             connection = ConnectionState.Connected,
             zone = zone,
+            deviceModels = deviceModels(session.detail.deviceId),
         )
     }
 
@@ -469,7 +480,7 @@ class ScreenshotTest {
 
     private val crokSite = NewSessionTarget(DemoData.MACBOOK_ID, "/Users/chen/code/crok-site", "MacBook Pro", "crok-site")
 
-    private fun newSessionState(): SessionUiState = SessionUiState.build(
+    private fun newSessionState(choice: SetupChoice = SetupChoice()): SessionUiState = SessionUiState.build(
         row = null,
         detail = null,
         gone = false,
@@ -479,6 +490,8 @@ class ScreenshotTest {
         connection = ConnectionState.Connected,
         zone = zone,
         newSession = crokSite,
+        deviceModels = deviceModels(crokSite.deviceId),
+        choice = choice,
     )
 
     /** Right after the first prompt: the session exists on the relay and its computer is opening it. */
@@ -563,6 +576,8 @@ class ScreenshotTest {
             zone = zone,
             commands = SessionCommands(DemoData.slashCommands, "session"),
             cards = cards,
+            // The computer's list as devices:models answers it: none from the Studio's older crok.
+            deviceModels = Result.success(if (models) DemoData.modelsFor(session.detail.deviceId) else null),
         )
     }
 
@@ -633,5 +648,182 @@ class ScreenshotTest {
     @Test
     fun frostedFallbackSessionDark() = shoot("43-session-frosted-fallback-dark", dark = true, glass = GlassLevel.Tinted) {
         SessionContent(runningSession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    // Model and thinking level (mobile/DESIGN.md): the setup row, Choose a Model, the thinking menu.
+
+    private val grokXhigh = SetupChoice("grok-4", "xhigh")
+
+    @Test
+    fun newSessionSetupPicked() = shoot("54-new-session-setup-picked") {
+        SessionContent(newSessionState(grokXhigh), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun newSessionSetupPickedDark() = shoot("55-new-session-setup-picked-dark", dark = true) {
+        SessionContent(newSessionState(grokXhigh), draft = "Plan the 1.6 release", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun sessionSetupRow() = shoot("56-session-setup-row") {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun sessionSetupRowDarkWithDraft() = shoot("57-session-setup-row-dark", dark = true) {
+        SessionContent(commandSession(), draft = "Also check the Linux runner", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun modelSheet() = shoot("58-model-sheet") {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions(), pickers = SetupPickers(modelSheet = true))
+    }
+
+    @Test
+    fun modelSheetSearchDark() = shoot("59-model-sheet-search-dark", dark = true) {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions(), pickers = SetupPickers(modelSheet = true, query = "deep"))
+    }
+
+    @Test
+    fun modelSheetNewSession() = shoot("60-model-sheet-new-session") {
+        SessionContent(newSessionState(), draft = "", now = now, actions = SessionActions(), pickers = SetupPickers(modelSheet = true))
+    }
+
+    @Test
+    fun modelSheetNoResults() = shoot("61-model-sheet-no-results") {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions(), pickers = SetupPickers(modelSheet = true, query = "gpt"))
+    }
+
+    @Test
+    fun thinkingMenu() = shoot("62-thinking-menu") {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions(), pickers = SetupPickers(thinkingMenu = true))
+    }
+
+    @Test
+    fun thinkingMenuNewSessionDark() = shoot("63-thinking-menu-new-session-dark", dark = true) {
+        SessionContent(newSessionState(SetupChoice("grok-4")), draft = "", now = now, actions = SessionActions(), pickers = SetupPickers(thinkingMenu = true))
+    }
+
+    @Test
+    fun sessionSetupThemed() = shoot("64-session-setup-theme-classic", appearance = SessionAppearance(themeId = "classic")) {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun sessionSetupThemedDark() = shoot("65-session-setup-theme-purple-dark", dark = true, appearance = SessionAppearance(themeId = "purple")) {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions(), pickers = SetupPickers(thinkingMenu = true))
+    }
+
+    /** A model change on its way: the new name with a spinner; both pills wait. */
+    @Test
+    fun sessionSetupChanging() = shoot("66-session-setup-changing") {
+        SessionContent(runningSession(SetupChange(model = "openrouter/moonshotai/kimi-k2")), draft = "", now = now, actions = SessionActions())
+    }
+
+    /** The Studio's older crok offers no list: the session's model, dimmed. */
+    @Test
+    fun sessionSetupOlderCrok() = shoot("67-session-setup-older-crok", dark = true) {
+        SessionContent(commandSession(sessionId = "demo-s3", models = false), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    @Config(qualifiers = "+ja")
+    fun newSessionSetupJapanese() = shoot("68-new-session-setup-ja") {
+        SessionContent(newSessionState(SetupChoice("grok-4")), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    @Config(qualifiers = "+de")
+    fun modelSheetGermanNewSession() = shoot("69-model-sheet-new-session-de", dark = true) {
+        SessionContent(newSessionState(grokXhigh), draft = "", now = now, actions = SessionActions(), pickers = SetupPickers(modelSheet = true))
+    }
+
+    @Test
+    @Config(qualifiers = "+fr")
+    fun thinkingMenuFrench() = shoot("70-thinking-menu-fr") {
+        SessionContent(newSessionState(grokXhigh), draft = "", now = now, actions = SessionActions(), pickers = SetupPickers(thinkingMenu = true))
+    }
+
+    /** Session info: Model and Thinking level by name, with chevrons while the computer offers choices. */
+    @Test
+    fun sessionInfoSetupRows() = shoot("71-session-info-setup") {
+        val detail = DemoData.sessions(now).first { it.id == DemoData.RUNNING_SESSION }.detail
+        Box(Modifier.fillMaxSize().background(CrokTheme.colors.grouped)) {
+            SessionInfoContent(
+                detail = detail,
+                refresh = InfoRefresh.Idle,
+                now = now,
+                actions = SessionInfoActions(),
+                setup = InfoSetup(DemoData.macbookModels, onModel = {}, onThinking = {}),
+            )
+        }
+    }
+
+    @Test
+    fun sessionSetupFrosted() = shoot("72-session-setup-frosted-fallback", glass = GlassLevel.Tinted) {
+        SessionContent(commandSession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    // Thinking and tool calls by their status only (mobile/DESIGN.md "Thinking and tool calls").
+
+    /**
+     * A turn that ended (a thought, a done, a failed and a stopped call, then Stop) and the one running now: a call
+     * running and the newest item a thought, so "Thinking…" shows.
+     */
+    private fun activitySession(): SessionUiState {
+        val session = DemoData.sessions(now).first { it.id == DemoData.RUNNING_SESSION }
+        val s = session.id
+        fun event(seq: Long, kind: String, at: Long, text: String = "", title: String? = null, status: String? = null) =
+            dev.chenli.crok.mobile.data.RelayEvent("$s-a$seq", seq, "a$seq", kind, text, title, if (kind == "tool") "execute" else null, status, "local", null, null, at)
+        val start = now - 12 * 60_000
+        val events = listOf(
+            event(1, "user", start, "Why does relay_reconnect flake on CI?"),
+            event(2, "thought", start + 10_000),
+            event(3, "tool", start + 20_000, title = "Read `crates/codegen/crok-remote/src/socket.rs`", status = "completed").copy(toolKind = "read"),
+            event(4, "tool", start + 30_000, title = "Run `cargo test -p crok-remote relay_reconnect`", status = "completed"),
+            event(5, "tool", start + 40_000, title = "Run `cargo clippy -p crok-remote -- -D warnings`", status = "failed"),
+            event(6, "tool", start + 50_000, title = "Run `cargo bench -p crok-remote`", status = "in_progress"),
+            event(7, "system", start + 60_000, status = "cancelled"),
+            event(8, "user", now - 3 * 60_000, "Skip the bench, run the test 20 times"),
+            event(9, "tool", now - 2 * 60_000, title = "Run `cargo test -p crok-remote relay_reconnect -- --test-threads 1`", status = "in_progress"),
+            event(10, "thought", now - 60_000),
+        )
+        return SessionUiState.build(
+            row = session.row(),
+            detail = session.detail,
+            gone = false,
+            transcript = TranscriptState(events.sortedByDescending { it.seq }, loaded = true, historyComplete = true),
+            prompts = emptyList(),
+            optimistic = emptyList(),
+            connection = ConnectionState.Connected,
+            zone = zone,
+            deviceModels = deviceModels(session.detail.deviceId),
+        )
+    }
+
+    @Test
+    fun activityLight() = shoot("80-activity-light") {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun activityDark() = shoot("81-activity-dark", dark = true) {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun activityOnAWallpaper() = shoot("82-activity-theme-home", appearance = SessionAppearance(themeId = "home")) {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    fun activityOnAWallpaperDark() = shoot("83-activity-theme-snowman-dark", dark = true, appearance = SessionAppearance(themeId = "snowman")) {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
+    }
+
+    @Test
+    @Config(qualifiers = "+zh-rCN")
+    fun activityChinese() = shoot("84-activity-zh") {
+        SessionContent(activitySession(), draft = "", now = now, actions = SessionActions())
     }
 }

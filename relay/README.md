@@ -153,6 +153,7 @@ npm run keys -- --apply
 npx convex env set CLERK_JWT_ISSUER_DOMAIN https://placeholder.clerk.accounts.dev   # any value for the scripts
 npm run test:e2e                                # the relay alone: sign-in, mirroring, commands, revocation
 node scripts/commands-e2e.mjs                   # new sessions from any device, model / thinking level, slash commands
+CROK_E2E_ROUNDS=3000 node scripts/transcript-e2e.mjs   # a 3,000-turn session over sessions:transcript, with costs
 CROK_BIN=…/xai-grok-pager CROK_HOME=/tmp/crok-e2e E2E_PROJECT=~/crok-e2e-project node scripts/bridge-e2e.mjs   # project outside the temp folder
 ```
 
@@ -194,6 +195,11 @@ the phone: finds the older session listed in the same project (offline), opens i
 transcript from disk, reads the live transcript, sends a prompt, asks for session info, stops a running turn, and checks
 the session goes offline when the process exits. The scripts
 stand in for the web approval with `npx convex run --identity`.
+
+`status-e2e.mjs` measures how soon other devices see a turn end. A real `crok agent stdio` mirrors its session through
+a proxy that adds `LATENCY_MS` (default 150) each way, while a phone watches the session directly. It runs a long turn
+(`busy N` for the mock model: N quick tool calls), stops a turn inside a tool call, and takes a queued prompt off the
+queue before sending one from the phone; each end must reach the phone within `MAX_LAG_MS` (default 3000).
 
 ## Costs and limits
 

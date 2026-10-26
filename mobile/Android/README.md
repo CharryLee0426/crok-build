@@ -129,10 +129,20 @@ As on the web and iOS (relay/DESIGN.md §5, "New sessions" and "Commands in the 
   list above it, filtered by prefix: the phone's own `/new [prompt]`, `/model [name]`, `/think [level]` (only when the
   model has levels), `/stop` (only while running) and `/info`, then the session's (`sessions:commands`). A command that
   takes arguments fills the field; the others run at once. Any other `/text` goes to the computer as a prompt.
-- `/model` and `/think` answer with a local **bot card** in the transcript and an inline keyboard (`sessions:get` →
-  `models`; the current choice marked ✓; thinking levels two per row). A tap calls `commands:setConfig` and spins until
+- **Model and thinking level** ([`mobile/DESIGN.md`](../DESIGN.md)): above the field, on the new-session screen and in
+  every session, a setup row of two glass pills — the model (chip glyph, name truncated in the middle, "Default" until
+  one is picked in a new session) and, when the model has levels, the thinking level (brain glyph). The list is the
+  computer's own (`devices:models`, its own subscription; `sessions:get` → `models` only when that query fails on an
+  older relay). The model pill opens **Choose a Model** (a bottom sheet: search over name, id and description, sections
+  by provider, the current one ✓); the thinking pill a glass menu above the composer. In a session a pick calls
+  `commands:setConfig` (the pill shows the new value with a spinner until `commands:get` says done, a snackbar on
+  failure); in a new session it goes with the first prompt (`sessions:create`'s `model` / `effort`). Hidden while the
+  computer is offline, while the session is starting and while the command list is open; dimmed (a tap says why) when
+  the computer's crok offers no list. Session info's Model and Thinking level rows open the same pickers.
+- `/model` and `/think` answer with a local **bot card** in the transcript and an inline keyboard (the same list as the
+  pills; the current choice marked ✓; thinking levels two per row). A tap calls `commands:setConfig` and spins until
   `commands:get` says done; the card then reads "Model: Grok 4 ✓". With an argument they match by id, level or name
-  (exact first, else a unique prefix) and apply directly. Without `models` the card says the computer is offline, or —
+  (exact first, else a unique prefix) and apply directly. Without a list the card says the computer is offline, or —
   online but no models — that its crok needs an update.
 
 ## Look: Liquid Glass
@@ -204,7 +214,8 @@ feature" with the shared showcase reply, `relay/scripts/markdown-showcase.md`, c
 Prompts (also to a session nobody runs, which the demo computer then opens), Stop, info requests, answering the
 permission request (the turn goes on: the build runs, or is skipped on Reject), pin / archive, reordering projects and
 sessions, loading a listed session's history, new sessions (on the MacBook; the Studio runs an "older crok" that offers
-no models and cannot start sessions), `/model` and `/think` and device sign-outs all work against the in-memory relay
+no models and cannot start sessions), the model and thinking pills (the MacBook lists its own models, DeepSeek's and
+OpenRouter's), `/model` and `/think` and device sign-outs all work against the in-memory relay
 (`demo/DemoTransport.kt`, which answers the same Convex function names). Release builds ignore it.
 
 ## Tests
@@ -226,8 +237,11 @@ composer gating, the permission card), the auth state machine with persistence a
 built-in relay, token refresh and revocation, the delayed connection state, and the engine against the demo relay
 (paging, commands, devices, optimistic reorders and taking a refused one back, loading a listed session's history,
 prompts / Stop / info for a session nobody runs, answering a permission request, new sessions, model and thinking-level
-changes, slash commands), the composer commands and argument matching, the session view model (a new session turning
-into the session, `/model` / `/think` cards, commands sent as prompts), and staying connected (`StayingConnectedTest`,
+changes, a computer's `devices:models`, slash commands), the composer commands and argument matching, the model
+pickers (`ModelSetupTest`: provider sections, search, the pills' labels, Default, hidden / dimmed / busy rules, the
+`devices:models` fallback), the session view model (a new session turning into the session and sending its picked
+model and level, setup-row changes and refusals, `/model` / `/think` cards, commands sent as prompts), and staying
+connected (`StayingConnectedTest`,
 `EngineReconnectTest`: a dead socket replaced after coming back to the foreground or a network change, a live one kept,
 the 20 s watchdog, `UNAUTHENTICATED` and its back-off, `REVOKED`, a mutation moved to the new client, the title states)
 on virtual time.

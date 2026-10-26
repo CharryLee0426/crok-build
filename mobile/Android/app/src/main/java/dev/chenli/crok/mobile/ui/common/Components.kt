@@ -283,11 +283,21 @@ fun SectionRow(
     }
 }
 
-/** A key / value line (session info, device details). */
+/** A key / value line (session info, device details); with [onClick] it is tappable and ends in a chevron. */
 @Composable
-fun InfoLine(label: String, value: String, modifier: Modifier = Modifier, mono: Boolean = false, trailing: (@Composable () -> Unit)? = null) {
+fun InfoLine(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    mono: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
     Row(
-        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClickLabel = label, onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = CrokTheme.colors.textSecondary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(120.dp))
@@ -298,6 +308,9 @@ fun InfoLine(label: String, value: String, modifier: Modifier = Modifier, mono: 
             modifier = Modifier.weight(1f),
         )
         trailing?.invoke()
+        if (onClick != null) {
+            Icon(CrokIcons.ChevronRight, contentDescription = null, tint = CrokTheme.colors.textTertiary, modifier = Modifier.size(20.dp))
+        }
     }
 }
 

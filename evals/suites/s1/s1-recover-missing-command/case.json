@@ -1,0 +1,12 @@
+{
+  "name": "Recovering when a command is missing",
+  "prompt": "Run `pythonx scripts/version.py` and tell me the build number it prints.",
+  "checks": [
+    {
+      "kind": "answer_matches",
+      "pattern": "3\\.14\\.15",
+      "name": "reports build 3.14.15"
+    }
+  ],
+  "solution_answer": "pythonx is not installed; with python3 it prints build 3.14.15."
+}

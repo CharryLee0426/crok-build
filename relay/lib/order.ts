@@ -76,11 +76,11 @@ export function applyResetOrder(groups: ProjectGroup[], projectKey?: string): Pr
   return [...groups].sort((a, b) => b.lastActivityAt - a.lastActivityAt).map((g) => ({ ...g, placed: false }));
 }
 
-/** One session changed (pin, …): its project re-sorts so pinned sessions lead. */
+/** One session changed (pin, read, …): its project re-sorts so pinned sessions lead. */
 export function patchSession(
   groups: ProjectGroup[],
   id: string,
-  patch: Partial<Pick<SessionRow, "pinned" | "archived">>,
+  patch: Partial<Pick<SessionRow, "pinned" | "archived" | "unread">>,
 ): ProjectGroup[] {
   return groups.map((group) => {
     if (!group.sessions.some((s) => s._id === id)) return group;
@@ -111,6 +111,7 @@ export function addSession(groups: ProjectGroup[], row: SessionRow): ProjectGrou
       deviceId: row.deviceId,
       deviceName: row.deviceName,
       deviceOnline: row.deviceOnline,
+      deviceLastSeenAt: null,
       path: row.projectPath,
       name: row.projectName,
       placed: false,

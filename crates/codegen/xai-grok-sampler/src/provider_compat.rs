@@ -175,10 +175,12 @@ pub(crate) fn prepare_codex_request(body: &mut Value) {
 const OPENROUTER_SESSION_ID_MAX_CHARS: usize = 256;
 
 /// `cache_key` names the conversation whose prompt cache this request should reuse.
+/// `context_window` is the model's, from the catalog; `0` (unknown) leaves `max_tokens` as it is.
 pub(crate) fn prepare_openrouter_request(
     body: &mut Value,
     supports_tools: Option<bool>,
     cache_key: Option<&str>,
+    context_window: u64,
 ) {
     let Some(body) = body.as_object_mut() else {
         return;
@@ -223,6 +225,79 @@ pub(crate) fn prepare_openrouter_request(
             mark_cache_breakpoints(messages);
         }
     }
+    fit_output_to_context(body, context_window);
+}
+
+/// What an inline attachment (a `data:` URL) counts for in [`estimated_prompt_tokens`]: a large
+/// image costs a few thousand tokens on most models, whatever the size of its encoding.
+const ATTACHMENT_TOKENS: u64 = 5_000;
+
+/// Shrink `max_tokens` so the prompt and the output fit in the window together.
+///
+/// OpenRouter refuses a request whose prompt plus `max_tokens` exceeds the window. Its catalog
+/// lists many models (every 1M-token `~…-latest` alias among them) with an output ceiling of 90%
+/// of the window, so sent as it is, that ceiling refused every prompt over about a tenth of it.
+fn fit_output_to_context(body: &mut serde_json::Map<String, Value>, context_window: u64) {
+    let Some(limit) = body.get("max_tokens").and_then(Value::as_u64) else {
+        return;
+    };
+    if context_window == 0 {
+        return;
+    }
+    let prompt = estimated_prompt_tokens(body);
+    // Room for a tokenizer that splits the prompt finer than OpenRouter's count does.
+    let reserved = prompt.saturating_add(prompt / 8);
+    // An estimate that leaves no room still leaves enough to answer with: the estimate runs high,
+    // and a prompt that really fills the window is refused whatever the output limit.
+    let fit = context_window
+        .saturating_sub(reserved)
+        .max(context_window / 16)
+        .max(1);
+    if limit > fit {
+        body.insert("max_tokens".into(), json!(fit));
+    }
+}
+
+/// About the tokens OpenRouter counts for `body`: an ASCII byte is a quarter of one, as its count
+/// of English and code comes out, and any other byte a third, which makes a CJK character one.
+/// Each inline attachment counts [`ATTACHMENT_TOKENS`].
+fn estimated_prompt_tokens(body: &serde_json::Map<String, Value>) -> u64 {
+    #[derive(Default)]
+    struct Count {
+        ascii: u64,
+        other: u64,
+        attachments: u64,
+    }
+    impl Count {
+        fn text(&mut self, text: &str) {
+            if text.starts_with("data:") {
+                self.attachments += 1;
+                return;
+            }
+            let ascii = text.bytes().filter(u8::is_ascii).count();
+            self.ascii += ascii as u64;
+            self.other += (text.len() - ascii) as u64;
+        }
+        fn value(&mut self, value: &Value) {
+            match value {
+                Value::String(text) => self.text(text),
+                Value::Array(items) => items.iter().for_each(|item| self.value(item)),
+                Value::Object(map) => {
+                    for (key, child) in map {
+                        self.text(key);
+                        self.value(child);
+                    }
+                }
+                Value::Null | Value::Bool(_) | Value::Number(_) => {}
+            }
+        }
+    }
+    let mut count = Count::default();
+    for (key, value) in body {
+        count.text(key);
+        count.value(value);
+    }
+    count.ascii / 4 + count.other / 3 + count.attachments.saturating_mul(ATTACHMENT_TOKENS)
 }
 
 /// Only Claude needs marked breakpoints to cache at all. Other models on OpenRouter cache prefixes
@@ -1058,7 +1133,7 @@ mod tests {
     #[test]
     fn openrouter_omits_tools_for_models_without_tool_support() {
         let mut body = json!({"messages":[],"tools":[{"type":"function"}],"tool_choice":"auto","parallel_tool_calls":true});
-        prepare_openrouter_request(&mut body, Some(false), None);
+        prepare_openrouter_request(&mut body, Some(false), None, 0);
         assert!(body.get("tools").is_none());
         assert!(body.get("tool_choice").is_none());
         assert!(body.get("parallel_tool_calls").is_none());
@@ -1118,7 +1193,7 @@ mod tests {
             "~anthropic/claude-haiku-latest",
         ] {
             let mut body = claude_tool_loop(model);
-            prepare_openrouter_request(&mut body, None, Some("session-1"));
+            prepare_openrouter_request(&mut body, None, Some("session-1"), 0);
             assert_eq!(
                 cache_markers(&body),
                 [
@@ -1145,7 +1220,7 @@ mod tests {
         let mut first = json!({"model": "anthropic/claude-sonnet-5.5", "messages": [
             {"role": "system", "content": "Be precise."},
             {"role": "user", "content": "Read hello.txt"}]});
-        prepare_openrouter_request(&mut first, None, None);
+        prepare_openrouter_request(&mut first, None, None, 0);
         assert_eq!(
             cache_markers(&first),
             ["/messages/0/content/0", "/messages/1/content/0"]
@@ -1158,7 +1233,7 @@ mod tests {
             {"role": "assistant", "content": "", "tool_calls": [
                 {"id": "call-1", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "call-1", "content": "hello"}]});
-        prepare_openrouter_request(&mut tool_tip, None, None);
+        prepare_openrouter_request(&mut tool_tip, None, None, 0);
         assert_eq!(
             cache_markers(&tool_tip),
             ["/messages/1/content/0", "/messages/3"]
@@ -1175,7 +1250,7 @@ mod tests {
             "openrouter/auto",
         ] {
             let mut body = claude_tool_loop(model);
-            prepare_openrouter_request(&mut body, None, Some("session-1"));
+            prepare_openrouter_request(&mut body, None, Some("session-1"), 0);
             assert!(cache_markers(&body).is_empty(), "{model}");
             assert_eq!(
                 body.pointer("/messages/0/content"),
@@ -1188,10 +1263,141 @@ mod tests {
         // OpenRouter rejects a session id over 256 characters, and an empty one routes nowhere.
         for key in ["", &"k".repeat(257)] {
             let mut body = claude_tool_loop("openai/gpt-5.6-sol");
-            prepare_openrouter_request(&mut body, None, Some(key));
+            prepare_openrouter_request(&mut body, None, Some(key), 0);
             assert!(body.get("session_id").is_none());
             assert!(body.get("prompt_cache_key").is_none());
         }
+    }
+
+    const MILLION_TOKEN_WINDOW: u64 = 1_048_576;
+
+    /// `~deepseek/deepseek-flash-latest`'s output ceiling in OpenRouter's catalog.
+    const FLASH_LATEST_CEILING: u64 = 943_718;
+
+    /// A request whose prompt is `content`, asking for `max_tokens`.
+    fn openrouter_request(model: &str, content: &str, max_tokens: u64) -> Value {
+        json!({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "Be precise."},
+                {"role": "user", "content": content}
+            ],
+            "max_tokens": max_tokens,
+            "stream": true
+        })
+    }
+
+    /// The `max_tokens` OpenRouter receives for `body` on a model with `context_window`.
+    fn sent_max_tokens(mut body: Value, context_window: u64) -> Option<u64> {
+        prepare_openrouter_request(&mut body, None, Some("session-1"), context_window);
+        body.get("max_tokens").and_then(Value::as_u64)
+    }
+
+    /// ASCII text of about `tokens` tokens.
+    fn ascii_prompt(tokens: u64) -> String {
+        "x".repeat(usize::try_from(tokens * 4).unwrap())
+    }
+
+    #[test]
+    fn openrouter_output_limit_leaves_room_for_the_prompt() {
+        // The refused request: 85,872 tokens of text and 19,062 of tools, with 943,718 more asked for as output.
+        for prompt in [104_934, 300_000, 800_000] {
+            let sent = sent_max_tokens(
+                openrouter_request(
+                    "~deepseek/deepseek-flash-latest",
+                    &ascii_prompt(prompt),
+                    FLASH_LATEST_CEILING,
+                ),
+                MILLION_TOKEN_WINDOW,
+            )
+            .unwrap();
+            let reserved = prompt + prompt / 8;
+            assert!(sent + reserved <= MILLION_TOKEN_WINDOW, "{prompt}: {sent}");
+            assert!(
+                sent + reserved > MILLION_TOKEN_WINDOW - 100,
+                "{prompt}: the rest of the window stays available ({sent})"
+            );
+        }
+    }
+
+    #[test]
+    fn openrouter_output_limit_that_fits_is_sent_as_it_is() {
+        let short = openrouter_request(
+            "~deepseek/deepseek-flash-latest",
+            "Hello",
+            FLASH_LATEST_CEILING,
+        );
+        assert_eq!(
+            sent_max_tokens(short, MILLION_TOKEN_WINDOW),
+            Some(FLASH_LATEST_CEILING)
+        );
+        let claude = |prompt| {
+            sent_max_tokens(
+                openrouter_request(
+                    "~anthropic/claude-opus-latest",
+                    &ascii_prompt(prompt),
+                    128_000,
+                ),
+                1_000_000,
+            )
+        };
+        assert_eq!(claude(500_000), Some(128_000));
+        // Near the auto-compact threshold even a 128K ceiling no longer fits.
+        let near_full = claude(850_000).unwrap();
+        assert!(
+            near_full < 128_000 && near_full + 850_000 < 1_000_000,
+            "{near_full}"
+        );
+    }
+
+    #[test]
+    fn openrouter_output_limit_keeps_a_floor_when_the_prompt_fills_the_window() {
+        let full = openrouter_request(
+            "~deepseek/deepseek-flash-latest",
+            &ascii_prompt(1_000_000),
+            FLASH_LATEST_CEILING,
+        );
+        assert_eq!(
+            sent_max_tokens(full, MILLION_TOKEN_WINDOW),
+            Some(MILLION_TOKEN_WINDOW / 16)
+        );
+        // A ceiling under the floor is never raised.
+        let small = openrouter_request("fixture/small", &ascii_prompt(1_000_000), 4_096);
+        assert_eq!(sent_max_tokens(small, MILLION_TOKEN_WINDOW), Some(4_096));
+    }
+
+    #[test]
+    fn openrouter_output_limit_is_left_alone_without_a_window_or_a_limit() {
+        let body = openrouter_request(
+            "~deepseek/deepseek-flash-latest",
+            &ascii_prompt(500_000),
+            FLASH_LATEST_CEILING,
+        );
+        assert_eq!(sent_max_tokens(body, 0), Some(FLASH_LATEST_CEILING));
+        let mut unlimited = openrouter_request("fixture/model", "Hello", 1);
+        unlimited.as_object_mut().unwrap().remove("max_tokens");
+        assert_eq!(sent_max_tokens(unlimited, MILLION_TOKEN_WINDOW), None);
+    }
+
+    #[test]
+    fn openrouter_prompt_estimate_counts_cjk_by_character_and_attachments_by_count() {
+        let estimate = |body: Value| estimated_prompt_tokens(body.as_object().unwrap());
+        let overhead = estimate(json!({"content": ""}));
+        assert_eq!(
+            estimate(json!({"content": "x".repeat(4_000)})) - overhead,
+            1_000
+        );
+        // OpenRouter counts a common CJK character as one token.
+        assert_eq!(
+            estimate(json!({"content": "汉".repeat(1_000)})) - overhead,
+            1_000
+        );
+        // A 3 MB image counts as an image, not as 750K tokens of base64.
+        let image = format!("data:image/png;base64,{}", "A".repeat(3_000_000));
+        let with_image = json!({"content": [
+            {"type": "image_url", "image_url": {"url": image}}
+        ]});
+        assert!(estimate(with_image) < ATTACHMENT_TOKENS + 100);
     }
 
     fn set(body: &mut Value, key: &str, value: Value) {

@@ -3,83 +3,79 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { MessageKey } from "@/lib/i18n";
-import type { SessionRow } from "@/lib/types";
+import type { ProjectGroup, SessionRow } from "@/lib/types";
+import { AccountAvatar, ComputerAvatar } from "./avatars";
 import { Footer } from "./chrome";
 import { useI18n } from "./I18nProvider";
-import { BoltIcon, ChatsIcon, ComputerIcon, PhoneIcon, ShieldIcon, SparkIcon } from "./icons";
-import { SessionRowView } from "./SessionList";
+import { BoltIcon, ChevronDownIcon, ComputerIcon, PhoneIcon, SearchIcon, ShieldIcon, SparkIcon } from "./icons";
+import { ForumRow } from "./left/rows";
 import { ButtonLink, Code, CrokLogo } from "./ui";
 
-function demoRows(t: (key: MessageKey) => string): { row: SessionRow; time: string }[] {
-  const base = {
+/** The landing page's picture of the app: one computer's projects as groups with topics (mobile/DESIGN.md "Web"). */
+function demoGroups(t: (key: MessageKey) => string): { group: ProjectGroup; time: string }[] {
+  const deviceId = "demo-device" as SessionRow["deviceId"];
+  const row = (
+    id: string,
+    cwd: string,
+    fields: Pick<SessionRow, "title" | "status" | "preview" | "unread"> & Partial<SessionRow>,
+  ): SessionRow => ({
+    _id: id as SessionRow["_id"],
     sessionId: "demo",
+    cwd,
     model: "grok-code",
     gitBranch: null,
     usage: null,
-    app: "tui" as const,
-    deviceId: "demo-device" as SessionRow["deviceId"],
+    app: "tui",
+    online: true,
+    deviceId,
+    deviceName: "MacBook Pro",
     deviceOnline: true,
+    previewKind: "assistant",
+    lastActivityAt: 0,
+    pinned: false,
     archived: false,
     plan: null,
-    lastActivityAt: 0,
-    historyState: null,
-    starting: false,
-  };
-  // A demo session's folder is its own project.
-  const place = (cwd: string) => ({
-    cwd,
     projectKey: `demo-device:${cwd}`,
     projectPath: cwd,
     projectName: cwd.split("/").pop() ?? cwd,
+    historyState: null,
+    starting: false,
+    ...fields,
   });
+  const group = (cwd: string, sessions: SessionRow[]): ProjectGroup => ({
+    key: `demo-device:${cwd}`,
+    deviceId,
+    deviceName: "MacBook Pro",
+    deviceOnline: true,
+    deviceLastSeenAt: null,
+    path: cwd,
+    name: cwd.split("/").pop() ?? cwd,
+    placed: false,
+    lastActivityAt: 0,
+    sessions,
+  });
+  const web = "/Users/me/code/web-app";
+  const settings = "/Users/me/code/settings-ui";
+  const billing = "/Users/me/code/billing-service";
   return [
     {
       time: "09:41",
-      row: {
-        ...base,
-        _id: "demo1" as SessionRow["_id"],
-        title: t("demo_title_1"),
-        ...place("/Users/me/code/web-app"),
-        status: "running",
-        online: true,
-        deviceName: "MacBook Pro",
-        preview: t("demo_preview_1"),
-        previewKind: "assistant",
-        pinned: true,
-        unread: 0,
-      },
+      group: group(web, [
+        row("demo1", web, { title: t("demo_title_1"), status: "running", preview: t("demo_preview_1"), unread: 0 }),
+        row("demo4", web, { title: t("demo_title_3"), status: "idle", preview: t("demo_preview_3"), unread: 0 }),
+      ]),
     },
     {
       time: "09:12",
-      row: {
-        ...base,
-        _id: "demo2" as SessionRow["_id"],
-        title: t("demo_title_2"),
-        ...place("/Users/me/code/settings-ui"),
-        status: "waiting",
-        online: true,
-        deviceName: "Mac Studio",
-        preview: t("demo_preview_2"),
-        previewKind: "assistant",
-        pinned: false,
-        unread: 2,
-      },
+      group: group(settings, [
+        row("demo2", settings, { title: t("demo_title_2"), status: "idle", preview: t("demo_preview_2"), unread: 2 }),
+      ]),
     },
     {
       time: "08:30",
-      row: {
-        ...base,
-        _id: "demo3" as SessionRow["_id"],
-        title: t("demo_title_3"),
-        ...place("/home/me/billing-service"),
-        status: "idle",
-        online: false,
-        deviceName: "dev-box",
-        preview: t("demo_preview_3"),
-        previewKind: "assistant",
-        pinned: false,
-        unread: 0,
-      },
+      group: group(billing, [
+        row("demo3", billing, { title: t("demo_title_3"), status: "idle", preview: t("demo_preview_3"), unread: 0 }),
+      ]),
     },
   ];
 }
@@ -111,7 +107,7 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 /** `/` for visitors who are not signed in: what remote control is, how to start, and the way in. */
 export function Landing() {
   const { t, tx } = useI18n();
-  const rows = demoRows(t);
+  const groups = demoGroups(t);
   const cmd = <Code>crok remote login</Code>;
   return (
     <div className="flex min-h-dvh flex-col">
@@ -143,18 +139,26 @@ export function Landing() {
           <div className="relative" aria-hidden="true">
             <div className="absolute -inset-6 -z-10 rounded-[2.5rem] bg-accent-soft/60 blur-2xl" />
             <div className="pointer-events-none mx-auto max-w-md select-none overflow-hidden rounded-3xl border border-line bg-surface shadow-card" inert>
-              <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
-                <ChatsIcon size={18} className="text-accent-text" />
-                <span className="text-[15px] font-semibold">{t("nav_sessions")}</span>
+              <div className="flex items-center gap-2.5 px-4 pb-2 pt-3.5">
+                <ComputerAvatar id="demo-device" name="MacBook Pro" online size={36} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1 text-[15.5px] font-semibold leading-tight">
+                    MacBook Pro
+                    <ChevronDownIcon size={15} className="text-muted" />
+                  </span>
+                  <span className="block text-[13px] leading-tight text-accent-text">{t("device_online")}</span>
+                </span>
+                <AccountAvatar name="Crok" size={32} />
               </div>
-              <div className="flex gap-4 border-b border-line px-5 pb-2 pt-2 text-sm">
-                <span className="font-semibold text-accent-text">{t("tab_all")}</span>
-                <span className="text-muted">MacBook Pro</span>
-                <span className="text-muted">Mac Studio</span>
+              <div className="px-4 pb-2">
+                <div className="flex h-10 items-center gap-2 rounded-full bg-surface-2 px-3.5 text-[15px] text-faint">
+                  <SearchIcon size={17} />
+                  {t("search_sessions")}
+                </div>
               </div>
-              <ul className="p-1.5">
-                {rows.map(({ row, time }) => (
-                  <SessionRowView key={row._id} row={row} now={0} timeText={time} />
+              <ul className="px-1.5 pb-2">
+                {groups.map(({ group, time }) => (
+                  <ForumRow key={group.key} group={group} now={0} timeText={time} onOpen={() => {}} menu={[]} />
                 ))}
               </ul>
             </div>

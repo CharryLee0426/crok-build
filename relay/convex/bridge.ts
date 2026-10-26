@@ -32,8 +32,29 @@ const CATALOG_INTERVAL_MS = 10 * 60 * 1000;
 /** A catalog upload that has not finished in this long is abandoned; another process may start one. */
 const CATALOG_STALE_MS = 2 * 60 * 1000;
 const MAX_CATALOG_PER_CALL = 100;
-const MAX_MODELS = 200;
+/** A computer with OpenRouter signed in lists about 500 models; the first relay took 200 and refused the rest. */
+const MAX_MODELS = 1_000;
+/** What one `modelLists` row may hold (a Convex document is at most 1 MiB). */
+const MAX_MODEL_LIST_BYTES = 600_000;
 const MAX_COMMANDS = 500;
+
+type ModelOption = Doc<"modelLists">["models"][number];
+
+/**
+ * Keeps a model list within MAX_MODEL_LIST_BYTES: descriptions go first (the thinking levels', then the models'), then
+ * models from the end of the list (crok lists the ones people pick most first).
+ */
+function fitModelList(models: ModelOption[]): ModelOption[] {
+  const size = (list: ModelOption[]) => JSON.stringify(list).length;
+  if (size(models) <= MAX_MODEL_LIST_BYTES) return models;
+  let fitted = models.map((m) => ({ ...m, efforts: m.efforts.map(({ description: _, ...e }) => e) }));
+  if (size(fitted) <= MAX_MODEL_LIST_BYTES) return fitted;
+  fitted = fitted.map(({ description: _, ...m }) => m);
+  while (fitted.length > 0 && size(fitted) > MAX_MODEL_LIST_BYTES) {
+    fitted = fitted.slice(0, Math.floor(fitted.length * 0.9));
+  }
+  return fitted;
+}
 
 function capText(text: string): string {
   if (text.length <= MAX_EVENT_TEXT) return text;
@@ -392,7 +413,14 @@ export const pushEvents = mutation({
         seq += 1;
         inserted += 1;
         if (event.kind === "assistant") assistantCount += 1;
-        await ctx.db.insert("events", { sessionDocId, seq, key: event.key, at: event.at, ...fields });
+        await ctx.db.insert("events", {
+          sessionDocId,
+          userId: session.userId,
+          seq,
+          key: event.key,
+          at: event.at,
+          ...fields,
+        });
       }
     }
     if (replace) readAssistantCount = assistantCount;
@@ -604,12 +632,14 @@ export const setModels = mutation({
   handler: async (ctx, { hostId, models }) => {
     const { viewer } = await requireHost(ctx, hostId);
     if (models.length > MAX_MODELS) fail("INVALID", `At most ${MAX_MODELS} models.`);
-    const clipped = models.map((m) => ({
-      ...m,
-      name: m.name.slice(0, 120),
-      description: m.description?.slice(0, 300),
-      efforts: m.efforts.slice(0, 20).map((e) => ({ ...e, name: e.name.slice(0, 60), description: e.description?.slice(0, 200) })),
-    }));
+    const clipped = fitModelList(
+      models.map((m) => ({
+        ...m,
+        name: m.name.slice(0, 120),
+        description: m.description?.slice(0, 300),
+        efforts: m.efforts.slice(0, 20).map((e) => ({ ...e, name: e.name.slice(0, 60), description: e.description?.slice(0, 200) })),
+      })),
+    );
     const row = await ctx.db
       .query("modelLists")
       .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))

@@ -122,8 +122,8 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         try await mutate { world in world.resetOrder(projectKey: projectKey) }
     }
 
-    func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage> {
-        observe { try $0.eventsPage(sessionDocId, cursor: cursor, endCursor: endCursor, numItems: numItems) }
+    func transcript(_ sessionDocId: DocID, range: TranscriptRange) -> RelayStream<TranscriptChunk> {
+        observe { try $0.transcript(sessionDocId, range: range) }
     }
 
     func markRead(_ sessionDocId: DocID) async throws {
@@ -156,9 +156,11 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         }
     }
 
-    func create(deviceId: DocID, path: String, text: String?, clientId: String) async throws -> CreatedSession {
+    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
+        async throws -> CreatedSession
+    {
         try await mutate(.milliseconds(350)) { world in
-            try world.createSession(deviceId: deviceId, path: path, text: text, clientId: clientId)
+            try world.createSession(deviceId: deviceId, path: path, text: text, model: model, effort: effort, clientId: clientId)
         }
     }
 
@@ -249,6 +251,8 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
     // MARK: DevicesAPI
 
     func list() -> RelayStream<[DeviceRow]> { observe { $0.devices } }
+
+    func models(_ deviceId: DocID) -> RelayStream<[ModelChoice]?> { observe { $0.deviceModels(deviceId) } }
 
     func rename(_ deviceId: DocID, name: String) async throws {
         try await mutate { world in

@@ -1,11 +1,9 @@
 package dev.chenli.crok.mobile.ui.session
 
 import android.os.SystemClock
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,7 +30,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -40,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,7 +94,7 @@ fun TranscriptRow(item: TranscriptItem, now: Long, actions: TranscriptActions, b
         is TranscriptItem.User -> UserBubble(item, actions)
         is TranscriptItem.Assistant -> AssistantBubble(item, actions)
         is TranscriptItem.Thought -> ThoughtRow(item)
-        is TranscriptItem.Tool -> ToolCard(item)
+        is TranscriptItem.Tool -> ToolCard(item, actions)
         is TranscriptItem.Notice -> NoticeRow(item)
     }
 }
@@ -252,46 +248,6 @@ fun rememberRevealedLength(key: String, length: Int, streaming: Boolean): Int {
     return shown
 }
 
-@Composable
-private fun ThoughtRow(item: TranscriptItem.Thought) {
-    val colors = CrokTheme.colors
-    var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .groupSpacing(item.grouping)
-            .padding(start = 10.dp, end = 28.dp)
-            .animateContentSize(),
-    ) {
-        Row(
-            Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(CrokIcons.Bulb, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(stringResource(R.string.thought_title), fontStyle = FontStyle.Italic, color = colors.textSecondary, fontSize = 14.sp)
-            Icon(
-                if (expanded) CrokIcons.ExpandLess else CrokIcons.ExpandMore,
-                contentDescription = stringResource(if (expanded) R.string.cd_collapse else R.string.cd_expand),
-                tint = colors.textTertiary,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-        if (expanded) {
-            Text(
-                item.text,
-                fontStyle = FontStyle.Italic,
-                color = colors.textSecondary,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(start = 30.dp, end = 8.dp, bottom = 4.dp),
-            )
-        }
-    }
-}
-
 fun toolIcon(kind: String?): ImageVector = when (kind) {
     "read" -> CrokIcons.Document
     "edit" -> CrokIcons.Edit
@@ -302,67 +258,6 @@ fun toolIcon(kind: String?): ImageVector = when (kind) {
     "think" -> CrokIcons.Bulb
     "fetch" -> CrokIcons.Globe
     else -> CrokIcons.Build
-}
-
-@Composable
-private fun ToolCard(item: TranscriptItem.Tool) {
-    val colors = CrokTheme.colors
-    var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
-    val expandable = item.text.isNotBlank() && item.text.trim() != item.title.trim()
-    Box(Modifier.fillMaxWidth(0.92f).groupSpacing(item.grouping).padding(start = 10.dp)) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(colors.card)
-                .border(0.5.dp, colors.divider, RoundedCornerShape(12.dp))
-                .then(if (expandable) Modifier.clickable { expanded = !expanded } else Modifier)
-                .padding(horizontal = 10.dp, vertical = 8.dp)
-                .animateContentSize(),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(toolIcon(item.toolKind), contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    item.title,
-                    color = colors.textPrimary,
-                    fontSize = 14.sp,
-                    maxLines = if (expanded) 4 else 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Spacer(Modifier.width(8.dp))
-                ToolStatus(item.status)
-            }
-            if (expanded) {
-                CodeBlock(item.text, Modifier.padding(top = 8.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ToolStatus(status: String?) {
-    val colors = CrokTheme.colors
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        when (status) {
-            "in_progress" -> {
-                CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = colors.accent)
-                Spacer(Modifier.width(4.dp))
-                Text(stringResource(R.string.tool_running), color = colors.accent, fontSize = 12.sp)
-            }
-            "completed" -> {
-                Icon(CrokIcons.Check, contentDescription = null, tint = colors.success, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(2.dp))
-                Text(stringResource(R.string.tool_done), color = colors.success, fontSize = 12.sp)
-            }
-            "failed" -> {
-                Icon(CrokIcons.Error, contentDescription = null, tint = colors.danger, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(2.dp))
-                Text(stringResource(R.string.tool_failed), color = colors.danger, fontSize = 12.sp)
-            }
-            else -> Text(stringResource(R.string.tool_pending), color = colors.textTertiary, fontSize = 12.sp)
-        }
-    }
 }
 
 @Composable

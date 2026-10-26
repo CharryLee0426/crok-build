@@ -15,7 +15,8 @@ use crate::metrics::InferenceLatencyStats;
 use crate::types::RequestId;
 
 /// The process-wide sink every test in this file records into; tests tell their calls apart by session id.
-struct TestSink(Mutex<Vec<String>>);
+/// The second list holds the harness events (turns, tool runs, steps, scores, ratings, guard checks).
+struct TestSink(Mutex<Vec<String>>, Mutex<Vec<String>>);
 
 thread_local! {
     /// Switches the shared sink off for one test's thread only, so tests running beside it still record.
@@ -27,6 +28,10 @@ impl GenerationSink for TestSink {
         self.0.lock().unwrap().push(call.to_json_line());
     }
 
+    fn record_event(&self, event: HarnessEvent) {
+        self.1.lock().unwrap().push(event.to_json_line());
+    }
+
     fn is_active(&self) -> bool {
         !SWITCHED_OFF.get()
     }
@@ -35,7 +40,7 @@ impl GenerationSink for TestSink {
 fn sink() -> &'static TestSink {
     static TEST_SINK: OnceLock<Arc<TestSink>> = OnceLock::new();
     TEST_SINK.get_or_init(|| {
-        let sink = Arc::new(TestSink(Mutex::new(Vec::new())));
+        let sink = Arc::new(TestSink(Mutex::new(Vec::new()), Mutex::new(Vec::new())));
         install_sink(sink.clone(), "crok");
         sink
     })
@@ -49,6 +54,24 @@ fn records_for(conversation_id: &str) -> Vec<Value> {
         .iter()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .filter(|record| record["start"]["conversationId"] == conversation_id)
+        .collect()
+}
+
+fn events_for(conversation_id: &str) -> Vec<Value> {
+    sink()
+        .1
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|event| event["conversationId"] == conversation_id)
+        .collect()
+}
+
+fn events_of(conversation_id: &str, kind: &str) -> Vec<Value> {
+    events_for(conversation_id)
+        .into_iter()
+        .filter(|event| event["type"] == kind)
         .collect()
 }
 
@@ -447,17 +470,27 @@ fn a_switched_off_sink_gets_no_calls_but_sessions_are_still_registered() {
 fn side_call_kinds_come_from_synthetic_conversation_ids() {
     let uuid = uuid::Uuid::new_v4();
     assert_eq!(
-        side_call_kind(Some(&format!("turn-summary-{uuid}")), Some("s")),
+        side_call_kind(Some(&format!("turn-summary-{uuid}")), Some("s"), None),
         "turn-summary"
     );
     assert_eq!(
-        side_call_kind(Some(&format!("dream-v2-{uuid}")), None),
+        side_call_kind(Some(&format!("dream-v2-{uuid}")), None, None),
         "dream-v2"
     );
-    assert_eq!(side_call_kind(Some("s"), Some("s")), "side");
-    assert_eq!(side_call_kind(Some("btw-test"), Some("s")), "side");
-    assert_eq!(side_call_kind(None, Some("s")), "side");
-    assert_eq!(side_call_kind(Some(&format!("{uuid}")), None), "side");
+    assert_eq!(side_call_kind(Some("s"), Some("s"), None), "side");
+    assert_eq!(side_call_kind(Some("btw-test"), Some("s"), None), "side");
+    assert_eq!(side_call_kind(None, Some("s"), None), "side");
+    assert_eq!(side_call_kind(Some(&format!("{uuid}")), None, None), "side");
+    // A call that keeps the session's conversation id (for the prompt cache) is named by its request id.
+    assert_eq!(
+        side_call_kind(Some("s"), Some("s"), Some(&format!("xai-goal-eval-{uuid}"))),
+        "goal-eval"
+    );
+    assert_eq!(
+        side_call_kind(Some(&format!("title-{uuid}")), Some("s"), Some("r1")),
+        "title"
+    );
+    assert_eq!(side_call_kind(Some("s"), Some("s"), Some("r1")), "side");
 }
 
 #[test]
@@ -502,4 +535,265 @@ fn long_parts_are_cut_on_a_char_boundary_with_a_note() {
         text.len() - MAX_PART_BYTES
     )));
     assert_eq!(capped("short"), "short");
+}
+
+#[tokio::test]
+async fn a_turn_is_the_parent_of_its_calls_tool_runs_and_steps_and_counts_them() {
+    sink();
+    let client = anthropic_client();
+    register_session("obs-turn-tree", None, None);
+    set_session_title("obs-turn-tree", "Fix the flaky test");
+    set_session_tag("obs-turn-tree", "repo", "me/proj");
+    set_session_tag("obs-turn-tree", "branch", "charlie/dev");
+    let turn = begin_turn(TurnStart {
+        session_id: "obs-turn-tree",
+        turn_index: Some(3),
+        model: Some("claude-test"),
+        permission_mode: Some("default"),
+    })
+    .expect("a sink is installed");
+    let span = turn.span().clone();
+    assert_eq!(span.trace_id.len(), 32);
+    assert_eq!(span.span_id.len(), 16);
+    run_turn(&client, &turn_request("obs-turn-tree"), CallPath::Turn).await;
+    let now = std::time::SystemTime::now();
+    record_tool(ToolRun {
+        session_id: "obs-turn-tree",
+        tool_name: "run_terminal_command",
+        tool_call_id: "call_9",
+        started_at: now,
+        completed_at: now,
+        outcome: ToolRunOutcome::Error,
+        kind: "mutating",
+        exit_code: Some(2),
+        result_bytes: Some(120),
+        backgrounded: false,
+        error: Some("exit status 2\nmore detail"),
+        model: Some("claude-test"),
+    });
+    record_step(Step {
+        session_id: "obs-turn-tree",
+        name: "permission",
+        started_at: now,
+        completed_at: now,
+        input: serde_json::Map::new(),
+        output: serde_json::Map::from_iter([("decision".to_owned(), "allow".into())]),
+        error: None,
+    });
+    record_verdict(Verdict {
+        session_id: "obs-turn-tree",
+        evaluator: "crok.laziness",
+        key: "category",
+        value: VerdictValue::Label("not_stalled_complete"),
+        passed: Some(true),
+        explanation: None,
+    });
+    turn.end(TurnEnd::Completed, None);
+
+    let call = &records_for("obs-turn-tree")[0];
+    assert_eq!(call["parent"]["traceId"], span.trace_id.as_str());
+    assert_eq!(call["parent"]["spanId"], span.span_id.as_str());
+    assert_eq!(call["start"]["tags"]["repo"], "me/proj");
+    assert_eq!(call["start"]["tags"]["branch"], "charlie/dev");
+
+    let tool = &events_of("obs-turn-tree", "tool")[0];
+    assert_eq!(tool["parent"]["spanId"], span.span_id.as_str());
+    assert_eq!(tool["toolName"], "run_terminal_command");
+    assert_eq!(
+        tool["error"], "exit status 2",
+        "only the first line is sent"
+    );
+    assert_eq!(tool["attributes"]["crok.tool.outcome"], "error");
+    assert_eq!(tool["attributes"]["crok.tool.exit_code"], 2);
+    assert_eq!(tool["tags"]["repo"], "me/proj");
+
+    let step = &events_of("obs-turn-tree", "step")[0];
+    assert_eq!(step["stepName"], "permission");
+    assert_eq!(step["parent"]["traceId"], span.trace_id.as_str());
+    assert_eq!(
+        step["linkedGenerationIds"],
+        serde_json::json!([call["start"]["id"]])
+    );
+
+    let score = &events_of("obs-turn-tree", "score")[0];
+    assert_eq!(score["generationId"], call["start"]["id"]);
+    assert_eq!(score["evaluatorId"], "crok.laziness");
+    assert_eq!(
+        score["value"],
+        serde_json::json!({ "string": "not_stalled_complete" })
+    );
+    assert_eq!(score["traceId"], span.trace_id.as_str());
+
+    let ended = &events_of("obs-turn-tree", "turn")[0];
+    assert_eq!(ended["span"]["spanId"], span.span_id.as_str());
+    assert!(ended["parent"].is_null());
+    assert_eq!(ended["agentName"], "crok");
+    assert_eq!(ended["conversationTitle"], "Fix the flaky test");
+    assert_eq!(ended["attributes"]["crok.turn.outcome"], "completed");
+    assert_eq!(ended["attributes"]["crok.turn_index"], 3);
+    assert_eq!(ended["attributes"]["crok.model_calls"], 1);
+    assert_eq!(ended["attributes"]["crok.tool_calls"], 1);
+    assert_eq!(ended["attributes"]["crok.tool_errors"], 1);
+    assert_eq!(ended["attributes"]["gen_ai.request.model"], "claude-test");
+
+    // After the turn, calls hang under nothing.
+    run_turn(&client, &turn_request("obs-turn-tree"), CallPath::SideCall).await;
+    assert!(records_for("obs-turn-tree")[1].get("parent").is_none());
+}
+
+#[tokio::test]
+async fn a_sub_agent_turn_joins_the_trace_of_the_turn_that_started_it() {
+    sink();
+    register_session("obs-trace-parent", None, None);
+    register_session("obs-trace-child", Some("explore"), Some("obs-trace-parent"));
+    let parent = begin_turn(TurnStart {
+        session_id: "obs-trace-parent",
+        turn_index: None,
+        model: None,
+        permission_mode: None,
+    })
+    .unwrap();
+    let child = begin_turn(TurnStart {
+        session_id: "obs-trace-child",
+        turn_index: None,
+        model: None,
+        permission_mode: None,
+    })
+    .unwrap();
+    assert_eq!(child.span().trace_id, parent.span().trace_id);
+    assert_ne!(child.span().span_id, parent.span().span_id);
+    let parent_span = parent.span().clone();
+    child.end(TurnEnd::Error, Some("the model stopped answering"));
+    drop(parent);
+
+    let child_turn = &events_of("obs-trace-child", "turn")[0];
+    assert_eq!(child_turn["parent"]["spanId"], parent_span.span_id.as_str());
+    assert_eq!(child_turn["agentName"], "crok/explore");
+    assert_eq!(child_turn["attributes"]["crok.turn.outcome"], "error");
+    assert_eq!(child_turn["error"], "the model stopped answering");
+    let parent_turn = &events_of("obs-trace-parent", "turn")[0];
+    assert_eq!(
+        parent_turn["attributes"]["crok.turn.outcome"], "cancelled",
+        "a turn dropped without ending was interrupted"
+    );
+}
+
+#[tokio::test]
+async fn a_prompt_from_the_relay_tags_its_turn_and_only_that_turn() {
+    sink();
+    let client = anthropic_client();
+    register_session("obs-relay", None, None);
+    note_prompt_origin("obs-relay", "relay");
+    let turn = begin_turn(TurnStart {
+        session_id: "obs-relay",
+        turn_index: None,
+        model: None,
+        permission_mode: None,
+    })
+    .unwrap();
+    run_turn(&client, &turn_request("obs-relay"), CallPath::Turn).await;
+    turn.end(TurnEnd::Completed, None);
+    let next = begin_turn(TurnStart {
+        session_id: "obs-relay",
+        turn_index: None,
+        model: None,
+        permission_mode: None,
+    })
+    .unwrap();
+    run_turn(&client, &turn_request("obs-relay"), CallPath::Turn).await;
+    next.end(TurnEnd::Completed, None);
+
+    let calls = records_for("obs-relay");
+    assert_eq!(calls[0]["start"]["tags"]["origin"], "relay");
+    assert!(calls[1]["start"]["tags"].get("origin").is_none());
+    let turns = events_of("obs-relay", "turn");
+    assert_eq!(turns[0]["tags"]["origin"], "relay");
+    assert_eq!(turns[0]["attributes"]["crok.origin"], "relay");
+    assert!(turns[1]["tags"].get("origin").is_none());
+}
+
+#[test]
+fn a_verdict_needs_a_generation_and_a_guard_check_needs_something_to_check() {
+    sink();
+    register_session("obs-verdictless", None, None);
+    record_verdict(Verdict {
+        session_id: "obs-verdictless",
+        evaluator: "crok.goal_verdict",
+        key: "decision",
+        value: VerdictValue::Label("continue"),
+        passed: None,
+        explanation: None,
+    });
+    check_guard(GuardCheck::Postflight {
+        session_id: "obs-verdictless",
+        provider: "anthropic",
+        model: "claude-test",
+        calls: Vec::new(),
+    });
+    assert!(events_for("obs-verdictless").is_empty());
+
+    check_guard(GuardCheck::Postflight {
+        session_id: "obs-verdictless",
+        provider: "anthropic",
+        model: "claude-test",
+        calls: vec![GuardToolCall {
+            id: "call_1",
+            name: "run_terminal_command",
+            arguments: r#"{"command":"git push --force"}"#,
+        }],
+    });
+    check_guard(GuardCheck::Preflight {
+        session_id: "obs-verdictless",
+        provider: "anthropic",
+        model: "claude-test",
+        results: vec![GuardToolResult {
+            id: "call_2",
+            name: "read_file",
+            content: "API_KEY=sk-test",
+        }],
+    });
+    let guards = events_of("obs-verdictless", "guard");
+    assert_eq!(guards.len(), 2);
+    assert_eq!(guards[0]["phase"], "postflight");
+    assert_eq!(
+        guards[0]["input"]["output"][0]["parts"][0]["toolCall"]["name"],
+        "run_terminal_command"
+    );
+    assert_eq!(guards[1]["phase"], "preflight");
+    assert_eq!(
+        guards[1]["input"]["messages"][0]["parts"][0]["toolResult"]["content"],
+        "API_KEY=sk-test"
+    );
+    assert_eq!(guards[1]["model"]["provider"], "anthropic");
+}
+
+#[test]
+fn guard_providers_come_from_model_ids() {
+    assert_eq!(
+        guard_provider("openrouter/~deepseek/deepseek-flash-latest"),
+        "openrouter"
+    );
+    assert_eq!(guard_provider("claude-sonnet-5-5"), "anthropic");
+    assert_eq!(guard_provider("deepseek-flash"), "deepseek");
+    assert_eq!(guard_provider("glm-5.3"), "zai");
+    assert_eq!(guard_provider("grok-4.6"), "xai");
+    assert_eq!(guard_provider("local-model"), "unknown");
+}
+
+#[tokio::test]
+async fn blank_text_and_thinking_are_left_out_so_the_generation_is_kept() {
+    sink();
+    let client = anthropic_client();
+    let mut reply = response("\n\n");
+    if let Some(ConversationItem::Reasoning(reasoning)) = reply.items.first_mut() {
+        reasoning.content = Some(vec![rs::ReasoningTextContent {
+            text: "  \n".to_owned(),
+        }]);
+    }
+    run_with(&client, &turn_request("obs-blank"), CallPath::Turn, reply).await;
+
+    let record = &records_for("obs-blank")[0];
+    let parts = record["result"]["output"][0]["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 1, "only the tool call is left: {parts:?}");
+    assert_eq!(parts[0]["type"], "tool_call");
 }

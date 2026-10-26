@@ -19,16 +19,18 @@ protocol SessionsAPI: Sendable {
     func reorderSessions(projectKey: String, _ sessionDocIds: [DocID]) async throws
     /// With a key, that project's sessions go back to most recent first; without, the projects do.
     func resetOrder(projectKey: String?) async throws
-    /// Newest first. `endCursor` pins where a page ends, so pages stay contiguous as new events arrive.
-    func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage>
+    /// A part of the transcript (`sessions:transcript`), newest first, thoughts and tool calls without their text.
+    func transcript(_ sessionDocId: DocID, range: TranscriptRange) -> RelayStream<TranscriptChunk>
     func markRead(_ sessionDocId: DocID) async throws
     func watch(_ sessionDocId: DocID) async throws
     func setPinned(_ sessionDocId: DocID, _ pinned: Bool) async throws
     func setArchived(_ sessionDocId: DocID, _ archived: Bool) async throws
     func remove(_ sessionDocId: DocID) async throws
     /// Starts a session in `path` on a computer (`sessions:create`); the relay lists it at once (`starting`) and a crok
-    /// there opens it and runs `text` as its first prompt. The same `clientId` returns the same session.
-    func create(deviceId: DocID, path: String, text: String?, clientId: String) async throws -> CreatedSession
+    /// there opens it, applies `model` and `effort` (a model id and a level's option id from `devices:models`; nil for
+    /// the computer's default) and runs `text` as its first prompt. The same `clientId` returns the same session.
+    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
+        async throws -> CreatedSession
     /// The session's slash commands as its computer advertises them (`sessions:commands`).
     func slashCommands(_ sessionDocId: DocID) -> RelayStream<SlashCommandList>
 }
@@ -52,6 +54,10 @@ protocol CommandsAPI: Sendable {
 
 protocol DevicesAPI: Sendable {
     func list() -> RelayStream<[DeviceRow]>
+    /// What a computer can run (`devices:models`), for the model and thinking pickers of new and open sessions alike;
+    /// null while it is offline or before its crok published a list. It changes only with that list. An older relay
+    /// without the query fails it: callers fall back to `sessions:get`'s `models`.
+    func models(_ deviceId: DocID) -> RelayStream<[ModelChoice]?>
     func rename(_ deviceId: DocID, name: String) async throws
     func revoke(_ deviceId: DocID) async throws
     func revokeOthers() async throws -> Int

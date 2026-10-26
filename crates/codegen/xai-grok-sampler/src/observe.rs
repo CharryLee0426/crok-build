@@ -9,12 +9,16 @@
 //! - [`SamplingClient::conversation_collect`]: side calls (titles, recaps, memory, classifiers).
 //!
 //! Each HTTP attempt is one observation, so a retried request shows as several.
-//! Compaction parses raw chunks itself and is not observed.
+//! Compaction parses raw chunks itself and is not observed as a call (the session reports it as a step).
 //!
 //! The record format ([`ObservedCall::to_json_line`]) is the agento11y SDK's `GenerationStart` and
 //! `GenerationResult`, read by the bridge in `xai-grok-agento11y/bridge/src/protocol.ts`, plus
 //! `spanAttributes` the bridge puts on the call's span: crok's own report of what the call cost,
 //! for providers that export no traces of their own (Codex, GLM, DeepSeek, ...).
+//!
+//! What happens around the calls (turns, tool runs, permission and hook steps, verdicts, ratings,
+//! guard checks) reaches the same sink as [`HarnessEvent`]s; see `observe_harness.rs`. A call made
+//! while its session runs a turn names the turn's span as its parent.
 
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
@@ -33,9 +37,22 @@ use xai_grok_sampling_types::{
 use crate::client::SamplingClient;
 use crate::events::{SamplingErrorInfo, SamplingEvent};
 
+#[path = "observe_harness.rs"]
+mod harness;
+pub use harness::{
+    GuardCheck, GuardToolCall, GuardToolResult, HarnessEvent, Rating, SpanRef, Step, ToolRun,
+    ToolRunOutcome, TurnEnd, TurnScope, TurnStart, Verdict, VerdictValue, begin_turn, check_guard,
+    current_surface, guard_provider, note_prompt_origin, record_rating, record_step, record_tool,
+    record_verdict, set_session_tag,
+};
+
 /// Receives every observed call. Called on the sampler's task: hand the call off and return.
 pub trait GenerationSink: Send + Sync {
     fn record(&self, call: ObservedCall);
+
+    /// Receives what happened around the calls (turns, tool runs, steps, scores, ratings, guard
+    /// checks). Only sent while [`Self::is_active`]; called on the reporting task, so hand it off.
+    fn record_event(&self, _event: HarnessEvent) {}
 
     /// Whether calls starting now are wanted; checked before each request is snapshotted, so it must be cheap.
     /// A sink that can be switched on and off while crok runs answers here.
@@ -94,6 +111,12 @@ struct SessionEntry {
     last_generation_id: Option<String>,
     /// A sub-agent links its first completed turn to the parent's; later turns follow from the conversation.
     linked_to_parent: bool,
+    /// The turn the session is running; its calls, tool runs and steps hang under its span.
+    turn: Option<harness::ActiveTurn>,
+    /// `repo`, `branch`, `user`, `origin`: tags on everything the session reports.
+    tags: Vec<(&'static str, String)>,
+    /// Where the next prompt came from, for the turn it starts (`relay`).
+    next_origin: Option<&'static str>,
 }
 
 fn registry() -> &'static Mutex<Registry> {
@@ -181,6 +204,10 @@ pub struct ObservedCall {
     conversation_id: Option<String>,
     conversation_title: Option<String>,
     parent_generation_ids: Vec<String>,
+    /// The span of the turn the call belongs to (the session's running turn).
+    parent_span: Option<SpanRef>,
+    /// The session's own tags (`repo`, `branch`, `user`, `origin`).
+    session_tags: Vec<(&'static str, String)>,
     session_id: Option<String>,
     request_id: Option<String>,
     turn_index: Option<String>,
@@ -253,6 +280,9 @@ impl ObservedCall {
         ]);
         if let Some(surface) = &self.surface {
             tags.insert("surface", surface.clone());
+        }
+        for (key, value) in &self.session_tags {
+            tags.insert(*key, value.clone());
         }
         let mut metadata = serde_json::Map::new();
         let mut put = |key: &str, value: Option<&str>| {
@@ -377,6 +407,7 @@ impl ObservedCall {
             },
             error,
             span_attributes,
+            parent: self.parent_span.as_ref(),
         }
     }
 
@@ -449,7 +480,11 @@ impl Observation {
                 ),
             },
             CallPath::SideCall => {
-                let kind = side_call_kind(conv_id.as_deref(), session_id.as_deref());
+                let kind = side_call_kind(
+                    conv_id.as_deref(),
+                    session_id.as_deref(),
+                    request.x_grok_req_id.as_deref(),
+                );
                 let name = format!("{base}/{kind}");
                 (kind, name)
             }
@@ -471,6 +506,11 @@ impl Observation {
             }
             _ => Vec::new(),
         };
+        let parent_span = session_id.as_deref().and_then(harness::current_turn_span);
+        let session_tags = session_id
+            .as_deref()
+            .map(harness::session_tags)
+            .unwrap_or_default();
         let backend = client.api_backend();
         let model = request
             .model
@@ -484,6 +524,8 @@ impl Observation {
             conversation_id: session_id.clone().or_else(|| conv_id.clone()),
             conversation_title,
             parent_generation_ids,
+            parent_span,
+            session_tags,
             request_id: request.x_grok_req_id.clone(),
             turn_index: request.x_grok_turn_idx.clone(),
             session_id,
@@ -533,6 +575,11 @@ impl Observation {
                     entry.linked_to_parent = true;
                 });
             }
+        }
+        if self.call.path == CallPath::Turn
+            && let Some(session_id) = self.call.session_id.as_deref()
+        {
+            harness::count_model_call(session_id);
         }
         self.call.outcome = outcome;
         self.sink.record(self.call);
@@ -744,7 +791,12 @@ fn input_messages(
         .filter_map(|item| match item {
             ConversationItem::User(user) => Some(MessageRecord {
                 role: "user",
-                parts: user.content.iter().map(content_part).collect(),
+                parts: user
+                    .content
+                    .iter()
+                    .filter(|part| !is_blank_text(part))
+                    .map(content_part)
+                    .collect(),
             }),
             // A runtime reminder injected mid-conversation; the SDK has no system role.
             ConversationItem::System(system) => Some(MessageRecord {
@@ -777,6 +829,10 @@ fn input_messages(
         .collect()
 }
 
+fn is_blank_text(part: &ContentPart) -> bool {
+    matches!(part, ContentPart::Text { text } if text.trim().is_empty())
+}
+
 fn content_part(part: &ContentPart) -> PartRecord {
     match part {
         ContentPart::Text { text } => PartRecord::Text { text: capped(text) },
@@ -793,14 +849,15 @@ fn output_messages(response: &ConversationResponse) -> Vec<MessageRecord> {
         match item {
             ConversationItem::Reasoning(reasoning) => {
                 let text = reasoning_text(reasoning);
-                if !text.is_empty() {
+                // The SDK refuses a part with blank text (and the whole generation with it).
+                if !text.trim().is_empty() {
                     parts.push(PartRecord::Thinking {
                         thinking: capped(&text),
                     });
                 }
             }
             ConversationItem::Assistant(assistant) => {
-                if !assistant.content.is_empty() {
+                if !assistant.content.trim().is_empty() {
                     parts.push(PartRecord::Text {
                         text: capped(&assistant.content),
                     });
@@ -914,14 +971,22 @@ fn capped(text: &str) -> String {
     )
 }
 
-/// A side call's kind from its synthetic conversation id (`recap-<uuid>` is `recap`); `side` otherwise.
-fn side_call_kind(conv_id: Option<&str>, session_id: Option<&str>) -> String {
+/// A side call's kind from its synthetic conversation id (`recap-<uuid>` is `recap`), else, for a
+/// call that keeps the session's own conversation id (for the prompt cache), from its request id
+/// (`xai-goal-eval-<uuid>` is `goal-eval`); `side` otherwise.
+fn side_call_kind(conv_id: Option<&str>, session_id: Option<&str>, req_id: Option<&str>) -> String {
+    labelled_kind(conv_id.filter(|id| Some(*id) != session_id))
+        .or_else(|| labelled_kind(req_id.map(|id| id.strip_prefix("xai-").unwrap_or(id))))
+        .unwrap_or("side")
+        .to_owned()
+}
+
+/// `<kind>-<uuid>` → `kind`, when `kind` is a plain label.
+fn labelled_kind(id: Option<&str>) -> Option<&str> {
     const UUID_LEN: usize = 36;
-    let Some(conv_id) = conv_id.filter(|id| Some(*id) != session_id) else {
-        return "side".to_owned();
-    };
+    let conv_id = id?;
     let split = conv_id.len().saturating_sub(UUID_LEN + 1);
-    let kind = conv_id
+    conv_id
         .get(..split)
         .zip(conv_id.get(split..))
         .and_then(|(kind, rest)| {
@@ -934,8 +999,7 @@ fn side_call_kind(conv_id: Option<&str>, session_id: Option<&str>) -> String {
                 && kind
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        });
-    kind.unwrap_or("side").to_owned()
+        })
 }
 
 fn backend_label(backend: &ApiBackend) -> &'static str {
@@ -1009,6 +1073,9 @@ struct GenerationRecord<'a> {
     /// Attributes the bridge adds to the call's span (`crok.*`); the SDK has no field for them.
     #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
     span_attributes: serde_json::Map<String, serde_json::Value>,
+    /// The turn span the call's span is a child of.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<&'a SpanRef>,
 }
 
 #[derive(Serialize)]

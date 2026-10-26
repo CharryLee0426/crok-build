@@ -94,6 +94,41 @@ export function ConnectionIndicator() {
   return <ConnectionPill label={offline ? t("conn_offline") : t("conn_connecting")} />;
 }
 
+/**
+ * The relay connection as the left column's subtitle says it (Telegram's title states): live, "Connecting…",
+ * "Updating…" (connected, the list not loaded yet) or "Waiting for network"; after 300 ms so a blip doesn't flash.
+ */
+export function useConnection(loaded: boolean): "live" | "connecting" | "updating" | "offline" {
+  const state = useConvexConnectionState();
+  const connected = state.isWebSocketConnected;
+  const [offline, setOffline] = useState(false);
+  const [settled, setSettled] = useState<"live" | "connecting" | "updating">("live");
+  const raw = !connected ? "connecting" : loaded ? "live" : "updating";
+
+  useEffect(() => {
+    if (raw === "live") {
+      setSettled("live");
+      return;
+    }
+    const id = window.setTimeout(() => setSettled(raw), 300);
+    return () => window.clearTimeout(id);
+  }, [raw]);
+
+  useEffect(() => {
+    const update = () => setOffline(!navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
+  if (settled === "live") return "live";
+  return offline ? "offline" : settled;
+}
+
 export function ConnectionPill({ label }: { label: string }) {
   return (
     <span

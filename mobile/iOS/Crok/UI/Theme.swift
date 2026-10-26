@@ -29,6 +29,16 @@ enum Theme {
     static let agentBubbleText = dynamic(0x1B1C1B, 0xE9EAE9)
     /// Tool cards and code blocks.
     static let card = dynamic(0xFFFFFF, 0x1D1E1D, lightAlpha: 0.75)
+
+    /// A tool call's states and the reasoning effect, Crok Desktop's colours (mobile/DESIGN.md "Thinking and tool
+    /// calls").
+    static let toolDone = dynamic(0x3B7751, 0x91C5A1)
+    static let toolFailed = dynamic(0xB3261E, 0xF2877E)
+    static let toolRunning = dynamic(0x2868E8, 0x5FA8FF)
+    static let thinkingColors: [Color] = [0x598CFF, 0x9E6BFF, 0xFA66B8, 0xFF9E52, 0xFA66B8, 0x9E6BFF, 0x598CFF]
+        .map { Color(uiColor: UIColor(hex: $0)) }
+    static let runningRimColors: [Color] = [0x3366FF, 0x1A9EFF, 0x47DBFA, 0x1A9EFF, 0x3366FF]
+        .map { Color(uiColor: UIColor(hex: $0)) }
     static let codeBackground = dynamic(0xF0F2F0, 0x2F322F)
     static let hairline = dynamic(0x000000, 0xFFFFFF, lightAlpha: 0.08, darkAlpha: 0.10)
     /// Tables in replies: the grid lines and the header row's tint.

@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { projectHue, projectInitials } from "@/lib/format";
 import { useI18n } from "./I18nProvider";
-import { MoreIcon, SpinnerIcon } from "./icons";
+import { SpinnerIcon } from "./icons";
 
 type ButtonTone = "primary" | "secondary" | "ghost" | "danger" | "dangerGhost";
 type ButtonSize = "sm" | "md" | "lg";
@@ -68,10 +68,12 @@ export function IconButton({
   label,
   className = "",
   children,
+  ref,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; ref?: Ref<HTMLButtonElement> }) {
   return (
     <button
+      ref={ref}
       type="button"
       aria-label={label}
       title={label}
@@ -176,86 +178,6 @@ export function useNow(intervalMs: number): number {
     return () => window.clearInterval(id);
   }, [intervalMs]);
   return now;
-}
-
-export type MenuItem = {
-  label: string;
-  icon?: ReactNode;
-  tone?: "danger";
-  /** Shown but not selectable (e.g. reordering while a search is active). */
-  disabled?: boolean;
-  onSelect: () => void;
-};
-
-/** A "⋯" button with a small popover menu. `className` positions it (default: in the flow, `relative`). */
-export function ActionMenu({ label, items, className = "relative" }: { label: string; items: MenuItem[]; className?: string }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    // An open menu stays visible even where the trigger only shows on hover (the pointer may leave the row).
-    <div ref={ref} className={className} style={open ? { opacity: 1 } : undefined}>
-      <IconButton
-        label={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        className="h-8 w-8"
-      >
-        <MoreIcon size={18} />
-      </IconButton>
-      {open ? (
-        <div
-          id={menuId}
-          role="menu"
-          className="absolute right-0 top-9 z-30 min-w-44 overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-card"
-        >
-          {items.map((item) => (
-            <button
-              key={item.label}
-              role="menuitem"
-              type="button"
-              disabled={item.disabled}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setOpen(false);
-                item.onSelect();
-              }}
-              className={`flex w-full items-center gap-3 whitespace-nowrap px-3.5 py-2 text-left text-sm hover:bg-hover disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent ${
-                item.tone === "danger" ? "text-danger" : "text-fg"
-              }`}
-            >
-              <span className="text-muted">{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 /** A confirmation dialog on the native <dialog> (focus trap and Escape for free). */

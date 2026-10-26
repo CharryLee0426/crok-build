@@ -1,0 +1,57 @@
+{
+  "_comment": "Grafana SLOs for crok (SLO plugin API v1). stack.py slos creates each one after checking that its metrics exist; ${prom} is the stack's Prometheus datasource uid. Targets from the 2026-10 research report: success 97% and p90 time to first token 5 s per provider, 95% of turns completed.",
+  "slos": [
+    {
+      "uuid": "crok-model-call-success",
+      "name": "crok model calls succeed",
+      "description": "Share of crok's model calls without an error (interrupted calls left out), per provider, over 28 days. October baseline: OpenRouter 96.5%, Anthropic 97.8%, DeepSeek 100%.",
+      "needs_metric": "gen_ai_client_operation_duration_seconds_count",
+      "query": {
+        "type": "ratio",
+        "ratio": {
+          "successMetric": {"prometheusMetric": "gen_ai_client_operation_duration_seconds_count{job=\"crok\", error_type=\"\"}"},
+          "totalMetric": {"prometheusMetric": "gen_ai_client_operation_duration_seconds_count{job=\"crok\", error_category!=\"cancelled\"}"},
+          "groupByLabels": ["gen_ai_provider_name"]
+        }
+      },
+      "objectives": [{"value": 0.97, "window": "28d"}],
+      "labels": [{"key": "service", "value": "crok"}],
+      "destinationDatasource": {"uid": "${prom}"}
+    },
+    {
+      "uuid": "crok-time-to-first-token",
+      "name": "crok first tokens arrive within 5 seconds",
+      "description": "Share of crok's streamed model calls whose first token came within 5 seconds, per provider, over 28 days (the p90 target is 5 s). October p90: OpenRouter 5.1 s, Anthropic 3.8 s, DeepSeek 2.3 s.",
+      "needs_metric": "gen_ai_client_time_to_first_token_seconds_bucket",
+      "bucket_le": "5",
+      "query": {
+        "type": "ratio",
+        "ratio": {
+          "successMetric": {"prometheusMetric": "gen_ai_client_time_to_first_token_seconds_bucket{job=\"crok\", le=\"${le}\"}"},
+          "totalMetric": {"prometheusMetric": "gen_ai_client_time_to_first_token_seconds_count{job=\"crok\"}"},
+          "groupByLabels": ["gen_ai_provider_name"]
+        }
+      },
+      "objectives": [{"value": 0.9, "window": "28d"}],
+      "labels": [{"key": "service", "value": "crok"}],
+      "destinationDatasource": {"uid": "${prom}"}
+    },
+    {
+      "uuid": "crok-turn-completion",
+      "name": "crok turns complete",
+      "description": "Share of crok turns that end with an answer rather than cancelled, cut off by --max-turns, stopped for repeating a call, or failed; experiment runs left out. Needs a crok release after 2.0.1 (crok_turns_total). 96.3% on one Mac in October.",
+      "needs_metric": "crok_turns_total",
+      "query": {
+        "type": "ratio",
+        "ratio": {
+          "successMetric": {"prometheusMetric": "crok_turns_total{outcome=\"completed\", origin!=\"eval\"}"},
+          "totalMetric": {"prometheusMetric": "crok_turns_total{origin!=\"eval\"}"},
+          "groupByLabels": []
+        }
+      },
+      "objectives": [{"value": 0.95, "window": "28d"}],
+      "labels": [{"key": "service", "value": "crok"}],
+      "destinationDatasource": {"uid": "${prom}"}
+    }
+  ]
+}

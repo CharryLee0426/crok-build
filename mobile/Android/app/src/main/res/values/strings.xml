@@ -89,9 +89,11 @@
     <string name="day_yesterday">Yesterday</string>
     <string name="message_from">from %1$s</string>
     <string name="thought_title">Thought</string>
-    <string name="tool_pending">Pending</string>
-    <string name="tool_running">Running</string>
-    <string name="tool_done">Done</string>
+    <string name="thinking_active">Thinking…</string>
+    <string name="tool_state_running">running</string>
+    <string name="tool_state_done">done</string>
+    <string name="tool_state_failed">failed</string>
+    <string name="tool_state_stopped">stopped</string>
     <string name="tool_failed">Failed</string>
     <string name="notice_stopped">Stopped</string>
     <string name="notice_max_tokens">The reply hit the output limit.</string>
@@ -305,6 +307,15 @@
     <string name="profile_contact_x">Contact the developer on X</string>
     <string name="profile_mode">Mode</string>
     <string name="profile_mode_demo">Demo</string>
+    <!-- Model and thinking level (mobile/DESIGN.md): the setup row, Choose a Model, the thinking menu. -->
+    <string name="setup_default">Default</string>
+    <string name="setup_choose_model">Choose a Model</string>
+    <string name="setup_search">Search models or providers</string>
+    <string name="setup_next_message">Model changes apply to your next message.</string>
+    <string name="setup_computer_choice">%1$s\'s own choice</string>
+    <string name="setup_model_failed">Couldn\'t change the model</string>
+    <string name="setup_thinking_failed">Couldn\'t change the thinking level</string>
+    <string name="setup_no_results">No Results</string>
     <plurals name="project_subtitle">
         <item quantity="one">%1$d session · %2$s</item>
         <item quantity="other">%1$d sessions · %2$s</item>

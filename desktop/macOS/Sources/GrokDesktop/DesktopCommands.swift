@@ -77,7 +77,7 @@ enum DesktopCommands {
         command("git-graph", "Browse the commit graph: branches, merges, and history", aliases: ["graph", "gitgraph"]),
         command("terminal", "Open a terminal in this project"),
         command("browser", "Open the side panel's browser", hint: "[address or search]", aliases: ["web", "browse"]),
-        command("browser-use", "Turn browser use on or off: Crok works in web pages in a browser of its own", hint: "[on|off]"),
+        command("browser-use", "Turn browser use on or off: Crok works in web pages in your own browser", hint: "[on|off]"),
         command("computer-use", "Turn computer use on or off: Crok sees the screen and uses the mouse and keyboard", hint: "[on|off]"),
         command("phone-use", "Turn phone use on or off: Crok uses your iPhone (through iPhone Mirroring) or Android phone (over adb)", hint: "[on|off]"),
         command("remote", "Remote control: follow and steer this Mac's tasks from your phone or the web", hint: "[on|off]"),

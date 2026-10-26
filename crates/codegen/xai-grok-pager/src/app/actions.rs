@@ -683,6 +683,18 @@ pub enum Action {
     /// `/remote new [project] [prompt]`: list the projects of the person's other computers, or start a session in one
     /// and open it.
     RemoteNew(String),
+    /// `/remote`, `/remote open` (signed in) and `/remote new` with no argument: open the Remote panel, at the project
+    /// list for `/remote new`.
+    ShowRemotePanel {
+        at_projects: bool,
+    },
+    /// Work the open Remote panel asked for: its list, a computer's models, a new session.
+    RemotePanelRequest(crate::remote_panel::Request),
+    /// Open a session of another computer (`relay:<id>`) from the Remote panel, as picking its row in `/resume` does.
+    RemoteOpenSession {
+        session_id: String,
+        cwd: Option<String>,
+    },
     /// Show release notes in a modal.
     ShowReleaseNotes {
         title: String,
@@ -2015,6 +2027,16 @@ pub enum Effect {
     RemoteLogout { agent_id: AgentId },
     /// `/remote new`: list other computers' projects, or start a session in one.
     RemoteNew { agent_id: AgentId, args: String },
+    /// Read the branch of a session of another computer (`x.ai/session/info`'s `gitBranch`) for its footer.
+    RemoteSessionBranch {
+        agent_id: AgentId,
+        session_id: String,
+    },
+    /// Ask the agent what the Remote panel needs (`x.ai/remote/sessions`, `models`, `new_session`).
+    RemotePanel {
+        agent_id: AgentId,
+        request: crate::remote_panel::Request,
+    },
     /// Fetch and display session info via x.ai/session/info.
     /// Auth lines are derived in the effect from SessionFlags and env (not Effect fields).
     ShowSessionInfo {
@@ -2937,7 +2959,20 @@ pub enum TaskResult {
     RemoteSessionCreated {
         agent_id: AgentId,
         session_id: String,
+        /// The project's folder over there, as `/resume` and the Remote panel open such a session.
+        cwd: String,
         text: String,
+    },
+    /// The branch a session of another computer is on, `None` when it has none or the read failed.
+    RemoteSessionBranch {
+        agent_id: AgentId,
+        session_id: String,
+        branch: Option<String>,
+    },
+    /// The agent answered the Remote panel; the panel drops answers it no longer wants.
+    RemotePanel {
+        agent_id: AgentId,
+        response: crate::remote_panel::Response,
     },
     /// A `/remote` step finished: a line for the scrollback and, optionally, a toast.
     RemoteNotice {

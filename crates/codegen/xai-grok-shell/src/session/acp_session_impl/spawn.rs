@@ -1425,6 +1425,10 @@ pub(crate) async fn spawn_session_actor(
             .as_deref()
             .filter(|_| is_subagent_spawn),
     );
+    crate::session::observe_tags::tag_session(
+        session_info.id.0.as_ref(),
+        std::path::Path::new(&session_info.cwd),
+    );
     let session_non_interactive = startup_hints.non_interactive;
     install_system_prompt(
         &mut conversation,

@@ -135,7 +135,26 @@ impl SessionActor {
                 continue;
             }
             match parse_goal_evaluator_verdict(&response.assistant_text()) {
-                Ok(verdict) => return Ok(verdict),
+                Ok(verdict) => {
+                    use crate::session::goal_evaluator::GoalEvaluatorDecision;
+                    // Agent Observability: the goal evaluator's call on the round, as a score.
+                    let (label, passed) = match verdict.decision {
+                        GoalEvaluatorDecision::Continue => ("continue", None),
+                        GoalEvaluatorDecision::CandidateComplete => {
+                            ("candidate_complete", Some(true))
+                        }
+                        GoalEvaluatorDecision::Blocked => ("blocked", Some(false)),
+                    };
+                    xai_grok_sampler::observe::record_verdict(xai_grok_sampler::observe::Verdict {
+                        session_id: &self.session_info.id.0,
+                        evaluator: "crok.goal_verdict",
+                        key: "decision",
+                        value: xai_grok_sampler::observe::VerdictValue::Label(label),
+                        passed,
+                        explanation: Some(&verdict.evidence),
+                    });
+                    return Ok(verdict);
+                }
                 Err(error) => last_error = error.to_string(),
             }
         }

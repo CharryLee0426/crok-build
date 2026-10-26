@@ -895,6 +895,60 @@ impl SessionActor {
             }
         }
     }
+    /// [`Self::run_compact_unobserved`], reported to Agent Observability as a `compaction` workflow step
+    /// (trigger, model, tokens before and after, outcome). Compaction streams its summary outside the
+    /// sampler, so this step is its only record there.
+    async fn run_compact_inner(
+        &self,
+        auto_continue: Option<crate::extensions::notification::AutoContinueInfo>,
+        trigger: xai_grok_telemetry::events::CompactionTrigger,
+        lossy_input: bool,
+    ) -> Result<(), acp::Error> {
+        let started_at = std::time::SystemTime::now();
+        let tokens_before = self.chat_state_handle.get_total_tokens().await;
+        let model = self
+            .chat_state_handle
+            .get_sampling_config()
+            .await
+            .map(|c| c.model)
+            .unwrap_or_default();
+        let result = self
+            .run_compact_unobserved(auto_continue, trigger, lossy_input)
+            .await;
+        let tokens_after = self.chat_state_handle.get_total_tokens().await;
+        let mut input = serde_json::Map::new();
+        input.insert(
+            "trigger".to_owned(),
+            match trigger {
+                xai_grok_telemetry::events::CompactionTrigger::Manual => "manual",
+                xai_grok_telemetry::events::CompactionTrigger::Auto => "auto",
+            }
+            .into(),
+        );
+        input.insert("model".to_owned(), model.into());
+        input.insert("tokens_before".to_owned(), tokens_before.into());
+        input.insert("lossy_input".to_owned(), lossy_input.into());
+        let mut output = serde_json::Map::new();
+        output.insert(
+            "outcome".to_owned(),
+            if result.is_ok() { "success" } else { "failed" }.into(),
+        );
+        output.insert("tokens_after".to_owned(), tokens_after.into());
+        let error = result
+            .as_ref()
+            .err()
+            .map(crate::sampling::error::acp_error_message);
+        xai_grok_sampler::observe::record_step(xai_grok_sampler::observe::Step {
+            session_id: &self.session_info.id.0,
+            name: "compaction",
+            started_at,
+            completed_at: std::time::SystemTime::now(),
+            input,
+            output,
+            error: error.as_deref(),
+        });
+        result
+    }
     /// Inner implementation of compaction that supports an optional `auto_continue` payload for the checkpoint.
     #[tracing::instrument(
         name = "session.compact_inner",
@@ -927,7 +981,7 @@ impl SessionActor {
             compaction_prefix_released = tracing::field::Empty,
         )
     )]
-    async fn run_compact_inner(
+    async fn run_compact_unobserved(
         &self,
         auto_continue: Option<crate::extensions::notification::AutoContinueInfo>,
         trigger: xai_grok_telemetry::events::CompactionTrigger,

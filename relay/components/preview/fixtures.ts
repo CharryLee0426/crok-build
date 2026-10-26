@@ -65,9 +65,30 @@ function fakeRow(now: number, { project, ...r }: RowInput): SessionRow {
   };
 }
 
+/** OpenRouter's share of a long list (a computer signed in there lists about 500), for the dialog's search. */
+const OPENROUTER: [string, string][] = [
+  ["anthropic/claude-opus-4.1", "Claude Opus 4.1"],
+  ["anthropic/claude-sonnet-4.5", "Claude Sonnet 4.5"],
+  ["anthropic/claude-haiku-4.5", "Claude Haiku 4.5"],
+  ["google/gemini-2.5-pro", "Gemini 2.5 Pro"],
+  ["google/gemini-2.5-flash", "Gemini 2.5 Flash"],
+  ["meta-llama/llama-4-maverick", "Llama 4 Maverick"],
+  ["meta-llama/llama-4-scout", "Llama 4 Scout"],
+  ["mistralai/devstral-medium", "Devstral Medium"],
+  ["mistralai/mistral-large-2411", "Mistral Large 2411"],
+  ["moonshotai/kimi-k2-0905", "Kimi K2 0905"],
+  ["qwen/qwen3-coder", "Qwen3 Coder 480B A35B"],
+  ["qwen/qwen3-235b-a22b-thinking-2507", "Qwen3 235B A22B Thinking 2507"],
+  ["x-ai/grok-4-fast", "Grok 4 Fast"],
+  ["z-ai/glm-4.6", "GLM 4.6"],
+  ["deepseek/deepseek-v3.2-exp", "DeepSeek V3.2 Exp"],
+  ["openai/gpt-oss-120b", "gpt-oss-120b"],
+];
+
 /**
- * What MacBook Pro's crok can run (`sessions:get(...).models`): models with and without thinking levels; Claude's levels
- * have ids of their own and the canonical level as `value`.
+ * What MacBook Pro's crok can run (`devices:models`), in picker order: the computer's default and its own providers,
+ * then OpenRouter's. Models with and without thinking levels; Claude's levels have ids of their own and the canonical
+ * level as `value`.
  */
 export const FAKE_MODELS: ModelChoice[] = [
   {
@@ -94,17 +115,23 @@ export const FAKE_MODELS: ModelChoice[] = [
     defaultEffort: "high",
   },
   {
-    id: "claude-sonnet-4-5",
+    id: "anthropic/claude-sonnet-4-5",
     name: "Claude Sonnet 4.5",
     description: "Anthropic, with your API key",
     efforts: [
-      { id: "budget-4k", name: "Low", value: "low" },
-      { id: "budget-16k", name: "Medium", value: "medium" },
-      { id: "budget-32k", name: "High", value: "high" },
+      { id: "budget-4k", name: "Low", value: "low", description: "4k thinking tokens" },
+      { id: "budget-16k", name: "Medium", value: "medium", description: "16k thinking tokens" },
+      { id: "budget-32k", name: "High", value: "high", description: "32k thinking tokens" },
     ],
     defaultEffort: "budget-16k",
   },
-  { id: "deepseek-chat", name: "DeepSeek V3.2", description: "No thinking levels", efforts: [] },
+  { id: "deepseek/deepseek-chat", name: "DeepSeek V3.2", description: "No thinking levels", efforts: [] },
+  ...OPENROUTER.map(([id, name]) => ({
+    id: `openrouter/${id}`,
+    name,
+    description: `${name} through OpenRouter. Billed to your OpenRouter account at its own prices.`,
+    efforts: id.includes("thinking") || id.startsWith("anthropic/") ? [{ id: "high", name: "High" }, { id: "low", name: "Low" }] : [],
+  })),
 ];
 
 /** `sessions:commands` for the web-app session: crok's own, a skill with an argument, a workflow. */
@@ -269,6 +296,7 @@ export function fakeGroups(now: number): ProjectGroup[] {
         deviceId: row.deviceId,
         deviceName: row.deviceName,
         deviceOnline: row.deviceOnline,
+        deviceLastSeenAt: row.deviceOnline ? null : row.lastActivityAt,
         path: row.projectPath,
         name: row.projectName,
         placed: true,
@@ -445,7 +473,7 @@ export function fakeCards(now: number): BotCard[] {
       kind: "model",
       createdAt: now - 5 * MIN,
       state: "failed",
-      value: "claude-sonnet-4-5",
+      value: "anthropic/claude-sonnet-4-5",
       error: "That model is not available on this computer.",
     },
     { id: "card-4", kind: "reasoning_effort", createdAt: now - 4 * MIN, state: "applying", value: "xhigh" },
@@ -682,4 +710,39 @@ export function fakeLogin(now: number, overrides: Partial<PendingLogin> = {}): P
     status: "pending",
     ...overrides,
   };
+}
+
+/** `users:me` for the Profile page (a made-up person; no picture, so the initials show). */
+export function fakeAccount() {
+  return { name: "Alex Rivera", email: "alex@example.com", imageUrl: null };
+}
+
+/** A small photo drawn on a canvas, for the Photo theme in the preview (no file to pick there). */
+export function fakePhotoUrl(): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 640;
+  canvas.height = 480;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+  const sky = ctx.createLinearGradient(0, 0, 0, 480);
+  sky.addColorStop(0, "#f6b26b");
+  sky.addColorStop(0.55, "#e06666");
+  sky.addColorStop(1, "#3d2b56");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 640, 480);
+  ctx.fillStyle = "#ffd966";
+  ctx.beginPath();
+  ctx.arc(420, 260, 60, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#20124d";
+  ctx.beginPath();
+  ctx.moveTo(0, 480);
+  ctx.lineTo(0, 330);
+  ctx.lineTo(160, 250);
+  ctx.lineTo(300, 340);
+  ctx.lineTo(470, 230);
+  ctx.lineTo(640, 320);
+  ctx.lineTo(640, 480);
+  ctx.fill();
+  return canvas.toDataURL("image/jpeg", 0.85);
 }

@@ -1,22 +1,23 @@
 "use client";
 
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQueries, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { newClientId } from "@/lib/browser";
 import { relayError } from "@/lib/errors";
 import { dropHandedOver, handedOverPrompt, newSessionHref, queueNewSessionPrompt } from "@/lib/new-session";
-import type { CommandId, OutboxItem, PendingPrompt, SessionId, SessionInfoResult } from "@/lib/types";
+import type { CommandId, ModelChoice, OutboxItem, PendingPrompt, SessionId, SessionInfoResult } from "@/lib/types";
 import { ErrorBoundary } from "../AccountGate";
 import { useI18n } from "../I18nProvider";
 import { ChatsIcon } from "../icons";
 import { useErrorText, useSessionActions } from "../SessionList";
 import { useToast } from "../Toast";
 import { ButtonLink, Loading, Notice, useNow } from "../ui";
-import { useBotCards } from "./BotCommands";
+import { currentModel, currentValue, useBotCards } from "./BotCommands";
+import type { ConfigKind } from "./BotCommands";
 import { SessionView } from "./SessionView";
-import type { InfoState, SessionModel } from "./SessionView";
+import type { ConfigChange, InfoState, SessionModel } from "./SessionView";
 
 const WATCH_EVERY_MS = 60_000;
 const INFO_TIMEOUT_MS = 15_000;
@@ -106,6 +107,25 @@ function LiveSession({ id }: { id: SessionId }) {
   const [infoCommandId, setInfoCommandId] = useState<CommandId | null>(null);
   const [infoLocal, setInfoLocal] = useState<InfoState["state"]>("idle");
   const infoCommand = useQuery(api.commands.get, infoCommandId ? { commandId: infoCommandId } : "skip");
+  /** A model or thinking-level change from the pills or Session info, until the computer applied it. */
+  const [config, setConfigState] = useState<(ConfigChange & { commandId?: CommandId; done?: boolean }) | null>(null);
+
+  // The computer's own list (`devices:models`): what the pills, the model dialog and the bot cards offer. Its error is a
+  // value here, so an older relay without the query falls back to `sessions:get`'s copy.
+  const deviceId = session?.deviceId;
+  // Memoized: useQueries resubscribes whenever it gets a new object.
+  const modelQueries = useMemo(() => {
+    const queries: Parameters<typeof useQueries>[0] = {};
+    if (deviceId) queries.models = { query: api.devices.models, args: { deviceId } };
+    return queries;
+  }, [deviceId]);
+  const queried = useQueries(modelQueries).models as
+    | ModelChoice[]
+    | null
+    | undefined
+    | Error;
+  const models: readonly ModelChoice[] | null | undefined = queried instanceof Error ? (session?.models ?? null) : queried;
+  const cardSession = useMemo(() => (session ? { ...session, models: models ?? null } : undefined), [session, models]);
 
   // "I'm watching": the computer streams finely while this is fresh. On open, every 60 s, and on returning to the tab.
   useEffect(() => {
@@ -229,7 +249,7 @@ function LiveSession({ id }: { id: SessionId }) {
   // INVALID (no crok there, not a choice there, or a crok too old to change it: "update crok").
   const deviceName = session?.deviceName ?? "";
   const cards = useBotCards({
-    session,
+    session: cardSession,
     apply: (configId, value) =>
       setConfig({ sessionDocId: id, configId, value }).then(({ commandId }) => commandId),
     errorText: (error) => {
@@ -240,10 +260,42 @@ function LiveSession({ id }: { id: SessionId }) {
     },
   });
 
+  const configErrorText = (error: unknown) => {
+    const { code, message } = relayError(error);
+    if (code === "OFFLINE") return message || t("card_err_offline", { computer: deviceName });
+    if (code === "INVALID") return message || t("card_err_invalid");
+    return errorText(error);
+  };
+  const configFailed = (kind: ConfigKind, error?: string) => {
+    const title = t(kind === "model" ? "config_failed_model" : "config_failed_effort");
+    toast.show(error ? `${title}: ${error}` : title, "error");
+  };
+
+  // Done on the computer: keep showing the new value until the session row has it (or a few seconds pass).
+  const sessionModel = session?.model ?? null;
+  const sessionEffort = session?.effort ?? null;
+  useEffect(() => {
+    if (!config?.done || !cardSession) return;
+    const applied =
+      config.kind === "model"
+        ? (currentModel(cardSession.models, sessionModel)?.id ?? sessionModel) === config.value
+        : currentValue(cardSession, "reasoning_effort") === config.value;
+    if (applied) {
+      setConfigState(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setConfigState(null), 5000);
+    return () => window.clearTimeout(timer);
+    // The session's model and effort are what change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, sessionModel, sessionEffort, models]);
+
   if (session === undefined) return <Loading />;
 
   const model: SessionModel = {
     session,
+    models,
+    config: config ? { kind: config.kind, value: config.value } : null,
     events,
     pagination: {
       canLoadMore: transcript.status === "CanLoadMore",
@@ -299,12 +351,36 @@ function LiveSession({ id }: { id: SessionId }) {
       },
       openCard: cards.open,
       chooseInCard: cards.choose,
+      setConfig: (kind, value) => {
+        if (config) return;
+        setConfigState({ kind, value });
+        setConfig({ sessionDocId: id, configId: kind, value }).then(
+          ({ commandId }) => setConfigState((c) => (c && c.kind === kind && c.value === value ? { ...c, commandId } : c)),
+          (error) => {
+            setConfigState(null);
+            configFailed(kind, configErrorText(error));
+          },
+        );
+      },
     },
   };
 
   return (
     <>
       <SessionView model={model} />
+      {config?.commandId && !config.done ? (
+        <ConfigWatcher
+          key={config.commandId}
+          commandId={config.commandId}
+          onSettled={(status, error) => {
+            if (status === "done") setConfigState((c) => (c ? { ...c, done: true } : c));
+            else {
+              setConfigState(null);
+              configFailed(config.kind, error);
+            }
+          }}
+        />
+      ) : null}
       {cards.cards.map((card) =>
         card.state === "applying" && card.commandId ? (
           <ConfigWatcher

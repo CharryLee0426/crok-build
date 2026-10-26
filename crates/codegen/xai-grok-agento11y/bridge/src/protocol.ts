@@ -1,5 +1,6 @@
 // The lines crok writes to the bridge's stdin, one JSON object per line.
-// The Rust side is `xai_grok_sampler::observe::GenerationRecord`; keep the two in step.
+// The Rust side is `xai_grok_sampler::observe::GenerationRecord` for model calls and
+// `observe_harness.rs` for the rest; keep them in step.
 // Field names and shapes follow the agento11y SDK's GenerationStart / GenerationResult,
 // with dates as epoch milliseconds because JSON has no Date.
 
@@ -26,7 +27,108 @@ export interface GenerationLine {
    * `crok.cost.usd` with `crok.cost.source` (`provider` or `list_price`), `crok.cancelled`.
    */
   spanAttributes?: Record<string, SpanAttributeValue>;
+  /** The turn span the call's span is a child of; absent outside a turn (side calls between turns). */
+  parent?: SpanRef | null;
 }
+
+/** A span in a turn's trace, made by crok: W3C ids in lowercase hex. */
+export interface SpanRef {
+  traceId: string;
+  spanId: string;
+}
+
+/** One turn, sent when it ends, after the calls and tool runs under it. */
+export interface TurnLine {
+  type: "turn";
+  span: SpanRef;
+  /** For a sub-agent's turn: the turn of the session that started it. */
+  parent?: SpanRef | null;
+  conversationId: string;
+  conversationTitle?: string | null;
+  agentName: string;
+  startedAtMs: number;
+  completedAtMs: number;
+  error?: string | null;
+  /** `crok.turn.outcome`, `crok.turn_index`, `crok.model_calls`, `crok.tool_calls`, ... */
+  attributes?: Record<string, SpanAttributeValue>;
+  tags?: Record<string, string>;
+}
+
+/** One tool run, as an `execute_tool` span under its turn. */
+export interface ToolLine {
+  type: "tool";
+  parent?: SpanRef | null;
+  conversationId: string;
+  conversationTitle?: string | null;
+  agentName: string;
+  toolName: string;
+  toolCallId: string;
+  requestModel?: string | null;
+  startedAtMs: number;
+  completedAtMs: number;
+  error?: string | null;
+  /** `crok.tool.outcome`, `crok.tool.kind`, `crok.tool.exit_code`, ... */
+  attributes?: Record<string, SpanAttributeValue>;
+  tags?: Record<string, string>;
+}
+
+/** A workflow step beside the generations: a permission or hook decision, a compaction. */
+export interface StepLine {
+  type: "step";
+  id: string;
+  parent?: SpanRef | null;
+  conversationId: string;
+  agentName: string;
+  stepName: string;
+  startedAtMs: number;
+  completedAtMs: number;
+  inputState?: Record<string, unknown>;
+  outputState?: Record<string, unknown>;
+  error?: string | null;
+  linkedGenerationIds?: string[];
+  tags?: Record<string, string>;
+}
+
+/** One of crok's own verdicts, as a score on a generation. */
+export interface ScoreLine {
+  type: "score";
+  scoreId: string;
+  evaluatorId: string;
+  scoreKey: string;
+  value: { number: number } | { bool: boolean } | { string: string };
+  passed?: boolean | null;
+  explanation?: string | null;
+  generationId: string;
+  conversationId?: string | null;
+  traceId?: string | null;
+  spanId?: string | null;
+}
+
+/** The user's rating of a conversation. */
+export interface RatingLine {
+  type: "rating";
+  conversationId: string;
+  ratingId: string;
+  rating: "CONVERSATION_RATING_VALUE_GOOD" | "CONVERSATION_RATING_VALUE_BAD";
+  comment?: string | null;
+  generationId?: string | null;
+  category?: string | null;
+}
+
+/** A guard check: the tool calls the model returned (postflight), or the tool results about to go to it (preflight). */
+export interface GuardLine {
+  type: "guard";
+  phase: "preflight" | "postflight";
+  conversationId: string;
+  agentName: string;
+  model: { provider: string; name: string };
+  traceId?: string | null;
+  spanId?: string | null;
+  input: { messages?: Message[]; output?: Message[] };
+  tags?: Record<string, string>;
+}
+
+export type HarnessLine = TurnLine | ToolLine | StepLine | ScoreLine | RatingLine | GuardLine;
 
 export type SpanAttributeValue = string | number | boolean;
 
@@ -35,7 +137,19 @@ export interface FlushLine {
   type: "flush";
 }
 
-export type Line = GenerationLine | FlushLine;
+export type Line = GenerationLine | FlushLine | HarnessLine;
+
+const HARNESS_TYPES = new Set(["turn", "tool", "step", "score", "rating", "guard"]);
+
+/** Fields each harness line must have, as `typeof` names. */
+const HARNESS_FIELDS: Record<string, Record<string, string>> = {
+  turn: { span: "object", conversationId: "string", agentName: "string", startedAtMs: "number", completedAtMs: "number" },
+  tool: { conversationId: "string", agentName: "string", toolName: "string", toolCallId: "string", startedAtMs: "number", completedAtMs: "number" },
+  step: { id: "string", conversationId: "string", stepName: "string", startedAtMs: "number", completedAtMs: "number" },
+  score: { scoreId: "string", evaluatorId: "string", scoreKey: "string", value: "object", generationId: "string" },
+  rating: { conversationId: "string", ratingId: "string", rating: "string" },
+  guard: { phase: "string", conversationId: "string", model: "object", input: "object" },
+};
 
 export interface StartFields {
   id: string;
@@ -93,6 +207,17 @@ export function parseLine(text: string): Line | Error | undefined {
   if (value.type === "flush") {
     return { type: "flush" };
   }
+  if (typeof value.type === "string" && HARNESS_TYPES.has(value.type)) {
+    const required = HARNESS_FIELDS[value.type] ?? {};
+    const missing = Object.entries(required).filter(([field, kind]) => {
+      const got = value[field];
+      return kind === "object" ? !isRecord(got) : typeof got !== kind;
+    });
+    if (missing.length > 0) {
+      return new Error(`${value.type} line without ${missing.map(([field]) => field).join(", ")}`);
+    }
+    return value as unknown as HarnessLine;
+  }
   if (value.type !== "generation") {
     return new Error(`unknown line type ${JSON.stringify(value.type)}`);
   }
@@ -119,8 +244,10 @@ export function toResult(fields: ResultFields): GenerationResult {
 }
 
 /** The line's span attributes that a span can hold (strings, finite numbers, booleans); the rest is dropped. */
-export function spanAttributesOf(line: GenerationLine): Record<string, SpanAttributeValue> | undefined {
-  const given: unknown = line.spanAttributes;
+export function spanAttributesOf(
+  line: GenerationLine | TurnLine | ToolLine,
+): Record<string, SpanAttributeValue> | undefined {
+  const given: unknown = line.type === "generation" ? line.spanAttributes : line.attributes;
   if (!isRecord(given)) {
     return undefined;
   }
@@ -138,6 +265,31 @@ export function spanAttributesOf(line: GenerationLine): Record<string, SpanAttri
  * HTTP status out of its text (429 is rate_limit, 401/403 auth_error, 5xx server_error),
  * so the status leads the message.
  */
+/** A span ref crok sent, when it is a valid W3C trace id and span id. */
+export function validSpanRef(ref: unknown): SpanRef | undefined {
+  if (!isRecord(ref)) {
+    return undefined;
+  }
+  const { traceId, spanId } = ref;
+  return typeof traceId === "string" &&
+    typeof spanId === "string" &&
+    /^[0-9a-f]{32}$/.test(traceId) &&
+    /^[0-9a-f]{16}$/.test(spanId) &&
+    !/^0+$/.test(traceId) &&
+    !/^0+$/.test(spanId)
+    ? { traceId, spanId }
+    : undefined;
+}
+
+/** Tags with string values only; the rest is dropped. */
+export function stringTags(tags: unknown): Record<string, string> | undefined {
+  if (!isRecord(tags)) {
+    return undefined;
+  }
+  const kept = Object.entries(tags).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return kept.length > 0 ? Object.fromEntries(kept) : undefined;
+}
+
 export function toCallError(error: CallError): Error {
   const status = error.statusCode;
   const message = typeof status === "number" ? `HTTP ${status}: ${error.message}` : error.message;

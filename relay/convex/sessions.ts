@@ -18,6 +18,7 @@ import {
 } from "./lib/projects";
 import {
   STARTING_PREFIX,
+  embeddedModels,
   isAbsolutePath,
   isStarting,
   modelsFor,
@@ -116,6 +117,8 @@ export const groups = query({
       deviceId: group.deviceId,
       deviceName: group.device.name,
       deviceOnline: group.device.online,
+      /** For "last seen …" while it is offline (null while online, so heartbeats do not re-send the list). */
+      deviceLastSeenAt: group.device.online ? null : group.device.lastSeenAt,
       path: group.path,
       name: projectName(group.path),
       placed: group.project?.position !== undefined,
@@ -163,8 +166,11 @@ export const get = query({
       starting: isStarting(session),
       /** A permission request waiting for an answer (`commands:answer`), or null. */
       pending: session.pending ?? null,
-      /** What its computer can run (`commands:setConfig` picks from these), or null while the computer is offline. */
-      models: await modelsFor(ctx, device),
+      /**
+       * What its computer can run (`commands:setConfig` picks from these) when the list is short (`embeddedModels`);
+       * current clients read `devices:models`. Null while the computer is offline.
+       */
+      models: embeddedModels(await modelsFor(ctx, device)),
     };
   },
 });
@@ -289,6 +295,89 @@ export const events = query({
       .withIndex("by_session_seq", (q) => q.eq("sessionDocId", session._id))
       .order("desc")
       .paginate(paginationOpts);
+  },
+});
+
+/** `sessions:transcript` answers at most this many items, and at most about this much text in all (characters). */
+const TRANSCRIPT_MAX_ITEMS = 200;
+const TRANSCRIPT_MAX_TEXT = 400_000;
+const TRANSCRIPT_DEFAULT_ITEMS = 40;
+/** A tool call without a title is named by the start of its detail, at most this long. */
+const TOOL_TITLE_MAX = 200;
+
+/**
+ * A transcript item as the phones show it: thoughts and tool calls by their status only (their text, up to 32 000
+ * characters each, stays on the relay for clients that read `sessions:events`).
+ */
+function slimEvent(event: Doc<"events">) {
+  const statusOnly = event.kind === "thought" || event.kind === "tool";
+  let title = event.title;
+  if (event.kind === "tool" && !title) {
+    title = event.text.trim().split("\n", 1)[0]?.slice(0, TOOL_TITLE_MAX) || undefined;
+  }
+  return {
+    _id: event._id,
+    seq: event.seq,
+    key: event.key,
+    kind: event.kind,
+    text: statusOnly ? "" : event.text,
+    title,
+    toolKind: event.toolKind,
+    status: event.status,
+    origin: event.origin,
+    commandId: event.commandId,
+    fromLabel: event.fromLabel,
+    at: event.at,
+  };
+}
+
+/**
+ * A window of the transcript, newest first, for clients that keep a long transcript in parts (relay/DESIGN.md §3,
+ * "Loading long transcripts"): items with `afterSeq < seq <= throughSeq` (either bound optional), the newest `limit`
+ * of them (default 40, at most 200) and at most about 400 000 characters of text. `more`: the range holds older items
+ * than the ones returned. Thoughts and tool calls come without their text.
+ *
+ * Reading only the items (not the session, whose every change would re-run it) keeps a part that nothing changes
+ * from re-running: only the live end of the window does, as items arrive.
+ */
+export const transcript = query({
+  args: {
+    sessionDocId: v.string(),
+    afterSeq: v.optional(v.number()),
+    throughSeq: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { sessionDocId, afterSeq, throughSeq, limit }) => {
+    const viewer = await requireViewer(ctx);
+    const id = ctx.db.normalizeId("sessions", sessionDocId);
+    if (!id) fail("NOT_FOUND", "No such session.");
+    const count = Math.max(1, Math.min(TRANSCRIPT_MAX_ITEMS, Math.floor(limit ?? TRANSCRIPT_DEFAULT_ITEMS)));
+    const rows = await ctx.db
+      .query("events")
+      .withIndex("by_session_seq", (q) => {
+        const session = q.eq("sessionDocId", id);
+        if (afterSeq !== undefined && throughSeq !== undefined) return session.gt("seq", afterSeq).lte("seq", throughSeq);
+        if (afterSeq !== undefined) return session.gt("seq", afterSeq);
+        if (throughSeq !== undefined) return session.lte("seq", throughSeq);
+        return session;
+      })
+      .order("desc")
+      .take(count + 1);
+    // Items written before events carried their owner (and an empty answer) are checked on the session itself.
+    if (rows.length === 0 || rows.some((row) => row.userId === undefined)) {
+      await requireSession(ctx, viewer, sessionDocId);
+    } else if (rows.some((row) => row.userId !== viewer.user._id)) {
+      fail("NOT_FOUND", "No such session.");
+    }
+    const events = [];
+    let text = 0;
+    for (const row of rows.slice(0, count)) {
+      const event = slimEvent(row);
+      if (events.length > 0 && text + event.text.length > TRANSCRIPT_MAX_TEXT) break;
+      text += event.text.length;
+      events.push(event);
+    }
+    return { events, more: rows.length > events.length };
   },
 });
 

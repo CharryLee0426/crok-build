@@ -2945,6 +2945,7 @@ pub(crate) async fn new(
     let (handle, rx, summary_tx, disk_full_tx) = actor_channel();
 
     let info_clone = info.clone();
+    let title_session_id = info.id.0.to_string();
     let storage: Arc<dyn StorageAdapter> = Arc::new(storage);
     let remote_sync = init_remote_sync(&summary, storage_mode, auth_manager)?;
     tokio::task::spawn(async move {
@@ -2961,6 +2962,7 @@ pub(crate) async fn new(
                     sampling_client,
                     model: session_summary_model,
                     persistence_tx: summary_tx,
+                    session_id: title_session_id,
                 },
             ),
             registry_title_sync,
@@ -3055,6 +3057,7 @@ pub(crate) async fn new_with_explicit_dir(
     let (handle, rx, summary_tx, disk_full_tx) = actor_channel();
 
     let info_clone = info.clone();
+    let title_session_id = info.id.0.to_string();
     let storage: Arc<dyn StorageAdapter> = Arc::new(storage);
     tokio::task::spawn(async move {
         let persistence = SessionPersistence {
@@ -3070,6 +3073,7 @@ pub(crate) async fn new_with_explicit_dir(
                     sampling_client,
                     model: session_summary_model,
                     persistence_tx: summary_tx,
+                    session_id: title_session_id,
                 },
             ),
             registry_title_sync: None,
@@ -3192,12 +3196,14 @@ pub(crate) async fn load_light(
     let remote_sync = init_remote_sync(&persisted_info.summary, storage_mode, auth_manager)?;
 
     let has_title = !persisted_info.summary.display_title().is_empty();
+    let title_session_id = loaded_info.id.0.to_string();
     tokio::task::spawn(async move {
         let mut summary_gen = crate::session::summary::SummaryGenerator::new(
             crate::session::summary::SummaryConfig {
                 sampling_client,
                 model: session_summary_model,
                 persistence_tx: summary_tx,
+                session_id: title_session_id,
             },
         );
         if has_title {

@@ -46,6 +46,11 @@ const RELEASE_CHECK_TICKS: u32 = 20;
 const MODELS_CHECK_TICKS: u32 = 480;
 const PENDING_TITLE_MAX: usize = 300;
 const PENDING_DETAIL_MAX: usize = 2_000;
+/// How long a mirror may still show a turn once nothing runs in the session, before it ends it (a turn's last updates
+/// can trail the call that ran it).
+const TURN_END_GRACE: Duration = Duration::from_millis(750);
+/// How soon a session's fields go out again after the relay lost a write of them.
+const RESEND_DELAY: Duration = Duration::from_secs(2);
 
 enum Internal {
     Fields {
@@ -146,10 +151,16 @@ struct Mirror {
     /// What the relay has, and what it should have; the difference goes out each tick.
     sent: SessionFields,
     desired: SessionFields,
+    /// When to send every field again, after the relay lost a write of them.
+    resend_at: Option<Instant>,
     has_real_title: bool,
     transcript: Transcript,
     turn_running: bool,
     live_prompt_id: Option<String>,
+    /// The front end's prompt calls still out (a queued prompt's call is out until it runs or leaves the queue).
+    local_prompts: u32,
+    /// Since when nothing has run in the session while the mirror still shows a turn.
+    stalled_since: Option<Instant>,
     remote_running: Option<String>,
     queue: VecDeque<InboxCommand>,
     boundary: bool,
@@ -189,10 +200,13 @@ impl Mirror {
                 status: Some(SessionStatus::Idle),
                 ..SessionFields::default()
             },
+            resend_at: None,
             has_real_title: false,
             transcript: Transcript::new(prefix.to_string(), false),
             turn_running: false,
             live_prompt_id: None,
+            local_prompts: 0,
+            stalled_since: None,
             remote_running: None,
             queue: VecDeque::new(),
             boundary: false,
@@ -553,6 +567,27 @@ fn model_catalog(agent: &MvpAgent) -> Vec<ModelOption> {
         .collect()
 }
 
+/// The most models the relay keeps for a computer (`bridge:setModels`).
+const MAX_PUBLISHED_MODELS: usize = 1_000;
+
+/// The catalog in the order other devices' pickers list it: this computer's default model, then its own providers'
+/// models, then OpenRouter's (several hundred, listed first here), within the relay's limit.
+fn for_pickers(models: Vec<ModelOption>, default: &str) -> Vec<ModelOption> {
+    let rank = |model: &ModelOption| {
+        if model.id == default {
+            0
+        } else if model.id.starts_with("openrouter/") {
+            2
+        } else {
+            1
+        }
+    };
+    let mut models = models;
+    models.sort_by_key(rank);
+    models.truncate(MAX_PUBLISHED_MODELS);
+    models
+}
+
 /// Applies the model and thinking level chosen for a session started from another device, before its first prompt.
 async fn apply_start_setup(
     agent: &MvpAgent,
@@ -655,6 +690,15 @@ fn slash_commands(commands: &[Value]) -> Vec<SlashCommand> {
             })
         })
         .collect()
+}
+
+/// The turn the agent runs in the session now, by its prompt id (`Some(None)`: none), as the session itself says;
+/// `None` when that cannot be told (the session is not resident here).
+fn agent_turn(agent: &Weak<MvpAgent>, session_id: &str) -> Option<Option<String>> {
+    let agent = agent.upgrade()?;
+    let handle = agent.resident_handle(&acp::SessionId::new(session_id))?;
+    let current = handle.current_prompt_id.lock().ok()?.clone();
+    Some(current)
 }
 
 fn status_from_activity(activity: &str) -> Option<SessionStatus> {
@@ -810,6 +854,7 @@ impl Bridge {
                         self.refresh_models();
                     }
                     self.observer.viewer().tick();
+                    self.settle_turns();
                     self.flush();
                 }
             }
@@ -909,16 +954,7 @@ impl Bridge {
             };
             mirror.transcript = Transcript::new(prefix.clone(), false);
             // What the agent says now, not what was seen while signed out.
-            let running = agent
-                .as_ref()
-                .and_then(|agent| agent.resident_handle(&acp::SessionId::new(id.as_str())))
-                .and_then(|handle| {
-                    handle
-                        .current_prompt_id
-                        .lock()
-                        .ok()
-                        .and_then(|current| current.clone())
-                });
+            let running = agent_turn(&self.agent, &id).flatten();
             mirror.turn_running = running.is_some();
             mirror.set_status(if running.is_some() {
                 SessionStatus::Running
@@ -947,7 +983,8 @@ impl Bridge {
         let Some(agent) = self.agent.upgrade() else {
             return;
         };
-        let models = model_catalog(&agent);
+        let default = agent.model_state(None).current_model_id.0.to_string();
+        let models = for_pickers(model_catalog(&agent), &default);
         if models.is_empty() || self.sent_models.as_ref() == Some(&models) {
             return;
         }
@@ -989,6 +1026,8 @@ impl Bridge {
             mirror.registered = false;
             mirror.backfill_pending = false;
             mirror.sent = SessionFields::default();
+            mirror.resend_at = None;
+            mirror.stalled_since = None;
             mirror.sent_commands = None;
             mirror.remote_running = None;
             mirror.queue.clear();
@@ -1132,6 +1171,7 @@ impl Bridge {
                 mirror.had_prompt = true;
                 mirror.turn_running = true;
                 mirror.live_prompt_id = prompt_id;
+                mirror.local_prompts = mirror.local_prompts.saturating_add(1);
                 mirror.set_status(SessionStatus::Running);
                 mirror.title_from_prompt(&text);
                 if active {
@@ -1140,6 +1180,12 @@ impl Bridge {
                         .user_prompt(&text, "local", None, None, now_ms());
                     mirror.boundary = true;
                     self.register(&session_id);
+                }
+            }
+            // Its turn ends with the agent's own signals; `settle_turns` ends it if those named another prompt.
+            Observed::PromptReturned { session_id } => {
+                if let Some(mirror) = self.mirrors.get_mut(&session_id) {
+                    mirror.local_prompts = mirror.local_prompts.saturating_sub(1);
                 }
             }
             Observed::SessionClosed { session_id } => {
@@ -1285,12 +1331,19 @@ impl Bridge {
             "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update"
         );
         if activity && !mirror.turn_running {
-            // A turn the front end did not start (a background task finishing, a scheduled prompt).
-            mirror.turn_running = true;
-            mirror.set_status(SessionStatus::Running);
-            if !mirror.requested && mirror.worth_mirroring() {
-                let id = session_id.to_string();
-                self.register(&id);
+            // A turn the front end did not start (a background task finishing, a scheduled prompt), unless nothing runs
+            // in the session: then these are the last updates of a turn that is over (a stopped tool call's end).
+            let turn = agent_turn(&self.agent, session_id);
+            if mirror.local_prompts > 0 || turn != Some(None) {
+                mirror.turn_running = true;
+                if let Some(Some(prompt_id)) = turn {
+                    mirror.live_prompt_id = Some(prompt_id);
+                }
+                mirror.set_status(SessionStatus::Running);
+                if !mirror.requested && mirror.worth_mirroring() {
+                    let id = session_id.to_string();
+                    self.register(&id);
+                }
             }
         }
         let Some(mirror) = self.mirrors.get_mut(session_id) else {
@@ -1369,18 +1422,63 @@ impl Bridge {
         {
             return;
         }
+        let id = session_id.to_string();
+        self.end_turn(&id);
+    }
+
+    /// The session's turn is over: idle for every device, the remote prompt that ran it done, the next one waiting
+    /// starts.
+    fn end_turn(&mut self, session_id: &str) {
+        let Some(mirror) = self.mirrors.get_mut(session_id) else {
+            return;
+        };
         mirror.turn_running = false;
         mirror.live_prompt_id = None;
+        mirror.stalled_since = None;
         mirror.set_status(SessionStatus::Idle);
         mirror.boundary = true;
-        let finished = mirror.remote_running.take();
-        let id = session_id.to_string();
-        if let Some(command_id) = finished {
+        if let Some(command_id) = mirror.remote_running.take() {
             self.complete(&command_id, CommandOutcome::Done, None, None);
         }
         if self.active() {
-            self.refresh_usage(&id);
-            self.run_next(&id);
+            self.refresh_usage(session_id);
+            self.run_next(session_id);
+        }
+    }
+
+    /// Ends a turn a mirror still shows once nothing runs in the session: no prompt call from the front end or from
+    /// another device is out, and the agent runs no turn. The usual end (`prompt_complete`, the turn's own
+    /// `turn_completed`) can name another prompt than the mirror waits for, when a queued prompt left the queue unrun
+    /// or joined the running turn; the session would show as working everywhere else until its next turn, and prompts
+    /// sent from other devices would wait behind it.
+    fn settle_turns(&mut self) {
+        if !self.active() {
+            return;
+        }
+        let now = Instant::now();
+        let mut over = Vec::new();
+        for (session_id, mirror) in &mut self.mirrors {
+            let shows_turn =
+                mirror.turn_running || mirror.desired.status == Some(SessionStatus::Running);
+            let stalled = shows_turn
+                && mirror.registered
+                && !mirror.opening
+                && mirror.local_prompts == 0
+                && mirror.remote_running.is_none()
+                && mirror.permission.is_none()
+                && agent_turn(&self.agent, session_id) == Some(None);
+            if !stalled {
+                mirror.stalled_since = None;
+                continue;
+            }
+            let since = *mirror.stalled_since.get_or_insert(now);
+            if now.duration_since(since) >= TURN_END_GRACE {
+                over.push(session_id.clone());
+            }
+        }
+        for session_id in over {
+            tracing::debug!(%session_id, "remote control: ending a turn that is over");
+            self.end_turn(&session_id);
         }
     }
 
@@ -1419,8 +1517,11 @@ impl Bridge {
                     .and_then(Value::as_str)
                     .and_then(status_from_activity)
                 {
-                    // A remote prompt waiting for its turn keeps the session busy.
-                    if !(status == SessionStatus::Idle && mirror.remote_running.is_some()) {
+                    // A remote prompt waiting for its turn keeps the session busy, and so does a turn the agent runs
+                    // (a queued prompt that started as the row's turn ended).
+                    let busy = mirror.remote_running.is_some()
+                        || matches!(agent_turn(&self.agent, id), Some(Some(_)));
+                    if !(status == SessionStatus::Idle && busy) {
                         mirror.set_status(status);
                     }
                 }
@@ -1452,8 +1553,10 @@ impl Bridge {
                 let Some(mirror) = self.mirrors.get_mut(&session_id) else {
                     return;
                 };
+                // Every upsert answers with the row; the history is read once, when the row first comes back (field
+                // updates go out while it is being read).
+                let backfill = mirror.backfill_pending && !mirror.registered;
                 mirror.registered = true;
-                let backfill = mirror.backfill_pending;
                 let knows_commands = mirror.commands.is_some();
                 self.observer.set_shared(&session_id, true);
                 if !knows_commands {
@@ -1511,6 +1614,13 @@ impl Bridge {
                         let claimed = claimed.await.unwrap_or(false);
                         let _ = tx.send(Internal::Claimed { command, claimed });
                     });
+                }
+            }
+            FromRelay::FieldsLost { session_id } => {
+                if let Some(mirror) = self.mirrors.get_mut(&session_id) {
+                    mirror
+                        .resend_at
+                        .get_or_insert_with(|| Instant::now() + RESEND_DELAY);
                 }
             }
             FromRelay::SignedOut => {
@@ -2152,6 +2262,8 @@ impl Bridge {
         };
         let text = command.text.clone().unwrap_or_default();
         let prompt_id = format!("remote-{}", command.id);
+        // Agent Observability tags the turn this prompt starts `origin=relay`.
+        xai_grok_sampler::observe::note_prompt_origin(&session_id, "relay");
         mirror.idle_since = None;
         mirror.remote_running = Some(command.id.clone());
         mirror.turn_running = true;
@@ -2447,41 +2559,61 @@ impl Bridge {
         }
         let now = Instant::now();
         let mut out = Vec::new();
+        let mut unregistered = Vec::new();
         for (session_id, mirror) in &mut self.mirrors {
-            if !mirror.registered || mirror.backfill_pending {
+            let resend = mirror.resend_at.is_some_and(|at| at <= now);
+            if resend {
+                mirror.resend_at = None;
+            }
+            if !mirror.registered {
+                // The upsert that would have created its row was lost.
+                if resend && mirror.requested {
+                    mirror.requested = false;
+                    unregistered.push(session_id.clone());
+                }
                 continue;
             }
-            let watched = self
-                .watched
-                .get(session_id)
-                .is_some_and(|until| *until > now);
-            let since = now.duration_since(mirror.last_flush);
-            let due =
-                mirror.boundary || (watched && since >= WATCHED_FLUSH) || since >= UNWATCHED_FLUSH;
-            if mirror.transcript.has_dirty() && due {
-                let events = mirror.transcript.take_dirty();
-                out.push(ToRelay::PushEvents {
-                    session_id: session_id.clone(),
-                    events,
-                    replace: false,
-                });
-                mirror.last_flush = now;
-                let at_boundary = mirror.boundary;
-                mirror.boundary = false;
-                if let Some(preview) = mirror.transcript.preview() {
-                    mirror.latest_preview = Some(preview);
+            if resend {
+                // The relay may lack any of its fields: they all go out again.
+                mirror.sent = SessionFields::default();
+            }
+            // History read from disk goes out before the live transcript (it replaces what the relay has); the
+            // session's fields, its status among them, need not wait for it.
+            if !mirror.backfill_pending {
+                let watched = self
+                    .watched
+                    .get(session_id)
+                    .is_some_and(|until| *until > now);
+                let since = now.duration_since(mirror.last_flush);
+                let due = mirror.boundary
+                    || (watched && since >= WATCHED_FLUSH)
+                    || since >= UNWATCHED_FLUSH;
+                if mirror.transcript.has_dirty() && due {
+                    let events = mirror.transcript.take_dirty();
+                    out.push(ToRelay::PushEvents {
+                        session_id: session_id.clone(),
+                        events,
+                        replace: false,
+                    });
+                    mirror.last_flush = now;
+                    let at_boundary = mirror.boundary;
+                    mirror.boundary = false;
+                    if let Some(preview) = mirror.transcript.preview() {
+                        mirror.latest_preview = Some(preview);
+                    }
+                    // Lists show "working…" for a running session, and every session write re-sends every viewer's
+                    // whole list: the preview goes out at message boundaries and when the turn is over, not with
+                    // each chunk.
+                    if at_boundary {
+                        mirror.publish_preview();
+                    }
+                    mirror.transcript.compact();
+                } else if !mirror.transcript.has_dirty() {
+                    mirror.boundary = false;
                 }
-                // Lists show "working…" for a running session, and every session write re-sends every viewer's whole
-                // list: the preview goes out at message boundaries and when the turn is over, not with each chunk.
-                if at_boundary {
+                if !mirror.turn_running {
                     mirror.publish_preview();
                 }
-                mirror.transcript.compact();
-            } else if !mirror.transcript.has_dirty() {
-                mirror.boundary = false;
-            }
-            if !mirror.turn_running {
-                mirror.publish_preview();
             }
             if mirror.commands.is_some() && mirror.commands != mirror.sent_commands {
                 mirror.sent_commands = mirror.commands.clone();
@@ -2504,6 +2636,9 @@ impl Bridge {
         }
         for message in out {
             self.send(message);
+        }
+        for session_id in unregistered {
+            self.register(&session_id);
         }
     }
 }
@@ -2605,6 +2740,33 @@ mod tests {
         assert_eq!(effort_option_id(&models, "grok-4", "deep"), "deep");
         assert_eq!(effort_option_id(&models, "grok-4", "xhigh"), "deep");
         assert_eq!(effort_option_id(&models, "grok-4", "max"), "max");
+    }
+
+    #[test]
+    fn pickers_list_the_default_then_own_providers_then_openrouter_within_the_relays_limit() {
+        let model = |id: &str| ModelOption {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            efforts: Vec::new(),
+            default_effort: None,
+        };
+        let mut catalog: Vec<ModelOption> = (0..1_200)
+            .map(|i| model(&format!("openrouter/vendor/model-{i}")))
+            .collect();
+        catalog.extend(["anthropic/claude-sonnet-5-5", "deepseek/deepseek-flash"].map(model));
+        let listed = for_pickers(catalog, "deepseek/deepseek-flash");
+        let ids: Vec<&str> = listed.iter().take(4).map(|m| m.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "deepseek/deepseek-flash",
+                "anthropic/claude-sonnet-5-5",
+                "openrouter/vendor/model-0",
+                "openrouter/vendor/model-1",
+            ]
+        );
+        assert_eq!(listed.len(), MAX_PUBLISHED_MODELS);
     }
 
     #[test]

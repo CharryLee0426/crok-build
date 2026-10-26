@@ -83,10 +83,10 @@ class ConvexHttpApiTest {
             headers = h
             HttpReply(200, """{"status":"success","value":null}""")
         }
-        api.query("sessions:events", jsonArgs("sessionDocId" to "s1", "n" to 50), bearer = "jwt")
+        api.query("sessions:transcript", jsonArgs("sessionDocId" to "s1", "n" to 50), bearer = "jwt")
         assertEquals("https://x.convex.cloud/api/query", url)
         val sent = RelayJson.parseToJsonElement(body).jsonObject
-        assertEquals("sessions:events", sent["path"]!!.jsonPrimitive.content)
+        assertEquals("sessions:transcript", sent["path"]!!.jsonPrimitive.content)
         assertEquals("json", sent["format"]!!.jsonPrimitive.content)
         // Integers go out as float64: 50.0, never Convex's int64.
         assertEquals("50.0", (sent["args"] as JsonObject)["n"]!!.jsonPrimitive.content)

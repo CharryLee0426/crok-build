@@ -85,9 +85,11 @@
     <string name="day_yesterday">昨日</string>
     <string name="message_from">%1$s から</string>
     <string name="thought_title">思考</string>
-    <string name="tool_pending">待機中</string>
-    <string name="tool_running">実行中</string>
-    <string name="tool_done">完了</string>
+    <string name="thinking_active">思考中…</string>
+    <string name="tool_state_running">実行中</string>
+    <string name="tool_state_done">完了</string>
+    <string name="tool_state_failed">失敗</string>
+    <string name="tool_state_stopped">停止</string>
     <string name="tool_failed">失敗</string>
     <string name="notice_stopped">停止しました</string>
     <string name="notice_max_tokens">返信が出力の上限に達しました。</string>
@@ -295,6 +297,14 @@
     <string name="profile_contact_x">X で開発者に連絡</string>
     <string name="profile_mode">モード</string>
     <string name="profile_mode_demo">デモ</string>
+    <string name="setup_default">デフォルト</string>
+    <string name="setup_choose_model">モデルを選択</string>
+    <string name="setup_search">モデルやプロバイダを検索</string>
+    <string name="setup_next_message">モデルの変更は次のメッセージから適用されます。</string>
+    <string name="setup_computer_choice">%1$s の設定どおり</string>
+    <string name="setup_model_failed">モデルを変更できませんでした</string>
+    <string name="setup_thinking_failed">思考レベルを変更できませんでした</string>
+    <string name="setup_no_results">結果なし</string>
     <plurals name="project_subtitle">
         <item quantity="other">%1$d 件のセッション · %2$s</item>
     </plurals>

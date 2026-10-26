@@ -1,0 +1,25 @@
+{
+  "name": "Find code by what it does",
+  "tags": [
+    "smoke"
+  ],
+  "prompt": "Which function in this repository writes entries to the audit log file? Answer with the function's name and its file path only. Do not change any file.",
+  "checks": [
+    {
+      "kind": "answer_matches",
+      "pattern": "write_audit_entry",
+      "name": "names write_audit_entry"
+    },
+    {
+      "kind": "answer_matches",
+      "pattern": "services/audit\\.py",
+      "name": "names services/audit.py"
+    },
+    {
+      "kind": "run",
+      "command": "git diff --quiet && test -z \"$(git status --porcelain)\"",
+      "name": "nothing was changed"
+    }
+  ],
+  "solution_answer": "`write_audit_entry` in services/audit.py"
+}

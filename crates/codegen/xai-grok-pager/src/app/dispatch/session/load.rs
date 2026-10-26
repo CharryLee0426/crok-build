@@ -449,7 +449,12 @@ pub(in crate::app::dispatch) fn dispatch_pick_session(
         vec![]
     }
 }
-fn dispatch_daemon_session_pick(app: &mut AppView, session_id: String, cwd: String) -> Vec<Effect> {
+/// A session the agent serves from elsewhere (the daemon, or another computer's `relay:` session): it loads by id.
+pub(in crate::app::dispatch) fn dispatch_daemon_session_pick(
+    app: &mut AppView,
+    session_id: String,
+    cwd: String,
+) -> Vec<Effect> {
     #[cfg(feature = "local-workspace")]
     {
         app.welcome_history_load_as_build = true;

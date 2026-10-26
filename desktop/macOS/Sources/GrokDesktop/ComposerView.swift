@@ -60,10 +60,13 @@ struct ComposerView: View {
     }
 
     private var optionsDisabled: Bool { store.run.isRunning || store.run.isConfiguring }
-    /// A task of another computer before its session has started there: that computer's models come with the session.
-    private var remoteNotStarted: Bool { store.remoteStartTarget != nil }
+    /// A task of another computer before its session has started there: it chooses from the models
+    /// that computer published, and has none to offer while it is offline or runs an older crok.
+    private var remoteNotStarted: Bool { store.remoteStartTarget != nil && store.run.models.isEmpty }
+    /// A new task there whose model is still that computer's own choice.
+    private var remoteDefault: Bool { store.remoteStartTarget != nil && store.run.modelID.isEmpty }
     private var remoteModelsHelp: String {
-        L10n.t("remote_models_after_start", "{computer}'s models can be chosen once the task has started there.", ["computer": store.remoteStartTarget?.computer ?? ""])
+        L10n.t("remote_models_unavailable", "{computer} has not listed its models yet: it is offline, or crok there needs an update.", ["computer": store.remoteStartTarget?.computer ?? ""])
     }
     /// Native commands run at once, even mid-turn; prompts and harness commands wait in the queue.
     private var turnPolicy: DesktopCommands.TurnPolicy {
@@ -86,6 +89,7 @@ struct ComposerView: View {
     private var draftLineCount: Int { store.draft.reduce(1) { $1 == "\n" ? $0 + 1 : $0 } }
     private var selectedModelName: String {
         let id = store.run.modelID
+        if remoteDefault { return L10n.t("effort_default", "Default") }
         return store.modelOption(id)?.name ?? (id.isEmpty ? L10n.t("choose_model", "Choose model") : id)
     }
     private var selectedModelWindow: Int? { store.modelOption(store.run.modelID)?.contextWindow }
@@ -96,7 +100,7 @@ struct ComposerView: View {
         let id = store.run.reasoningID
         if let option = store.run.reasoningOptions.first(where: { $0.id == id }) { return L10n.reasoningName(id: id, fallback: option.name) }
         if !id.isEmpty { return L10n.reasoningName(id: id, fallback: id == "xhigh" ? "Extra high" : id.capitalized) }
-        return store.run.models.isEmpty || !store.run.reasoningOptions.isEmpty
+        return store.run.models.isEmpty || !store.run.reasoningOptions.isEmpty || remoteDefault
             ? L10n.t("effort_default", "Default") : L10n.t("effort_not_supported", "Not supported")
     }
 

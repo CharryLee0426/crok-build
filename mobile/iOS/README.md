@@ -78,6 +78,8 @@ every screen runs unchanged.
 | `-CrokPageSize 8` | transcript page size (default 50), to try paging |
 | `-CrokDemoLatency 400` | with `-CrokDemo`: every query's first answer comes after 400 ms, as over the network |
 | `-CrokDemoHistory 120` | with `-CrokDemo`: 120 earlier events above the Markdown showcase, as in a long session |
+| `-CrokDemoStudioOnline YES` | with `-CrokDemo`: Studio is online with an older crok that publishes no models (the dimmed model pill) |
+| `-CrokDemoConfigFails "<reason>"` | with `-CrokDemo`: the computer refuses every model or thinking-level change with that reason |
 | `-CrokResetState YES` | forget the Keychain credentials, drafts and caches at launch |
 | `-CrokNoBrowser YES` | do not open the browser sheet when a sign-in starts |
 | `-CrokServer http://127.0.0.1:3210` | sign in to that relay instead of the built-in one (also `CROK_RELAY_URL`) |
@@ -140,7 +142,22 @@ apply at once. Anything else starting with `/` goes to the computer as a prompt.
 publish models gets "<computer> doesn't offer model choices yet. Update crok there." in the card (only an offline one
 is called offline), and when `sessions:create` or `commands:setConfig` refuses, the relay's message is shown as is.
 The new fields are decoded leniently, so the app also works against a relay without them. Demo mode implements all of it
-(`Engine/Demo`): the MacBook offers four models, one with thinking levels whose ids differ from their values.
+(`Engine/Demo`): the MacBook offers its own four models (one with thinking levels whose ids differ from their values),
+then DeepSeek's and OpenRouter's.
+
+## Model and thinking level
+
+As mobile/DESIGN.md "Model and thinking level" describes: two pills above the composer's input row, on the session
+screen and the new-session screen alike, show the model and (for a model with levels) the thinking level. The list is
+the computer's `devices:models` (all of it, up to the relay's 1,000; `sessions:get`'s short copy only when that query
+fails, an older relay), and the `/model` and `/think` cards read the same list. The model pill opens **Choose a Model**
+(a sheet: the computer's models by provider, searchable by name, id or description, the current one checked); the
+thinking pill opens a menu of the model's levels. In a session a pick calls `commands:setConfig` and the pill spins
+until `commands:get` says it is done (a failure puts the old value back and says why); Session info's Model and
+Thinking level rows open the same picker and menu. A new session says **Default** until something is picked and sends
+the picks with `sessions:create`. The pills hide while the computer is offline and while a session is starting; a
+computer whose crok publishes no list shows the session's model dimmed. The logic is `Core/ModelSetup.swift` (list,
+sections, search, what the pills say), the views `Features/Session/ModelSetupViews.swift`.
 
 ## Replies in Markdown
 

@@ -2131,7 +2131,7 @@ fn main() {
     // unless `[features] agent_observability = false`, both followed while crok runs.
     // `agent` subcommands relabel the surface; Crok Desktop names itself in ACP `initialize`.
     xai_grok_agento11y::install(xai_grok_agento11y::InstallOptions {
-        agent_version: env!("CROK_RELEASE_VERSION"),
+        agent_version: env!("CROK_AGENT_VERSION"),
         surface: "tui",
     });
     xai_crash_handler::install_terminal_restore_only();
@@ -2584,6 +2584,8 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
         }
         let memory_enabled_override = args.memory_enabled_override();
         let memory_flush = args.memory_flush;
+        // `crok -p` reports as headless, not as the TUI, so its turns are told apart from interactive ones.
+        xai_grok_agento11y::set_surface("headless");
         return xai_grok_pager::headless::run_single_turn(
             headless_prompt,
             args.verbatim,

@@ -69,7 +69,17 @@ final class AppStore: ObservableObject {
     var remoteSessionsAskedAt: Date?
     /// Sidebar › Other computers › a folder › New task: where the new task on screen starts, while
     /// the remote tasks' project is selected with no task (see `RemoteSessions.swift`).
-    @Published var remoteNewTask: RemoteNewTask?
+    @Published var remoteNewTask: RemoteNewTask? {
+        didSet {
+            guard oldValue?.deviceID != remoteNewTask?.deviceID else { return }
+            remoteStartModelID = ""; remoteStartReasoningID = ""
+            if let device = remoteNewTask?.deviceID { Task { await fetchRemoteModels(deviceID: device) } }
+        }
+    }
+    /// The model and thinking level picked for that new task, from its computer's list; empty is
+    /// that computer's own choice. They go with the first prompt (`x.ai/remote/new_session`).
+    @Published var remoteStartModelID = ""
+    @Published var remoteStartReasoningID = ""
     /// New tasks of other computers whose first prompt is on its way there, by task: the text sent,
     /// which the viewer announces again when that computer starts the turn (see `startRemoteTurn`).
     var remoteFirstPrompts: [UUID: String] = [:]
@@ -230,8 +240,14 @@ final class AppStore: ObservableObject {
         if commandCatalogProjectID != state.selectedProjectID { catalog.commands = []; catalog.commandsLoaded = false; catalog.availableTools = nil }
         if state.selectedProjectID == RemoteSessions.projectID {
             // Another computer's tasks choose among that computer's models, never this Mac's: a new
-            // task there has none to show until its session has started.
+            // task there lists the ones its computer published (`x.ai/remote/models`).
             catalog.models = []; catalog.modelID = ""; catalog.reasoningOptions = []; catalog.reasoningID = ""
+            if state.selectedConversationID == nil, let target = remoteNewTask {
+                catalog.models = state.remoteModelCatalogs[target.deviceID] ?? []
+                catalog.modelID = remoteStartModelID
+                catalog.reasoningOptions = catalog.models.first { $0.id == remoteStartModelID }?.reasoningOptions ?? []
+                catalog.reasoningID = remoteStartReasoningID
+            }
         }
         guard let id = state.selectedConversationID else { return catalog }
         if let existing = runs[id], loaded.contains(id) { return existing }
@@ -1175,7 +1191,10 @@ final class AppStore: ObservableObject {
         guard run.models.contains(where: { $0.id == model.id }) else {
             banner = "That model is no longer available. Reload the model choices and try again."; return
         }
-        if state.selectedConversationID == nil {
+        if state.selectedConversationID == nil, remoteStartTarget != nil {
+            // A new task on another computer: the choice goes with its first prompt.
+            remoteStartModelID = model.id; remoteStartReasoningID = ""
+        } else if state.selectedConversationID == nil {
             catalogRun.modelID = model.id
             state.selectedModelID = model.id
             updateCatalogReasoning(preferred: state.selectedReasoningID)
@@ -1191,7 +1210,9 @@ final class AppStore: ObservableObject {
         guard run.reasoningOptions.contains(where: { $0.id == option.id }) else {
             banner = "That thinking level is not supported by this model."; return
         }
-        if state.selectedConversationID == nil {
+        if state.selectedConversationID == nil, remoteStartTarget != nil {
+            remoteStartReasoningID = option.id
+        } else if state.selectedConversationID == nil {
             catalogRun.reasoningID = option.id
             state.selectedReasoningID = option.id
             save()

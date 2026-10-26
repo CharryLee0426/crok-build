@@ -87,6 +87,20 @@ COLUMNS = {
     "trace.metadata.openrouter.api_key_name": "API key",
     "agento11y.tag.surface": "Surface",
     "agento11y.tag.host": "Machine",
+    "agento11y.tag.origin": "Origin",
+    "agento11y.tag.repo": "Repo",
+    "agento11y.tag.branch": "Branch",
+    "gen_ai.conversation.id": "Session",
+    "crok.turn.outcome": "Outcome",
+    "crok.model_calls": "Model calls",
+    "crok.tool_calls": "Tool calls",
+    "crok.tool_errors": "Tool errors",
+    "crok.permission_mode": "Permissions",
+    "gen_ai.tool.name": "Tool",
+    "crok.tool.outcome": "Tool outcome",
+    "crok.tool.kind": "Tool kind",
+    "crok.tool.exit_code": "Exit code",
+    "crok.tool.result_bytes": "Result bytes",
     "user.id": "User",
     "session.id": "Session",
 }
@@ -138,6 +152,16 @@ class Ctx:
         if providers:
             return f + f'&&span.gen_ai.provider.name=~"{providers}"'
         return f + (f'&&span.gen_ai.provider.name!~"{self.crok_skip}"' if self.crok_skip else "")
+
+    def turns(self) -> str:
+        """crok's turn spans (crok releases after 2.0.1), experiment runs left out."""
+        return (f'resource.service.name="{self.crok}"&&span.gen_ai.operation.name="invoke_agent"'
+                f'&&span.agento11y.tag.origin!="eval"')
+
+    def tool_runs(self) -> str:
+        """crok's execute_tool spans (crok releases after 2.0.1), experiment runs left out."""
+        return (f'resource.service.name="{self.crok}"&&span.gen_ai.operation.name="execute_tool"'
+                f'&&span.agento11y.tag.origin!="eval"')
 
     def crok_others(self) -> str:
         """crok's spans of providers that are neither skipped nor in CROK_PROVIDERS."""
@@ -1102,6 +1126,90 @@ def crok_dashboard(ctx: Ctx) -> Board:
     return b
 
 
+def harness_dashboard(ctx: Ctx) -> Board:
+    b = Board(ctx, "llm-crok-harness", "crok Harness",
+              "What crok does between model calls: each turn is one trace whose root span (invoke_agent) holds its model "
+              "calls and tool runs (execute_tool). Where a turn's time goes, which tools fail, how turns end, by origin "
+              "(local, headless crok -p, relay from the web and phones). crok releases after 2.0.1; experiment runs (origin eval) "
+              "are left out.", ["crok", "harness"])
+    b.vars.append(textbox_var("repo_re", "Repo (regex)", "Filter by repository, for example CharryLee0426/crok-build"))
+    scope = "span.agento11y.tag.repo=~`$repo_re`"
+    turns = f"{{{ctx.turns()}&&{scope}}}"
+    tools = f"{{{ctx.tool_runs()}&&{scope}}}"
+
+    def turns_where(cond: str) -> str:
+        return f"{{{ctx.turns()}&&{scope}&&{cond}}}"
+
+    def tools_where(cond: str) -> str:
+        return f"{{{ctx.tool_runs()}&&{scope}&&{cond}}}"
+
+    completed = turns_where('span.crok.turn.outcome="completed"')
+    not_completed = turns_where('span.crok.turn.outcome!="completed"')
+    failed_tools = tools_where('span.crok.tool.outcome="error"')
+    backgrounded = tools_where("span.crok.tool.backgrounded=true")
+
+    b.row("Turns (whole time range)")
+    b.add(stat("Turns", [target(f"{turns}|count_over_time()", instant=True)], total=True,
+               desc="Turns crok ran: one per prompt, plus the retries a completion requirement asks for." + RANGE_NOTE), 4, 4)
+    b.add(stat("Completed", [target(f"({completed}|count_over_time())/({turns}|count_over_time())", instant=True)],
+               unit="percentunit", decimals=1, no_value="–",
+               steps=[{"color": "red", "value": None}, {"color": "orange", "value": 0.9}, {"color": "green", "value": 0.95}],
+               desc="Share of turns that ended with an answer (the SLO is 95%). The rest were cancelled, hit --max-turns, "
+                    "were stopped for repeating the same call, or failed."), 4, 4)
+    b.add(stat("p50 turn time", [target(f"{turns}|quantile_over_time(duration,.5)", instant=True)], unit="s", decimals=0, no_value="–",
+               desc="Half the turns took less than this, from the prompt to the answer."), 4, 4)
+    b.add(stat("p90 turn time", [target(f"{turns}|quantile_over_time(duration,.9)", instant=True)], unit="s", decimals=0, no_value="–",
+               desc="90% of turns took less than this."), 4, 4)
+    b.add(stat("Model calls per turn", [target(f"{turns}|avg_over_time(span.crok.model_calls)", instant=True)], decimals=1, no_value="–",
+               desc="Mean model calls a turn made. A weak model needs many more for the same task."), 4, 4)
+    b.add(stat("Tool runs per turn", [target(f"{turns}|avg_over_time(span.crok.tool_calls)", instant=True)], decimals=1, no_value="–",
+               desc="Mean tool runs a turn made."), 4, 4)
+
+    b.row("How turns end")
+    b.add(timeseries("Turns by outcome", [target(f"{turns}|count_over_time() by(span.crok.turn.outcome)")], bars=True, stack=True,
+                     desc="completed, cancelled (the user interrupted), max_turns, stationarity (the identical-call guard stopped "
+                          "a loop), error." + RANGE_NOTE), 12, 8)
+    b.add(bars("Turns by origin", name="Origin", value="Turns", targets=[target(f"{turns}|count_over_time() by(span.agento11y.tag.origin)", instant=True)],
+               desc="local (the TUI and Crok Desktop), headless (crok -p), relay (a prompt from the web or a phone)."), 6, 8)
+    b.add(bars("Turns by model", name="Model", value="Turns", targets=[target(f"{turns}|count_over_time() by(span.gen_ai.request.model)", instant=True)],
+               color="purple", desc="The model the turn started with."), 6, 8)
+    b.add(bars("p90 turn time by model", name="Model", value="p90", unit="s", decimals=0, total=False,
+               targets=[target(f"{turns}|quantile_over_time(duration,.9) by(span.gen_ai.request.model)", instant=True)],
+               rename=quantile_names(drop_p=True), desc="How long the slowest tenth of turns took, per model."), 8, 8)
+    b.add(bars("Model calls per turn by model", name="Model", value="Calls", decimals=1, total=False,
+               targets=[target(f"{turns}|avg_over_time(span.crok.model_calls) by(span.gen_ai.request.model)", instant=True)],
+               color="orange", desc="Mean model calls per turn: the cost of a weak model is mostly time."), 8, 8)
+    b.add(bars("Turns by agent version", name="Version", value="Turns",
+               targets=[target(f"{turns}|count_over_time() by(span.gen_ai.agent.version)", instant=True)],
+               desc="crok's release and commit (2.0.2+1a2b3c4d)."), 8, 8)
+
+    b.row("Tools")
+    b.add(bars("Tool runs by tool", name="Tool", value="Runs", targets=[target(f"{tools}|count_over_time() by(span.gen_ai.tool.name)", instant=True)],
+               desc="Every tool run, by tool."), 8, 9)
+    b.add(bars("Failed tool runs by tool", name="Tool", value="Failed", color="red",
+               targets=[target(f"{failed_tools}|count_over_time() by(span.gen_ai.tool.name)", instant=True)],
+               desc="Tool runs that failed: a non-zero exit, a tool error, or a failure to start."), 8, 9)
+    b.add(bars("p90 tool time by tool", name="Tool", value="p90", unit="s", decimals=1, total=False,
+               targets=[target(f"{tools}|quantile_over_time(duration,.9) by(span.gen_ai.tool.name)", instant=True)],
+               rename=quantile_names(drop_p=True), desc="How long the slowest tenth of each tool's runs took."), 8, 9)
+    b.add(timeseries("Tool failure rate", [target(f"({failed_tools}|count_over_time())/({tools}|count_over_time())")],
+                     unit="percentunit", decimals=1, calcs=("mean", "max"),
+                     desc="Share of tool runs that failed, over time."), 12, 7)
+    b.add(bars("Tool runs by kind", name="Kind", value="Runs", targets=[target(f"{tools}|count_over_time() by(span.crok.tool.kind)", instant=True)],
+               desc="read_only, mutating (edits, shell commands), other (MCP, browser, phone)."), 6, 7)
+    b.add(stat("Backgrounded", [target(f"{backgrounded}|count_over_time()", instant=True)], total=True,
+               desc="Commands crok moved to the background and polled later."), 6, 7)
+
+    b.row("Turns and tool runs")
+    b.add(table("Latest turns", f"{turns}|select(span.gen_ai.conversation.id,span.crok.turn.outcome,span.gen_ai.request.model,span.crok.model_calls,span.crok.tool_calls,span.crok.tool_errors,span.crok.permission_mode,span.agento11y.tag.origin,span.agento11y.tag.repo,span.agento11y.tag.host)",
+                desc="The newest turns. Open a trace to see the turn's model calls and tool runs in order."), 24, 10)
+    b.add(table("Turns that did not complete", f"{not_completed}|select(span.gen_ai.conversation.id,span.crok.turn.outcome,span.gen_ai.request.model,span.crok.model_calls,span.crok.tool_calls,span.agento11y.tag.origin,span.agento11y.tag.repo)",
+                desc="Cancelled, max_turns, stationarity and failed turns: where to look for regressions."), 24, 9)
+    b.add(table("Failed tool runs", f"{failed_tools}|select(span.gen_ai.tool.name,span.crok.tool.exit_code,span.crok.tool.kind,span.gen_ai.conversation.id,span.agento11y.tag.repo)",
+                desc="The error's first line is the span status; the full output is in the conversation in Agent Observability."), 24, 9)
+    return b
+
+
 def explorer_dashboard(ctx: Ctx) -> Board:
     b = Board(ctx, "llm-request-explorer", "LLM Request Explorer",
               "Find single calls: slow, failed, expensive, cut off, or with huge prompts, from Claude Platform, OpenRouter "
@@ -1651,8 +1759,8 @@ def main(argv: list[str]) -> int:
     ctx = Ctx(args, json.loads(pathlib.Path(args.prices).read_text()))
     bf_path = pathlib.Path(args.backfill)
     backfill = Backfill(json.loads(bf_path.read_text()) if bf_path.exists() else None, args.infinity_uid)
-    boards = [overview(ctx), claude_dashboard(ctx), openrouter_dashboard(ctx), crok_dashboard(ctx), explorer_dashboard(ctx),
-              history_dashboard(ctx, backfill)]
+    boards = [overview(ctx), claude_dashboard(ctx), openrouter_dashboard(ctx), crok_dashboard(ctx), harness_dashboard(ctx),
+              explorer_dashboard(ctx), history_dashboard(ctx, backfill)]
     rules = history_rules(ctx)
     problems = [msg for b in boards for msg in check_lengths(b)]
     problems += [f"rule {r['title']}: {len(r['data'][0]['model']['query'])} characters"

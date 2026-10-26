@@ -3803,6 +3803,174 @@
             {
               "matcher": {
                 "id": "byName",
+                "options": "agento11y.tag.origin"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Origin"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.repo"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Repo"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "agento11y.tag.branch"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Branch"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.conversation.id"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Session"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.turn.outcome"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Outcome"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.model_calls"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Model calls"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool_calls"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool calls"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool_errors"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool errors"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.permission_mode"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Permissions"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "gen_ai.tool.name"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.outcome"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool outcome"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.kind"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Tool kind"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.exit_code"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Exit code"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "crok.tool.result_bytes"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Result bytes"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
                 "options": "user.id"
               },
               "properties": [

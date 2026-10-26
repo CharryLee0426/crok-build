@@ -48,6 +48,7 @@ pub mod plugin_cmd;
 pub mod pty_wrap;
 pub mod recent_dirs;
 pub mod remote_cmd;
+pub mod remote_panel;
 pub mod scrollback;
 pub mod sessions_cmd;
 pub mod settings;

@@ -1,0 +1,7 @@
+{
+  "suite_id": "s1",
+  "name": "Regressions crok has shown in real sessions",
+  "version": "1.0.0",
+  "category": "regression",
+  "description": "Behaviours the 2026-10 traffic review found: success claimed without a run, polling loops, recovery from a missing command, long files, multi-file features."
+}

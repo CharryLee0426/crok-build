@@ -13,10 +13,10 @@ struct TranscriptRow: View {
             UserBubble(message: message, date: item.date, position: item.position, model: model)
         case .assistant(let text):
             AssistantBubble(id: item.id, text: text, date: item.date, position: item.position, model: model)
-        case .thought(let text):
-            ThoughtRow(text: text)
+        case .thought:
+            ThoughtRow(active: model.activeThoughtID == item.id)
         case .tool(let call):
-            ToolCard(call: call)
+            ToolCard(call: call, turnRunning: model.toolRuns(at: item.seq))
         case .notice(let text, let style):
             NoticeCapsule(text: text, style: style)
         case .botCard(let card):
@@ -175,137 +175,6 @@ private struct AssistantBubble: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("assistantBubble")
-    }
-}
-
-/// Reasoning, collapsed to one grey row until tapped.
-private struct ThoughtRow: View {
-    let text: String
-    @State private var expanded = false
-    @Environment(\.sessionPalette) private var palette
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 6) {
-                Button {
-                    withAnimation(.snappy) { expanded.toggle() }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "brain")
-                        Text("Thought")
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.caption2.weight(.semibold))
-                    }
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("thoughtRow")
-                if expanded {
-                    Text(MarkdownText.inline(text))
-                        .font(.footnote)
-                        .italic()
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(palette.onWallpaper ? Theme.card : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            Spacer(minLength: 28)
-        }
-    }
-}
-
-/// A tool call as a compact card: icon, title, status; tap for the detail.
-private struct ToolCard: View {
-    let call: ToolCall
-    @State private var expanded = false
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    guard !call.detail.isEmpty else { return }
-                    withAnimation(.snappy) { expanded.toggle() }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: Self.symbol(for: call.toolKind))
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 26, height: 26)
-                            .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        Text(call.title)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                            .lineLimit(expanded ? 3 : 1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        ToolStatusView(status: call.status)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("toolCard")
-                if expanded {
-                    Divider().padding(.leading, 10)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        Text(call.detail)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .padding(10)
-                    }
-                }
-            }
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.hairline))
-            Spacer(minLength: 28)
-        }
-    }
-
-    static func symbol(for kind: String) -> String {
-        switch kind {
-        case "read": "doc.text"
-        case "edit": "pencil"
-        case "delete": "trash"
-        case "move": "arrow.left.arrow.right"
-        case "search": "magnifyingglass"
-        case "execute": "terminal"
-        case "think": "brain"
-        case "fetch": "globe"
-        default: "wrench.and.screwdriver"
-        }
-    }
-}
-
-private struct ToolStatusView: View {
-    let status: ToolStatus
-
-    var body: some View {
-        switch status {
-        case .pending:
-            Image(systemName: "clock")
-                .foregroundStyle(.secondary)
-                .accessibilityLabel(Text("Pending"))
-        case .inProgress:
-            ProgressView()
-                .controlSize(.small)
-                .accessibilityLabel(Text("Running"))
-        case .completed:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Theme.accent)
-                .accessibilityLabel(Text("Completed"))
-        case .failed:
-            Image(systemName: "xmark.octagon.fill")
-                .foregroundStyle(Theme.danger)
-                .accessibilityLabel(Text("Failed"))
-        case .other:
-            EmptyView()
-        }
     }
 }
 

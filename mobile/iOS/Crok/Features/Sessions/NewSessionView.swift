@@ -66,8 +66,9 @@ struct NewSessionPicker: View {
     }
 }
 
-/// A session about to start (relay/DESIGN.md §5 "New sessions"): the composer, and where it will run. Sending calls
-/// `sessions:create` with the prompt shown at once; the screen then becomes that session.
+/// A session about to start (relay/DESIGN.md §5 "New sessions"): the composer, where it will run, and the model and
+/// thinking level to start on (the computer's `devices:models`; Default until picked, kept on this screen only).
+/// Sending calls `sessions:create` with the prompt shown at once; the screen then becomes that session.
 @MainActor
 @Observable
 final class NewSessionModel {
@@ -80,6 +81,14 @@ final class NewSessionModel {
     var actionError: RelayError?
     /// The same client id for every attempt: a repeat after a lost answer is the same session.
     let clientId: String
+    /// What the computer can run (`devices:models`), while the screen is open.
+    let modelQuery: LiveQuery<[ModelChoice]?>
+    /// The model picked for the session (an id); nil for Default, the computer's own choice.
+    private(set) var pickedModel: String?
+    /// The thinking level picked (an option id of `pickedModel`'s levels); nil for Default.
+    private(set) var pickedLevel: String?
+    /// Choose a Model (the model pill).
+    var showsModelPicker = false
     @ObservationIgnored var onCreated: ((DocID) -> Void)?
 
     init(target: NewSessionTarget, engine: CrokEngine, draft: String = "", clientId: String = UUID().uuidString.lowercased()) {
@@ -87,6 +96,37 @@ final class NewSessionModel {
         self.engine = engine
         self.draft = draft
         self.clientId = clientId
+        let devices = engine.devices
+        let deviceId = target.deviceId
+        modelQuery = LiveQuery(engine: engine) { devices.models(deviceId) }
+    }
+
+    /// Watches the computer's list while the screen shows.
+    func start() { modelQuery.start() }
+    func stop() { modelQuery.stop() }
+
+    /// The computer's list; with an older relay (no `devices:models`) there is none for a session not made yet.
+    var modelList: ModelList {
+        ModelList.resolve(
+            listed: modelQuery.value, listFailed: modelQuery.value == nil && modelQuery.error != nil, fallback: nil,
+            fallbackLoaded: true)
+    }
+
+    /// The pills above the input row; nil hides the row.
+    var setupRow: ModelSetupRow? {
+        ModelSetup.newSession(list: modelList, model: pickedModel, effort: pickedLevel, computerOnline: computerOnline)
+    }
+
+    /// Choose a Model: a model, or Default (nil). The thinking level goes back to Default.
+    func chooseModel(_ id: String?) {
+        guard id != pickedModel else { return }
+        pickedModel = id
+        pickedLevel = nil
+    }
+
+    /// The thinking menu: a level's option id, or Default (nil).
+    func chooseLevel(_ id: String?) {
+        pickedLevel = id
     }
 
     /// Whether the computer is online now (from the list); a new session needs a crok there.
@@ -105,7 +145,9 @@ final class NewSessionModel {
         isCreating = true
         draft = ""
         pendingPrompt = LocalPrompt(clientId: clientId, text: text, createdAt: Date().milliseconds)
-        let result = await engine.startSession(in: target, text: text, clientId: clientId)
+        let setup = ModelSetup.createArguments(list: modelList, model: pickedModel, effort: pickedLevel)
+        let result = await engine.startSession(
+            in: target, text: text, model: setup.model, effort: setup.effort, clientId: clientId)
         isCreating = false
         switch result {
         case .success(let sessionDocId):
@@ -174,12 +216,26 @@ struct NewSessionContent: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ComposerBar {
-                ComposerInputRow(
-                    draft: $model.draft,
-                    placeholder: String(localized: "Message crok on \(model.target.deviceName)…"),
-                    focused: $composerFocused, menu: nil, isRunning: false, canSend: model.canSend,
-                    onStop: {}, onSend: { Task { await model.send() } })
+                VStack(spacing: 8) {
+                    if let row = model.setupRow, model.pendingPrompt == nil {
+                        ModelSetupBar(
+                            row: row, offersDefault: true, onModel: { model.showsModelPicker = true },
+                            onLevel: { model.chooseLevel($0) })
+                        .transition(.opacity)
+                    }
+                    ComposerInputRow(
+                        draft: $model.draft,
+                        placeholder: String(localized: "Message crok on \(model.target.deviceName)…"),
+                        focused: $composerFocused, menu: nil, isRunning: false, canSend: model.canSend,
+                        onStop: {}, onSend: { Task { await model.send() } })
+                }
+                .animation(.snappy, value: model.setupRow == nil)
             }
+        }
+        .sheet(isPresented: $model.showsModelPicker) {
+            ModelPickerSheet(
+                models: model.modelList.models ?? [], computerName: model.target.deviceName, current: model.pickedModel,
+                offersDefault: true, onPick: { model.chooseModel($0) })
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -196,8 +252,10 @@ struct NewSessionContent: View {
         }
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
+            model.start()
             if model.draft.isEmpty { composerFocused = true }
         }
+        .onDisappear { model.stop() }
         .alert(
             "Couldn't start the session",
             isPresented: Binding(get: { model.actionError != nil }, set: { if !$0 { model.actionError = nil } }),

@@ -635,6 +635,9 @@ fn queue_open_workflows_modal_refresh(app: &mut AppView, agent_id: AgentId) {
 fn handle_ext_notification(notif: &acp::ExtNotification, app: &mut AppView) -> bool {
     let method = notif.method.as_ref();
     if crate::acp::is_session_update_ext_method(method) {
+        if let Some(changed) = handle_remote_usage(notif, app) {
+            return changed;
+        }
         return handle_session_notification(notif, app);
     }
     match method {
@@ -664,11 +667,90 @@ fn handle_ext_notification(notif: &acp::ExtNotification, app: &mut AppView) -> b
         "x.ai/mcp/servers_updated" => handle_mcp_servers_updated(notif, app),
         xai_grok_shell::remote_control::REMOTE_STATUS_METHOD => handle_remote_status(notif),
         xai_grok_shell::remote_control::REMOTE_PROMPT_METHOD => handle_remote_prompt(notif, app),
+        xai_grok_shell::remote_control::REMOTE_SESSIONS_CHANGED_METHOD => {
+            handle_remote_sessions_changed(notif, app)
+        }
         xai_grok_shell::remote_control::PERMISSION_RESOLVED_METHOD => {
             permissions::handle_permission_resolved(notif, app)
         }
         _ => false,
     }
+}
+/// The other computers' sessions changed while a Remote panel watches them.
+fn handle_remote_sessions_changed(notif: &acp::ExtNotification, app: &mut AppView) -> bool {
+    let Ok(payload) = serde_json::from_str::<serde_json::Value>(notif.params.get()) else {
+        return false;
+    };
+    super::dispatch::remote_sessions_changed(app, &payload)
+}
+/// A session of another computer reports its figures (`remote_usage`, from the remote-control viewer, when the session
+/// opens and when a turn there ends): the footer's token readout takes its totals, and its branch is read again
+/// (`x.ai/session/info`), since its computer refreshes both at the end of a turn. `None` when this is not one.
+fn handle_remote_usage(notif: &acp::ExtNotification, app: &mut AppView) -> Option<bool> {
+    let raw = notif.params.get();
+    if !raw.contains("\"remote_usage\"") {
+        return None;
+    }
+    let params: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let update = params.get("update")?;
+    if update
+        .get("sessionUpdate")
+        .and_then(serde_json::Value::as_str)
+        != Some("remote_usage")
+    {
+        return None;
+    }
+    let session_id = params
+        .get("sessionId")
+        .and_then(serde_json::Value::as_str)?;
+    let usage = update.get("usage")?;
+    let count = |key: &str| {
+        usage
+            .get(key)
+            .and_then(serde_json::Value::as_f64)
+            .filter(|n| n.is_finite() && *n > 0.0)
+            .map_or(0, |n| n as u64)
+    };
+    // The relay's `inputTokens` is the whole prompt; the meter keeps the cached part apart.
+    let cached = count("cachedTokens");
+    let totals = xai_grok_shell::extensions::notification::ResponseUsage {
+        input_tokens: count("inputTokens").saturating_sub(cached),
+        output_tokens: count("outputTokens"),
+        cache_read_input_tokens: cached,
+        cache_creation_input_tokens: 0,
+        reasoning_tokens: count("reasoningTokens"),
+    };
+    let rate = update
+        .get("tokensPerSecond")
+        .or_else(|| usage.get("outputTokensPerSecond"))
+        .and_then(serde_json::Value::as_f64);
+    let active = match app.active_view {
+        ActiveView::Agent(id) => Some(id),
+        _ => None,
+    };
+    let Some((agent_id, agent)) = app.agents.iter_mut().find(|(_, agent)| {
+        agent
+            .session
+            .session_id
+            .as_ref()
+            .is_some_and(|id| id.0.as_ref() == session_id)
+    }) else {
+        return Some(false);
+    };
+    let agent_id = *agent_id;
+    let changed = agent
+        .token_meter
+        .complete_response(None, Some(&totals), rate);
+    let pending = app.pending_effects.iter().any(|effect| {
+        matches!(effect, Effect::RemoteSessionBranch { agent_id: id, .. } if *id == agent_id)
+    });
+    if !pending {
+        app.pending_effects.push(Effect::RemoteSessionBranch {
+            agent_id,
+            session_id: session_id.to_string(),
+        });
+    }
+    Some(changed && active == Some(agent_id))
 }
 /// Remote control's link state, for the footer indicator.
 fn handle_remote_status(notif: &acp::ExtNotification) -> bool {

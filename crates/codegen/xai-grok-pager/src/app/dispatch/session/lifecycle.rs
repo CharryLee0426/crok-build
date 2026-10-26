@@ -1951,7 +1951,12 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
                         &[("size", &format_window(selection.get()))],
                     )));
                 }
-                if unchanged {
+                // Another computer's session switched over there; its models are not this computer's to keep.
+                let other_computer = agent.session.session_id.as_ref().is_some_and(|sid| {
+                    sid.0
+                        .starts_with(xai_grok_shell::remote_control::RELAY_PREFIX)
+                });
+                if unchanged || other_computer {
                     vec![]
                 } else {
                     vec![Effect::PersistPreferredModel {

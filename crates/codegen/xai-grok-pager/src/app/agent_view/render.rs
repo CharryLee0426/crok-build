@@ -1449,7 +1449,10 @@ impl AgentView {
         let location_budget = left_budget.saturating_sub(upgrade_reserve);
         use unicode_width::UnicodeWidthStr;
         let mut location: Vec<Span> = Vec::new();
-        let probe_local_git = true;
+        // Another computer's session (`relay:`): its folder is over there, and its branch comes from that computer.
+        let probe_local_git = !self.session.session_id.as_ref().is_some_and(|id| {
+            id.0.starts_with(xai_grok_shell::remote_control::RELAY_PREFIX)
+        });
         let lazy_git = probe_local_git
             .then(|| crate::git_info::cwd_git_info_lazy(&self.session.cwd))
             .flatten();

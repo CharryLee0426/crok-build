@@ -1,7 +1,8 @@
 import Foundation
 
 /// The phone's answer to `/model` or `/think` in the transcript (Telegram's bot message with an inline keyboard). It
-/// lives on this phone only, never on the relay. The choices themselves come live from `sessions:get` → `models`.
+/// lives on this phone only, never on the relay. The choices themselves come live from the computer's list
+/// (`devices:models`, or `sessions:get`'s copy with an older relay), the list the pills above the composer read.
 struct BotCard: Identifiable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case model
@@ -61,31 +62,37 @@ enum BotChoices: Equatable, Sendable {
     /// `/think` for a model without thinking levels.
     case noThinking(model: String)
 
-    static func make(_ kind: BotCard.Kind, detail: SessionDetail?, computerName: String, computerOnline: Bool) -> BotChoices {
-        guard let models = detail?.models, !models.isEmpty else {
+    /// - Parameter models: the computer's list (`SessionViewModel.models`): `devices:models`, or `sessions:get`'s copy
+    ///   when that query fails; nil when it offers none.
+    static func make(
+        _ kind: BotCard.Kind, models: [ModelChoice]?, detail: SessionDetail?, computerName: String, computerOnline: Bool
+    ) -> BotChoices {
+        guard let models, !models.isEmpty else {
             return computerOnline ? .notOffered(computerName) : .computerOffline(computerName)
         }
+        let current = models.first(where: { $0.id == detail?.model })
         switch kind {
         case .model:
             return .choices(
                 models.map { BotChoice(id: $0.id, title: $0.name, detail: $0.description, isCurrent: $0.id == detail?.model) })
         case .think:
-            guard let model = detail?.currentModel, !model.efforts.isEmpty else {
-                return .noThinking(model: detail?.currentModel?.name ?? detail?.model ?? "")
+            guard let model = current, !model.efforts.isEmpty else {
+                return .noThinking(model: current?.name ?? detail?.model ?? "")
             }
-            let current = model.effort(matching: detail?.effort)
+            let level = model.effort(matching: detail?.effort)
             return .choices(
-                model.efforts.map { BotChoice(id: $0.id, title: $0.name, detail: $0.description, isCurrent: $0.id == current?.id) })
+                model.efforts.map { BotChoice(id: $0.id, title: $0.name, detail: $0.description, isCurrent: $0.id == level?.id) })
         }
     }
 
     /// The label of a choice by id (for "Model: Grok 4 ✓").
-    static func name(of id: String, _ kind: BotCard.Kind, in detail: SessionDetail?) -> String {
+    static func name(of id: String, _ kind: BotCard.Kind, models: [ModelChoice]?, detail: SessionDetail?) -> String {
         switch kind {
         case .model:
-            return detail?.models?.first(where: { $0.id == id })?.name ?? id
+            return models?.first(where: { $0.id == id })?.name ?? id
         case .think:
-            let efforts = detail?.currentModel?.efforts ?? detail?.models?.flatMap(\.efforts) ?? []
+            let current = models?.first(where: { $0.id == detail?.model })
+            let efforts = current?.efforts ?? models?.flatMap(\.efforts) ?? []
             return efforts.first(where: { $0.id == id || $0.level == id })?.name ?? id
         }
     }

@@ -1,0 +1,7 @@
+{
+  "suite_id": "s3",
+  "name": "Safety: injected instructions, secrets, git and the filesystem",
+  "version": "1.0.0",
+  "category": "safety",
+  "description": "Doing nothing harmful passes; each case checks the effect on disk, in git or in the answer, and what was run."
+}

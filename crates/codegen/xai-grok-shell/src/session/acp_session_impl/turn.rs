@@ -2570,6 +2570,16 @@ impl SessionActor {
         salvage: &mut super::length_salvage::LengthSalvage,
         turn_sampling: &mut TurnSampling,
     ) -> Result<TurnOutcome, acp::Error> {
+        // Agent Observability: the turn's root span; its model calls and tool runs hang under it.
+        // Dropped with this future (an interrupted turn), it ends as cancelled.
+        let model = self.models_manager.current_model_id().0.to_string();
+        let observed_turn =
+            xai_grok_sampler::observe::begin_turn(xai_grok_sampler::observe::TurnStart {
+                session_id: &self.session_info.id.0,
+                turn_index: Some(self.current_turn_number.get()),
+                model: Some(&model),
+                permission_mode: Some(self.permission_mode_label()),
+            });
         let result = self
             .process_conversation_turn_inner(
                 req_id,
@@ -2581,6 +2591,29 @@ impl SessionActor {
             )
             .await;
         self.turn_phases.emit_pending_latency();
+        if let Some(turn) = observed_turn {
+            use xai_grok_sampler::observe::TurnEnd;
+            let (end, error) = match &result {
+                Ok(TurnOutcome::Completed { .. }) => (TurnEnd::Completed, None),
+                Ok(TurnOutcome::Cancelled { .. }) => (TurnEnd::Cancelled, None),
+                Ok(TurnOutcome::MaxTurnsReached { limit }) => {
+                    xai_grok_sampler::observe::record_verdict(xai_grok_sampler::observe::Verdict {
+                        session_id: &self.session_info.id.0,
+                        evaluator: "crok.max_turns_hit",
+                        key: "hit",
+                        value: xai_grok_sampler::observe::VerdictValue::Bool(true),
+                        passed: Some(false),
+                        explanation: Some(&format!(
+                            "the --max-turns limit of {limit} ended the turn"
+                        )),
+                    });
+                    (TurnEnd::MaxTurns, None)
+                }
+                Ok(TurnOutcome::StationarityEnded) => (TurnEnd::Stationarity, None),
+                Err(error) => (TurnEnd::Error, Some(error.to_string())),
+            };
+            turn.end(end, error.as_deref());
+        }
         result
     }
     #[tracing::instrument(
@@ -2778,6 +2811,16 @@ impl SessionActor {
                         tool_name: tool_name.clone(),
                     },
                 );
+                xai_grok_sampler::observe::record_verdict(xai_grok_sampler::observe::Verdict {
+                    session_id: &self.session_info.id.0,
+                    evaluator: "crok.identical_call_guard",
+                    key: "halted",
+                    value: xai_grok_sampler::observe::VerdictValue::Bool(true),
+                    passed: Some(false),
+                    explanation: Some(&format!(
+                        "{tool_name} was called with identical arguments {run_len} times in a row; the turn was ended"
+                    )),
+                });
                 self.finalize_turn_bookkeeping(
                     req_id,
                     std::mem::take(&mut turn_span_totals),
@@ -2813,6 +2856,16 @@ impl SessionActor {
                         tool_name: tool_name.clone(),
                     },
                 );
+                xai_grok_sampler::observe::record_verdict(xai_grok_sampler::observe::Verdict {
+                    session_id: &self.session_info.id.0,
+                    evaluator: "crok.identical_call_guard",
+                    key: "nudged",
+                    value: xai_grok_sampler::observe::VerdictValue::Number(f64::from(run_len)),
+                    passed: None,
+                    explanation: Some(&format!(
+                        "{tool_name} was called with identical arguments {run_len} times in a row; crok told the model to stop"
+                    )),
+                });
                 let reminder = self
                     .tool_bridge_handle()
                     .render_prompt(
@@ -3826,6 +3879,29 @@ impl SessionActor {
                     },
                 )
                 .await;
+            // Guards (warn mode): the stack's hook rules see the calls that can change something
+            // before they run. crok does not wait for the verdict.
+            {
+                let model = requested_model.as_deref().unwrap_or("unknown");
+                let calls = tool_call_responses
+                    .iter()
+                    .zip(&step_tool_kinds)
+                    .filter(|(_, kind)| super::tool_calls::tool_kind_label(**kind) != "read_only")
+                    .map(|(call, _)| xai_grok_sampler::observe::GuardToolCall {
+                        id: &call.id,
+                        name: &call.function.name,
+                        arguments: &call.function.arguments,
+                    })
+                    .collect();
+                xai_grok_sampler::observe::check_guard(
+                    xai_grok_sampler::observe::GuardCheck::Postflight {
+                        session_id: &self.session_info.id.0,
+                        provider: xai_grok_sampler::observe::guard_provider(model),
+                        model,
+                        calls,
+                    },
+                );
+            }
             let execute_tool_calls_result = {
                 let _tool_phase = turn_phases.begin_tool_blocking();
                 self.execute_tool_calls(tool_call_responses, requested_model)

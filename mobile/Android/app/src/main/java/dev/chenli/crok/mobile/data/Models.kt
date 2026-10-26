@@ -258,8 +258,9 @@ data class SessionDetail(
     /** Made by `sessions:create` and not open on its computer yet. */
     val starting: Boolean = false,
     /**
-     * What the session's computer can run (`/model`, `/think`): from its runner, else any crok there; null while the
-     * computer is offline, or when its crok is too old to say.
+     * What the session's computer can run: from its runner, else any crok there; null while the computer is offline,
+     * when its crok is too old to say, and for lists of more than 200 (the relay re-sends this query with every
+     * transcript item). Current clients read `devices:models` and fall back to this copy only when that fails.
      */
     val models: List<ModelChoice>? = null,
 ) {
@@ -267,15 +268,15 @@ data class SessionDetail(
 
     /** The session's model among [models] (by id, else by name). */
     val currentModel: ModelChoice?
-        get() = models?.let { list -> list.firstOrNull { it.id == model } ?: list.firstOrNull { model != null && it.name.equals(model, ignoreCase = true) } }
+        get() = ModelChoice.find(models, model)
 
     /** Takes prompts: a crok runs it, or its computer is online and opens it when one arrives. */
     val reachable: Boolean get() = online || deviceOnline
 }
 
 /**
- * One model a computer offers (`sessions:get` → `models`), with its thinking levels; an empty [efforts] has none.
- * [defaultEffort] is an effort's id.
+ * One model a computer offers (`devices:models`, and `sessions:get` → `models` for older relays), with its thinking
+ * levels; an empty [efforts] has none. [defaultEffort] is an effort's id.
  */
 @Serializable
 data class ModelChoice(
@@ -286,6 +287,14 @@ data class ModelChoice(
     val defaultEffort: String? = null,
 ) {
     val label: String get() = name.ifBlank { id }
+
+    companion object {
+        /** A session's [model] among [models]: by id, else by name (ignoring case). */
+        fun find(models: List<ModelChoice>?, model: String?): ModelChoice? {
+            if (models == null || model.isNullOrBlank()) return null
+            return models.firstOrNull { it.id == model } ?: models.firstOrNull { it.name.equals(model, ignoreCase = true) }
+        }
+    }
 }
 
 /**
@@ -331,7 +340,10 @@ object EventKind {
     const val ERROR = "error"
 }
 
-/** One transcript item (`sessions:events`). Streaming text updates the same row: same `key`, same `_id`. */
+/**
+ * One transcript item (`sessions:transcript`). Streaming text updates the same row: same `key`, same `_id`. Thoughts
+ * and tool calls come without their text (the phones show their status only).
+ */
 @Serializable
 data class RelayEvent(
     @SerialName("_id") val id: String,
@@ -349,11 +361,11 @@ data class RelayEvent(
     val at: WireLong = 0,
 )
 
+/** A part of the transcript (`sessions:transcript`), newest first; [more]: the range holds older items than these. */
 @Serializable
-data class EventPage(
-    val page: List<RelayEvent> = emptyList(),
-    val isDone: Boolean = true,
-    val continueCursor: String = "",
+data class TranscriptChunk(
+    val events: List<RelayEvent> = emptyList(),
+    val more: Boolean = false,
 )
 
 // ---- Commands ----

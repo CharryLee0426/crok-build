@@ -12,8 +12,8 @@ import { api } from "@/convex/_generated/api";
 import { AppHeader, ConnectionIndicator } from "@/components/chrome";
 import { DevicesScreen } from "@/components/Devices";
 import { ChatLayout, ChooseSession, PageFrame } from "@/components/frames";
+import { LiveLeftColumn } from "@/components/left/LeftColumn";
 import { LinkApproval } from "@/components/LinkDevice";
-import { SessionsPane } from "@/components/SessionList";
 import { SessionScreen } from "@/components/session/SessionScreen";
 
 function useDeviceClient(refreshToken: string): ConvexReactClient | null {
@@ -50,7 +50,7 @@ export function LiveHarness({ refresh, session, view, code }: { refresh: string;
     );
   } else {
     body = (
-      <ChatLayout header={header} pane={<SessionsPane activeId={session} />} inSession={Boolean(session)} gate={false}>
+      <ChatLayout left={<LiveLeftColumn activeId={session} version="dev" />} inSession={Boolean(session)} gate={false}>
         {session ? <SessionScreen id={session} /> : <ChooseSession />}
       </ChatLayout>
     );

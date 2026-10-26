@@ -206,4 +206,52 @@ class TranscriptTest {
         assertNull(user.tick)
         assertFalse(user.remote)
     }
+
+    private fun tool(seq: Long, status: String?, title: String = "Run `cargo test`") =
+        RelayEvent("e$seq", seq, "k$seq", EventKind.TOOL, "", title = title, toolKind = "execute", status = status, at = day1 + seq)
+
+    private fun stateOf(items: List<TranscriptItem>, seq: Long) = (items.first { it.key == "e:e$seq" } as TranscriptItem.Tool).state
+
+    @Test
+    fun thoughtsShowWithoutTheirTextAndThinkWhileNewestInARunningTurn() {
+        // `sessions:transcript` sends thoughts without their text: they still show, by their status.
+        val thinking = listOf(event(1, EventKind.USER, day1), event(2, EventKind.THOUGHT, day1 + 1, text = ""))
+        assertTrue((build(thinking, running = true).first() as TranscriptItem.Thought).active)
+        // Not running (or waiting): done.
+        assertFalse((build(thinking, running = false).first() as TranscriptItem.Thought).active)
+        val waiting = Transcript.build(thinking, emptyList(), emptyList(), sessionRunning = false, historyComplete = true, zone = zone, turnRunning = true)
+        assertTrue("a turn waiting on a permission request still runs", (waiting.first() as TranscriptItem.Thought).active)
+        // Something newer followed it: done.
+        val after = build(thinking + tool(3, "in_progress"), running = true)
+        assertFalse((after.first { it is TranscriptItem.Thought } as TranscriptItem.Thought).active)
+    }
+
+    @Test
+    fun toolCallsShowTheirState() {
+        val events = listOf(
+            event(1, EventKind.USER, day1),
+            tool(2, "in_progress"),
+            event(3, EventKind.SYSTEM, day1 + 3, text = "", status = "cancelled"),
+            event(4, EventKind.USER, day1 + 4),
+            tool(5, "completed"),
+            tool(6, "failed"),
+            tool(7, "pending"),
+            tool(8, "in_progress"),
+            tool(9, "weird_status"),
+        )
+        val running = build(events, running = true)
+        assertEquals("its turn ended after it", ToolState.Stopped, stateOf(running, 2))
+        assertEquals(ToolState.Completed, stateOf(running, 5))
+        assertEquals(ToolState.Failed, stateOf(running, 6))
+        assertEquals(ToolState.Running, stateOf(running, 7))
+        assertEquals(ToolState.Running, stateOf(running, 8))
+        assertEquals(ToolState.Other, stateOf(running, 9))
+        // The session stopped running: unfinished calls are stopped.
+        val idle = build(events, running = false)
+        assertEquals(ToolState.Stopped, stateOf(idle, 7))
+        assertEquals(ToolState.Stopped, stateOf(idle, 8))
+        assertEquals(ToolState.Completed, stateOf(idle, 5))
+        // The title stays as sent (its `code` is drawn by the row).
+        assertEquals("Run `cargo test`", (running.first { it.key == "e:e5" } as TranscriptItem.Tool).title)
+    }
 }

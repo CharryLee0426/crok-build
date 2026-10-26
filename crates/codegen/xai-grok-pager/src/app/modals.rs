@@ -463,6 +463,12 @@ impl AgentView {
             };
         }
 
+        // Remote panel: owns every key; Esc clears its filter, steps back, then closes.
+        if let ActiveModal::Remote { state } = modal {
+            let outcome = state.key(key);
+            return self.apply_remote_panel_outcome(outcome);
+        }
+
         // ResetSettingsConfirm: y/n routing
         // Handled before the generic char-match so Esc/F2/Ctrl+, route to Cancel (not modal close)
         if let Some(ActiveModal::ResetSettingsConfirm { modal, .. }) = self.active_modal.as_ref() {
@@ -516,6 +522,7 @@ impl AgentView {
             | ActiveModal::UsageInfo { .. }
             | ActiveModal::Trace { .. }
             | ActiveModal::GitGraph { .. }
+            | ActiveModal::Remote { .. }
             | ActiveModal::ResetSettingsConfirm { .. }
             | ActiveModal::RememberNoteReview { .. } => unreachable!(),
         }
@@ -543,6 +550,10 @@ impl AgentView {
             return self.handle_palette_or_arg_input_with_registry(&event, registry);
         }
 
+        if let Some(ActiveModal::Remote { state }) = self.active_modal.as_mut() {
+            let outcome = state.paste(text);
+            return self.apply_remote_panel_outcome(outcome);
+        }
         if let Some(ActiveModal::ShortcutsHelp { state, mode, .. }) = self.active_modal.as_mut() {
             return match crate::views::shortcuts_help::handle_paste(text, state, mode) {
                 crate::views::shortcuts_help::ShortcutsHelpOutcome::Changed => {
@@ -1602,6 +1613,12 @@ impl AgentView {
             return InputOutcome::Changed;
         }
 
+        // Remote panel: its window chrome, then the list under the pointer.
+        if let Some(ActiveModal::Remote { state }) = &mut self.active_modal {
+            let outcome = state.mouse(mouse);
+            return self.apply_remote_panel_outcome(outcome);
+        }
+
         // Commit graph: the wheel moves through its focused pane.
         if let Some(ActiveModal::GitGraph { state }) = &mut self.active_modal {
             let lines = match mouse.kind {
@@ -1711,6 +1728,26 @@ impl AgentView {
             }
             UsageModalOutcome::Changed => InputOutcome::Changed,
             UsageModalOutcome::Unchanged => InputOutcome::Unchanged,
+        }
+    }
+
+    /// What a key, click or paste in the Remote panel asks for.
+    fn apply_remote_panel_outcome(
+        &mut self,
+        outcome: crate::remote_panel::Outcome,
+    ) -> InputOutcome {
+        use crate::remote_panel::Outcome;
+        match outcome {
+            Outcome::Unchanged => InputOutcome::Unchanged,
+            Outcome::Changed => InputOutcome::Changed,
+            Outcome::Close => {
+                self.active_modal = None;
+                InputOutcome::Changed
+            }
+            Outcome::Request(request) => InputOutcome::Action(Action::RemotePanelRequest(request)),
+            Outcome::Open { session_id, cwd } => {
+                InputOutcome::Action(Action::RemoteOpenSession { session_id, cwd })
+            }
         }
     }
 
@@ -2412,6 +2449,8 @@ impl AgentView {
                 state.render(area, buf, &theme);
             } else if let modal::ActiveModal::GitGraph { state } = active_modal {
                 state.render(area, buf, &theme);
+            } else if let modal::ActiveModal::Remote { state } = active_modal {
+                state.render(area, buf, &theme, compact);
             } else if let modal::ActiveModal::UsageInfo { state } = active_modal {
                 crate::views::usage_modal::render_usage_modal(
                     buf,

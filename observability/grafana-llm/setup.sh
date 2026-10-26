@@ -23,7 +23,7 @@ FOLDER_UID="${FOLDER_UID:-llm-observability}"
 DASHBOARDS_DIR="${DASHBOARDS_DIR:-$HERE/dashboards}"
 RULES_FILE="${RULES_FILE:-$HERE/rules/llm-history.json}"
 BACKFILL_FILE="${BACKFILL_FILE:-$HERE/backfill/llm-backfill.json}"
-DASHBOARD_UIDS=(llm-overview llm-claude-platform llm-openrouter llm-crok llm-request-explorer llm-history)
+DASHBOARD_UIDS=(llm-overview llm-claude-platform llm-openrouter llm-crok llm-crok-harness llm-request-explorer llm-history)
 
 if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'; else B=; G=; Y=; R=; N=; fi
 say()  { printf '%s\n' "$*"; }

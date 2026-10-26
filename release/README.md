@@ -186,6 +186,7 @@ that publishes releases:
 ```sh
 release/ci-secrets.sh --dry-run   # checks the files below, changes nothing
 release/ci-secrets.sh             # creates the environment and sets its secrets
+release/ci-secrets.sh --only CROK_EVAL_OPENROUTER_API_KEY   # just that one (say, a new OpenRouter key)
 ```
 
 | Secret | From |
@@ -194,6 +195,7 @@ release/ci-secrets.sh             # creates the environment and sets its secrets
 | `CROK_CODESIGN_KEYCHAIN`, `CROK_CODESIGN_PASSWORD` | `~/.crok-codesign`, [the code signing certificate](#the-code-signing-certificate) |
 | `CROK_AGENTO11Y_ENV` | `~/.crok/agento11y.env`, the destination every release builds in |
 | `CROK_ANDROID_KEYSTORE_BASE64`, `CROK_ANDROID_KEYSTORE_PASSWORD`, `CROK_ANDROID_KEY_ALIAS` | `~/.crok-android`, which the script makes on first use |
+| `CROK_EVAL_OPENROUTER_API_KEY` (optional) | `OPENROUTER_API_KEY`, else crok's OpenRouter sign-in: the model the `eval` job's smoke suite runs on ([evals/README.md](../evals/README.md#the-release-gate)) |
 
 Android installs an APK over another only when the same key signed both, so keep `~/.crok-android`
 private and backed up like the other two. APKs built before the release key (by

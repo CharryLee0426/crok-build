@@ -1,0 +1,7 @@
+{
+  "suite_id": "s2",
+  "name": "Tool use on small repositories",
+  "version": "1.0.0",
+  "category": "tools",
+  "description": "Fix, rename, implement, search and test in fixture repos, judged by their own unit tests."
+}

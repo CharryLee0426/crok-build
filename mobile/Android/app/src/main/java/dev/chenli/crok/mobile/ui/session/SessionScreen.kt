@@ -129,6 +129,10 @@ data class SessionActions(
     val onReload: () -> Unit = {},
     /** A row of the command list. */
     val onPickCommand: (CommandEntry) -> Unit = {},
+    /** Choose a Model (null: Default, on the new-session screen). */
+    val onChooseModel: (String?) -> Unit = {},
+    /** The thinking menu (an effort's id; null: Default, on the new-session screen). */
+    val onChooseEffort: (String?) -> Unit = {},
     val transcript: TranscriptActions = TranscriptActions(),
 )
 
@@ -137,7 +141,7 @@ fun SessionScreen(
     viewModel: SessionViewModel,
     onBack: () -> Unit,
     onNewSession: (NewSessionTarget, String?) -> Unit,
-    infoSheet: @Composable (sessionDocId: String, onDismiss: () -> Unit) -> Unit,
+    infoSheet: @Composable (sessionDocId: String, setup: InfoSetup, onDismiss: () -> Unit) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -145,6 +149,7 @@ fun SessionScreen(
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     var showInfo by rememberSaveable { mutableStateOf(false) }
+    val pickers = rememberSetupPickers()
 
     LifecycleResumeEffect(viewModel) {
         viewModel.setVisible(true)
@@ -158,6 +163,10 @@ fun SessionScreen(
                 SessionEvent.ShowInfo -> showInfo = true
                 is SessionEvent.NewSession -> onNewSession(event.target, event.prompt)
                 SessionEvent.NewSessionUnavailable -> snackbar.showSnackbar(resources.getString(R.string.new_session_unavailable))
+                is SessionEvent.ConfigFailed -> {
+                    val title = resources.getString(if (event.model) R.string.setup_model_failed else R.string.setup_thinking_failed)
+                    snackbar.showSnackbar(if (event.message.isBlank()) title else "$title\n${event.message}")
+                }
             }
         }
     }
@@ -167,6 +176,7 @@ fun SessionScreen(
         draft = viewModel.draft,
         snackbar = snackbar,
         now = System.currentTimeMillis(),
+        pickers = pickers,
         actions = SessionActions(
             onBack = onBack,
             onInfo = { showInfo = true },
@@ -177,6 +187,8 @@ fun SessionScreen(
             onLoadMore = viewModel::loadMore,
             onReload = viewModel::reload,
             onPickCommand = viewModel::pickCommand,
+            onChooseModel = viewModel::chooseModel,
+            onChooseEffort = viewModel::chooseEffort,
             transcript = TranscriptActions(
                 onCopy = { text ->
                     scope.launch {
@@ -192,7 +204,30 @@ fun SessionScreen(
         ),
     )
     val sessionDocId = viewModel.sessionDocId
-    if (showInfo && sessionDocId != null) infoSheet(sessionDocId) { showInfo = false }
+    if (showInfo && sessionDocId != null) {
+        // Model and Thinking level open the setup row's pickers while the computer offers choices.
+        val setup = state.setup
+        val info = InfoSetup(
+            models = state.models.models,
+            onModel = if (setup != null && setup.model.enabled && !setup.model.busy && state.models.models != null) {
+                {
+                    showInfo = false
+                    pickers.openModelSheet()
+                }
+            } else {
+                null
+            },
+            onThinking = if (setup?.thinking?.let { it.enabled && !it.busy } == true) {
+                {
+                    showInfo = false
+                    pickers.openThinkingMenu()
+                }
+            } else {
+                null
+            },
+        )
+        infoSheet(sessionDocId, info) { showInfo = false }
+    }
 }
 
 @Composable
@@ -204,9 +239,12 @@ fun SessionContent(
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
     listState: LazyListState = rememberLazyListState(),
     menuInitiallyOpen: Boolean = false,
+    /** Which of the setup row's pickers is open (hoisted: the info sheet opens them too). */
+    pickers: SetupPickers = rememberSetupPickers(),
 ) {
     val colors = CrokTheme.colors
     val scope = rememberCoroutineScope()
+    val resources = LocalResources.current
     var planExpanded by rememberSaveable { mutableStateOf(false) }
     var menuOpen by rememberSaveable { mutableStateOf(menuInitiallyOpen) }
 
@@ -265,6 +303,11 @@ fun SessionContent(
 
     val bot = BotContext(state.models, state.deviceName, state.deviceOnline)
     val appearance = LocalSessionAppearance.current
+    // A picker whose choices went away (the computer went offline, the session started) closes for good.
+    val canChooseModel = state.models.models != null
+    val canChooseThinking = state.setup?.thinking != null
+    LaunchedEffect(canChooseModel) { if (!canChooseModel) pickers.modelSheet = false }
+    LaunchedEffect(canChooseThinking) { if (!canChooseThinking) pickers.thinkingMenu = false }
     GlassScaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         // The session theme (Profile › Appearance) under the transcript, where the glass bars read it.
@@ -306,6 +349,18 @@ fun SessionContent(
                 draft = draft,
                 menuOpen = menuOpen,
                 onMenu = { menuOpen = !menuOpen },
+                setup = SetupActions(
+                    onModel = {
+                        if (state.setup?.model?.dimmed == true) {
+                            // An older crok there: nothing to choose from; say so (the bot cards' words).
+                            scope.launch { snackbar.showSnackbar(resources.getString(R.string.bot_no_models, state.deviceName)) }
+                        } else {
+                            pickers.openModelSheet()
+                        }
+                    },
+                    onThinking = pickers::openThinkingMenu,
+                    onThinkingPlaced = { pickers.thinkingLeft = it },
+                ),
                 actions = actions.copy(
                     onPickCommand = { entry ->
                         menuOpen = false
@@ -329,17 +384,32 @@ fun SessionContent(
             ) {
                 ScrollToBottomButton(newCount) { scope.launch { listState.animateScrollToItem(0) } }
             }
+            val thinkingModel = state.setupModel
+            if (pickers.thinkingMenu && state.setup?.thinking != null && thinkingModel != null) {
+                ThinkingMenu(
+                    efforts = thinkingModel.efforts,
+                    selected = state.setupEffortId,
+                    newSession = state.newSession != null,
+                    anchorLeft = pickers.thinkingLeft,
+                    bottom = padding.calculateBottomPadding() + 4.dp,
+                    onPick = { id ->
+                        pickers.thinkingMenu = false
+                        actions.onChooseEffort(id)
+                    },
+                    onDismiss = { pickers.thinkingMenu = false },
+                )
+            }
         },
     ) { padding ->
         val inner = Modifier.fillMaxSize().padding(padding)
         when {
             state.gone -> CenterNote(stringResource(R.string.session_gone), inner)
             state.newSession != null && state.items.isEmpty() -> NewSessionNote(state.newSession, inner)
-            !state.loaded && state.error != null -> Column(inner.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            !state.loaded && state.items.isEmpty() && state.error != null -> Column(inner.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text(stringResource(R.string.transcript_load_failed, state.error), color = colors.textSecondary, textAlign = TextAlign.Center)
                 TextButton(onClick = actions.onReload) { Text(stringResource(R.string.action_retry), color = colors.accent) }
             }
-            !state.loaded -> Box(inner, contentAlignment = Alignment.Center) { CircularProgressIndicator(color = colors.accent) }
+            !state.loaded && state.items.isEmpty() -> Box(inner, contentAlignment = Alignment.Center) { CircularProgressIndicator(color = colors.accent) }
             state.historyOnComputer && state.deviceOnline -> Column(inner.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp, color = colors.accent)
                 Spacer(Modifier.height(16.dp))
@@ -375,6 +445,23 @@ fun SessionContent(
                 }
             }
         }
+    }
+
+    val models = state.models.models
+    if (pickers.modelSheet && models != null) {
+        ModelSheet(
+            models = models,
+            selected = state.setupModelId,
+            newSession = state.newSession != null,
+            computer = state.deviceName,
+            query = pickers.query,
+            onQuery = { pickers.query = it },
+            onPick = { id ->
+                pickers.modelSheet = false
+                actions.onChooseModel(id)
+            },
+            onDismiss = { pickers.modelSheet = false },
+        )
     }
 }
 
@@ -567,10 +654,18 @@ private fun ScrollToBottomButton(count: Int, onClick: () -> Unit) {
  * The composer, floating on glass over the transcript: the Menu button (Telegram's bot menu: a blue pill, "Menu" while
  * the field is empty, just the icon while typing), the field, and Send — or Stop while a turn runs (Telegram's
  * streaming-stop button). Above it the pending permission request, and the command list when the Menu button or a
- * leading `/` opened it. Blocked only while the computer is offline (a session nobody runs opens for a prompt).
+ * leading `/` opened it, or else the setup row (the model and thinking pills). Blocked only while the computer is
+ * offline (a session nobody runs opens for a prompt).
  */
 @Composable
-private fun Composer(state: SessionUiState, draft: String, menuOpen: Boolean, onMenu: () -> Unit, actions: SessionActions) {
+private fun Composer(
+    state: SessionUiState,
+    draft: String,
+    menuOpen: Boolean,
+    onMenu: () -> Unit,
+    setup: SetupActions,
+    actions: SessionActions,
+) {
     val colors = CrokTheme.colors
     Column(
         Modifier
@@ -604,7 +699,11 @@ private fun Composer(state: SessionUiState, draft: String, menuOpen: Boolean, on
         } else {
             null
         }
-        if (!suggestions.isNullOrEmpty()) CommandList(suggestions, actions.onPickCommand)
+        if (!suggestions.isNullOrEmpty()) {
+            CommandList(suggestions, actions.onPickCommand)
+        } else {
+            state.setup?.let { SetupRowView(it, setup.onModel, setup.onThinking, setup.onThinkingPlaced) }
+        }
         Row(verticalAlignment = Alignment.Bottom) {
             Row(
                 Modifier
@@ -670,6 +769,13 @@ private fun Composer(state: SessionUiState, draft: String, menuOpen: Boolean, on
         }
     }
 }
+
+/** What the setup row's pills do: open Choose a Model, open the thinking menu, and tell where the thinking pill is. */
+private class SetupActions(
+    val onModel: () -> Unit,
+    val onThinking: () -> Unit,
+    val onThinkingPlaced: (Float) -> Unit,
+)
 
 /** Telegram's bot menu button: a blue pill with ☰ and "Menu", only ☰ while there is text. */
 @Composable

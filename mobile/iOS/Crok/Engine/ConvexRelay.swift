@@ -486,13 +486,11 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         observe("sessions:get", ["sessionDocId": .string(sessionDocId)])
     }
 
-    func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage> {
-        var options: [String: JSONValue] = [
-            "numItems": .number(Double(numItems)),
-            "cursor": cursor.map(JSONValue.string) ?? .null,
-        ]
-        if let endCursor { options["endCursor"] = .string(endCursor) }
-        return observe("sessions:events", ["sessionDocId": .string(sessionDocId), "paginationOpts": .object(options)])
+    func transcript(_ sessionDocId: DocID, range: TranscriptRange) -> RelayStream<TranscriptChunk> {
+        var args: [String: JSONValue] = ["sessionDocId": .string(sessionDocId), "limit": .number(Double(range.limit))]
+        if let afterSeq = range.afterSeq { args["afterSeq"] = .number(afterSeq) }
+        if let throughSeq = range.throughSeq { args["throughSeq"] = .number(throughSeq) }
+        return observe("sessions:transcript", args)
     }
 
     func markRead(_ sessionDocId: DocID) async throws {
@@ -515,9 +513,14 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         try await run("sessions:remove", ["sessionDocId": .string(sessionDocId)])
     }
 
-    func create(deviceId: DocID, path: String, text: String?, clientId: String) async throws -> CreatedSession {
+    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
+        async throws -> CreatedSession
+    {
         var args: [String: JSONValue] = ["deviceId": .string(deviceId), "path": .string(path), "clientId": .string(clientId)]
+        // Optional arguments are left out, not sent as null.
         if let text, !text.isEmpty { args["text"] = .string(text) }
+        if let model, !model.isEmpty { args["model"] = .string(model) }
+        if let effort, !effort.isEmpty { args["effort"] = .string(effort) }
         return try await call("sessions:create", args)
     }
 
@@ -578,6 +581,10 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
 
     func list() -> RelayStream<[DeviceRow]> {
         observe("devices:list")
+    }
+
+    func models(_ deviceId: DocID) -> RelayStream<[ModelChoice]?> {
+        observe("devices:models", ["deviceId": .string(deviceId)])
     }
 
     func rename(_ deviceId: DocID, name: String) async throws {

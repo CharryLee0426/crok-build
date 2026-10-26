@@ -160,16 +160,18 @@ private final class FailingReorderRelay: RelayBackend, SessionsAPI, @unchecked S
     func groups() -> RelayStream<[ProjectGroup]> { demo.groups() }
     func list(archived: Bool) -> RelayStream<[SessionRow]> { demo.list(archived: archived) }
     func get(_ sessionDocId: DocID) -> RelayStream<SessionDetail> { demo.get(sessionDocId) }
-    func events(_ sessionDocId: DocID, cursor: String?, endCursor: String?, numItems: Int) -> RelayStream<EventsPage> {
-        demo.events(sessionDocId, cursor: cursor, endCursor: endCursor, numItems: numItems)
+    func transcript(_ sessionDocId: DocID, range: TranscriptRange) -> RelayStream<TranscriptChunk> {
+        demo.transcript(sessionDocId, range: range)
     }
     func markRead(_ sessionDocId: DocID) async throws { try await demo.markRead(sessionDocId) }
     func watch(_ sessionDocId: DocID) async throws { try await demo.watch(sessionDocId) }
     func setPinned(_ sessionDocId: DocID, _ pinned: Bool) async throws { try await demo.setPinned(sessionDocId, pinned) }
     func setArchived(_ sessionDocId: DocID, _ archived: Bool) async throws { try await demo.setArchived(sessionDocId, archived) }
     func remove(_ sessionDocId: DocID) async throws { try await demo.remove(sessionDocId) }
-    func create(deviceId: DocID, path: String, text: String?, clientId: String) async throws -> CreatedSession {
-        try await demo.create(deviceId: deviceId, path: path, text: text, clientId: clientId)
+    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
+        async throws -> CreatedSession
+    {
+        try await demo.create(deviceId: deviceId, path: path, text: text, model: model, effort: effort, clientId: clientId)
     }
     func slashCommands(_ sessionDocId: DocID) -> RelayStream<SlashCommandList> { demo.slashCommands(sessionDocId) }
 

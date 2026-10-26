@@ -2,7 +2,8 @@
 
 /**
  * Dev-only gallery (`next dev` → /preview): every signed-in screen rendered from fixtures, without Clerk or Convex,
- * for screenshots in light and dark (`?theme=dark`) and any language (`?lang=ja`). Not part of production builds.
+ * for screenshots in light and dark (`?theme=dark`), any language (`?lang=ja`), any session theme (`?stheme=classic`,
+ * `photo`, with `&blur=1`) and any computer (`?computer=dev_box`). Not part of production builds.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -13,25 +14,20 @@ import { DevicesView } from "@/components/Devices";
 import { ChatLayout, ChooseSession, PageFrame } from "@/components/frames";
 import { I18nProvider } from "@/components/I18nProvider";
 import { Landing } from "@/components/Landing";
+import { LeftColumnView } from "@/components/left/LeftColumn";
+import type { LeftInitial } from "@/components/left/LeftColumn";
+import type { LeftActions } from "@/components/left/types";
 import { LinkApprovalView, LinkEntry } from "@/components/LinkDevice";
 import type { LinkOutcome } from "@/components/LinkDevice";
-import { SessionsPaneView } from "@/components/SessionList";
-import type { OrderActions, SessionActions, Tab } from "@/components/SessionList";
 import { useBotCards } from "@/components/session/BotCommands";
 import type { BotCard } from "@/components/session/BotCommands";
 import { NewSessionView } from "@/components/session/NewSession";
 import { SessionView } from "@/components/session/SessionView";
-import type { InfoState, SessionModel } from "@/components/session/SessionView";
-import { LanguageSelect } from "@/components/chrome";
+import type { ConfigChange, InfoState, SessionModel } from "@/components/session/SessionView";
+import { SettingsProvider } from "@/components/Settings";
+import type { ColorMode } from "@/components/Settings";
 import type { Lang } from "@/lib/i18n";
-import {
-  addSession,
-  applyProjectOrder,
-  applyResetOrder,
-  applySessionOrder,
-  patchSession,
-  removeSession,
-} from "@/lib/order";
+import { addSession, applyProjectOrder, applyResetOrder, applySessionOrder, patchSession, removeSession } from "@/lib/order";
 import type {
   CommandId,
   EffortChoice,
@@ -45,16 +41,17 @@ import type {
   TranscriptEvent,
 } from "@/lib/types";
 import {
+  fakeAccount,
   fakeArchived,
   fakeCards,
   fakeCatalogSession,
   fakeCommands,
-  fakeComputers,
   fakeDevices,
   fakeEvents,
   fakeGroups,
   fakeLogin,
   fakePending,
+  fakePhotoUrl,
   fakeSession,
   fakeStartingCommands,
   fakeStartingSession,
@@ -67,8 +64,22 @@ export const SCREENS = [
   "landing",
   "dashboard",
   "dashboard-empty",
+  "sessions-computer-empty",
+  "sessions-search",
+  "sessions-edit",
+  "switcher",
+  "project",
+  "project-reorder",
+  "archived",
+  "profile",
+  "profile-devices",
+  "appearance",
+  "language",
   "session",
   "session-info",
+  "session-model-dialog",
+  "session-config-applying",
+  "session-no-models",
   "session-offline",
   "session-waiting",
   "session-permission",
@@ -81,6 +92,7 @@ export const SCREENS = [
   "session-markdown",
   "session-markdown-streaming",
   "new-session",
+  "new-session-model-dialog",
   "new-session-sent",
   "new-session-failed",
   "new-session-offline",
@@ -101,7 +113,7 @@ const noop = () => {};
 function FakeAccount() {
   return (
     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-fg">
-      CL
+      AR
     </span>
   );
 }
@@ -110,58 +122,59 @@ function Header() {
   return <AppHeader account={<FakeAccount />} />;
 }
 
-/** The list with fake data that still moves: pin, archive and reorder apply locally, with the relay's rules. */
-function Pane({ empty = false, activeId, pickerOpen }: { empty?: boolean; activeId?: string; pickerOpen?: boolean }) {
+/** The left column with fake data that still moves: pin, archive, read and reorder apply locally, with the relay's rules. */
+function FakeLeft({ empty = false, activeId, initial }: { empty?: boolean; activeId?: string; initial?: LeftInitial }) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("all");
-  const [query, setQuery] = useState("");
   const [now] = useState(() => Date.now());
   const [groups, setGroups] = useState<ProjectGroup[]>(() => (empty ? [] : fakeGroups(now)));
   const [archived, setArchived] = useState<SessionRow[]>(() => (empty ? [] : fakeArchived(now)));
-  const actions: SessionActions = {
-    setPinned: (id, pinned) => {
-      setGroups((g) => patchSession(g, id, { pinned }));
-      setArchived((rows) => rows.map((r) => (r._id === id ? { ...r, pinned } : r)));
+  const actions: LeftActions = {
+    sessions: {
+      setPinned: (id, pinned) => {
+        setGroups((g) => patchSession(g, id, { pinned }));
+        setArchived((rows) => rows.map((r) => (r._id === id ? { ...r, pinned } : r)));
+      },
+      setArchived: (id, archive) => {
+        const row = [...groups.flatMap((g) => g.sessions), ...archived].find((r) => r._id === id);
+        if (!row) return;
+        const moved = { ...row, archived: archive, pinned: archive ? false : row.pinned };
+        setGroups((g) => (archive ? removeSession(g, id) : addSession(g, moved)));
+        setArchived((rows) => (archive ? [moved, ...rows] : rows.filter((r) => r._id !== id)));
+      },
+      stop: noop,
+      markRead: (ids) => setGroups((g) => ids.reduce((acc, id) => patchSession(acc, id, { unread: 0 }), g)),
     },
-    setArchived: (id, archive) => {
-      const row = [...groups.flatMap((g) => g.sessions), ...archived].find((r) => r._id === id);
-      if (!row) return;
-      const moved = { ...row, archived: archive, pinned: archive ? false : row.pinned };
-      setGroups((g) => (archive ? removeSession(g, id) : addSession(g, moved)));
-      setArchived((rows) => (archive ? [moved, ...rows] : rows.filter((r) => r._id !== id)));
+    order: {
+      reorderProjects: (keys) => setGroups((g) => applyProjectOrder(g, keys)),
+      reorderSessions: (key, ids) => setGroups((g) => applySessionOrder(g, key, ids)),
+      resetOrder: (key) => setGroups((g) => applyResetOrder(g, key)),
     },
-    stop: noop,
-  };
-  const order: OrderActions = {
-    reorderProjects: (keys) => setGroups((g) => applyProjectOrder(g, keys)),
-    reorderSessions: (key, ids) => setGroups((g) => applySessionOrder(g, key, ids)),
-    resetOrder: (key) => setGroups((g) => applyResetOrder(g, key)),
+    newSession: ({ deviceId, path }) =>
+      router.push(`/preview/new-session?device=${encodeURIComponent(deviceId)}&path=${encodeURIComponent(path)}`),
+    devices: { rename: async () => {}, revoke: async () => {}, revokeOthers: async () => 4 },
+    signOut: noop,
   };
   return (
-    <SessionsPaneView
-      groups={groups}
-      archived={archived}
-      computers={empty ? [] : fakeComputers()}
-      tab={tab}
-      onTab={setTab}
-      query={query}
-      onQuery={setQuery}
-      activeId={activeId}
-      now={now}
+    <LeftColumnView
+      data={{
+        groups,
+        archived,
+        devices: empty ? [] : fakeDevices(now),
+        account: fakeAccount(),
+        connection: "live",
+        now,
+        version: "2.0.1 (preview)",
+      }}
       actions={actions}
-      order={order}
-      onNewSession={({ deviceId, path }) =>
-        router.push(`/preview/new-session?device=${encodeURIComponent(deviceId)}&path=${encodeURIComponent(path)}`)
-      }
-      initialPickerOpen={pickerOpen}
-      footer={<LanguageSelect />}
+      activeId={activeId}
+      initial={initial}
     />
   );
 }
 
 /**
  * A session screen on fixtures. The composer's commands work: `/model` and `/think` cards apply after a short fake
- * delay (and the session follows), `/new` opens the new-session preview, `/info` the panel.
+ * delay (and the session follows), the pills too; `/new` opens the new-session preview, `/info` the panel.
  */
 function SessionScreenPreview({
   session: initialSession,
@@ -172,6 +185,9 @@ function SessionScreenPreview({
   pending,
   cards: initialCards,
   draft,
+  models = FAKE_MODELS,
+  config: initialConfig = null,
+  modelDialog = false,
 }: {
   session: SessionDetail;
   infoOpen?: boolean;
@@ -181,16 +197,27 @@ function SessionScreenPreview({
   pending?: PendingPrompt[];
   cards?: BotCard[];
   draft?: string;
+  models?: ModelChoice[] | null;
+  config?: ConfigChange | null;
+  modelDialog?: boolean;
 }) {
   const router = useRouter();
   const [now] = useState(() => Date.now());
   const [session, setSession] = useState(initialSession);
+  const [config, setConfig] = useState<ConfigChange | null>(initialConfig);
+  const cardSession = { ...session, models };
   const cards = useBotCards({
-    session,
+    session: cardSession,
     apply: async () => `cmd_fake_${Date.now()}` as CommandId,
     errorText: () => "",
     initial: initialCards,
   });
+  const apply = (kind: ConfigChange["kind"], value: string | null) =>
+    setSession((s) => {
+      if (kind === "model") return { ...s, model: value, effort: null };
+      const effort = models?.find((m) => m.id === s.model)?.efforts.find((e) => e.id === value);
+      return { ...s, effort: effort?.value ?? value };
+    });
   // The fake computer applies each change after a moment.
   useEffect(() => {
     const timers = cards.cards
@@ -198,21 +225,28 @@ function SessionScreenPreview({
       .map((card) =>
         window.setTimeout(() => {
           cards.settle(card.id, "done");
-          const value = card.value ?? null;
-          setSession((s) => {
-            if (card.kind === "model") return { ...s, model: value, effort: null };
-            const effort = s.models?.find((m) => m.id === s.model)?.efforts.find((e) => e.id === value);
-            return { ...s, effort: effort?.value ?? value };
-          });
+          apply(card.kind, card.value ?? null);
         }, 1400),
       );
     return () => timers.forEach((id) => window.clearTimeout(id));
     // Re-armed whenever a card changes state; settled cards drop out.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cards.cards]);
+  // A pill's change: kept spinning in the "applying" preview, applied after a moment otherwise.
+  useEffect(() => {
+    if (!config || config === initialConfig) return;
+    const timer = window.setTimeout(() => {
+      apply(config.kind, config.value);
+      setConfig(null);
+    }, 1400);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config]);
 
   const model: SessionModel = {
     session,
+    models,
+    config,
     events: events ?? fakeEvents(now),
     pagination: { canLoadMore: false, loadingMore: false, isDone: true, firstLoad: false, loadMore: noop },
     commands: commands ?? (events ? [] : fakeCommands(now)),
@@ -238,11 +272,14 @@ function SessionScreenPreview({
         ),
       openCard: cards.open,
       chooseInCard: cards.choose,
+      setConfig: (kind, value) => {
+        if (!config) setConfig({ kind, value });
+      },
     },
   };
   return (
-    <ChatLayout header={<Header />} pane={<Pane activeId={session._id} />} inSession gate={false}>
-      <SessionView model={model} initialInfoOpen={infoOpen} initialDraft={draft} />
+    <ChatLayout left={<FakeLeft activeId={session._id} />} inSession gate={false}>
+      <SessionView model={model} initialInfoOpen={infoOpen} initialDraft={draft} initialModelDialog={modelDialog} />
     </ChatLayout>
   );
 }
@@ -251,9 +288,11 @@ function SessionScreenPreview({
 function NewSessionPreview({
   target,
   state = "empty",
+  modelDialog = false,
 }: {
   target?: { deviceId: string; path: string };
   state?: "empty" | "sent" | "failed";
+  modelDialog?: boolean;
 }) {
   const router = useRouter();
   const [now] = useState(() => Date.now());
@@ -275,7 +314,7 @@ function NewSessionPreview({
   const [model, setModel] = useState<ModelChoice | null>(null);
   const [effort, setEffort] = useState<EffortChoice | null>(null);
   return (
-    <ChatLayout header={<Header />} pane={<Pane />} inSession gate={false}>
+    <ChatLayout left={<FakeLeft />} inSession gate={false}>
       <NewSessionView
         deviceId={group.deviceId}
         path={group.path}
@@ -283,13 +322,10 @@ function NewSessionPreview({
         online={group.deviceOnline}
         prompt={prompt}
         now={now}
-        models={FAKE_MODELS}
+        models={group.deviceOnline ? FAKE_MODELS : null}
         model={model}
         effort={effort}
-        onPickModel={(picked) => {
-          setModel(picked);
-          setEffort(null);
-        }}
+        onPickModel={setModel}
         onPickEffort={setEffort}
         onSend={(value) => {
           setPrompt({ key: "c_new", text: value, createdAt: Date.now(), tick: "sending", clientId: "c_new" });
@@ -297,6 +333,7 @@ function NewSessionPreview({
         }}
         onRetry={(p) => setPrompt({ ...p, tick: "sending", error: null })}
         onDiscard={() => setPrompt(null)}
+        initialModelDialog={modelDialog}
       />
     </ChatLayout>
   );
@@ -319,6 +356,17 @@ function LinkPreview({ login, outcome, app = false }: { login: PendingLogin | nu
   );
 }
 
+/** The frame with the left column on a page and nothing open in the middle. */
+function Frame({ initial, empty }: { initial?: LeftInitial; empty?: boolean }) {
+  return (
+    <ChatLayout left={<FakeLeft empty={empty} initial={initial} />} inSession={false} gate={false}>
+      <ChooseSession />
+    </ChatLayout>
+  );
+}
+
+const CROK_PROJECT = "dev_mac:/Users/me/code/crok-build";
+
 function Screen({
   name,
   target,
@@ -333,17 +381,38 @@ function Screen({
     case "landing":
       return <Landing />;
     case "dashboard":
-      return (
-        <ChatLayout header={<Header />} pane={<Pane />} inSession={false} gate={false}>
-          <ChooseSession />
-        </ChatLayout>
-      );
+    case "sessions-computer-empty":
+      return <Frame />;
     case "dashboard-empty":
+      return <Frame empty />;
+    case "sessions-search":
+      return <Frame initial={{ query: "test" }} />;
+    case "sessions-edit":
+      return <Frame initial={{ editing: true }} />;
+    case "switcher":
+      return <Frame initial={{ switcherOpen: true }} />;
+    case "project":
       return (
-        <ChatLayout header={<Header />} pane={<Pane empty />} inSession={false} gate={false}>
+        <ChatLayout
+          left={<FakeLeft activeId="s_relay" initial={{ stack: [{ kind: "sessions" }, { kind: "project", key: CROK_PROJECT }] }} />}
+          inSession={false}
+          gate={false}
+        >
           <ChooseSession />
         </ChatLayout>
       );
+    case "project-reorder":
+      return <Frame initial={{ stack: [{ kind: "sessions" }, { kind: "project", key: CROK_PROJECT }], reorder: true }} />;
+    case "archived":
+      return <Frame initial={{ stack: [{ kind: "sessions" }, { kind: "archived" }] }} />;
+    case "profile":
+      return <Frame initial={{ stack: [{ kind: "sessions" }, { kind: "profile" }] }} />;
+    case "profile-devices":
+      return <Frame initial={{ stack: [{ kind: "sessions" }, { kind: "profile" }, { kind: "devices" }] }} />;
+    case "appearance":
+      return <Frame initial={{ stack: [{ kind: "sessions" }, { kind: "profile" }, { kind: "appearance" }] }} />;
+    case "language":
+      return <Frame initial={{ stack: [{ kind: "sessions" }, { kind: "profile" }, { kind: "language" }] }} />;
     case "session":
       return <SessionScreenPreview session={fakeSession(now)} />;
     case "session-info":
@@ -357,10 +426,22 @@ function Screen({
           }}
         />
       );
+    case "session-model-dialog":
+      return <SessionScreenPreview session={fakeSession(now, { model: "anthropic/claude-sonnet-4-5", effort: "medium" })} modelDialog />;
+    case "session-config-applying":
+      return (
+        <SessionScreenPreview
+          session={fakeSession(now, { model: "grok-4", effort: "high", status: "idle" })}
+          config={{ kind: "reasoning_effort", value: "xhigh" }}
+        />
+      );
+    case "session-no-models":
+      return <SessionScreenPreview session={fakeSession(now, { status: "idle" })} models={null} />;
     case "session-offline":
       return (
         <SessionScreenPreview
           session={fakeSession(now, { online: false, status: "idle", deviceOnline: false, lastActivityAt: now - 3 * 3_600_000 })}
+          models={null}
         />
       );
     case "session-waiting":
@@ -390,7 +471,7 @@ function Screen({
     case "session-catalog":
       return <SessionScreenPreview session={fakeCatalogSession(now, true)} events={[]} />;
     case "session-catalog-offline":
-      return <SessionScreenPreview session={fakeCatalogSession(now, false)} events={[]} />;
+      return <SessionScreenPreview session={fakeCatalogSession(now, false)} events={[]} models={null} />;
     case "session-commands":
       return <SessionScreenPreview session={fakeSession(now)} draft="/" />;
     case "session-commands-filter":
@@ -431,6 +512,8 @@ function Screen({
       );
     case "new-session":
       return <NewSessionPreview target={target} />;
+    case "new-session-model-dialog":
+      return <NewSessionPreview target={target} modelDialog />;
     case "new-session-sent":
       return <NewSessionPreview target={target} state="sent" />;
     case "new-session-failed":
@@ -438,11 +521,7 @@ function Screen({
     case "new-session-offline":
       return <NewSessionPreview target={{ deviceId: "dev_box", path: "/home/me/billing-service" }} />;
     case "new-session-picker":
-      return (
-        <ChatLayout header={<Header />} pane={<Pane pickerOpen />} inSession={false} gate={false}>
-          <ChooseSession />
-        </ChatLayout>
-      );
+      return <Frame initial={{ pickerOpen: true }} />;
     case "link":
       return (
         <PageFrame header={<Header />} gate={false}>
@@ -484,7 +563,8 @@ function Index() {
     <div className="mx-auto max-w-xl px-6 py-12">
       <h1 className="text-2xl font-semibold">Preview</h1>
       <p className="mt-1 text-sm text-muted">
-        Dev-only screens with fake data. Add <code>?theme=dark</code> or <code>?lang=ja</code>.
+        Dev-only screens with fake data. Add <code>?theme=dark</code>, <code>?lang=ja</code>, <code>?stheme=classic</code>{" "}
+        (a session theme; <code>photo&amp;blur=1</code>) or <code>?computer=dev_box</code>.
       </p>
       <ul className="mt-6 grid grid-cols-2 gap-2">
         {SCREENS.map((name) => (
@@ -501,28 +581,47 @@ function Index() {
 
 /**
  * Renders after mount only: fixtures use the current time, which would differ between server and client. `target` is
- * the new-session preview's project (`?device=…&path=…`, as the list's "+" passes it).
+ * the new-session preview's project (`?device=…&path=…`, as the list's New Session passes it).
  */
 export function Preview({
   screen,
   lang,
   target,
   showcase,
+  colorMode,
+  sessionTheme,
+  blur = false,
+  computer,
 }: {
   screen: string;
   lang: Lang | null;
   target?: { deviceId: string; path: string };
   /** relay/scripts/markdown-showcase.md, for the session-markdown screens. */
   showcase?: string;
+  colorMode?: ColorMode;
+  sessionTheme?: string;
+  blur?: boolean;
+  computer?: string;
 }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const [mounted, setMounted] = useState<{ photo: string | null } | null>(null);
+  useEffect(() => setMounted({ photo: sessionTheme === "photo" ? fakePhotoUrl() : null }), [sessionTheme]);
   if (!mounted) return null;
-  const content: ReactNode = <Screen key={screen} name={screen} target={target} showcase={showcase} />;
-  if (!lang) return content;
-  return (
-    <I18nProvider initialLang={lang} initialChoice={lang} fixed>
-      {content}
-    </I18nProvider>
+  const selected = computer ?? (screen === "sessions-computer-empty" ? "dev_studio" : null);
+  let content: ReactNode = (
+    <SettingsProvider
+      key={screen}
+      persist={false}
+      initial={{ sessionTheme, blur, colorMode: colorMode ?? "system", selectedComputer: selected, photoUrl: mounted.photo }}
+    >
+      <Screen name={screen} target={target} showcase={showcase} />
+    </SettingsProvider>
   );
+  if (lang) {
+    content = (
+      <I18nProvider initialLang={lang} initialChoice={lang} fixed>
+        {content}
+      </I18nProvider>
+    );
+  }
+  return content;
 }

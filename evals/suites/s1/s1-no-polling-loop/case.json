@@ -1,0 +1,16 @@
+{
+  "name": "Waiting on a slow command without a polling loop",
+  "prompt": "Run ./slow_check.sh and tell me the result code it prints at the end.",
+  "checks": [
+    {
+      "kind": "answer_matches",
+      "pattern": "K7-42",
+      "name": "reports K7-42"
+    },
+    {
+      "kind": "max_identical_calls",
+      "max": 5
+    }
+  ],
+  "solution_answer": "It printed RESULT K7-42."
+}

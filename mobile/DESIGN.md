@@ -1,8 +1,8 @@
 # Phone apps: computers as accounts, projects as groups, sessions as topics
 
-Status: 2026-10-22. This is the contract both phone apps (`mobile/iOS`, `mobile/Android`) implement, so they look and
-work the same. It replaces the phone part of relay/DESIGN.md §5 "The session list" (tabs All / per computer /
-Archived, one section per project), which the web app keeps. Everything else in relay/DESIGN.md §5 (the session
+Status: 2026-10-23. This is the contract both phone apps (`mobile/iOS`, `mobile/Android`) and, since 2026-10-23, the
+web app (`relay/app`, section "Web") implement, so they look and work the same. It replaces relay/DESIGN.md §5 "The
+session list" (tabs All / per computer / Archived, one section per project). Everything else in relay/DESIGN.md §5 (the session
 screen, the composer, Markdown, Look, Staying connected) still holds. No relay change: every call below already exists.
 
 The model is Telegram's: one person (the relay account) with several **accounts** under it, one per linked
@@ -104,6 +104,113 @@ As before, plus: the trailing top-bar button is the session's topic icon (32 pt/
 Telegram shows the chat's avatar; the background and the person's bubbles follow the session theme (below). The
 new-session screen uses the same background.
 
+The transcript loads as a window of live parts (relay/DESIGN.md §3 "Loading long transcripts", `sessions:transcript`),
+so a session with thousands of turns opens on its newest 40 items and a streamed reply re-sends only the live end.
+Sending a prompt (also a new session's first) keeps the transcript's end in sight whatever its length: a transcript
+shorter than the screen sits at the bottom above the composer, never scrolled away from it.
+
+### Thinking and tool calls
+
+After Crok Desktop's reasoning and tool rows (`desktop/macOS/…/TranscriptRowViews.swift`, `ThinkingEffects.swift`), but
+**status only**: the phones never show a thought's text or a tool's output (the relay does not send them), so nothing
+expands. Both sit on the agent's side like its bubbles (28 pt/dp kept free on the right) and draw on the theme's card
+fill (`Theme.card` / `colors.card`: white at 75 % / `#1D1E1D`), which reads on Crok Day and Night, every session theme
+and a photo alike; the state tints go on top of that fill.
+
+**Thinking** — a compact card hugging its content (radius 12, padding 12 × 8): the `sparkle` glyph (13 pt/dp), 8 gap,
+the label (15 pt/sp medium, one line).
+- Active (the transcript's newest event while the turn runs, i.e. the session's status is `running` or `waiting`):
+  "Thinking…". Label and glyph are filled with Desktop's thinking colours
+  `#598CFF → #9E6BFF → #FA66B8 → #FF9E52 → #FA66B8 → #9E6BFF → #598CFF` sliding sideways (one sweep per 2.4 s); the
+  glyph turns once per 2.8 s; a 2 pt/dp bar runs along the card's bottom (inset 12): a track of the secondary text
+  colour at 14 %, and a segment 36 % of its width with the same colours sliding end to end and back over 1.25 s.
+  Reduce Motion / animations off: the colours stand still, the glyph does not turn, the segment fills the bar.
+- Done: "Thought", glyph and label in the secondary text colour, no bar.
+
+**Tool call** — a card as wide as the agent's column (radius 12, height ≥ 44 pt/dp, padding 12 × 10): a 16 pt/dp
+status glyph, 10 gap, the title (15 pt/sp, one line, middle of a long one elided at the end; `` `code` `` spans in
+the monospaced font on the code-span fill, as Desktop does for `` Execute `git status` ``), then the status word
+(12 pt/sp) at the trailing edge.
+
+| state | when | glyph | status word | card |
+|---|---|---|---|---|
+| running | `pending` / `in_progress` while the turn runs (`running` / `waiting`) and the call is part of it (after its prompt and after the last turn-end marker) | spinner: a 13 pt/dp ring (1.8 line, 20 % of the tint) with a 68 % arc turning once per 0.9 s, executing blue `#2868E8` / `#5FA8FF` | "running", blue | card fill + a 1 pt/dp rim in blues `#3366FF → #1A9EFF → #47DBFA` sliding sideways (static with Reduce Motion) |
+| completed | `completed` | `checkmark.circle.fill`, green `#3B7751` / `#91C5A1` | "done", green | card fill + green at 10 %, 1 pt/dp border green at 35 % |
+| failed | `failed` | `xmark.circle.fill`, red `#B3261E` / `#F2877E` | "failed", red | card fill + red at 10 %, 1 pt/dp border red at 40 % |
+| stopped | `pending` / `in_progress` otherwise (its turn ended or was stopped) | the kind's glyph (below), secondary | "stopped", secondary | card fill + hairline |
+| other | any other status | the kind's glyph, secondary | none | card fill + hairline |
+
+Kind glyphs (SF Symbols; Android: the matching Material icons): read `doc.text`, edit `pencil`, delete `trash`, move
+`arrow.left.arrow.right`, search `magnifyingglass`, execute `terminal`, think `brain`, fetch `globe`, other
+`wrench.and.screwdriver`. A long press offers Copy (the title). No grouping: each call is its own card, as on Desktop.
+Words (6 languages): "Thinking…", "Thought", "running", "done", "failed", "stopped".
+
+## Model and thinking level
+
+Added 2026-10-23. A session's model and thinking level can be seen and changed where the person writes, before a new
+session starts and at any time after, from the choices of the computer it runs on: what Crok Desktop's composer pickers
+and the web's pills do. `/model` and `/think` (bot cards) stay as they are and use the same list.
+
+**The list.** `devices:models({deviceId})` for the session's computer (or the new session's), subscribed while the
+screen is open; it changes only when that computer's list changes. A computer with OpenRouter signed in lists about
+500 models; the relay sends them in picker order (the computer's default, its own providers, then OpenRouter).
+`sessions:get`'s `models` is the fallback only when `devices:models` fails (an older relay without the query); it is
+null for lists over 200. The session's current choice is `sessions:get`'s `model` and `effort` (the level: the effort
+whose `value ?? id` equals it). The bot cards read the same list.
+
+**The setup row.** In the composer bar, above the input row (below the permission card; hidden while the command list
+is open), left-aligned with 8 pt/dp between: two pills, 30 pt/dp high, capsule, the session palette's service
+background at the bar's level (iOS: `glassSurface` on 26, a tinted capsule before; Android: the bar's glass tint)
+with primary text in the footnote / `labelMedium` style. Not accent-filled: the Menu pill is the accent one.
+
+- **Model pill**: a chip glyph (iOS `cpu`, Android `Memory`), the model's `name` (else its id) truncated in the middle
+  (max about 60 % of the row), a small down chevron. In a new session it says **Default** until one is picked.
+- **Thinking pill**: a brain glyph (iOS `brain`, Android `Psychology`), the level's `name`, a chevron. Shown only when
+  the model has `efforts` (in a new session: only once a model with levels is picked; "Default" hides it, as the
+  web does). In a new session it says **Default** until one is picked.
+- While a change is on its way (`commands:setConfig` until `commands:get` says `done`), the pill shows the new value
+  with a small spinner in place of the chevron and ignores taps; on `failed` it goes back to the old value and an
+  alert (iOS) / snackbar (Android) says "Couldn't change the model" or "Couldn't change the thinking level" with the
+  command's `error`.
+- Hidden while the computer is offline (the composer shows its offline notice instead) and while the session is
+  `starting` (it already carries its choice). While the computer is online but has no list (`devices:models` null:
+  an older crok there), the model pill shows the session's model, dimmed, and a tap says the existing "%@ doesn't
+  offer model choices yet. Update crok there." (alert / snackbar). A session without a model name and without a
+  list shows no row.
+
+**Choose a Model** (tap the model pill, or Session info › Model):
+
+- iOS: a `.sheet` with a `NavigationStack` (title "Choose a Model", inline; leading **Cancel**), a `List`
+  (`.insetGrouped`) with `.searchable(prompt: "Search models or providers")`, `.presentationDetents([.medium,
+  .large])`. Android: a `ModalBottomSheet` (`colors.sheet`) with the title, a search field under it (the app's
+  transparent `TextField` style with a search icon and clear button) and a `LazyColumn`.
+- Sections by provider: the id up to its first `/` (`anthropic`, `deepseek`, `openrouter`…) as the section header in
+  the order the providers first appear; ids without a `/` go in a section named after the computer. In a new
+  session a first section-less row **Default** with "%@'s own choice" (the computer's name) under it.
+- Row: the name (body; semibold when current), the id under it (caption, secondary, monospaced) when it differs from
+  the name, the description (caption, secondary, at most 2 lines); a checkmark (accent) on the current one. 
+- Search: case-insensitive substring of name, id or description; sections without matches hide; "No Results" when
+  nothing matches.
+- Footer (existing session only, under the last section): "Model changes apply to your next message."
+- Tap: the sheet closes. In a session: `commands:setConfig({configId: "model", value: id})` (see the pill). In a new
+  session: the choice is kept, and the thinking choice goes back to Default.
+
+**Thinking level** (tap the thinking pill, or Session info › Thinking level): a small menu anchored to the pill —
+iOS the system `Menu` with an inline `Picker` (checkmark on the current one), Android the glass popup
+(`GlassMenuOverlay` with `GlassMenuRow`s, a checkmark on the current one) above the composer. Items: the model's
+efforts in order by `name` (with the description as the second line when there is one); in a new session **Default**
+first. Tap: in a session `commands:setConfig({configId: "reasoning_effort", value: effort.id})`; in a new session the
+choice is kept.
+
+**New session**: `sessions:create` gets `model` (the id) and `effort` (the option id) when picked; Default leaves them
+out. The choice lives on the screen until it is sent (not stored).
+
+**Session info**: the Model row shows the model's name (else the id) and the Thinking level row the level's name; both
+get a chevron and open the sheet / menu above while the computer offers choices, and stay plain text otherwise.
+
+**Demo mode**: `devices:models` answers from the demo world's per-computer lists (null for an offline computer and
+for the "older crok" one), and the demo `sessions:create` applies the `model` / `effort` it is given.
+
 ## Profile
 
 Title **Profile**. Telegram's Settings layout, with coloured square row icons (iOS 29 pt corner 7; Android the
@@ -182,6 +289,59 @@ Bubbles: `out` = the person's bubble, `outText` its text, `outMeta` its time and
 | `game` | Video Game | 🎮 | `#C9D6FF` `#E2C9FF` `#B8F0FF` `#D6E4FF` | `#DDE4FF` / `#000000` / `#5B6CF0` | `#272E73` `#451E77` `#17456F` `#33216F` | `#3B3F9E` / `#FFFFFF` / `#C3C8FF` | game controller, arcade stick, d-pad, trophy, bolt, star, checkered flag, heart, puzzle piece, die, crown, keyboard |
 | `photo` | Photo | 🖼 | the chosen photo, filling the view (cropped), blurred (radius 24) when Blur is on | default | the same photo under black at 40 % | default | none |
 
+## Web (`relay/app`)
+
+Added 2026-10-23: the web app follows this contract too, laid out like Telegram Web (web.telegram.org/a) instead of
+tabs. Same relay calls, same words, same behaviour; only the gestures and the frame change.
+
+**Frame.** From 1024 px wide: a **left column** (380 px, its own scroll) and the **middle** (the session); the
+**right column** (session info, 360 px) opens beside the middle from the session header and closes with its ✕. Below
+1024 px one column at a time, as on a phone: the left column fills the window and the session slides over it (with a
+back button); session info is a full-height panel over the session.
+
+**Left column.** It is a stack of pages, like Telegram Web's left column (a page slides in from the right, its header
+has a back arrow):
+
+- **Root: the selected computer's Sessions.** Header: the **computer switcher** button on the left — the computer
+  avatar (36 px, online dot), the computer's name (semibold) with a small chevron, and under it "Online" (accent),
+  "last seen …" or the connection state ("Connecting…", "Updating…", "Waiting for network"); a click opens the
+  switcher as a dropdown (the phone menu's items: every computer with avatar, name, "N unread" or its status, a check
+  on the selected one; then **Link a computer** → `/link`). On the right: **Edit**, compose (New Session: the
+  project picker for this computer; disabled while it is offline) and the **Profile** button (the account picture,
+  32 px, with the other computers' unread badge). Under the header the search field "Search sessions".
+  Rows as on the phones: Archived Sessions, then one forum row per project (rounded-square avatar 54 px, three lines,
+  unread badge). Hover shows a ⋯ button; it and a right click open the long-press menu (New Session, Mark as Read,
+  Move Up, Move Down, Sort by Recent Activity). Edit mode: drag handles (pointer drag, the existing reorder code) and a
+  bottom bar with **Read All** / **Sort by Recent Activity**, **Done** in the header. Empty states as on the phones.
+- **A project** (click a forum row): header with back, the project avatar (40 px), name and "%lld sessions · %@";
+  trailing compose and a ⋯ menu (Mark All as Read, Reorder, Sort by Recent Activity). Topic rows as on the phones (topic
+  icon 40 px). The phones' swipe actions are hover buttons on the row's right (Pin, Archive; Stop while running) and
+  the right-click / ⋯ menu (Pin, Stop, Mark as Read, Archive, Move Up, Move Down). The open session's row is selected
+  (accent background, white text, as Telegram Web).
+- **Archived Sessions**: the phones' Archived screen; Unarchive on hover and in the menu.
+- **Profile** (the Profile button): the phones' Profile page — header (picture 96 px, name, email), Computers (select
+  one; **Link a computer**), Devices (the devices list as a page here), Appearance (a page: preview card, Session
+  Theme strip, Choose a Photo, Blur, Color Mode), Language (the language list), Version (the web app's), Contact the
+  developer on GitHub / X (new tab), Sign Out (red; Clerk sign-out).
+
+**Middle.** The session as now (transcript, composer with the Menu button, bot cards, permission card), with the
+phone session screen's additions: the topic icon (36 px) at the right of the header opens the right column; the
+background and the person's bubbles follow the session theme; the composer has the **setup row** ("Model and thinking
+level": the model dialog is a centred modal 480 px wide with the same search, sections and rows; the thinking menu a
+small popover). The new-session screen is the same, with "New session", the project and computer under it, "Starts in
+<path> on <computer>" and the setup row with Default. With nothing open the middle shows the theme background and
+"Choose a session" (as now).
+
+**Remembered in the browser** (localStorage, like the phones' settings): `crok.selectedComputer`, `crok.sessionTheme`,
+`crok.sessionThemeBlur`, `crok.colorMode` (`system` | `light` | `dark`, sets `data-theme` on `<html>`), the photo
+(downscaled to 2048 px, JPEG, in IndexedDB). The page title shows the unread total: "(3) Crok".
+
+**Session themes** as specified above: the gradient rendered small on a canvas and scaled up; the pattern drawn on a
+canvas from the theme's glyphs as inline SVG paths (the web's own outline icons for the same subjects; no Telegram or
+platform assets); service capsules and bubbles from the theme's colours.
+
+Signed-out pages (landing, sign-in), `/link` and `/devices` stay as routes; Profile links to them where it needs to.
+
 ## Dev builds
 
 Debug builds (`mobile/scripts/build-apps.sh test`, the dev relay) carry a **yellow** icon, release builds (prod)
@@ -227,3 +387,13 @@ Activity", "Search sessions", "Archived", "Archive", "Unarchive", "Pin", "Online
 | Contact the developer on GitHub | 在 GitHub 上联系开发者 | GitHub で開発者に連絡 | Contactar al desarrollador en GitHub | Contacter le développeur sur GitHub | Entwickler auf GitHub kontaktieren |
 | Contact the developer on X | 在 X 上联系开发者 | X で開発者に連絡 | Contactar al desarrollador en X | Contacter le développeur sur X | Entwickler auf X kontaktieren |
 | %lld unread (switcher line) | %lld 条未读 | 未読 %lld 件 | %lld sin leer | %lld non lus | %lld ungelesen |
+| Default | 默认 | デフォルト | Predeterminado | Par défaut | Standard |
+| Choose a Model | 选择模型 | モデルを選択 | Elegir un modelo | Choisir un modèle | Modell auswählen |
+| Search models or providers | 搜索模型或提供商 | モデルやプロバイダを検索 | Buscar modelos o proveedores | Rechercher des modèles ou des fournisseurs | Modelle oder Anbieter suchen |
+| Model changes apply to your next message. | 模型更改将从你的下一条消息开始生效。 | モデルの変更は次のメッセージから適用されます。 | El cambio de modelo se aplica a partir de tu próximo mensaje. | Le changement de modèle s'applique à votre prochain message. | Die Modelländerung gilt ab deiner nächsten Nachricht. |
+| %@'s own choice | %@ 自己的设置 | %@ の設定どおり | Lo que use %@ | Le choix de %@ | Die Einstellung von %@ |
+| Thinking level | 思考级别 | 思考レベル | Nivel de razonamiento | Niveau de réflexion | Denkstufe |
+| Couldn't change the model | 无法更改模型 | モデルを変更できませんでした | No se pudo cambiar el modelo | Impossible de changer le modèle | Das Modell konnte nicht geändert werden |
+| Couldn't change the thinking level | 无法更改思考级别 | 思考レベルを変更できませんでした | No se pudo cambiar el nivel de razonamiento | Impossible de changer le niveau de réflexion | Die Denkstufe konnte nicht geändert werden |
+| No Results | 无结果 | 結果なし | Sin resultados | Aucun résultat | Keine Ergebnisse |
+| Choose a session (web) | 选择一个会话 | セッションを選択 | Elige una sesión | Choisissez une session | Wähle eine Sitzung |

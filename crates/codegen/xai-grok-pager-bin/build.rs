@@ -39,6 +39,10 @@ fn main() {
         .filter(|text| !text.is_empty())
         .unwrap_or_else(|| "0.0.0".to_string());
     println!("cargo:rustc-env=CROK_RELEASE_VERSION={release_version}");
+    // What Agent Observability groups by (gen_ai.agent.version): the release plus the commit, as
+    // semver build metadata, so a dev build or an experiment run is told apart from the release.
+    let short_commit = commit.get(..8).unwrap_or(&commit);
+    println!("cargo:rustc-env=CROK_AGENT_VERSION={release_version}+{short_commit}");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
     {

@@ -312,3 +312,64 @@ export function ToolKindIcon({ kind, ...p }: IconProps & { kind?: string }) {
       return <WrenchIcon {...p} />;
   }
 }
+
+/* The Telegram-style frame (mobile/DESIGN.md "Web"). */
+export const ArrowLeftIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M19 12H5.5M11 5.5 4.5 12l6.5 6.5" />
+  </Icon>
+);
+/** The model pill: a chip (iOS `cpu`). */
+export const ChipIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="6.5" y="6.5" width="11" height="11" rx="2" />
+    <rect x="9.5" y="9.5" width="5" height="5" rx="0.8" />
+    <path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3" />
+  </Icon>
+);
+/** The thinking pill: a brain (iOS `brain`). */
+export const BrainIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 5.5v13M12 5.5A3 3 0 0 0 6.3 4.8 3 3 0 0 0 4 9a3.2 3.2 0 0 0 .3 5.6A3.3 3.3 0 0 0 8 19.6a2.9 2.9 0 0 0 4-1.1" />
+    <path d="M12 5.5a3 3 0 0 1 5.7-.7A3 3 0 0 1 20 9a3.2 3.2 0 0 1-.3 5.6 3.3 3.3 0 0 1-3.7 5 2.9 2.9 0 0 1-4-1.1" />
+    <path d="M8.5 9.5c1 0 2 .6 2.3 1.6M15.5 9.5c-1 0-2 .6-2.3 1.6M7.5 14.5c.8.4 1.6.4 2.4 0M16.5 14.5c-.8.4-1.6.4-2.4 0" />
+  </Icon>
+);
+export const BrushIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M19.5 3.5c-3 1.4-7 5.2-9.2 8.3l1.9 1.9c3.1-2.2 6.9-6.2 8.3-9.2.2-.6-.4-1.2-1-1Z" />
+    <path d="M10 12.5c-2 .2-3.4 1.6-3.6 3.5-.2 1.6-.9 2.8-2.4 3.6 3.3.7 6.6-.4 7.6-2.9.3-.8.2-1.6-.1-2.4" />
+  </Icon>
+);
+export const PhotoIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+    <circle cx="9" cy="10" r="1.8" />
+    <path d="m3.5 17.5 5-4.5 3.5 3 3-2.5 5.5 4.5" />
+  </Icon>
+);
+/** "Mark as Read": a bubble with a check. */
+export const ReadIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 4c4.7 0 8.5 3.2 8.5 7.2s-3.8 7.2-8.5 7.2c-1 0-2-.1-2.9-.4L5 19.5l1-3.4C4.5 14.8 3.5 13.1 3.5 11.2 3.5 7.2 7.3 4 12 4Z" />
+    <path d="m8.5 11.3 2.4 2.4 4.6-4.7" />
+  </Icon>
+);
+export const ReorderIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8 19V5M4.5 8.5 8 5l3.5 3.5M16 5v14M12.5 15.5 16 19l3.5-3.5" />
+  </Icon>
+);
+
+/** GitHub's mark (Simple Icons, CC0), filled. */
+export const GitHubMark = ({ size = 18, ...rest }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" {...rest}>
+    <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+  </svg>
+);
+/** X's logo (Simple Icons, CC0), filled. */
+export const XLogo = ({ size = 18, ...rest }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" {...rest}>
+    <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
+  </svg>
+);

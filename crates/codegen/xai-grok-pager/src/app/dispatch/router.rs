@@ -1106,6 +1106,15 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             ActiveView::Agent(agent_id) => vec![Effect::RemoteNew { agent_id, args }],
             _ => vec![],
         },
+        Action::ShowRemotePanel { at_projects } => {
+            super::remote::dispatch_show_remote_panel(app, at_projects)
+        }
+        Action::RemotePanelRequest(request) => {
+            super::remote::dispatch_remote_panel_request(app, request)
+        }
+        Action::RemoteOpenSession { session_id, cwd } => {
+            super::remote::dispatch_remote_open_session(app, session_id, cwd)
+        }
         Action::ShowReleaseNotes { title, content } => {
             dispatch_show_release_notes(app, title, content)
         }

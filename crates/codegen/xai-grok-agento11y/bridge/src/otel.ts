@@ -4,7 +4,16 @@
 
 import { randomUUID } from "node:crypto";
 
-import { type Attributes, metrics, trace } from "@opentelemetry/api";
+import {
+  type Attributes,
+  type Context,
+  type ContextManager,
+  context,
+  metrics,
+  ROOT_CONTEXT,
+  trace,
+  TraceFlags,
+} from "@opentelemetry/api";
 import { type ExportResult, ExportResultCode } from "@opentelemetry/core";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
@@ -20,6 +29,8 @@ import {
 } from "@opentelemetry/sdk-metrics";
 import {
   BatchSpanProcessor,
+  type IdGenerator,
+  RandomIdGenerator,
   type ReadableSpan,
   type Span,
   type SpanExporter,
@@ -33,6 +44,7 @@ export interface OtelProviders {
   tracerProvider: TracerProvider;
   meterProvider: MeterProvider;
   spanAttributes: CrokSpanAttributes;
+  ids: PresetIds;
 }
 
 export interface OtelOptions {
@@ -51,8 +63,10 @@ export function startOtel(options: OtelOptions): OtelProviders {
   const spanExporter = new LoggedSpanExporter(options.spanExporter ?? new OTLPTraceExporter(), options.log);
   const metricExporter = new LoggedMetricExporter(options.metricExporter ?? new OTLPMetricExporter(), options.log);
   const spanAttributes = new CrokSpanAttributes();
+  const ids = new PresetIds();
   const tracerProvider = new TracerProvider({
     resource,
+    idGenerator: ids,
     spanProcessors: [spanAttributes, new BatchSpanProcessor({ exporter: spanExporter })],
   });
   const meterProvider = new MeterProvider({
@@ -66,23 +80,112 @@ export function startOtel(options: OtelOptions): OtelProviders {
   });
   trace.setGlobalTracerProvider(tracerProvider);
   metrics.setGlobalMeterProvider(meterProvider);
-  return { tracerProvider, meterProvider, spanAttributes };
+  context.setGlobalContextManager(new SyncContextManager());
+  return { tracerProvider, meterProvider, spanAttributes, ids };
 }
 
 /**
- * Adds crok's own attributes to a generation's span. The SDK fills the span from the generation
- * and has no field for others; `onEnding` runs after its last attribute, while the span can still
- * be written, and before the batch processor takes it for export.
+ * Span ids crok made. A turn's span is written after its children, which already name its ids
+ * (crok makes them when the turn starts), so the next span started takes the preset ids instead
+ * of random ones. Everything else gets random ids.
+ */
+export class PresetIds implements IdGenerator {
+  private readonly random = new RandomIdGenerator();
+  private traceId: string | undefined;
+  private spanId: string | undefined;
+
+  /** Runs `start` with the next span's ids set to these; a span with a parent keeps the parent's trace id. */
+  with<T>(traceId: string, spanId: string, start: () => T): T {
+    this.traceId = traceId;
+    this.spanId = spanId;
+    try {
+      return start();
+    } finally {
+      this.traceId = undefined;
+      this.spanId = undefined;
+    }
+  }
+
+  generateTraceId(): string {
+    const preset = this.traceId;
+    this.traceId = undefined;
+    return preset ?? this.random.generateTraceId();
+  }
+
+  generateSpanId(): string {
+    const preset = this.spanId;
+    this.spanId = undefined;
+    return preset ?? this.random.generateSpanId();
+  }
+}
+
+/**
+ * The context `context.with` makes active, for code that starts spans synchronously inside it, as
+ * the SDK's recorders do. Without a registered manager `context.with` runs its function with the
+ * root context, and a generation could not be made a child of its turn.
+ */
+export class SyncContextManager implements ContextManager {
+  private readonly stack: Context[] = [];
+
+  active(): Context {
+    return this.stack[this.stack.length - 1] ?? ROOT_CONTEXT;
+  }
+
+  with<A extends unknown[], F extends (...args: A) => ReturnType<F>>(
+    ctx: Context,
+    fn: F,
+    thisArg?: ThisParameterType<F>,
+    ...args: A
+  ): ReturnType<F> {
+    this.stack.push(ctx);
+    try {
+      return fn.call(thisArg, ...args);
+    } finally {
+      this.stack.pop();
+    }
+  }
+
+  bind<T>(_ctx: Context, target: T): T {
+    return target;
+  }
+
+  enable(): this {
+    return this;
+  }
+
+  disable(): this {
+    this.stack.length = 0;
+    return this;
+  }
+}
+
+/** A context whose active span is crok's span `ref` (a turn), for starting its children. */
+export function contextOf(ref: { traceId: string; spanId: string } | undefined): Context {
+  return ref === undefined
+    ? ROOT_CONTEXT
+    : trace.setSpanContext(ROOT_CONTEXT, {
+        traceId: ref.traceId,
+        spanId: ref.spanId,
+        traceFlags: TraceFlags.SAMPLED,
+        isRemote: true,
+      });
+}
+
+/**
+ * Adds crok's own attributes to a generation's or tool run's span. The SDK fills the span from the
+ * record and has no field for others; `onEnding` runs after its last attribute, while the span can
+ * still be written, and before the batch processor takes it for export. A generation's span is
+ * found by `agento11y.generation.id`, a tool run's by `tool:` and its `gen_ai.tool.call.id`.
  */
 export class CrokSpanAttributes implements SpanProcessor {
   private readonly pending = new Map<string, Attributes>();
 
-  /** Attributes for the span of generation `id`, written when that span ends. */
+  /** Attributes for the span of generation `id` (or tool run `tool:<call id>`), written when that span ends. */
   expect(id: string, attributes: Attributes): void {
     this.pending.set(id, attributes);
   }
 
-  /** Drops what no span took (the SDK refused the generation before starting one). */
+  /** Drops what no span took (the SDK refused the record before starting one). */
   forget(id: string): void {
     this.pending.delete(id);
   }
@@ -90,11 +193,18 @@ export class CrokSpanAttributes implements SpanProcessor {
   onStart(): void {}
 
   onEnding(span: Span): void {
-    const id = span.attributes["agento11y.generation.id"];
-    const attributes = typeof id === "string" ? this.pending.get(id) : undefined;
-    if (attributes !== undefined) {
+    const generation = span.attributes["agento11y.generation.id"];
+    const toolCall = span.attributes["gen_ai.tool.call.id"];
+    const id =
+      typeof generation === "string"
+        ? generation
+        : typeof toolCall === "string" && span.attributes["gen_ai.operation.name"] === "execute_tool"
+          ? `tool:${toolCall}`
+          : undefined;
+    const attributes = id === undefined ? undefined : this.pending.get(id);
+    if (id !== undefined && attributes !== undefined) {
       span.setAttributes(attributes);
-      this.pending.delete(id as string);
+      this.pending.delete(id);
     }
   }
 

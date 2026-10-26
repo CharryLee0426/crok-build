@@ -3,9 +3,11 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { I18nProvider } from "@/components/I18nProvider";
+import { SettingsProvider } from "@/components/Settings";
 import { ToastProvider } from "@/components/Toast";
 import { translate } from "@/lib/i18n";
 import { serverLang } from "@/lib/server-lang";
+import { COLOR_MODE_SCRIPT } from "@/lib/settings";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -51,13 +53,19 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const { lang, choice } = await serverLang();
   return (
     // suppressHydrationWarning: <html> attributes are set before hydration (lang by the I18n provider, data-theme by
-    // the dev preview), which is expected.
+    // the color-mode script below and the dev preview), which is expected.
     <html lang={lang} suppressHydrationWarning>
+      <head>
+        {/* Static: applies a stored Light or Dark color mode before the first paint (components/Settings.tsx). */}
+        <script dangerouslySetInnerHTML={{ __html: COLOR_MODE_SCRIPT }} />
+      </head>
       <body>
         <ClerkProvider dynamic signInUrl="/sign-in" signUpUrl="/sign-up" afterSignOutUrl="/" appearance={clerkAppearance}>
           <ConvexClientProvider>
             <I18nProvider initialLang={lang} initialChoice={choice}>
-              <ToastProvider>{children}</ToastProvider>
+              <SettingsProvider>
+                <ToastProvider>{children}</ToastProvider>
+              </SettingsProvider>
             </I18nProvider>
           </ConvexClientProvider>
         </ClerkProvider>

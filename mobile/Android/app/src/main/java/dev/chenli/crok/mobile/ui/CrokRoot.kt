@@ -56,6 +56,7 @@ import dev.chenli.crok.mobile.ui.common.CrokIcons
 import dev.chenli.crok.mobile.ui.common.GlassMenuRow
 import dev.chenli.crok.mobile.ui.common.GlassTab
 import dev.chenli.crok.mobile.ui.common.GlassTabScaffold
+import dev.chenli.crok.mobile.ui.session.InfoSetup
 import dev.chenli.crok.mobile.ui.session.NewSessionTarget
 import dev.chenli.crok.mobile.ui.session.SessionInfoSheet
 import dev.chenli.crok.mobile.ui.session.SessionInfoViewModel
@@ -220,7 +221,7 @@ private fun SignedInApp(engine: CrokEngine, appearance: AppearanceUiState, appVi
                     viewModel = viewModel,
                     onBack = { nav.popBackStack() },
                     onNewSession = { target, prompt -> nav.navigate(NewSessionRoute.of(target, prompt)) },
-                    infoSheet = { id, dismiss -> InfoSheet(engine, id, dismiss) { nav.popBackStack() } },
+                    infoSheet = { id, setup, dismiss -> InfoSheet(engine, id, setup, dismiss) { nav.popBackStack() } },
                 )
             }
             composable<NewSessionRoute> { entry ->
@@ -240,7 +241,7 @@ private fun SignedInApp(engine: CrokEngine, appearance: AppearanceUiState, appVi
                     viewModel = viewModel,
                     onBack = { nav.popBackStack() },
                     onNewSession = { target, prompt -> nav.navigate(NewSessionRoute.of(target, prompt)) },
-                    infoSheet = { id, dismiss -> InfoSheet(engine, id, dismiss) { nav.popBackStack() } },
+                    infoSheet = { id, setup, dismiss -> InfoSheet(engine, id, setup, dismiss) { nav.popBackStack() } },
                 )
             }
             composable<DevicesRoute> {
@@ -414,9 +415,9 @@ private fun HomeTabs(
 }
 
 @Composable
-private fun InfoSheet(engine: CrokEngine, sessionDocId: String, onDismiss: () -> Unit, onRemoved: () -> Unit) {
+private fun InfoSheet(engine: CrokEngine, sessionDocId: String, setup: InfoSetup, onDismiss: () -> Unit, onRemoved: () -> Unit) {
     val info = viewModel(key = "info-$sessionDocId") { SessionInfoViewModel(engine, sessionDocId) }
-    SessionInfoSheet(info, onDismiss = onDismiss, onRemoved = onRemoved)
+    SessionInfoSheet(info, setup, onDismiss = onDismiss, onRemoved = onRemoved)
 }
 
 /** What the tab bar shows: the account picture and the badges, and what its menus list. */

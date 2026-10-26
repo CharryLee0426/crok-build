@@ -155,7 +155,15 @@ sys.exit(1 if missing else 0)' $vercel_targets)" || fail "set $project's variabl
     esac
     mkdir -p "$deploy_dir/.vercel"
     printf '{"projectId":"%s","orgId":"%s","projectName":"%s"}\n' "$project_id" "$org_id" "$project" > "$deploy_dir/.vercel/project.json"
-    url="$(cd "$deploy_dir" && vercel deploy --prod --yes --scope "$scope" 2>"$work/vercel.log")" || { tail -n 30 "$work/vercel.log" >&2; fail "the Vercel deploy failed"; }
+    # Profile › Version (next.config.ts): Vercel builds relay/ alone, without the repository's VERSION or a git commit.
+    if [[ "$tree" == head ]]; then
+        release="$(git -C "$repo" show HEAD:VERSION 2>/dev/null | tr -d '[:space:]')"
+    else
+        release="$(tr -d '[:space:]' < "$repo/VERSION" 2>/dev/null || true)"
+    fi
+    url="$(cd "$deploy_dir" && vercel deploy --prod --yes --scope "$scope" \
+        --build-env "CROK_WEB_RELEASE=$release" --build-env "CROK_WEB_COMMIT=$commit" 2>"$work/vercel.log")" \
+        || { tail -n 30 "$work/vercel.log" >&2; fail "the Vercel deploy failed"; }
     printf 'deployed %s\n' "$url"
     home_status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$web_url/" || true)"
     devices_status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$web_url/devices" || true)"

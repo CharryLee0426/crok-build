@@ -1,0 +1,71 @@
+{
+  "_comment": "Grafana alert rules for crok, one rule group in the llm-observability folder (Grafana provisioning API format). stack.py alerts installs it after checking that each rule's metric exists; ${prom} is the stack's Prometheus datasource uid.",
+  "title": "crok-alerts",
+  "folderUid": "llm-observability",
+  "interval": 300,
+  "rules": [
+    {
+      "uid": "crok-provider-error-burst",
+      "title": "crok: a provider is failing calls",
+      "condition": "C",
+      "needs_metric": "gen_ai_client_operation_duration_seconds_count",
+      "data": [
+        {"refId": "A", "relativeTimeRange": {"from": 900, "to": 0}, "datasourceUid": "${prom}",
+         "model": {"refId": "A", "instant": true, "range": false,
+                   "expr": "sum by (gen_ai_provider_name) (increase(gen_ai_client_operation_duration_seconds_count{job=\"crok\", error_type!=\"\", error_category!=\"cancelled\"}[15m]))"}},
+        {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "expression": "A", "reducer": "last", "settings": {"mode": "dropNN"}}},
+        {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "expression": "B", "conditions": [{"evaluator": {"type": "gt", "params": [10]}}]}}
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "labels": {"source": "crok", "severity": "warning"},
+      "annotations": {
+        "summary": "More than 10 failed model calls to {{ $labels.gen_ai_provider_name }} in 15 minutes",
+        "description": "crok's retries hide these from the user, but a burst like the 22 failed OpenRouter attempts in one session on 2026-10-20 means the provider (or the route to it) is degraded. Check the Request Explorer dashboard for the error category; switching the model to the provider's direct API is the fallback."
+      }
+    },
+    {
+      "uid": "crok-spend-anomaly",
+      "title": "crok: spend today is more than twice the usual day",
+      "condition": "C",
+      "needs_metric": "llm_spend_usd",
+      "data": [
+        {"refId": "A", "relativeTimeRange": {"from": 691200, "to": 0}, "datasourceUid": "${prom}",
+         "model": {"refId": "A", "instant": true, "range": false,
+                   "expr": "sum(sum_over_time(llm_spend_usd[1d])) / clamp_min(quantile_over_time(0.5, (sum(sum_over_time(llm_spend_usd[1d])))[7d:1d] offset 1d), 0.5)"}},
+        {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "expression": "A", "reducer": "last", "settings": {"mode": "dropNN"}}},
+        {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "expression": "B", "conditions": [{"evaluator": {"type": "gt", "params": [2]}}]}}
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "30m",
+      "labels": {"source": "crok", "severity": "info"},
+      "annotations": {
+        "summary": "The last 24 hours of LLM spend are {{ printf \"%.1f\" $values.B.Value }}x the median day of the week before",
+        "description": "From the llm-history recording rules (every provider, Claude list prices and OpenRouter's bill). The median day counts at least $0.50, so a quiet week does not make every normal day an anomaly. LLM Spend History shows the split by provider and model."
+      }
+    },
+    {
+      "uid": "crok-mcp-start-failures",
+      "title": "crok: MCP servers fail to start",
+      "condition": "C",
+      "needs_metric": "crok_workflow_steps_total",
+      "data": [
+        {"refId": "A", "relativeTimeRange": {"from": 86400, "to": 0}, "datasourceUid": "${prom}",
+         "model": {"refId": "A", "instant": true, "range": false,
+                   "expr": "(sum(increase(crok_workflow_steps_total{step=\"mcp_server\", outcome=\"failed\"}[24h])) / sum(increase(crok_workflow_steps_total{step=\"mcp_server\"}[24h]))) and on() (sum(increase(crok_workflow_steps_total{step=\"mcp_server\"}[24h])) >= 5)"}},
+        {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "expression": "A", "reducer": "last", "settings": {"mode": "dropNN"}}},
+        {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "expression": "B", "conditions": [{"evaluator": {"type": "gt", "params": [0.1]}}]}}
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "labels": {"source": "crok", "severity": "warning"},
+      "annotations": {
+        "summary": "{{ humanizePercentage $values.B.Value }} of MCP server starts failed in the last 24 hours",
+        "description": "21 of 100 starts failed on one Mac in October without any signal reaching Grafana. The mcp_server workflow steps on the conversations name the server and the error type (auth, timeout, handshake)."
+      }
+    }
+  ]
+}

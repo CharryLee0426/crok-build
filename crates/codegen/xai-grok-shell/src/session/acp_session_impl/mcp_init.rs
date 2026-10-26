@@ -420,6 +420,14 @@ impl InitPass {
             Some(tool_count as i64),
             None,
         );
+        observe_mcp_start(
+            &self.session_id,
+            &server,
+            transport,
+            elapsed,
+            "connected",
+            None,
+        );
         self.tally.add_connected(tool_count);
         Ok(())
     }
@@ -489,6 +497,14 @@ impl InitPass {
                 duration_ms: Some(elapsed.as_millis() as u64),
                 timeout_sec: Some(timeout_sec),
             });
+        observe_mcp_start(
+            &self.session_id,
+            &server,
+            transport,
+            elapsed,
+            "failed",
+            Some(error_type.as_ref()),
+        );
         self.tally.add_failed(server, needs_auth);
         Ok(())
     }
@@ -732,4 +748,34 @@ pub(super) fn register_mcp_tool(
             server_name
         );
     }
+}
+
+/// Reports an MCP server start to Agent Observability as an `mcp_server` workflow step (and, through
+/// the bridge, the crok_workflow_steps_total metric the MCP-failure alert reads).
+fn observe_mcp_start(
+    session_id: &str,
+    server: &str,
+    transport: impl std::fmt::Display,
+    elapsed: std::time::Duration,
+    outcome: &str,
+    error_type: Option<&str>,
+) {
+    let completed_at = std::time::SystemTime::now();
+    let mut input = serde_json::Map::new();
+    input.insert("server".to_owned(), server.into());
+    input.insert("transport".to_owned(), transport.to_string().into());
+    let mut output = serde_json::Map::new();
+    output.insert("outcome".to_owned(), outcome.into());
+    if let Some(error_type) = error_type {
+        output.insert("error_type".to_owned(), error_type.into());
+    }
+    xai_grok_sampler::observe::record_step(xai_grok_sampler::observe::Step {
+        session_id,
+        name: "mcp_server",
+        started_at: completed_at.checked_sub(elapsed).unwrap_or(completed_at),
+        completed_at,
+        input,
+        output,
+        error: None,
+    });
 }

@@ -15,7 +15,7 @@ import dev.chenli.crok.mobile.data.ConfigId
 import dev.chenli.crok.mobile.data.CreateResult
 import dev.chenli.crok.mobile.data.ConvexHttpApi
 import dev.chenli.crok.mobile.data.Device
-import dev.chenli.crok.mobile.data.EventPage
+import dev.chenli.crok.mobile.data.TranscriptChunk
 import dev.chenli.crok.mobile.data.HttpDeviceAuthApi
 import dev.chenli.crok.mobile.data.Me
 import dev.chenli.crok.mobile.data.MemoryKeyValueStore
@@ -242,30 +242,36 @@ class RelayIntegrationTest {
             assertEquals(2, detail.plan.size)
             assertEquals("desktop", detail.app)
 
-            // Paging: newest first, two at a time, and a pinned page keeps its lower bound.
-            fun page(cursor: String?, end: String? = null) = decode(
-                EventPage.serializer(),
+            // The transcript in parts (`sessions:transcript`): newest first, two at a time, seq ranges, and thoughts and
+            // tool calls by their status only.
+            fun part(afterSeq: Long? = null, throughSeq: Long? = null, limit: Int = 2) = decode(
+                TranscriptChunk.serializer(),
                 runBlocking {
                     http.query(
-                        "sessions:events",
+                        "sessions:transcript",
                         args {
                             put("sessionDocId", sessionDocId)
-                            putJsonObject("paginationOpts") {
-                                put("numItems", 2.0)
-                                if (cursor == null) put("cursor", JsonNull) else put("cursor", cursor)
-                                if (end != null) put("endCursor", end)
-                            }
+                            put("limit", limit.toDouble())
+                            afterSeq?.let { put("afterSeq", it.toDouble()) }
+                            throughSeq?.let { put("throughSeq", it.toDouble()) }
                         },
                         jwt,
                     )
                 },
             )
-            val first = page(null)
-            assertEquals(listOf("a1", "x1"), first.page.map { it.key })
-            val second = page(first.continueCursor)
-            assertEquals(listOf("t1", "u1"), second.page.map { it.key })
-            val pinned = page(null, first.continueCursor)
-            assertEquals(listOf("a1", "x1"), pinned.page.map { it.key })
+            val first = part()
+            assertEquals(listOf("a1", "x1"), first.events.map { it.key })
+            assertTrue(first.more)
+            val tool = first.events.single { it.key == "x1" }
+            assertEquals("", tool.text)
+            assertEquals("Run cargo test", tool.title)
+            val lowest = first.events.minOf { it.seq }
+            val second = part(throughSeq = lowest - 1)
+            assertEquals(listOf("t1", "u1"), second.events.map { it.key })
+            assertEquals("", second.events.first().text)
+            assertTrue(!second.more)
+            val live = part(afterSeq = lowest - 1, limit = 200)
+            assertEquals(listOf("a1", "x1"), live.events.map { it.key })
 
             // 5. A prompt: idempotent by client id, "mine" for this phone, then delivered and in the transcript.
             val clientId = UUID.randomUUID().toString()
@@ -301,7 +307,7 @@ class RelayIntegrationTest {
                 cjwt,
             )
             prompts = decode(ListSerializer(PromptCommand.serializer()), http.query("commands:forSession", args { put("sessionDocId", sessionDocId) }, jwt))
-            val events = page(null).page + page(page(null).continueCursor).page + page(page(page(null).continueCursor).continueCursor).page
+            val events = part(limit = 200).events
             val items = Transcript.build(
                 events = events,
                 prompts = prompts,

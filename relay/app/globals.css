@@ -35,6 +35,9 @@
   --avatar-l: 40%;
   --avatar-s: 20%;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 6px 24px rgb(0 0 0 / 0.07);
+  /* Service capsules (day headers, notices) on the plain canvas; a session theme swaps them for dark glass. */
+  --service-bg: rgb(255 255 255 / 0.88);
+  --service-fg: #5f5f5f;
   /* Syntax colours in code blocks (GitHub's; relay/DESIGN.md §5 "Replies in Markdown"). */
   --hl-comment: #6e7781;
   --hl-keyword: #cf222e;
@@ -78,6 +81,8 @@
     --avatar-l: 34%;
     --avatar-s: 16%;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.45);
+    --service-bg: rgb(36 36 36 / 0.9);
+    --service-fg: #a3a3a3;
     --hl-comment: #8b949e;
     --hl-keyword: #ff7b72;
     --hl-string: #a5d6ff;
@@ -120,6 +125,8 @@
   --avatar-l: 34%;
   --avatar-s: 16%;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.45);
+  --service-bg: rgb(36 36 36 / 0.9);
+  --service-fg: #a3a3a3;
   --hl-comment: #8b949e;
   --hl-keyword: #ff7b72;
   --hl-string: #a5d6ff;
@@ -161,6 +168,21 @@
   --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     "PingFang SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+/* A page of the left column, or the session on narrow screens, slides in from the right (Telegram Web). */
+@theme {
+  --animate-page-in: page-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  @keyframes page-in {
+    from {
+      transform: translateX(28%);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
 }
 
 /* In the base layer so utilities (focus:outline-none, …) can override them; unlayered CSS would beat every utility. */
@@ -246,9 +268,65 @@
 
 @media (prefers-reduced-motion: reduce) {
   .typing-dots i,
-  .spin {
+  .spin,
+  .animate-page-in {
     animation: none;
   }
+}
+
+/*
+ * Service capsules (day headers, notices, "Choose a session") and loose text over a session theme (mobile/DESIGN.md
+ * "Session themes"): on a pattern or a photo (`data-wallpaper` on the session column) times, "from …" labels and the
+ * tool-run summary get a capsule of their own, and thoughts a card, so they stay readable.
+ */
+.svc {
+  background: var(--service-bg);
+  color: var(--service-fg);
+}
+[data-wallpaper] .loose {
+  background: var(--service-bg);
+  color: var(--service-fg);
+  border-radius: 9999px;
+  padding-inline: 0.5rem;
+}
+[data-wallpaper] .loose button {
+  color: inherit;
+}
+[data-wallpaper] .thought {
+  background: var(--surface);
+  border-radius: 0.75rem;
+  padding: 0.15rem 0.75rem 0.35rem;
+}
+
+/* A switch (Appearance › Blur): a checkbox drawn as iOS's toggle. */
+.switch {
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 26px;
+  border-radius: 9999px;
+  background: var(--line-strong);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  transition: transform 0.15s;
+}
+.switch:checked {
+  background: var(--accent);
+}
+.switch:checked::after {
+  transform: translateX(18px);
 }
 
 /*

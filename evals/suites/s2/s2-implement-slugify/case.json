@@ -1,0 +1,11 @@
+{
+  "name": "Implement a function from its docstring and tests",
+  "prompt": "Implement `slugify` in text.py according to its docstring and the tests.",
+  "checks": [
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the unit tests pass"
+    }
+  ]
+}

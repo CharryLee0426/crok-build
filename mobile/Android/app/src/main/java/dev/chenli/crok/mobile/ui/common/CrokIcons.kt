@@ -98,6 +98,16 @@ object CrokIcons {
             "L19,8l-9,9z",
     )
     val Warning = icon("Warning", "M1,21h22L12,2 1,21zM13,18h-2v-2h2v2zM13,14h-2v-4h2v4z")
+
+    /** A failed tool call: a cross in a filled circle (Material's Cancel). */
+    val Cancel = icon(
+        "Cancel",
+        "M12,2C6.47,2 2,6.47 2,12s4.47,10 10,10 10,-4.47 10,-10S17.53,2 12,2zM17,15.59L15.59,17 12,13.41 8.41,17 7,15.59 " +
+            "10.59,12 7,8.41 8.41,7 12,10.59 15.59,7 17,8.41 13.41,12 17,15.59z",
+    )
+
+    /** Thinking: a four-pointed star with curved sides (Crok Desktop's sparkle). */
+    val Sparkle = icon("Sparkle", "M12,1.5C12.7,7.3 16.7,11.3 22.5,12C16.7,12.7 12.7,16.7 12,22.5C11.3,16.7 7.3,12.7 1.5,12C7.3,11.3 11.3,7.3 12,1.5z")
     val Terminal = icon(
         "Terminal",
         "M20,4H4C2.89,4 2,4.9 2,6v12c0,1.1 0.89,2 2,2h16c1.1,0 2,-0.9 2,-2V6C22,4.9 21.11,4 20,4zM20,18H4V8h16V18zM18,17h-6" +

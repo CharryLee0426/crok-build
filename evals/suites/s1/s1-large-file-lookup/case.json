@@ -1,0 +1,17 @@
+{
+  "name": "A value deep in a long file",
+  "prompt": "What is the value of retry_budget in data/settings.ini? Answer with the number.",
+  "checks": [
+    {
+      "kind": "answer_matches",
+      "pattern": "\\b17\\b",
+      "name": "answers 17"
+    },
+    {
+      "kind": "answer_lacks",
+      "pattern": "^\\D*\\b5\\b\\D*$",
+      "name": "does not answer the commented-out 5"
+    }
+  ],
+  "solution_answer": "17"
+}

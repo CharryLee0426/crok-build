@@ -1,0 +1,11 @@
+{
+  "name": "A feature across model, storage and CLI",
+  "prompt": "Add an optional integer `priority` (default 0) to tasks: keep it in the Task model, save and load it in storage.py, and let `python3 cli.py add TITLE --priority N` set it. The tests describe the behaviour.",
+  "checks": [
+    {
+      "kind": "run",
+      "command": "python3 -m unittest discover -s tests -t . -q",
+      "name": "the unit tests pass"
+    }
+  ]
+}

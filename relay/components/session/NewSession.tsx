@@ -1,21 +1,23 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQueries, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { newClientId } from "@/lib/browser";
 import { relayError } from "@/lib/errors";
 import { folderName, tildePath } from "@/lib/format";
 import { handOverPrompt, takeQueuedPrompt } from "@/lib/new-session";
 import type { EffortChoice, ModelChoice, OutboxItem, PendingPrompt } from "@/lib/types";
+import { ForumAvatar } from "../avatars";
 import { useI18n } from "../I18nProvider";
-import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ComputerIcon, FolderIcon } from "../icons";
+import { ArrowLeftIcon, ComputerIcon, FolderIcon } from "../icons";
 import { useErrorText } from "../SessionList";
-import { ButtonLink, Loading, Notice, ProjectAvatar, useNow } from "../ui";
+import { ButtonLink, Loading, Notice, useNow } from "../ui";
 import { levelName } from "./BotCommands";
 import { Composer } from "./SessionView";
+import { effortMenuItems, ModelDialog, SetupRow } from "./SetupRow";
 import { Transcript } from "./Transcript";
 
 const noop = () => {};
@@ -39,138 +41,11 @@ function StartsIn({ path, computer }: { path: string; computer: string }) {
   );
 }
 
-/** One choice of the model and thinking-level panels. */
-function SetupChoice({
-  label,
-  detail,
-  selected,
-  centered = false,
-  onClick,
-}: {
-  label: string;
-  detail?: string;
-  selected: boolean;
-  centered?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      className={`flex min-h-10 items-center gap-2 rounded-xl px-3.5 py-2 transition-colors ${
-        centered ? "justify-center text-center" : "text-left"
-      } ${selected ? "bg-accent-soft text-accent-text" : "text-fg hover:bg-hover"}`}
-    >
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[14px] font-medium">{label}</span>
-        {detail ? <span className="block truncate text-[12px] text-muted">{detail}</span> : null}
-      </span>
-      {selected ? <CheckIcon size={16} className="shrink-0" aria-hidden /> : null}
-    </button>
-  );
-}
-
 /**
- * The model and thinking level for a session started on another computer, from that computer's own list
- * (`devices:models`). Unset means its default; the choice rides on `sessions:create` and its crok applies it before
- * the first prompt.
- */
-function NewSessionSetup({
-  models,
-  model,
-  effort,
-  onModel,
-  onEffort,
-}: {
-  models: readonly ModelChoice[];
-  model: ModelChoice | null;
-  effort: EffortChoice | null;
-  onModel: (model: ModelChoice | null) => void;
-  onEffort: (effort: EffortChoice | null) => void;
-}) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState<"model" | "effort" | null>(null);
-  const efforts = model?.efforts ?? [];
-  if (models.length === 0) return null;
-
-  const chooseModel = (choice: ModelChoice | null) => {
-    onModel(choice);
-    onEffort(null);
-    setOpen(null);
-  };
-  const pill = (panel: "model" | "effort", title: string, value: string) => (
-    <button
-      type="button"
-      onClick={() => setOpen(open === panel ? null : panel)}
-      aria-expanded={open === panel}
-      className="flex h-8 max-w-[16rem] items-center gap-1 rounded-full border border-line px-3 text-[12.5px] text-muted transition-colors hover:border-accent hover:text-accent-text"
-    >
-      <span className="shrink-0">{title}</span>
-      <span className="truncate font-medium text-fg">{value}</span>
-      <ChevronDownIcon size={14} className="shrink-0" />
-    </button>
-  );
-
-  return (
-    <div className="mb-2 flex flex-col gap-1.5">
-      {open === "model" ? (
-        <div className="scroll-quiet max-h-[min(45vh,22rem)] overflow-y-auto rounded-2xl border border-line bg-surface p-1.5 shadow-card">
-          <p className="px-3 py-1.5 text-[13px] font-semibold text-fg">{t("card_model_title")}</p>
-          <div className="grid grid-cols-1 gap-1">
-            <SetupChoice label={t("effort_default")} selected={!model} onClick={() => chooseModel(null)} />
-            {models.map((choice) => (
-              <SetupChoice
-                key={choice.id}
-                label={choice.name}
-                detail={choice.description}
-                selected={model?.id === choice.id}
-                onClick={() => chooseModel(choice)}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {open === "effort" && model ? (
-        <div className="scroll-quiet max-h-[min(45vh,22rem)] overflow-y-auto rounded-2xl border border-line bg-surface p-1.5 shadow-card">
-          <p className="px-3 py-1.5 text-[13px] font-semibold text-fg">{t("card_effort_title")}</p>
-          <div className="grid grid-cols-2 gap-1">
-            <SetupChoice
-              centered
-              label={t("effort_default")}
-              selected={!effort}
-              onClick={() => {
-                onEffort(null);
-                setOpen(null);
-              }}
-            />
-            {efforts.map((choice) => (
-              <SetupChoice
-                centered
-                key={choice.id}
-                label={levelName(t, choice)}
-                selected={effort?.id === choice.id}
-                onClick={() => {
-                  onEffort(choice);
-                  setOpen(null);
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {pill("model", t("info_model"), model?.name ?? t("effort_default"))}
-        {efforts.length > 0 ? pill("effort", t("info_effort"), effort ? levelName(t, effort) : t("effort_default")) : null}
-      </div>
-    </div>
-  );
-}
-
-/**
- * The new-session screen, shaped like a session (DESIGN.md §5): header "New session" with project and computer, an
- * empty transcript saying where it will run, the composer. The first prompt shows at once while the relay adds the
- * session; then the screen becomes that session. Pure: the live screen and the dev preview hand in the data.
+ * The new-session screen, shaped like a session (DESIGN.md §5, mobile/DESIGN.md "Web"): header "New session" with the
+ * project and computer, the theme's background with where it will run, the composer with the setup row (Default until
+ * a model or level is picked from that computer's `devices:models`). The first prompt shows at once while the relay
+ * adds the session; then the screen becomes that session. Pure: the live screen and the dev preview hand in the data.
  */
 export function NewSessionView({
   deviceId,
@@ -188,6 +63,7 @@ export function NewSessionView({
   onSend,
   onRetry,
   onDiscard,
+  initialModelDialog = false,
 }: {
   deviceId: string;
   path: string;
@@ -207,30 +83,35 @@ export function NewSessionView({
   onSend: (text: string) => void;
   onRetry: (prompt: PendingPrompt) => void;
   onDiscard: (prompt: PendingPrompt) => void;
+  /** The dev preview: Choose a Model open from the start. */
+  initialModelDialog?: boolean;
 }) {
   const { t } = useI18n();
   const name = folderName(path);
+  const [dialog, setDialog] = useState(initialModelDialog);
+  const efforts = model?.efforts ?? [];
+  const offers = Boolean(models?.length);
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-2 sm:px-3">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="relative z-10 flex h-14 shrink-0 items-center gap-1 border-b border-line bg-surface px-2 sm:px-3">
         <Link
           href="/"
           aria-label={t("back")}
           title={t("back")}
-          className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-fg lg:hidden"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-fg lg:hidden"
         >
-          <ChevronLeftIcon size={22} />
+          <ArrowLeftIcon size={22} />
         </Link>
-        <div className="flex min-w-0 flex-1 items-center gap-3 px-1.5 py-1">
-          <ProjectAvatar cwd={path} title={name} dim={!online} size={38} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[15px] font-semibold leading-tight">{t("new_session")}</span>
-            <span className="block truncate text-[13px] leading-tight text-faint" title={tildePath(path)}>
-              {name} · {computer}
-              {online ? null : <span> · {t("offline")}</span>}
-            </span>
+        <div className="min-w-0 flex-1 px-2 py-1">
+          <span className="block truncate text-[15.5px] font-semibold leading-tight">{t("new_session")}</span>
+          <span className="block truncate text-[13px] leading-tight text-faint" title={tildePath(path)}>
+            {name} · {computer}
+            {online ? null : <span> · {t("offline")}</span>}
           </span>
         </div>
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center">
+          <ForumAvatar path={path} name={name} size={36} dimmed={!online} />
+        </span>
       </header>
       <Transcript
         events={[]}
@@ -257,18 +138,39 @@ export function NewSessionView({
         offlineText={t("new_session_offline", { computer })}
         autoFocus
         setup={
-          models && models.length > 0 ? (
-            <NewSessionSetup
-              models={models}
-              model={model}
-              effort={effort}
-              onModel={onPickModel}
-              onEffort={onPickEffort}
+          offers ? (
+            <SetupRow
+              model={model?.name ?? t("setup_default")}
+              onModel={() => setDialog(true)}
+              effort={model && efforts.length ? (effort ? levelName(t, effort) : t("setup_default")) : null}
+              effortItems={effortMenuItems(
+                t,
+                efforts,
+                effort?.id ?? null,
+                (id) => onPickEffort(efforts.find((e) => e.id === id) ?? null),
+                true,
+              )}
             />
           ) : null
         }
         onSend={onSend}
       />
+      {models?.length ? (
+        <ModelDialog
+          open={dialog}
+          models={models}
+          currentId={model?.id ?? null}
+          computer={computer}
+          isNew
+          onPick={(id) => {
+            setDialog(false);
+            // A new model: its thinking level goes back to Default.
+            onPickModel(models.find((m) => m.id === id) ?? null);
+            onPickEffort(null);
+          }}
+          onClose={() => setDialog(false)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -281,8 +183,15 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
   const now = useNow(30_000);
   const devices = useQuery(api.devices.list);
   const create = useMutation(api.sessions.create);
-  /** That computer's own models, for the picker above the composer; null while it is offline. */
-  const models = useQuery(api.devices.models, { deviceId });
+  /** That computer's own models, for the setup row; null while it is offline (an error, an older relay: none). */
+  // Memoized: useQueries resubscribes whenever it gets a new object.
+  const modelQueries = useMemo(() => ({ models: { query: api.devices.models, args: { deviceId } } }), [deviceId]);
+  const queried = useQueries(modelQueries).models as
+    | ModelChoice[]
+    | null
+    | undefined
+    | Error;
+  const models = queried instanceof Error ? null : queried;
   const [modelId, setModelId] = useState<string | null>(null);
   const [effortId, setEffortId] = useState<string | null>(null);
   const chosenModel = models?.find((m) => m.id === modelId) ?? null;

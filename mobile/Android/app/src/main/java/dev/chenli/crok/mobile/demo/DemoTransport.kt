@@ -9,9 +9,9 @@ import dev.chenli.crok.mobile.data.ConfigId
 import dev.chenli.crok.mobile.data.CreateResult
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.EventKind
-import dev.chenli.crok.mobile.data.EventPage
 import dev.chenli.crok.mobile.data.HistoryState
 import dev.chenli.crok.mobile.data.Me
+import dev.chenli.crok.mobile.data.ModelChoice
 import dev.chenli.crok.mobile.data.SessionCommands
 import dev.chenli.crok.mobile.data.SessionDetail
 import dev.chenli.crok.mobile.data.SessionGroup
@@ -23,6 +23,7 @@ import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
 import dev.chenli.crok.mobile.data.RevokeOthersResult
 import dev.chenli.crok.mobile.data.SessionStatus
+import dev.chenli.crok.mobile.data.TranscriptChunk
 import dev.chenli.crok.mobile.engine.RelayTransport
 import dev.chenli.crok.mobile.logic.SessionOrder
 import dev.chenli.crok.mobile.logic.UserCode
@@ -105,6 +106,13 @@ class DemoTransport(
         return when (name) {
             "users:me" -> RelayJson.encodeToJsonElement(Me.serializer(), s.me)
             "devices:list" -> RelayJson.encodeToJsonElement(ListSerializer(Device.serializer()), s.devices)
+            "devices:models" -> {
+                // As on the relay: the computer's list while it is online; null when it is offline or its crok publishes none.
+                val device = s.devices.firstOrNull { it.id == args["deviceId"] && it.isComputer }
+                    ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such computer.")
+                val models = if (device.online) DemoData.modelsFor(device.id) else null
+                RelayJson.encodeToJsonElement(ListSerializer(ModelChoice.serializer()).nullable, models)
+            }
             "sessions:list" -> {
                 val archived = args["archived"] == true
                 val rows = s.sessions.filter { it.detail.archived == archived }
@@ -130,7 +138,7 @@ class DemoTransport(
                 }
                 RelayJson.encodeToJsonElement(SessionCommands.serializer(), commands)
             }
-            "sessions:events" -> RelayJson.encodeToJsonElement(EventPage.serializer(), page(s, args))
+            "sessions:transcript" -> RelayJson.encodeToJsonElement(TranscriptChunk.serializer(), transcript(s, args))
             "commands:forSession" -> RelayJson.encodeToJsonElement(
                 ListSerializer(dev.chenli.crok.mobile.data.PromptCommand.serializer()),
                 s.commands.filter { it.sessionDocId == args["sessionDocId"] && (it.type == CommandType.PROMPT || it.type == CommandType.CREATE) }
@@ -157,23 +165,16 @@ class DemoTransport(
         }
     }
 
-    /** Convex-style pagination over the session's events, newest first; cursors are `seq:<n>`. */
-    private fun page(s: DemoState, args: Map<String, Any?>): EventPage {
+    /** `sessions:transcript` as the relay answers it (see [transcriptChunk]). */
+    private fun transcript(s: DemoState, args: Map<String, Any?>): TranscriptChunk {
         val sessionId = args["sessionDocId"] as? String
-        @Suppress("UNCHECKED_CAST")
-        val options = args["paginationOpts"] as? Map<String, Any?> ?: emptyMap()
-        val numItems = (options["numItems"] as? Number)?.toInt() ?: 50
-        val cursor = (options["cursor"] as? String)?.removePrefix("seq:")?.toLongOrNull()
-        val end = (options["endCursor"] as? String)?.removePrefix("seq:")?.toLongOrNull()
-        val all = s.events[sessionId].orEmpty().sortedByDescending { it.seq }
-        val after = if (cursor != null) all.filter { it.seq < cursor } else all
-        val items = if (end != null) after.filter { it.seq >= end } else after.take(numItems)
-        val continueCursor = when {
-            end != null -> "seq:$end"
-            items.isNotEmpty() -> "seq:${items.last().seq}"
-            else -> "seq:${cursor ?: 0}"
-        }
-        return EventPage(items, isDone = items.size == after.size, continueCursor = continueCursor)
+        if (s.sessions.none { it.id == sessionId }) throw RelayException(RelayErrorCode.NOT_FOUND, "No such session.")
+        return transcriptChunk(
+            s.events[sessionId].orEmpty(),
+            afterSeq = (args["afterSeq"] as? Number)?.toLong(),
+            throughSeq = (args["throughSeq"] as? Number)?.toLong(),
+            limit = (args["limit"] as? Number)?.toInt() ?: 40,
+        )
     }
 
     // ---- Mutations ----
@@ -222,7 +223,14 @@ class DemoTransport(
                 state.update { s -> s.copy(sessions = s.sessions.filterNot { it.id == sessionDocId }) }
             }
             "commands:sendPrompt" -> return sendPrompt(sessionDocId, args["text"] as? String ?: "", args["clientId"] as? String)
-            "sessions:create" -> return create(args["deviceId"] as? String, args["path"] as? String, args["text"] as? String, args["clientId"] as? String)
+            "sessions:create" -> return create(
+                args["deviceId"] as? String,
+                args["path"] as? String,
+                args["text"] as? String,
+                args["clientId"] as? String,
+                args["model"] as? String,
+                args["effort"] as? String,
+            )
             "commands:setConfig" -> return setConfig(sessionDocId, args["configId"] as? String, args["value"] as? String)
             "commands:stop" -> {
                 val session = session(sessionDocId)
@@ -444,10 +452,11 @@ class DemoTransport(
     }
 
     /**
-     * `sessions:create`: the session is listed at once (`starting`, its title from the prompt), with a `create` command;
+     * `sessions:create`: the session is listed at once (`starting`, its title from the prompt), on the [model] and
+     * thinking level [effort] picked from `devices:models` (else the computer's default), with a `create` command;
      * "the computer" opens it a moment later and runs the prompt like any other.
      */
-    private fun create(deviceId: String?, path: String?, text: String?, clientId: String?): JsonElement {
+    private fun create(deviceId: String?, path: String?, text: String?, clientId: String?, model: String?, effort: String?): JsonElement {
         val s = state.value
         s.commands.firstOrNull { clientId != null && it.clientId == clientId && it.type == CommandType.CREATE }?.let {
             return RelayJson.encodeToJsonElement(CreateResult.serializer(), CreateResult(it.sessionDocId, it.id))
@@ -460,6 +469,15 @@ class DemoTransport(
             throw RelayException(RelayErrorCode.OFFLINE, "${device.name} runs an older crok that cannot start sessions from other devices: update crok there.")
         }
         val prompt = text?.trim()?.takeIf { it.isNotEmpty() }
+        // Checked against the computer's list, as the relay does; `effort` is an option id or the level it stands for.
+        val models = DemoData.modelsFor(device.id)
+        val chosen = model?.takeIf { it.isNotBlank() }?.let { wanted ->
+            models?.firstOrNull { it.id == wanted } ?: throw RelayException(RelayErrorCode.INVALID, "No such model: $wanted")
+        } ?: models?.firstOrNull()
+        val level = effort?.takeIf { it.isNotBlank() }?.let { wanted ->
+            chosen?.efforts?.firstOrNull { it.id == wanted || it.level == wanted }?.level
+                ?: throw RelayException(RelayErrorCode.INVALID, "No such thinking level: $wanted")
+        } ?: chosen?.efforts?.firstOrNull { it.id == chosen.defaultEffort }?.level
         val id = "demo-new-${UUID.randomUUID().toString().take(8)}"
         val now = clock()
         val project = s.sessions.firstOrNull { it.detail.deviceId == device.id && it.detail.projectPath == path }?.detail
@@ -469,8 +487,8 @@ class DemoTransport(
                 sessionId = "pending:$clientId",
                 title = prompt?.lineSequence()?.firstOrNull()?.take(80) ?: "New session",
                 cwd = path,
-                model = DemoData.modelsFor(device.id)?.firstOrNull()?.id,
-                effort = DemoData.modelsFor(device.id)?.firstOrNull()?.defaultEffort,
+                model = chosen?.id,
+                effort = level,
                 status = if (prompt != null) SessionStatus.RUNNING else SessionStatus.IDLE,
                 online = false,
                 app = "desktop",
@@ -599,6 +617,11 @@ class DemoTransport(
                 )
             }
             delay(600)
+            // It thinks first: the phone shows "Thinking…" while that is the newest item.
+            appendEvent(sessionDocId) { seq ->
+                RelayEvent("$sessionDocId-e$seq", seq, "k$seq", EventKind.THOUGHT, "Read the README before answering.", at = clock())
+            }
+            delay(1_200)
             val tool = appendEvent(sessionDocId) { seq ->
                 RelayEvent(
                     "$sessionDocId-e$seq", seq, "k$seq", EventKind.TOOL, "README.md",
