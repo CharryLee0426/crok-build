@@ -61,6 +61,7 @@ function fakeRow(now: number, { project, ...r }: RowInput): SessionRow {
     projectName: project.split("/").pop() || project,
     historyState: null,
     starting: false,
+    startedFrom: null,
     ...r,
   };
 }
@@ -386,6 +387,7 @@ export function fakeSession(now: number, overrides: Partial<SessionDetail> = {})
     projectName: "web-app",
     historyState: null,
     starting: false,
+    startedFrom: null,
     pending: null,
     models: FAKE_MODELS,
     ...overrides,

@@ -7,6 +7,13 @@ export const deviceKind = v.union(v.literal("computer"), v.literal("phone"));
 /** Which crok front end hosts a session. */
 export const hostApp = v.union(v.literal("tui"), v.literal("desktop"), v.literal("cli"));
 
+/** Where a session made by `sessions:create` was started: the device's kind (`web` for the web app) and name, and when. */
+export const startedFrom = v.object({
+  kind: v.union(v.literal("phone"), v.literal("web"), v.literal("computer")),
+  name: v.string(),
+  at: v.number(),
+});
+
 /** Where a session's turn is: `waiting` means the agent asked a question or a permission on the computer. */
 export const sessionStatus = v.union(
   v.literal("idle"),
@@ -193,8 +200,9 @@ export default defineSchema({
     /** It can open a session nobody runs, to take a prompt for it. */
     canAdopt: v.optional(v.boolean()),
     /**
-     * Command types beyond the first relay's that this crok handles (`create`, `config`); older crok processes get none
-     * of those (their inbox would not parse them).
+     * Command types beyond the first relay's that this crok handles (`create`, `config`, `git`); older crok processes
+     * get none of those (their inbox would not parse them). `setup`: it applies a `create` command's model and thinking
+     * level. `catalog`: while it holds its computer's catalog it sends what changed on disk (`bridge:catalogUpdate`).
      */
     features: v.optional(v.array(v.string())),
     startedAt: v.number(),
@@ -248,6 +256,11 @@ export default defineSchema({
     suspended: v.optional(v.boolean()),
     /** A permission request waiting for an answer, from the computer or from any other device. */
     pending: v.optional(pendingInteraction),
+    /**
+     * The device that started it (`sessions:create`: a phone, the web, another computer), so the computer's own TUI
+     * and Crok Desktop show it as one of theirs. Unset for sessions started on the computer itself.
+     */
+    startedFrom: v.optional(startedFrom),
   })
     .index("by_user_activity", ["userId", "lastActivityAt"])
     .index("by_user_session", ["userId", "sessionId"])
@@ -271,7 +284,9 @@ export default defineSchema({
 
   /**
    * The last catalog upload per computer: one running crok at a time lists every session on disk, at most every few
-   * minutes, however many crok processes run there.
+   * minutes, however many crok processes run there. That process (`hostId`) holds the catalog: a current crok keeps
+   * it current between uploads with what changed on disk (`bridge:catalogUpdate`), and another process takes it over
+   * once it is gone.
    */
   catalogSyncs: defineTable({
     deviceId: v.id("devices"),
@@ -279,6 +294,8 @@ export default defineSchema({
     syncId: v.string(),
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
+    /** The holder is gone (it quit or lost its connection): the computer's other crok processes list them now. */
+    released: v.optional(v.boolean()),
   }).index("by_device", ["deviceId"]),
 
   /** One transcript item. Streaming text updates the same row (same `key`). */

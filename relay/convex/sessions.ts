@@ -70,7 +70,14 @@ function sessionRow(session: Doc<"sessions">, device: Doc<"devices">) {
     historyState: session.historyState ?? null,
     /** Made by `sessions:create` and not open on its computer yet. */
     starting: isStarting(session),
+    /** The device that started it from afar (`sessions:create`), or null for one started on its computer. */
+    startedFrom: startedFromOf(session),
   };
+}
+
+function startedFromOf(session: Doc<"sessions">) {
+  const from = session.startedFrom;
+  return from ? { kind: from.kind, name: from.name, at: from.at } : null;
 }
 
 /**
@@ -167,6 +174,7 @@ export const get = query({
       starting: isStarting(session),
       /** A permission request waiting for an answer (`commands:answer`), or null. */
       pending: session.pending ?? null,
+      startedFrom: startedFromOf(session),
       /**
        * What its computer can run (`commands:setConfig` picks from these) when the list is short (`embeddedModels`);
        * current clients read `devices:models`. Null while the computer is offline.
@@ -248,6 +256,11 @@ export const create = mutation({
       eventSeq: 0,
       assistantCount: 0,
       readAssistantCount: 0,
+      startedFrom: {
+        kind: viewer.device ? viewer.device.kind : "web",
+        name: viewerLabel(viewer).slice(0, 80),
+        at: now,
+      },
     });
     const commandId = await ctx.db.insert("commands", {
       userId: viewer.user._id,
