@@ -40,6 +40,7 @@ function demoGroups(t: (key: MessageKey) => string): { group: ProjectGroup; time
     projectName: cwd.split("/").pop() ?? cwd,
     historyState: null,
     starting: false,
+    startedFrom: null,
     ...fields,
   });
   const group = (cwd: string, sessions: SessionRow[]): ProjectGroup => ({

@@ -201,6 +201,29 @@ a proxy that adds `LATENCY_MS` (default 150) each way, while a phone watches the
 (`busy N` for the mock model: N quick tool calls), stops a turn inside a tool call, and takes a queued prompt off the
 queue before sending one from the phone; each end must reach the phone within `MAX_LAG_MS` (default 3000).
 
+## 6. o11y for the phones' dev builds
+
+The phones' dev builds have an o11y tab (mobile/DESIGN.md "o11y"): the relay builds its pages from the owner's Grafana
+Cloud stack (DESIGN.md §3 "o11y"). A deployment serves them once it has a read-only token and a list of the accounts
+that may see them:
+
+```sh
+gcx login <stack> --server https://<stack>.grafana.net --oauth      # once; someone who may manage service accounts
+relay/scripts/o11y-setup.sh test --users                           # the deployment's accounts, to pick viewers
+relay/scripts/o11y-setup.sh test user_…                            # Viewer service account + token, GRAFANA_URL,
+                                                                    # GRAFANA_TOKEN, O11Y_VIEWERS; then o11y:check
+```
+
+The token never shows on screen: it goes from gcx's answer into a 0600 file that `convex env set --from-file` reads.
+Running it again rotates this deployment's token. `--viewers-only` changes the list alone. Without the variables
+every phone sees "o11y is not set up"; an account not on the list sees "o11y is not available".
+
+To see what a page will say before deploying (through gcx's own sign-in, no relay or token):
+`node scripts/o11y-preview.mjs [page] [range] [lang]` (`--json` for the page as phones get it, `--strings <file>` for
+the words that lack a translation in `convex/lib/o11y/i18n.ts`). `node scripts/o11y-preview.mjs --out <dir>` then
+`node scripts/o11y-demo.mjs <dir>` remakes the phones' demo pages (`o11y-demo.json` in both apps), with every
+private text swapped for demo text. On a deployment: `npx convex run o11y:check '{"page":"overview"}'`.
+
 ## Costs and limits
 
 Convex's free plan (0.5 GB storage, 1 GB/month bandwidth) is plenty for one person. Transcript items are capped at

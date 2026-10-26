@@ -40,6 +40,8 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CrokO11yTab</key>
+	<string>$(CROK_O11Y_TAB)</string>
 	<key>CrokRelayURL</key>
 	<string>$(CROK_RELAY_URL)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

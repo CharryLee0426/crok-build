@@ -311,4 +311,27 @@
     <plurals name="switcher_unread">
         <item quantity="other">%d 条未读</item>
     </plurals>
+
+    <!-- o11y (mobile/DESIGN.md "o11y"; dev builds) -->
+    <string name="o11y_updated">更新于%1$s</string>
+    <string name="o11y_open_in_grafana">在 Grafana 中打开</string>
+    <string name="o11y_loading">正在加载 o11y…</string>
+    <string name="o11y_couldnt_update">无法更新</string>
+    <string name="o11y_not_available_title">o11y 不可用</string>
+    <string name="o11y_not_available_body">此账号无法查看中继的 Grafana 栈。请让管理中继的人把它加进去。</string>
+    <string name="o11y_not_set_up_title">o11y 尚未设置</string>
+    <string name="o11y_not_set_up_body">中继还没有 Grafana 令牌。请在中继所有者的电脑上运行 relay/scripts/o11y-setup.sh。</string>
+    <string name="o11y_not_served">此中继尚未提供 o11y。</string>
+    <string name="o11y_range_hours">%1$d小时</string>
+    <string name="o11y_range_days">%1$d天</string>
+    <string name="o11y_range">时间范围</string>
+    <string name="o11y_no_data">此时间范围内没有数据</string>
+    <plurals name="o11y_more">
+        <item quantity="other">还有 %d 项</item>
+    </plurals>
+    <string name="o11y_panel_failed">无法读取此面板</string>
+    <string name="o11y_spoken_up">%1$s，上升 %2$s</string>
+    <string name="o11y_spoken_down">%1$s，下降 %2$s</string>
+    <string name="o11y_status_ok">好</string>
+    <string name="o11y_status_warning">警告</string>
 </resources>

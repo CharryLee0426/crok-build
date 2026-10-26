@@ -843,6 +843,10 @@ impl SamplingClient {
         if let Some(injector) = &self.header_injector {
             injector.inject(&mut headers);
         }
+        // Claude Platform would export a call that is already recorded; see `observe::send_recorded`.
+        if self.defaults.anthropic.is_some() {
+            crate::observe::unsample_if_recorded(&mut headers);
+        }
         SentRequest {
             builder: self.http.post(url).headers(headers),
             sent_bearer,
@@ -2516,7 +2520,11 @@ impl SamplingClient {
                 crate::stream::collect_response(observe::watch(observation, events)).await
             }
             ApiBackend::Messages => {
-                let (raw, meta) = match self.conversation_stream_messages(request).await {
+                let sent = observe::send_recorded(
+                    &observation,
+                    self.conversation_stream_messages(request),
+                );
+                let (raw, meta) = match sent.await {
                     Ok(pair) => pair,
                     Err(e) => {
                         observe::record_send_error(observation, &e);

@@ -693,6 +693,8 @@ pub struct AppView {
     pub welcome_tip_typing_dismissed: bool,
     /// Effects queued by notification handlers (drained by the event loop).
     pub pending_effects: Vec<crate::app::actions::Effect>,
+    /// Sessions other devices start on this computer, watched while remote control is connected.
+    pub remote_here: crate::remote_panel::here::HereWatch,
     /// Typed `$EDITOR` work consumed by the event loop after the current cycle.
     /// Both configuration-file and prompt-draft edits share the existing leave-raw-mode / child / restore handoff.
     pub(crate) pending_editor: Option<crate::app::external_editor::PendingEditorRequest>,
@@ -1420,6 +1422,7 @@ impl AppView {
             optimistic_home_husk: None,
             welcome_tip_typing_dismissed: false,
             pending_effects: Vec::new(),
+            remote_here: Default::default(),
             pending_editor: None,
             pending_pager_path: None,
             pending_pager_ansi: false,

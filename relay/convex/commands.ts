@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import type { Viewer } from "./lib/auth";
 import { fail, ownCommand, requireSession, requireViewer, viewerLabel } from "./lib/auth";
-import { isStarting, modelsFor, supports } from "./lib/starting";
+import { isStarting, modelsFor, opensWithSetup, supports } from "./lib/starting";
 import { configId } from "./schema";
 
 /**
@@ -24,6 +24,7 @@ export async function reachable(
   ctx: QueryCtx,
   session: Doc<"sessions">,
   type: Doc<"commands">["type"] = "prompt",
+  setup: { model?: string; effort?: string } = {},
 ): Promise<boolean> {
   if (session.online && type !== "git") return true;
   const hosts = await ctx.db
@@ -33,21 +34,33 @@ export async function reachable(
   // A git read runs in the session's folder: any crok on that computer that knows how can serve it, whether or not
   // it opens sessions or runs the session.
   if (type === "git") return hosts.some((host) => supports(host, "git"));
-  return hosts.some((host) => host.canAdopt === true && supports(host, type));
+  // A `create` that carries a model or thinking level needs a crok that applies it.
+  return hosts.some(
+    (host) => host.canAdopt === true && supports(host, type) && (type !== "create" || opensWithSetup(host, setup)),
+  );
 }
 
-async function requireReachable(ctx: MutationCtx, session: Doc<"sessions">, type: Doc<"commands">["type"] = "prompt") {
+async function requireReachable(
+  ctx: MutationCtx,
+  session: Doc<"sessions">,
+  type: Doc<"commands">["type"] = "prompt",
+  setup: { model?: string; effort?: string } = {},
+) {
   // A git read may be served by any of the computer's processes, so only its own reachability decides.
   if (type !== "git" && session.online && !supports((await ctx.db.get(session.hostId)) ?? {}, type)) {
     fail("INVALID", "Update crok on that computer to do this from another device.");
   }
-  if (await reachable(ctx, session, type)) return;
+  if (await reachable(ctx, session, type, setup)) return;
   const device = await ctx.db.get(session.deviceId);
+  const name = device?.name ?? "that computer";
+  if (type === "create" && (await reachable(ctx, session, type))) {
+    fail("OFFLINE", `Update crok on ${name} to start a session there with a chosen model or thinking level.`);
+  }
   const anyCrok = await reachable(ctx, session);
   fail(
     "OFFLINE",
     anyCrok
-      ? `Update crok on ${device?.name ?? "that computer"} to do this from another device.`
+      ? `Update crok on ${name} to do this from another device.`
       : `${device?.name ?? "Its computer"} is offline: start crok or Crok Desktop there.`,
   );
 }
@@ -66,7 +79,7 @@ async function insertCommand(
     effort?: string;
   },
 ): Promise<Id<"commands">> {
-  await requireReachable(ctx, session, type);
+  await requireReachable(ctx, session, type, extra);
   const now = Date.now();
   return await ctx.db.insert("commands", {
     userId: viewer.user._id,
@@ -321,7 +334,14 @@ export const retry = mutation({
     const starting = isStarting(session) && !session.online;
     const type =
       command.type === "prompt" && starting ? "create" : command.type === "create" && !starting ? "prompt" : command.type;
-    await requireReachable(ctx, session, type);
+    // A `create` keeps its own choice; a prompt that now opens the session takes the one chosen for it.
+    const setup =
+      type !== "create"
+        ? {}
+        : command.type === "create"
+          ? { model: command.model, effort: command.effort }
+          : { model: session.model, effort: session.effort };
+    await requireReachable(ctx, session, type, setup);
     await ctx.db.patch(command._id, {
       type,
       status: "pending",

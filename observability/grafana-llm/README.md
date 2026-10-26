@@ -12,6 +12,12 @@ dashboards read those spans for every provider except Claude and OpenRouter, whi
 twice. crok 2.0.0 and older send no figure; the dashboards price their calls from their tokens.
 Nothing to set up for them.
 
+One exception for Claude: crok after 2.0.2 asks Claude Platform not to export the Claude calls it
+reports itself (Agent Observability made a second, `claude-platform` conversation of each), and
+marks its own span of such a call `crok.unsampled = true`. That span is then the call's only one,
+and the dashboards count it with Claude's: Claude Platform's spans plus crok's marked ones. Older
+crok's Claude calls still reach Claude Platform's export, so their crok spans stay left out.
+
 | File | What it is |
 | --- | --- |
 | `setup.sh` | The guided setup, one subcommand per step. Made for agents to run; people can run it too. |
@@ -68,7 +74,10 @@ Rules:
 - **Claude Platform**: estimated spend by model, token mix (uncached input, cache reads, 5-minute
   and 1-hour cache writes, output), cache hit rate by model, latency and output speed, stop
   reasons, errors, HTTP status, effort, service tier, workspaces, latest requests with their
-  request-id, and server/MCP tools and Managed Agents (collapsed).
+  request-id, and server/MCP tools and Managed Agents (collapsed). Requests, spend, tokens, cache
+  hit rate, thinking share, latency, errors and the latest requests include the Claude calls crok
+  reports in Claude Platform's place (spend at crok's own figure); token mix, stop reasons, error
+  types, HTTP status, effort, tier and workspaces are Claude Platform's spans alone.
 - **OpenRouter**: billed spend by model, API key, upstream provider, user and session; tokens;
   latency; finish reasons; errors; latest generations. Filters: model and API key (regex).
 - **Codex, GLM and DeepSeek** (`llm-crok`): what crok reported for providers without traces of
@@ -94,7 +103,7 @@ Rules:
 - **LLM Spend History**: spend, requests, tokens and error rate per day and for any range up to the
   metrics retention (opens on 14 days, as long as the free tier keeps metrics), by provider, Claude
   price group and crok-reported model; week over week: totals, a table per provider (last 7 days,
-  the 7 before, change) and each day against the same weekday a week earlier. Fed by 64 recording
+  the 7 before, change) and each day against the same weekday a week earlier. Fed by 70 recording
   rules (group `llm-history`) from the day they are installed, plus, after `setup.sh backfill`,
   daily totals from the providers' usage APIs for the time before and any window the rules missed.
 
@@ -178,16 +187,29 @@ Checked against Grafana Cloud Traces (Tempo) on 2026-10-15. If Grafana changes t
 - The recording rules only run while the hosted Grafana runs them. On 2026-10-15 four evaluations
   (21:39:50 to 22:09:50 UTC) were skipped while nobody used the stack; all rules reported
   healthy, and Grafana does not evaluate skipped windows later. `backfill.py plan` lists such gaps.
-- crok sends a W3C `traceparent` with its Claude requests, so a crok session's Claude calls are one
+- crok sends a W3C `traceparent` with its Claude requests, so a crok turn's Claude calls are one
   trace whose root reads "<root span not yet received>". That is expected. crok's own spans (below)
-  are separate one-span traces.
+  are separate traces. From the release after 2.0.2, a Claude call crok reports to Agent
+  Observability goes out with that `traceparent` marked not sampled, and Claude Platform exports
+  nothing for it (Agent Observability showed every Claude Platform trace as a `claude-platform`
+  conversation, so each crok turn appeared twice). Claude Platform still exports what crok does not
+  report: compaction calls, and every call while crok's reporting is off
+  (`CROK_AGENT_OBSERVABILITY=0`).
+- crok's span of such a call carries `crok.unsampled = true` and, beside the SDK's own names, its
+  cache reads and thinking tokens as `gen_ai.usage.cache_read.input_tokens` and
+  `gen_ai.usage.reasoning.output_tokens` (zeros included, as Claude Platform sends them). With
+  those, one filter (`claude_calls()` in `build_dashboards.py`) reads both sources' spans for
+  counts, tokens, durations and the cache and thinking ratios; a sum of two sources inside one
+  TraceQL expression would come back empty whenever one of them has no spans. Spend stays two
+  queries (Claude Platform's from `prices.json`, crok's `crok.cost.usd`) that Grafana adds up. The
+  history records crok's part as `provider="claude", reporter="crok"` (spend `price_group="crok"`).
 - crok's own spans (service.name `crok`, name `streamText <model>`, kind client) come from the
   agento11y SDK: `gen_ai.provider.name` (`openai` for Codex, `zai` for GLM, `deepseek`, `xai`, or
   the host), request and response model, `gen_ai.usage.input_tokens` (the whole prompt, cache
   included), `output_tokens`, `cache_read_input_tokens`, `cache_write_input_tokens`,
   `reasoning_tokens`, `error.category`, and crok's additions `crok.cost.usd`, `crok.cost.source`,
-  `crok.backend` and `crok.cancelled`. The SDK sets a token attribute only when it is not zero,
-  so a missing one is zero.
+  `crok.backend`, `crok.cancelled` and `crok.unsampled`. The SDK sets a token attribute only when
+  it is not zero, so a missing one is zero.
 - crok 2.0.0 and older send no `crok.*` attributes; newer crok always sends `crok.backend`, so
   `span.crok.backend = nil` picks the older calls out. Their spend is their tokens at the
   `prices.json` `crok` rates (the same as crok's own table), for the models those releases call
@@ -222,10 +244,11 @@ Checked against Grafana Cloud Traces (Tempo) on 2026-10-15. If Grafana changes t
   (newer crok) and the `crok` table in `prices.json` (calls of crok 2.0.0 and older), then
   `setup.sh dashboards`. Only models those releases can call need a row there.
 - Different service names: set `CLAUDE_SERVICE` / `OPENROUTER_SERVICE` / `CROK_SERVICE`.
-- crok's Claude or OpenRouter calls do not reach those providers' own exports (no Claude Console
-  destination, or a crok build that keeps its Claude calls out of it): set `CROK_SKIP_PROVIDERS`
-  to the providers that do export (for example `openrouter`, or empty for none), then
-  `setup.sh dashboards`.
+- crok's Claude or OpenRouter calls do not reach those providers' own exports at all (no Claude
+  Console destination, say): set `CROK_SKIP_PROVIDERS` to the providers that do export (for
+  example `openrouter`, or empty for none), then `setup.sh dashboards`. The Claude calls crok
+  keeps out of Claude Platform's export itself (`crok.unsampled`) need nothing: they are counted
+  either way.
 - A new provider crok should report by name: add it to `CROK_PROVIDERS` in `build_dashboards.py`
   (history label, `gen_ai.provider.name`). Its earlier history stays under `other`.
 - Fill windows the rules missed: `setup.sh backfill` (`python3 backfill.py plan` lists them first).

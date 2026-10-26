@@ -1,10 +1,11 @@
 //! The Remote panel's data: the person's other computers as `x.ai/remote/sessions` lists them (computers → projects →
-//! sessions), the rows the panel shows for them under the fold state and the filter, and the models a computer offers
-//! (`x.ai/remote/models`).
+//! sessions), with this computer's sessions that other devices started first ("This computer"), the rows the panel
+//! shows for them under the fold state and the filter, and the models a computer offers (`x.ai/remote/models`).
 
 use std::collections::HashMap;
 
 use serde_json::Value;
+use xai_grok_i18n::tl;
 
 use crate::views::session_picker::fuzzy_matches_session;
 
@@ -36,6 +37,8 @@ pub struct Computer {
     pub last_seen_ms: Option<f64>,
     /// In the relay's order.
     pub projects: Vec<Project>,
+    /// This computer: its sessions another device started, which open here as its own (by their crok ids).
+    pub here: bool,
 }
 
 impl Computer {
@@ -70,6 +73,8 @@ pub struct Session {
     pub starting: bool,
     pub last_activity_ms: Option<f64>,
     pub unread: u64,
+    /// A session of this computer: the device that started it (`iPhone`, `Web`).
+    pub from: Option<String>,
 }
 
 /// What a session is doing, for its row.
@@ -93,59 +98,150 @@ impl Session {
     }
 }
 
-/// The `x.ai/remote/sessions` payload (also the `x.ai/remote/sessions_changed` notification's): whether this computer
-/// is signed in, and its other computers in the relay's order.
-pub fn parse_sessions(payload: &Value) -> (bool, Vec<Computer>) {
-    let signed_in = payload.get("signedIn").and_then(Value::as_bool) == Some(true);
-    let computers = list(payload, "computers")
-        .filter_map(|computer| {
-            let device_id = text(computer, "deviceId")?;
-            let projects: Vec<Project> = list(computer, "projects")
-                .filter_map(|project| {
-                    let path = text(project, "path")?;
-                    let sessions = list(project, "sessions")
-                        .filter_map(|session| {
-                            let session_id = text(session, "sessionId")?;
-                            Some(Session {
-                                session_id,
-                                title: text(session, "title").unwrap_or_default(),
-                                cwd: text(session, "cwd").unwrap_or_default(),
-                                status: text(session, "status").unwrap_or_default(),
-                                starting: session.get("starting").and_then(Value::as_bool)
-                                    == Some(true),
-                                last_activity_ms: session
-                                    .get("lastActivityAt")
-                                    .and_then(Value::as_f64),
-                                unread: session.get("unread").and_then(Value::as_u64).unwrap_or(0),
-                            })
-                        })
-                        .collect();
-                    Some(Project {
-                        name: text(project, "name").unwrap_or_else(|| path.clone()),
-                        path,
-                        sessions,
-                    })
-                })
-                .collect();
-            let newest = projects
-                .iter()
-                .flat_map(|p| &p.sessions)
-                .filter_map(|s| s.last_activity_ms)
-                .fold(None, |newest: Option<f64>, at| {
-                    Some(newest.map_or(at, |n| n.max(at)))
-                });
-            Some(Computer {
-                name: text(computer, "deviceName").unwrap_or_else(|| device_id.clone()),
-                device_id,
-                online: computer.get("online").and_then(Value::as_bool) == Some(true),
-                last_seen_ms: computer
-                    .get("lastSeenAt")
-                    .and_then(Value::as_f64)
-                    .or(newest),
-                projects,
+/// One of this computer's sessions that another device started (`here` in `x.ai/remote/sessions`), newest first.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StartedHere {
+    /// Its crok session id.
+    pub session_id: String,
+    pub title: String,
+    pub cwd: String,
+    pub project_path: String,
+    pub status: String,
+    pub last_activity_ms: Option<f64>,
+    /// The device that started it.
+    pub from: String,
+}
+
+pub fn parse_here(payload: &Value) -> Vec<StartedHere> {
+    let Some(here) = payload.get("here") else {
+        return Vec::new();
+    };
+    list(here, "sessions")
+        .filter_map(|session| {
+            let session_id = text(session, "sessionId")?;
+            let cwd = text(session, "cwd").unwrap_or_default();
+            Some(StartedHere {
+                title: text(session, "title").unwrap_or_default(),
+                project_path: text(session, "projectPath").unwrap_or_else(|| cwd.clone()),
+                cwd,
+                status: text(session, "status").unwrap_or_default(),
+                last_activity_ms: session.get("lastActivityAt").and_then(Value::as_f64),
+                from: session
+                    .get("startedFrom")
+                    .and_then(|from| text(from, "name"))
+                    .unwrap_or_default(),
+                session_id,
             })
         })
-        .collect();
+        .collect()
+}
+
+/// "This computer", for the panel: the sessions other devices started here, by project (in the order of their newest
+/// session). `None` when there are none.
+fn here_computer(payload: &Value) -> Option<Computer> {
+    let sessions = parse_here(payload);
+    if sessions.is_empty() {
+        return None;
+    }
+    let mut projects: Vec<Project> = Vec::new();
+    for session in sessions {
+        let path = session.project_path.clone();
+        let at = match projects.iter().position(|p| p.path == path) {
+            Some(at) => at,
+            None => {
+                let name = std::path::Path::new(&path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| path.clone());
+                projects.push(Project {
+                    name,
+                    path,
+                    sessions: Vec::new(),
+                });
+                projects.len() - 1
+            }
+        };
+        if let Some(project) = projects.get_mut(at) {
+            project.sessions.push(Session {
+                session_id: session.session_id,
+                title: session.title,
+                cwd: session.cwd,
+                status: session.status,
+                starting: false,
+                last_activity_ms: session.last_activity_ms,
+                unread: 0,
+                from: (!session.from.is_empty()).then_some(session.from),
+            });
+        }
+    }
+    let device_id = payload
+        .get("here")
+        .and_then(|here| text(here, "deviceId"))
+        .unwrap_or_else(|| "here".to_string());
+    Some(Computer {
+        device_id,
+        name: tl("This computer").to_string(),
+        online: true,
+        last_seen_ms: None,
+        projects,
+        here: true,
+    })
+}
+
+/// The `x.ai/remote/sessions` payload (also the `x.ai/remote/sessions_changed` notification's): whether this computer
+/// is signed in, and its other computers in the relay's order, after this computer when other devices started
+/// sessions on it.
+pub fn parse_sessions(payload: &Value) -> (bool, Vec<Computer>) {
+    let signed_in = payload.get("signedIn").and_then(Value::as_bool) == Some(true);
+    let others = list(payload, "computers").filter_map(|computer| {
+        let device_id = text(computer, "deviceId")?;
+        let projects: Vec<Project> = list(computer, "projects")
+            .filter_map(|project| {
+                let path = text(project, "path")?;
+                let sessions = list(project, "sessions")
+                    .filter_map(|session| {
+                        let session_id = text(session, "sessionId")?;
+                        Some(Session {
+                            session_id,
+                            title: text(session, "title").unwrap_or_default(),
+                            cwd: text(session, "cwd").unwrap_or_default(),
+                            status: text(session, "status").unwrap_or_default(),
+                            starting: session.get("starting").and_then(Value::as_bool)
+                                == Some(true),
+                            last_activity_ms: session.get("lastActivityAt").and_then(Value::as_f64),
+                            unread: session.get("unread").and_then(Value::as_u64).unwrap_or(0),
+                            from: None,
+                        })
+                    })
+                    .collect();
+                Some(Project {
+                    name: text(project, "name").unwrap_or_else(|| path.clone()),
+                    path,
+                    sessions,
+                })
+            })
+            .collect();
+        let newest = projects
+            .iter()
+            .flat_map(|p| &p.sessions)
+            .filter_map(|s| s.last_activity_ms)
+            .fold(None, |newest: Option<f64>, at| {
+                Some(newest.map_or(at, |n| n.max(at)))
+            });
+        Some(Computer {
+            name: text(computer, "deviceName").unwrap_or_else(|| device_id.clone()),
+            device_id,
+            online: computer.get("online").and_then(Value::as_bool) == Some(true),
+            last_seen_ms: computer
+                .get("lastSeenAt")
+                .and_then(Value::as_f64)
+                .or(newest),
+            projects,
+            here: false,
+        })
+    });
+    let computers = here_computer(payload).into_iter().chain(others).collect();
     (signed_in, computers)
 }
 

@@ -296,6 +296,7 @@ fn test_app() -> AppView {
         screen_mode: crate::app::ScreenMode::Inline,
         pending_screen_mode_switch: None,
         pending_effects: Vec::new(),
+        remote_here: Default::default(),
         pending_editor: None,
         pending_pager_path: None,
         pending_pager_ansi: false,

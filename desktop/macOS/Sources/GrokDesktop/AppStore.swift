@@ -59,6 +59,9 @@ final class AppStore: ObservableObject {
     var remoteTurns: [UUID: String] = [:]
     /// The person's other computers and their sessions, from the remote host (see `RemoteSessions.swift`).
     @Published var remoteComputers: [RemoteComputer] = []
+    /// This Mac's sessions that another device started and that are working there now (crok session ids): their
+    /// tasks show as working while no harness of this app runs them.
+    @Published var workingElsewhere: Set<String> = []
     /// The background harness that keeps this Mac reachable and lists the other computers.
     var remoteHost: ACPClient?
     /// The host's key among the bridges `remoteLink` combines.

@@ -5,7 +5,7 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { fail, requireHost, requireViewer } from "./lib/auth";
 import { ensureProject, inferProjectPath } from "./lib/projects";
-import { appendNotice, isStarting, supports } from "./lib/starting";
+import { appendNotice, isStarting, opensWithSetup, supports } from "./lib/starting";
 import {
   eventKind,
   hostApp,
@@ -29,6 +29,12 @@ const DEVICE_SEEN_GRANULARITY_MS = 5 * 60 * 1000;
 const INLINE_DELETE_LIMIT = 2_000;
 /** A computer lists its sessions at most this often, whichever of its crok processes does it. */
 const CATALOG_INTERVAL_MS = 10 * 60 * 1000;
+/** How often a holder that sends what changed in between (`catalogUpdate`) lists everything again. */
+const CATALOG_RESYNC_MS = 30 * 60 * 1000;
+/** A crok asks every CATALOG_INTERVAL_MS, counted from a moment before its last upload ended. */
+const CATALOG_SLACK_MS = 60 * 1000;
+/** Sessions deleted on a computer that one catalog update drops at most. */
+const MAX_CATALOG_REMOVED = 500;
 /** A catalog upload that has not finished in this long is abandoned; another process may start one. */
 const CATALOG_STALE_MS = 2 * 60 * 1000;
 const MAX_CATALOG_PER_CALL = 100;
@@ -102,6 +108,7 @@ export const connect = mutation({
         features: args.features,
       });
       await setHostSessionsOnline(ctx, hostId, true);
+      await setCatalogHolderGone(ctx, existing, false);
     } else {
       hostId = await ctx.db.insert("hosts", {
         userId: viewer.user._id,
@@ -146,7 +153,10 @@ export const heartbeat = mutation({
     const now = Date.now();
     const { viewer, host } = await requireHost(ctx, hostId);
     await ctx.db.patch(hostId, { lastSeenAt: now, ...(host.online ? {} : { online: true }) });
-    if (!host.online) await setHostSessionsOnline(ctx, hostId, true);
+    if (!host.online) {
+      await setHostSessionsOnline(ctx, hostId, true);
+      await setCatalogHolderGone(ctx, host, false);
+    }
     await markDeviceOnline(ctx, viewer.device, now);
     return { serverTime: now };
   },
@@ -165,6 +175,7 @@ export const disconnect = mutation({
 export async function markHostOffline(ctx: MutationCtx, host: Doc<"hosts">) {
   if (host.online) await ctx.db.patch(host._id, { online: false });
   await setHostSessionsOnline(ctx, host._id, false);
+  await setCatalogHolderGone(ctx, host, true);
   const others = await ctx.db
     .query("hosts")
     .withIndex("by_device", (q) => q.eq("deviceId", host.deviceId))
@@ -452,6 +463,8 @@ export const pushEvents = mutation({
 function forHost(command: Doc<"commands">, session: Doc<"sessions"> | null, host: Doc<"hosts">): boolean {
   if (!session) return false;
   if (!supports(host, command.type)) return false;
+  // An older crok would open it on its own default model.
+  if (command.type === "create" && !opensWithSetup(host, command)) return false;
   if (command.type === "history") return session.deviceId === host.deviceId && !session.online;
   // A git read runs in the session's folder without opening it; any crok of that computer can serve it.
   if (command.type === "git") return session.deviceId === host.deviceId;
@@ -531,7 +544,13 @@ export const inbox = query({
     )
       .filter((s) => s.online)
       .map((s) => s.sessionId);
-    return { commands, views, hosted, serverTime: now };
+    // Nobody keeps this computer's list of sessions current: the first crok here to ask does (`beginCatalog`).
+    const catalog = await ctx.db
+      .query("catalogSyncs")
+      .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))
+      .unique();
+    const catalogWanted = !catalog || catalog.released === true;
+    return { commands, views, hosted, catalogWanted, serverTime: now };
   },
 });
 
@@ -718,25 +737,55 @@ export async function settleHistory(ctx: MutationCtx, sessionDocId: Id<"sessions
 // MARK: Catalog: every session on the computer's disk, not only the running ones.
 
 /**
- * Starts listing this computer's sessions, unless another of its crok processes did within the last few minutes or
- * is doing it now. Returns the upload's id, or null when there is nothing to do.
+ * The host holding its computer's catalog went offline (`gone`) or came back. While it is gone, every crok there sees
+ * `catalogWanted` in its inbox, and the first to ask lists the sessions (`beginCatalog`).
+ */
+async function setCatalogHolderGone(ctx: MutationCtx, host: Doc<"hosts">, gone: boolean) {
+  const sync = await ctx.db
+    .query("catalogSyncs")
+    .withIndex("by_device", (q) => q.eq("deviceId", host.deviceId))
+    .unique();
+  if (!sync || sync.hostId !== host._id || Boolean(sync.released) === gone) return;
+  await ctx.db.patch(sync._id, { released: gone ? true : undefined });
+}
+
+/**
+ * Whether a crok process keeps its computer's catalog current between uploads (`catalogUpdate`): one that says so
+ * (`catalog`) and is still running. While such a process holds the catalog, no other one lists the computer again.
+ */
+function keepsCatalogCurrent(host: Doc<"hosts"> | null): boolean {
+  return Boolean(host?.online && host.features?.includes("catalog"));
+}
+
+/**
+ * Starts listing this computer's sessions. The process that last listed them (the holder) lists them again every
+ * CATALOG_RESYNC_MS when it sends what changes in between, else every CATALOG_INTERVAL_MS. Another process takes over
+ * at once when the holder is gone (so a computer whose crok starts again lists its sessions right away), or after
+ * CATALOG_INTERVAL_MS when the holder is an older crok that sends nothing in between. Returns the upload's id, or null
+ * when there is nothing to do.
  */
 export const beginCatalog = mutation({
   args: { hostId: v.id("hosts") },
   handler: async (ctx, { hostId }) => {
-    const { viewer } = await requireHost(ctx, hostId);
+    const { viewer, host } = await requireHost(ctx, hostId);
     const now = Date.now();
     const last = await ctx.db
       .query("catalogSyncs")
       .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))
       .unique();
     if (last) {
-      if (last.finishedAt !== undefined && now - last.finishedAt < CATALOG_INTERVAL_MS) return null;
-      if (last.finishedAt === undefined && now - last.startedAt < CATALOG_STALE_MS) return null;
+      const holder = last.hostId === hostId ? null : await ctx.db.get(last.hostId);
+      const holderRunning = last.hostId === hostId || Boolean(holder?.online);
+      if (last.finishedAt === undefined && holderRunning && now - last.startedAt < CATALOG_STALE_MS) return null;
+      if (last.finishedAt !== undefined && holderRunning) {
+        if (last.hostId !== hostId && keepsCatalogCurrent(holder)) return null;
+        const interval = last.hostId === hostId && keepsCatalogCurrent(host) ? CATALOG_RESYNC_MS : CATALOG_INTERVAL_MS;
+        if (now - last.finishedAt < interval - CATALOG_SLACK_MS) return null;
+      }
     }
     const syncId = `${hostId}-${now}`;
     if (last) {
-      await ctx.db.patch(last._id, { hostId, syncId, startedAt: now, finishedAt: undefined });
+      await ctx.db.patch(last._id, { hostId, syncId, startedAt: now, finishedAt: undefined, released: undefined });
     } else {
       await ctx.db.insert("catalogSyncs", { deviceId: viewer.device._id, hostId, syncId, startedAt: now });
     }
@@ -758,6 +807,8 @@ const catalogEntry = v.object({
   preview: v.optional(v.string()),
 });
 
+type CatalogEntry = typeof catalogEntry.type;
+
 async function requireCatalog(ctx: MutationCtx, deviceId: Id<"devices">, hostId: Id<"hosts">, syncId: string) {
   const sync = await ctx.db
     .query("catalogSyncs")
@@ -770,79 +821,107 @@ async function requireCatalog(ctx: MutationCtx, deviceId: Id<"devices">, hostId:
 }
 
 /**
- * Up to 100 sessions from the computer's disk. New ones are added (offline, transcript not here yet); known ones are
- * updated only where something changed, and not at all while a running crok mirrors them (it knows better).
+ * Adds or updates catalog rows. New ones are added (offline, transcript not here yet); known ones are updated only
+ * where something changed, and not at all while a running crok mirrors them (it knows better). Returns how many were
+ * added.
  */
+async function applyCatalog(
+  ctx: MutationCtx,
+  viewer: { user: Doc<"users">; device: Doc<"devices"> },
+  host: Doc<"hosts">,
+  sessions: CatalogEntry[],
+): Promise<number> {
+  const projects = new Set<string>();
+  let added = 0;
+  for (const entry of sessions) {
+    const title = entry.title.trim().slice(0, 200);
+    const preview = entry.preview?.replace(/\s+/g, " ").trim().slice(0, 280) || undefined;
+    if (!projects.has(entry.projectPath)) {
+      await ensureProject(ctx, viewer.user._id, viewer.device._id, entry.projectPath);
+      projects.add(entry.projectPath);
+    }
+    const existing = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", entry.sessionId))
+      .unique();
+    if (!existing) {
+      await ctx.db.insert("sessions", {
+        userId: viewer.user._id,
+        deviceId: viewer.device._id,
+        hostId: host._id,
+        sessionId: entry.sessionId,
+        app: host.app,
+        projectPath: entry.projectPath,
+        title: title || "New session",
+        cwd: entry.cwd,
+        model: entry.model,
+        effort: entry.effort,
+        gitBranch: entry.gitBranch,
+        status: "idle",
+        online: false,
+        preview,
+        previewKind: preview ? "assistant" : undefined,
+        createdAt: entry.createdAt,
+        lastActivityAt: entry.lastActivityAt,
+        eventSeq: 0,
+        assistantCount: 0,
+        readAssistantCount: 0,
+        historyState: "none",
+      });
+      added += 1;
+      continue;
+    }
+    if (existing.deviceId !== viewer.device._id) continue;
+    const patch: Partial<Doc<"sessions">> = {};
+    if (existing.projectPath !== entry.projectPath) patch.projectPath = entry.projectPath;
+    if (!existing.online) {
+      if (title && title !== existing.title) patch.title = title;
+      if (entry.cwd && entry.cwd !== existing.cwd) patch.cwd = entry.cwd;
+      if (entry.model && entry.model !== existing.model) patch.model = entry.model;
+      if (entry.gitBranch && entry.gitBranch !== existing.gitBranch) patch.gitBranch = entry.gitBranch;
+      // A minute of slack: the computer's clock and the relay's differ, and summaries are written after the last event.
+      if (entry.lastActivityAt > existing.lastActivityAt + 60_000) patch.lastActivityAt = entry.lastActivityAt;
+      // The transcript's own preview wins once it is here.
+      if (preview && existing.eventSeq === 0 && preview !== existing.preview) {
+        patch.preview = preview;
+        patch.previewKind = "assistant";
+      }
+      // It ran somewhere the relay did not see since: read it again when opened.
+      if (patch.lastActivityAt !== undefined && existing.historyState === "ready") patch.historyState = "none";
+      if (patch.lastActivityAt !== undefined && existing.historyState === undefined && existing.eventSeq > 0) {
+        patch.historyState = "none";
+      }
+    }
+    if (Object.keys(patch).length > 0) await ctx.db.patch(existing._id, patch);
+  }
+  return added;
+}
+
+/** Drops a session deleted on its computer, with its transcript. */
+async function dropSession(ctx: MutationCtx, session: Doc<"sessions">) {
+  await ctx.db.delete(session._id);
+  await ctx.scheduler.runAfter(0, internal.maintenance.deleteSessionEvents, {
+    sessionDocId: session._id,
+    throughSeq: Number.MAX_SAFE_INTEGER,
+  });
+}
+
+/**
+ * Whether the relay may drop a session its computer no longer lists: not while a crok runs it, nor a new session made
+ * from another device (not on the computer's disk until it opens).
+ */
+function droppable(session: Doc<"sessions">): boolean {
+  return !session.online && !isStarting(session);
+}
+
+/** Up to 100 sessions from the computer's disk (`applyCatalog`). */
 export const catalogBatch = mutation({
   args: { hostId: v.id("hosts"), syncId: v.string(), sessions: v.array(catalogEntry) },
   handler: async (ctx, { hostId, syncId, sessions }) => {
     const { viewer, host } = await requireHost(ctx, hostId);
     if (sessions.length > MAX_CATALOG_PER_CALL) fail("INVALID", `At most ${MAX_CATALOG_PER_CALL} sessions per call.`);
     await requireCatalog(ctx, viewer.device._id, hostId, syncId);
-    const projects = new Set<string>();
-    let added = 0;
-    for (const entry of sessions) {
-      const title = entry.title.trim().slice(0, 200);
-      const preview = entry.preview?.replace(/\s+/g, " ").trim().slice(0, 280) || undefined;
-      if (!projects.has(entry.projectPath)) {
-        await ensureProject(ctx, viewer.user._id, viewer.device._id, entry.projectPath);
-        projects.add(entry.projectPath);
-      }
-      const existing = await ctx.db
-        .query("sessions")
-        .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", entry.sessionId))
-        .unique();
-      if (!existing) {
-        await ctx.db.insert("sessions", {
-          userId: viewer.user._id,
-          deviceId: viewer.device._id,
-          hostId,
-          sessionId: entry.sessionId,
-          app: host.app,
-          projectPath: entry.projectPath,
-          title: title || "New session",
-          cwd: entry.cwd,
-          model: entry.model,
-          effort: entry.effort,
-          gitBranch: entry.gitBranch,
-          status: "idle",
-          online: false,
-          preview,
-          previewKind: preview ? "assistant" : undefined,
-          createdAt: entry.createdAt,
-          lastActivityAt: entry.lastActivityAt,
-          eventSeq: 0,
-          assistantCount: 0,
-          readAssistantCount: 0,
-          historyState: "none",
-        });
-        added += 1;
-        continue;
-      }
-      if (existing.deviceId !== viewer.device._id) continue;
-      const patch: Partial<Doc<"sessions">> = {};
-      if (existing.projectPath !== entry.projectPath) patch.projectPath = entry.projectPath;
-      if (!existing.online) {
-        if (title && title !== existing.title) patch.title = title;
-        if (entry.cwd && entry.cwd !== existing.cwd) patch.cwd = entry.cwd;
-        if (entry.model && entry.model !== existing.model) patch.model = entry.model;
-        if (entry.gitBranch && entry.gitBranch !== existing.gitBranch) patch.gitBranch = entry.gitBranch;
-        // A minute of slack: the computer's clock and the relay's differ, and summaries are written after the last event.
-        if (entry.lastActivityAt > existing.lastActivityAt + 60_000) patch.lastActivityAt = entry.lastActivityAt;
-        // The transcript's own preview wins once it is here.
-        if (preview && existing.eventSeq === 0 && preview !== existing.preview) {
-          patch.preview = preview;
-          patch.previewKind = "assistant";
-        }
-        // It ran somewhere the relay did not see since: read it again when opened.
-        if (patch.lastActivityAt !== undefined && existing.historyState === "ready") patch.historyState = "none";
-        if (patch.lastActivityAt !== undefined && existing.historyState === undefined && existing.eventSeq > 0) {
-          patch.historyState = "none";
-        }
-      }
-      if (Object.keys(patch).length > 0) await ctx.db.patch(existing._id, patch);
-    }
-    return { added };
+    return { added: await applyCatalog(ctx, viewer, host, sessions) };
   },
 });
 
@@ -863,16 +942,11 @@ export const finishCatalog = mutation({
     const used = new Set<string>();
     let removed = 0;
     for (const session of sessions) {
-      // A new session made from another device is not on this computer's disk until it opens.
-      if (session.online || listed.has(session.sessionId) || isStarting(session)) {
+      if (!droppable(session) || listed.has(session.sessionId)) {
         used.add(session.projectPath || session.cwd);
         continue;
       }
-      await ctx.db.delete(session._id);
-      await ctx.scheduler.runAfter(0, internal.maintenance.deleteSessionEvents, {
-        sessionDocId: session._id,
-        throughSeq: Number.MAX_SAFE_INTEGER,
-      });
+      await dropSession(ctx, session);
       removed += 1;
     }
     const projects = await ctx.db
@@ -884,5 +958,61 @@ export const finishCatalog = mutation({
     }
     await ctx.db.patch(sync._id, { finishedAt: Date.now() });
     return { removed };
+  },
+});
+
+/**
+ * What changed on the computer's disk since the holder's last upload or update: sessions that are new or changed
+ * there (`applyCatalog`, at most 100), and `removed`, the ids of sessions deleted there (dropped while no crok runs
+ * them; a project left empty goes with them). Only the process holding the catalog sends it (`EXPIRED` once another
+ * took it over: that one uploads everything anew). Updates come at most every few seconds, and only when something
+ * changed, so every device lists a session made, renamed or deleted by any crok of that computer soon after.
+ */
+export const catalogUpdate = mutation({
+  args: {
+    hostId: v.id("hosts"),
+    syncId: v.string(),
+    sessions: v.array(catalogEntry),
+    removed: v.array(v.string()),
+  },
+  handler: async (ctx, { hostId, syncId, sessions, removed }) => {
+    const { viewer, host } = await requireHost(ctx, hostId);
+    if (sessions.length > MAX_CATALOG_PER_CALL) fail("INVALID", `At most ${MAX_CATALOG_PER_CALL} sessions per call.`);
+    if (removed.length > MAX_CATALOG_REMOVED) fail("INVALID", `At most ${MAX_CATALOG_REMOVED} removals per call.`);
+    const sync = await ctx.db
+      .query("catalogSyncs")
+      .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))
+      .unique();
+    if (!sync || sync.syncId !== syncId || sync.hostId !== hostId || sync.finishedAt === undefined) {
+      fail("EXPIRED", "Another crok on this computer lists its sessions now.");
+    }
+    const added = await applyCatalog(ctx, viewer, host, sessions);
+    const emptied = new Set<string>();
+    let dropped = 0;
+    for (const sessionId of removed) {
+      const session = await ctx.db
+        .query("sessions")
+        .withIndex("by_user_session", (q) => q.eq("userId", viewer.user._id).eq("sessionId", sessionId))
+        .unique();
+      if (!session || session.deviceId !== viewer.device._id || !droppable(session)) continue;
+      await dropSession(ctx, session);
+      emptied.add(session.projectPath || session.cwd);
+      dropped += 1;
+    }
+    if (emptied.size > 0) {
+      const left = await ctx.db
+        .query("sessions")
+        .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))
+        .collect();
+      for (const session of left) emptied.delete(session.projectPath || session.cwd);
+      for (const path of emptied) {
+        const project = await ctx.db
+          .query("projects")
+          .withIndex("by_device_path", (q) => q.eq("deviceId", viewer.device._id).eq("path", path))
+          .unique();
+        if (project) await ctx.db.delete(project._id);
+      }
+    }
+    return { added, removed: dropped };
   },
 });

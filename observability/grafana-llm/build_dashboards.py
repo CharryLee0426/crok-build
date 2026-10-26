@@ -5,8 +5,10 @@ The dashboards read the OpenTelemetry spans that Claude Platform (service.name "
 and OpenRouter Broadcast (service.name "openrouter") send to Grafana Cloud, plus the span crok sends
 of every call itself (service.name "crok", through its Agent Observability bridge) for providers
 that export nothing of their own: OpenAI Codex, GLM, DeepSeek and the rest. crok's spans of Claude
-and OpenRouter calls are left out, because those providers' own spans already count them. The
-dashboards come out as gcx resource manifests: push them with
+and OpenRouter calls are left out, because those providers' own spans already count them, except
+the Claude calls crok asked Claude Platform not to export (`crok.unsampled`, crok after 2.0.2):
+their crok span is the only one, and it counts with Claude's. The dashboards come out as gcx
+resource manifests: push them with
 
     gcx resources push -p observability/grafana-llm/dashboards
 
@@ -111,6 +113,11 @@ COLUMNS = {
 CROK_PROVIDERS = [("codex", "openai"), ("glm", "zai"), ("deepseek", "deepseek")]
 # The history series of everything crok reports for.
 CROK_HISTORY_SEL = f'provider=~"{"|".join(label for label, _ in CROK_PROVIDERS)}|other"'
+# crok's span of a Claude call it sent with an unsampled traceparent (crok after 2.0.2), which
+# Claude Platform therefore did not export: the call's only span, counted with Claude's. Older
+# crok's Claude calls have a Claude Platform span, so their crok spans stay left out. The span
+# also carries the cache reads and thinking tokens under Claude Platform's attribute names.
+UNSAMPLED = "span.crok.unsampled=true"
 
 
 class Ctx:
@@ -145,13 +152,33 @@ class Ctx:
                   "&&span.trace.metadata.openrouter.api_key_name=~`$key_re`")
         return f
 
-    def crok_req(self, providers: str = "") -> str:
+    def crok_req(self, providers: str = "", claude: bool = False) -> str:
         """crok's spans of calls to providers that export none: one per call, failed and cancelled
-        ones too. `providers` narrows them to a gen_ai.provider.name regex."""
+        ones too. `providers` narrows them to a gen_ai.provider.name regex; `claude` adds the
+        Claude calls Claude Platform did not export (crok_claude_req)."""
         f = f'resource.service.name="{self.crok}"'
         if providers:
             return f + f'&&span.gen_ai.provider.name=~"{providers}"'
-        return f + (f'&&span.gen_ai.provider.name!~"{self.crok_skip}"' if self.crok_skip else "")
+        if not self.crok_skip:
+            return f
+        kept = f'span.gen_ai.provider.name!~"{self.crok_skip}"'
+        if not claude:
+            return f + f"&&{kept}"
+        # Tempo groups a span that one side of `||` matched as nil by an attribute only the other side
+        # reads, so the provider is read outside it too (checked 2026-10-26; a missing provider never
+        # matched `!~` anyway).
+        return f + f"&&span.gen_ai.provider.name!=nil&&({kept}||{UNSAMPLED})"
+
+    def crok_claude_req(self) -> str:
+        """crok's spans of the Claude calls it asked Claude Platform not to export (UNSAMPLED)."""
+        return f'resource.service.name="{self.crok}"&&{UNSAMPLED}'
+
+    def claude_calls(self) -> str:
+        """Every Claude call once: Claude Platform's request spans, and crok's own span where
+        Claude Platform has none. The attributes both carry: duration, status,
+        gen_ai.request.model, gen_ai.usage.input_tokens / output_tokens, and the two UNSAMPLED
+        copies (cache reads, thinking tokens)."""
+        return f"({self.claude_req()})||({self.crok_claude_req()})"
 
     def turns(self) -> str:
         """crok's turn spans (crok releases after 2.0.1), experiment runs left out."""
@@ -175,7 +202,7 @@ class Ctx:
         return f"{req}&&status=error&&span.crok.cancelled=nil"
 
     def any_req(self) -> str:
-        return f"({self.claude_req()})||({self.or_req()})||({self.crok_req()})"
+        return f"({self.claude_req()})||({self.or_req()})||({self.crok_req(claude=True)})"
 
     def any_failed(self) -> str:
         # Claude Platform and OpenRouter spans never carry crok.cancelled, so one filter fits all three.
@@ -414,10 +441,12 @@ def summed_by_name(panel: dict) -> dict:
 
 
 def provider_names() -> list[dict]:
-    """crok's provider names as the dashboards call them (openai -> codex, zai -> glm), for series
-    named by gen_ai.provider.name alone or followed by a space (`openai p95`, `zai · rate_limit`)."""
+    """crok's provider names as the dashboards call them (openai -> codex, zai -> glm, and anthropic
+    -> claude (crok), the Claude calls only crok's span counts), for series named by
+    gen_ai.provider.name alone or followed by a space (`openai p95`, `zai · rate_limit`)."""
+    names = [(label, span) for label, span in CROK_PROVIDERS if label != span] + [("claude (crok)", "anthropic")]
     return [{"id": "renameByRegex", "options": {"regex": f"^{span}((?: .*)?)$", "renamePattern": f"{label}$1"}}
-            for label, span in CROK_PROVIDERS if label != span]
+            for label, span in names]
 
 
 def quantile_names(drop_p: bool = False) -> list[dict]:
@@ -715,6 +744,8 @@ SPEND_NOTE = ("Claude spend is estimated from tokens at standard Claude API list
               "batch, priority-tier and negotiated discounts are not applied. OpenRouter spend is the cost OpenRouter billed.")
 OLDER_CROK_NOTE = ("crok 2.0.0 and older report no cost, so their calls are priced here from their tokens at the same standard "
                    "API prices (prices.json), DeepSeek at its off-peak rate (its peak hours cost twice as much).")
+CROK_CLAUDE_NOTE = (" crok after 2.0.2 asks Claude Platform not to export the Claude calls it reports itself, so those calls count "
+                    "from crok's own span (its cost is crok's figure at the same list prices).")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -730,11 +761,11 @@ def overview(ctx: Ctx) -> Board:
     anyq = f"{{{ctx.any_req()}}}"
     exported = f"{{({ctx.claude_req()})||({ctx.or_req()})}}"
     ors = f"{{{ctx.or_req()}}}"
-    cl = f"{{{ctx.claude_req()}}}"
-    ck = f"{{{ctx.crok_req()}}}"
+    calls = f"{{{ctx.claude_calls()}}}"
+    ck = f"{{{ctx.crok_req(claude=True)}}}"
     spend_note = SPEND_NOTE.format(read_on=ctx.prices["read_on"])
     crok_spend_note = (spend_note + " The rest is what crok worked out per call: the provider's cost when it reports one, else "
-                       "the model's standard API price. " + OLDER_CROK_NOTE)
+                       "the model's standard API price. " + OLDER_CROK_NOTE + CROK_CLAUDE_NOTE)
     # Claude Platform and OpenRouter by source, crok's own reports by provider (codex, glm, deepseek, ...).
     by_source = lambda q: [target(q(exported, "resource.service.name")), target(q(ck, "span.gen_ai.provider.name"))]
 
@@ -749,10 +780,11 @@ def overview(ctx: Ctx) -> Board:
                unit="currencyUSD", decimals=2, color="green", no_value="$0", total=True, desc=crok_spend_note), 4, 4)
     b.add(stat("Tokens", [target(f"({anyq}|sum_over_time(span.gen_ai.usage.input_tokens))+({anyq}|sum_over_time(span.gen_ai.usage.output_tokens))", instant=True)],
                desc="Input plus output tokens. Input includes prompt-cache reads and writes.", total=True), 4, 4)
-    b.add(stat("Claude cache hit rate", [target(f"({cl}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({cl}|sum_over_time(span.gen_ai.usage.input_tokens))", instant=True)],
+    b.add(stat("Claude cache hit rate", [target(f"({calls}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({calls}|sum_over_time(span.gen_ai.usage.input_tokens))", instant=True)],
                unit="percentunit", decimals=1, no_value="–",
                steps=[{"color": "red", "value": None}, {"color": "orange", "value": 0.5}, {"color": "green", "value": 0.8}],
-               desc="Share of Claude input tokens read from the prompt cache. A cache read costs a tenth of input or less, so higher is cheaper. Long agent sessions usually stay above 80%."), 4, 4)
+               desc="Share of Claude input tokens read from the prompt cache. A cache read costs a tenth of input or less, so higher is cheaper. Long agent sessions usually stay above 80%."
+                    + CROK_CLAUDE_NOTE), 4, 4)
     b.add(stat("Error rate", [target(f"({{{ctx.any_failed()}}}|count_over_time())/({anyq}|count_over_time())", instant=True)],
                unit="percentunit", decimals=1, no_value="0%",
                steps=[{"color": "green", "value": None}, {"color": "orange", "value": 0.01}, {"color": "red", "value": 0.05}],
@@ -801,7 +833,7 @@ def overview(ctx: Ctx) -> Board:
                      desc="Call duration percentiles by source (crok's reports by provider). p50 is the median."), 12, 8)
     b.add(timeseries("Errors", [
         target(f"{{(({ctx.claude_req()})||({ctx.or_req()}))&&status=error}}|count_over_time() by(resource.service.name,span.error.type)"),
-        target(f"{{{ctx.failed(ctx.crok_req())}}}|count_over_time() by(span.gen_ai.provider.name,span.error.category)")],
+        target(f"{{{ctx.failed(ctx.crok_req(claude=True))}}}|count_over_time() by(span.gen_ai.provider.name,span.error.category)")],
         bars=True, stack=True, transformations=[TWO_LABELS, *provider_names()],
         desc="Failed calls by source and error type, for example rate_limit_error or overloaded_error; crok's reports by provider "
              "and error category (rate_limit, server_error, auth_error, client_error, timeout, sdk_error for a connection that "
@@ -825,90 +857,111 @@ def overview(ctx: Ctx) -> Board:
 def claude_dashboard(ctx: Ctx) -> Board:
     b = Board(ctx, "llm-claude-platform", "Claude Platform",
               "Messages API traffic from the Claude Platform OpenTelemetry export: spend estimate, prompt cache, latency, "
-              "stop reasons and errors, for every workspace the export covers.", ["claude", "anthropic"])
-    q = f"{{{ctx.claude_req()}}}"
-    spend_note = SPEND_NOTE.format(read_on=ctx.prices["read_on"])
+              "stop reasons and errors, for every workspace the export covers, plus the Claude calls crok after 2.0.2 "
+              "reports itself in Claude Platform's place.", ["claude", "anthropic"])
+    calls = ctx.claude_calls()
+    qa = f"{{{calls}}}"  # every Claude call once
+    q = f"{{{ctx.claude_req()}}}"  # Claude Platform's spans alone, for what only they carry
+    ck = f"{{{ctx.crok_claude_req()}}}"
+    spend_note = SPEND_NOTE.format(read_on=ctx.prices["read_on"]) + CROK_CLAUDE_NOTE
+    platform_only = (" From Claude Platform's spans only: the Claude calls crok after 2.0.2 reports itself carry no such "
+                     "attribute, and are counted in the panels above.")
 
-    def tok(attr, by=""):
-        return f"{q}|sum_over_time({attr})" + (f" by({by})" if by else "")
+    def tok(attr, by="", src=qa):
+        return f"{src}|sum_over_time({attr})" + (f" by({by})" if by else "")
 
     b.row("At a glance (whole time range)")
-    b.add(stat("Requests", [target(f"{q}|count_over_time()", instant=True)], desc="Messages API requests in every covered workspace." + RANGE_NOTE, total=True), 4, 4)
+    b.add(stat("Requests", [target(f"{qa}|count_over_time()", instant=True)],
+               desc="Messages API requests in every covered workspace, and the Claude calls crok reports itself." + RANGE_NOTE,
+               total=True), 4, 4)
     claude_spend, claude_names = claude_cost_targets(ctx, True)
-    b.add(stat("Estimated spend", claude_spend, unit="currencyUSD", decimals=2, color="green", no_value="$0", total=True,
-               desc=spend_note + " Your bill is in the Claude Console under Billing."), 4, 4)
+    crok_spend = lambda by="", instant=False: target(f"{ck}|sum_over_time(span.crok.cost.usd)" + (f" by({by})" if by else ""),
+                                                     instant)
+    b.add(stat("Estimated spend", claude_spend + [crok_spend(instant=True)], unit="currencyUSD", decimals=2, color="green",
+               no_value="$0", total=True, desc=spend_note + " Your bill is in the Claude Console under Billing."), 4, 4)
     b.add(stat("Input tokens", [target(tok("span.gen_ai.usage.input_tokens"), instant=True)], desc="Prompt tokens, cache reads and writes included.", total=True), 4, 4)
     b.add(stat("Output tokens", [target(tok("span.gen_ai.usage.output_tokens"), instant=True)], desc="Generated tokens, thinking included.", total=True), 4, 4)
     b.add(stat("Cache hit rate", [target(f"({tok('span.gen_ai.usage.cache_read.input_tokens')})/({tok('span.gen_ai.usage.input_tokens')})", instant=True)],
                unit="percentunit", decimals=1, no_value="–",
                steps=[{"color": "red", "value": None}, {"color": "orange", "value": 0.5}, {"color": "green", "value": 0.8}],
                desc="Share of input tokens read from the prompt cache. A low value in long sessions means the start of the prompt keeps changing."), 4, 4)
-    b.add(stat("p95 latency", [target(f"{q}|quantile_over_time(duration,.95)", instant=True)], unit="s", decimals=1, no_value="–",
-               desc="95% of requests finished faster than this (bucketed to powers of two)."), 4, 4)
+    b.add(stat("p95 latency", [target(f"{qa}|quantile_over_time(duration,.95)", instant=True)], unit="s", decimals=1, no_value="–",
+               desc="95% of requests finished faster than this (bucketed to powers of two). crok times its own calls from its "
+                    "side, network included."), 4, 4)
 
-    b.add(stat("Error rate", [target(f"({{{ctx.claude_req()}&&status=error}}|count_over_time())/({q}|count_over_time())", instant=True)],
+    b.add(stat("Error rate", [target(f"({{{ctx.failed(f'({calls})')}}}|count_over_time())/({qa}|count_over_time())", instant=True)],
                unit="percentunit", decimals=1, no_value="0%",
                steps=[{"color": "green", "value": None}, {"color": "orange", "value": 0.01}, {"color": "red", "value": 0.05}],
-               desc="Share of requests that failed."), 4, 4)
-    b.add(stat("Rate limited", [target(f"{{{ctx.claude_req()}&&(span.error.type=\"rate_limit_error\"||span.http.response.status_code=429)}}|count_over_time()", instant=True)],
+               desc="Share of requests that failed. A call the user interrupted in crok is not a failure."), 4, 4)
+    limited = (f"({ctx.claude_req()}&&(span.error.type=\"rate_limit_error\"||span.http.response.status_code=429))"
+               f"||({ctx.crok_claude_req()}&&span.error.category=\"rate_limit\")")
+    b.add(stat("Rate limited", [target(f"{{{limited}}}|count_over_time()", instant=True)],
                steps=[{"color": "green", "value": None}, {"color": "orange", "value": 1}],
                desc="Requests refused with 429 / rate_limit_error. If this grows, spread the load or ask for a higher rate limit.", total=True), 4, 4)
-    out_q = f"{{{ctx.claude_req()}&&span.gen_ai.usage.output_tokens>0}}"
+    out_q = f"{{({calls})&&span.gen_ai.usage.output_tokens>0}}"
     b.add(stat("Output speed", [target(f"({out_q}|sum_over_time(span.gen_ai.usage.output_tokens))/({out_q}|sum_over_time(duration))", instant=True)],
                unit="suffix: tok/s", decimals=0, no_value="–",
                desc="Output tokens divided by request time over all requests. Request time includes reading the prompt, so long prompts lower it."), 4, 4)
-    b.add(stat("Avg prompt", [target(f"({tok('span.gen_ai.usage.input_tokens')})/({q}|count_over_time())", instant=True)],
+    b.add(stat("Avg prompt", [target(f"({tok('span.gen_ai.usage.input_tokens')})/({qa}|count_over_time())", instant=True)],
                decimals=0, no_value="–", desc="Average input tokens per request. Agents grow it as a conversation gets longer."), 4, 4)
     b.add(stat("Thinking share", [target(f"({tok('span.gen_ai.usage.reasoning.output_tokens')})/({tok('span.gen_ai.usage.output_tokens')})", instant=True)],
                unit="percentunit", decimals=0, no_value="–", desc="Share of output tokens spent on extended thinking."), 4, 4)
-    b.add(stat("Unpriced model requests", [target(f"{{{ctx.claude_req()}&&span.gen_ai.response.model!~\"{known_claude_models(ctx)}\"}}|count_over_time()", instant=True)],
+    unpriced = (f"({ctx.claude_req()}&&span.gen_ai.response.model!~\"{known_claude_models(ctx)}\")"
+                f"||({ctx.crok_claude_req()}&&status!=error&&span.crok.cost.usd=nil)")
+    b.add(stat("Unpriced model requests", [target(f"{{{unpriced}}}|count_over_time()", instant=True)],
                steps=[{"color": "green", "value": None}, {"color": "orange", "value": 1}],
-               desc="Requests to a model that prices.json does not list, so the spend estimate leaves them out. Add the model to prices.json and rebuild the dashboards.", total=True), 4, 4)
+               desc="Requests to a model that prices.json does not list (or, for crok's own calls, crok's price list), so the "
+                    "spend estimate leaves them out. Add the model to prices.json and rebuild the dashboards.", total=True), 4, 4)
 
     b.row("Spend and tokens")
-    b.add(timeseries("Estimated spend by model", claude_cost_targets(ctx, False)[0], unit="currencyUSD", decimals=3, bars=True, stack=True,
-                     legend="right", transformations=claude_names,
-                     desc="Estimated spend in each time bucket. The legend total is the spend over the range. " + spend_note), 12, 9)
+    b.add(summed_by_name(timeseries("Estimated spend by model", claude_cost_targets(ctx, False)[0] + [crok_spend("span.gen_ai.request.model")],
+                                    unit="currencyUSD", decimals=3, bars=True, stack=True, legend="right", transformations=claude_names,
+                                    desc="Estimated spend in each time bucket. The legend total is the spend over the range. " + spend_note)), 12, 9)
     parts = [
-        ("Uncached input", lambda by: f"({tok('span.gen_ai.usage.input_tokens', by)})-({tok('span.gen_ai.usage.cache_read.input_tokens', by)})-({tok('span.gen_ai.usage.cache_write.input_tokens', by)})"),
-        ("Cache read", lambda by: tok("span.gen_ai.usage.cache_read.input_tokens", by)),
-        ("Cache write, 5 min", lambda by: tok("span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens", by)),
-        ("Cache write, 1 hour", lambda by: tok("span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens", by)),
-        ("Output", lambda by: tok("span.gen_ai.usage.output_tokens", by)),
+        ("Uncached input", lambda by: f"({tok('span.gen_ai.usage.input_tokens', by, q)})-({tok('span.gen_ai.usage.cache_read.input_tokens', by, q)})-({tok('span.gen_ai.usage.cache_write.input_tokens', by, q)})"),
+        ("Cache read", lambda by: tok("span.gen_ai.usage.cache_read.input_tokens", by, q)),
+        ("Cache write, 5 min", lambda by: tok("span.anthropic.usage.cache_creation.ephemeral_5m_input_tokens", by, q)),
+        ("Cache write, 1 hour", lambda by: tok("span.anthropic.usage.cache_creation.ephemeral_1h_input_tokens", by, q)),
+        ("Output", lambda by: tok("span.gen_ai.usage.output_tokens", by, q)),
     ]
     b.add(timeseries("Token mix", [target(build(attr)) for (_, build), (attr, _) in zip(parts, CONSTANT_GROUPS)],
                      bars=True, stack=True, legend="right",
                      transformations=[rename(value, name) for (name, _), (_, value) in zip(parts, CONSTANT_GROUPS)],
-                     desc="Where the tokens go. A cache read costs a tenth of input or less, a cache write 1.25x (5 min) or 2x (1 hour) input, output 5x input."), 12, 9)
+                     desc="Where the tokens go. A cache read costs a tenth of input or less, a cache write 1.25x (5 min) or 2x (1 hour) input, output 5x input."
+                          + platform_only), 12, 9)
     b.add(timeseries("Cache hit rate by model", [target(f"({tok('span.gen_ai.usage.cache_read.input_tokens', 'span.gen_ai.request.model')})/({tok('span.gen_ai.usage.input_tokens', 'span.gen_ai.request.model')})")],
                      unit="percentunit", calcs=("mean", "min"), desc="A sudden drop means the start of the prompt changed: a new system prompt, a changed tool list, or compaction."), 12, 8)
-    b.add(bars("Estimated spend by model", name="Model", value="Estimated spend", targets=claude_spend, unit="currencyUSD", decimals=3, color="green", rename=claude_names,
-               desc="Estimated spend over the time range for each model, largest first. " + spend_note), 12, 8)
+    b.add(bars("Estimated spend by model", name="Model", value="Estimated spend",
+               targets=claude_spend + [crok_spend("span.gen_ai.request.model", instant=True)], unit="currencyUSD", decimals=3,
+               color="green", rename=claude_names, desc="Estimated spend over the time range for each model, largest first. " + spend_note), 12, 8)
 
     b.row("Latency")
-    b.add(timeseries("Request duration by model", [target(f"{q}|quantile_over_time(duration,.5,.95,.99) by(span.gen_ai.request.model)")],
+    b.add(timeseries("Request duration by model", [target(f"{qa}|quantile_over_time(duration,.5,.95,.99) by(span.gen_ai.request.model)")],
                      unit="s", calcs=("mean", "max"), transformations=quantile_names(),
-                     desc="From the API receiving the request to the last token."), 12, 8)
+                     desc="From the API receiving the request to the last token (crok's own calls: from crok sending it)."), 12, 8)
     b.add(timeseries("Output speed by model", [target(f"({out_q}|sum_over_time(span.gen_ai.usage.output_tokens) by(span.gen_ai.request.model))/({out_q}|sum_over_time(duration) by(span.gen_ai.request.model))")],
                      unit="suffix: tok/s", calcs=("mean",), desc="Output tokens per second of request time."), 12, 8)
 
     b.row("Outcomes")
     b.add(pie("Stop reasons", [target(f"{q}|count_over_time() by(span.anthropic.message.stop_reason)", instant=True)],
-              desc="end_turn: finished. tool_use: asked for a tool. max_tokens: cut off, raise max_tokens. refusal: declined. pause_turn: a server tool paused the turn."), 8, 8)
+              desc="end_turn: finished. tool_use: asked for a tool. max_tokens: cut off, raise max_tokens. refusal: declined. pause_turn: a server tool paused the turn."
+                   + platform_only), 8, 8)
     b.add(timeseries("Errors by type", [target(f"{{{ctx.claude_req()}&&status=error}}|count_over_time() by(span.error.type)")],
-                     bars=True, stack=True, desc="Failed requests by error type. rate_limit_error and overloaded_error are worth retrying with backoff."), 8, 8)
+                     bars=True, stack=True, desc="Failed requests by error type. rate_limit_error and overloaded_error are worth retrying with backoff."
+                                                 + platform_only), 8, 8)
     b.add(bars("HTTP status", name="Status", value="Requests", targets=[target(f"{q}|count_over_time() by(span.http.response.status_code)", instant=True)],
-               color="orange", desc="Final HTTP status of each request."), 8, 8)
+               color="orange", desc="Final HTTP status of each request." + platform_only), 8, 8)
     b.add(bars("Effort level", name="Effort", value="Requests", targets=[target(f"{q}|count_over_time() by(span.gen_ai.request.reasoning.level)", instant=True)],
-               color="purple", desc="Requests by the effort set in output_config. (not set) means the request did not set one."), 8, 7)
+               color="purple", desc="Requests by the effort set in output_config. (not set) means the request did not set one." + platform_only), 8, 7)
     b.add(bars("Service tier", name="Tier", value="Requests", targets=[target(f"{q}|count_over_time() by(span.anthropic.response.service_tier)", instant=True)],
-               desc="The tier that served each request: standard, priority or batch."), 8, 7)
+               desc="The tier that served each request: standard, priority or batch." + platform_only), 8, 7)
     b.add(bars("Requests by workspace", name="Workspace", value="Requests", targets=[target(f"{q}|count_over_time() by(span.anthropic.workspace.id)", instant=True)],
-               desc="Requests per Claude Console workspace. Workspace names are in the Console under Settings > Workspaces."), 8, 7)
+               desc="Requests per Claude Console workspace. Workspace names are in the Console under Settings > Workspaces." + platform_only), 8, 7)
 
     b.row("Requests")
-    b.add(table("Latest requests", f"{q}|select(span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.cache_read.input_tokens,span.gen_ai.usage.output_tokens,span.anthropic.message.stop_reason,span.gen_ai.request.reasoning.level,span.error.type,span.anthropic.request.id)",
-                desc="The most recent requests. Request ID is the request-id that Anthropic support asks for."), 24, 10)
+    b.add(table("Latest requests", f"{qa}|select(resource.service.name,span.gen_ai.request.model,span.gen_ai.usage.input_tokens,span.gen_ai.usage.cache_read.input_tokens,span.gen_ai.usage.output_tokens,span.crok.cost.usd,span.anthropic.message.stop_reason,span.gen_ai.response.finish_reasons,span.gen_ai.request.reasoning.level,span.error.type,span.anthropic.request.id)",
+                desc="The most recent requests. Request ID is the request-id that Anthropic support asks for (Claude Platform's spans); "
+                     "Source crok is a call crok reported itself, with crok's cost."), 24, 10)
 
     b.row("Tools and Managed Agents", collapsed=True)
     tools = f'resource.service.name="{ctx.claude}"&&span.gen_ai.operation.name="execute_tool"'
@@ -1232,7 +1285,8 @@ def explorer_dashboard(ctx: Ctx) -> Board:
     b.add(text("How to use", (
         "Set **Source**, **Model (regex)** (`.*` for all, `claude-opus.*` for one family, `gpt-.*` for Codex, `deepseek-.*`), "
         "**Slower than** and **Status** at the top; the first table follows all four, the saved searches follow Source and Model. "
-        "Source **crok** is what crok reported for providers without traces of their own (Codex, GLM, DeepSeek, xAI). Searches "
+        "Source **crok** is what crok reported for providers without traces of their own (Codex, GLM, DeepSeek, xAI), and the "
+        "Claude calls crok after 2.0.2 reports in Claude Platform's place. Searches "
         "reach back 14 days: widen the time range to find older calls. Click a **trace ID** to open the trace: each span's "
         "attributes hold tokens, cache use, the stop reason, crok's cost and, with full-content export, the prompt and the "
         "response.\n\n"
@@ -1251,8 +1305,8 @@ def explorer_dashboard(ctx: Ctx) -> Board:
     b.add(table("Huge prompts (over 150K tokens)", f"{{{base}&&span.gen_ai.usage.input_tokens>150000}}|select({cols},span.gen_ai.usage.cache_read.input_tokens,span.gen_ai.usage.cache_read_input_tokens)",
                 desc="Calls whose prompt passed 150K tokens. Compaction or a fresh session usually helps."), 12, 9)
     b.add(table("Expensive calls (over $0.05)", f"{{{base}&&(span.gen_ai.usage.total_cost>0.05||span.crok.cost.usd>0.05)}}|select({cols})",
-                desc="Single calls that cost more than 5 cents: billed by OpenRouter, or as crok worked out (Claude calls and "
-                     "those of crok 2.0.0 and older are priced on the dashboards, not per span)."), 12, 9)
+                desc="Single calls that cost more than 5 cents: billed by OpenRouter, or as crok worked out (Claude Platform's "
+                     "calls and those of crok 2.0.0 and older are priced on the dashboards, not per span)."), 12, 9)
     b.add(table("Cache misses on big prompts", f"{{{base}&&span.gen_ai.usage.input_tokens>20000&&(span.gen_ai.usage.cache_read.input_tokens<1000||(resource.service.name=\"{ctx.crok}\"&&span.gen_ai.usage.cache_read_input_tokens=nil))}}|select({cols},span.gen_ai.usage.cache_write.input_tokens)",
                 desc="Calls over 20K input tokens that read almost nothing from the prompt cache, so they paid full price for the "
                      "prompt: Claude requests under 1K cached tokens, and crok's calls with none."), 12, 9)
@@ -1331,6 +1385,15 @@ def history_rules(ctx: Ctx) -> dict:
         for direction, attr in (("input", "input_tokens"), ("output", "output_tokens"), ("cache_read", "cache_read_input_tokens")):
             rule("llm_tokens", {"provider": provider, "direction": direction}, f"{{{req}}}|sum_over_time(span.gen_ai.usage.{attr}) by(name)")
         rule("llm_spend_usd", {"provider": provider, "price_group": "crok"}, f"{{{req}}}|sum_over_time(span.crok.cost.usd) by(name)")
+    # The Claude calls only crok's span counts (UNSAMPLED) are Claude's history, at crok's own
+    # figure; `reporter` keeps their rules apart from Claude Platform's, `name` keeps the model.
+    req = ctx.crok_claude_req()
+    claude = {"provider": "claude", "reporter": "crok"}
+    rule("llm_requests", claude, f"{{{req}}}|count_over_time() by(name)")
+    rule("llm_errors", claude, f"{{{ctx.failed(req)}}}|count_over_time()")
+    for direction, attr in (("input", "input_tokens"), ("output", "output_tokens"), ("cache_read", "cache_read_input_tokens")):
+        rule("llm_tokens", {**claude, "direction": direction}, f"{{{req}}}|sum_over_time(span.gen_ai.usage.{attr}) by(name)")
+    rule("llm_spend_usd", {**claude, "price_group": "crok"}, f"{{{req}}}|sum_over_time(span.crok.cost.usd) by(name)")
     # Older crok's calls, priced from their tokens: a rule for each part of each price group, told
     # apart by price_group (the dashboards replace it with the model).
     labels = {span: label for label, span in CROK_PROVIDERS}
@@ -1605,7 +1668,7 @@ def history_dashboard(ctx: Ctx, backfill: Backfill) -> Board:
     b.add(total("Spend", "llm_spend_usd", "", one("spend"), unit="currencyUSD", decimals=2, color="green", no_value="$0",
                 desc="Claude (estimated at list prices) plus OpenRouter (billed) plus what crok reported." + crok_note + note), 4, 4)
     b.add(total("Claude, estimated", "llm_spend_usd", 'provider="claude"', one("spend", "claude"), unit="currencyUSD", decimals=2,
-                no_value="$0", desc="Claude spend from tokens at list prices." + note), 3, 4)
+                no_value="$0", desc="Claude spend from tokens at list prices." + CROK_CLAUDE_NOTE + note), 3, 4)
     b.add(total("OpenRouter, billed", "llm_spend_usd", 'provider="openrouter"', one("spend", "openrouter"), unit="currencyUSD",
                 decimals=2, no_value="$0", desc="The cost OpenRouter reported." + note), 3, 4)
     b.add(total("Codex, GLM, DeepSeek", "llm_spend_usd", CROK_HISTORY_SEL, lambda r: [], unit="currencyUSD", decimals=2,

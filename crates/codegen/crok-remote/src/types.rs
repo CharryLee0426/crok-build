@@ -277,6 +277,9 @@ pub struct Inbox {
     /// The sessions the relay has this process running (`None` from a relay that does not say).
     #[serde(default)]
     pub hosted: Option<Vec<String>>,
+    /// No crok keeps this computer's catalog current (the one that did is gone): the first to ask lists the sessions.
+    #[serde(default)]
+    pub catalog_wanted: bool,
     pub server_time: f64,
 }
 

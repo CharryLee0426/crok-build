@@ -2109,6 +2109,13 @@
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
             }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
+            }
           }
         ],
         "targets": [
@@ -2203,6 +2210,13 @@
             "options": {
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
             }
           }
         ],
@@ -2741,6 +2755,13 @@
             "options": {
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
             }
           },
           {
@@ -3973,6 +3994,13 @@
             "options": {
               "regex": "^zai((?: .*)?)$",
               "renamePattern": "glm$1"
+            }
+          },
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^anthropic((?: .*)?)$",
+              "renamePattern": "claude (crok)$1"
             }
           }
         ],

@@ -94,9 +94,9 @@ the same tiny auth surface, and lets the person see and revoke every linked devi
 | `deviceLogins` | a sign-in in progress | `deviceAuth` | `deviceCodeHash`, `userCode`, `status` pending → approved → consumed |
 | `hosts` | one running crok process | `bridge.connect/heartbeat` | heartbeat every 30 s touches only this row; `canAdopt`: it opens sessions nobody runs |
 | `modelLists` | the models a computer's crok can run, with their thinking levels | `bridge.setModels` | one per computer, the latest from any of its processes (§2, "Model and thinking level") |
-| `sessions` | a crok session on a computer: mirrored live, or listed from disk | `bridge.upsertSession`, `bridge.catalogBatch`, `bridge.setPending` | title, cwd, `projectPath`, model, status, `online`, preview, plan, usage, unread counters, `position`, `historyState`, `pending` (a permission request) |
+| `sessions` | a crok session on a computer: mirrored live, or listed from disk | `bridge.upsertSession`, `bridge.catalogBatch`, `bridge.catalogUpdate`, `bridge.setPending` | title, cwd, `projectPath`, model, status, `online`, preview, plan, usage, unread counters, `position`, `historyState`, `pending` (a permission request), `startedFrom` (the device that started it, `sessions:create`) |
 | `projects` | a folder sessions are grouped under, per computer | `bridge`, `sessions.reorderProjects` | `path`, `position` (hand-placed order) |
-| `catalogSyncs` | the last "list every session on disk" per computer | `bridge.beginCatalog/finishCatalog` | one crok process per computer does it, at most every 10 min |
+| `catalogSyncs` | the last "list every session on disk" per computer | `bridge.beginCatalog/finishCatalog`, `bridge.connect/heartbeat`, the cron | one crok process per computer holds it (`hostId`) and keeps it current; `released` once that process is gone |
 | `events` | one transcript item | `bridge.pushEvents` | `seq` order, `key` for in-place updates (streaming text, tool status) |
 | `commands` | a prompt / stop / info / answer / history / create / config request | viewers; `bridge.claim/complete` | `pending → delivered → done/failed`, `clientId` for idempotency; `interactionId` for an answer; `configId` for a config change |
 | `commandLists` | the slash commands a session (or, as a fallback, its computer) offers | `bridge.setCommands` | kept out of `sessions` so the list query does not re-send them |
@@ -130,12 +130,24 @@ phone share it; Crok Desktop's own sidebar order is separate.
 
 ### Every session, not only running ones
 
-A running crok (one per computer at a time, at most every 10 minutes) lists every session on disk — not hidden ones
-(subagents), headless runs, unused husks, or sessions under the system's temp folder — and uploads that **catalog**:
-title, cwd, project, times, model, last-turn summary. New ones arrive offline with `historyState: "none"`; sessions
-deleted on the computer are dropped. When a viewer opens one (`sessions:watch`) while the computer is online, the
-relay queues a `history` command; any crok there claims it, reads the transcript from disk (`x.ai/session/updates`,
-last 20 turns) and pushes it (`historyState` → `requested` → `ready`).
+A running crok (one per computer at a time) lists every session on disk — not hidden ones (subagents), headless runs,
+unused husks, or sessions under the system's temp folder — and uploads that **catalog**: title, cwd, project, times,
+model, last-turn summary. New ones arrive offline with `historyState: "none"`; sessions deleted on the computer are
+dropped. When a viewer opens one (`sessions:watch`) while the computer is online, the relay queues a `history`
+command; any crok there claims it, reads the transcript from disk (`x.ai/session/updates`, last 20 turns) and pushes
+it (`historyState` → `requested` → `ready`).
+
+The process whose upload went through **holds** the computer's catalog and keeps it current: every 30 s it lists the
+sessions again (the listing is cached by file time, so this reads only what changed) and sends only what changed
+since its last upload or update (`bridge:catalogUpdate`: sessions made, renamed or run elsewhere, and the ids of
+deleted ones; nothing when nothing changed). So a session any crok on that computer made, ran or deleted, even one with
+no bridge (a headless run, a crok signed out at the time), reaches every device within about half a minute, not at the
+next upload. The holder lists everything again every 30 minutes, as a check. While it runs, no other process of that
+computer lists the sessions; when it is gone (it quit, or stopped heartbeating), the relay marks the catalog
+`released` and every crok there sees `catalogWanted` in its inbox: the first to ask (`bridge:beginCatalog`) uploads
+the catalog and holds it from then on. A computer whose crok starts again therefore lists its sessions at once. An
+older crok (without `catalog` in its `features`) uploads every 10 minutes and sends nothing in between; a current one
+takes its catalog over after those 10 minutes.
 
 ### Prompts for sessions nobody runs
 
@@ -163,7 +175,9 @@ models); they are checked there when the relay has the list and applied by its c
 session started from a phone or the web need not run its first turn on the default model. The relay adds the session
 at once — `sessionId: "pending:<clientId>"`, `starting: true` in rows and in `sessions:get`, `cwd` = `projectPath` =
 `path`, title from the prompt's first line (else "New session"), its model and thinking level, status `running` with a
-prompt and `idle` without — and a `create` command carrying the prompt and those choices. The caller opens the session
+prompt and `idle` without, and `startedFrom` (`{kind: "phone" | "web" | "computer", name, at}`: the device that started
+it) — and a `create` command carrying the prompt and those choices. `startedFrom` stays with the session: the
+computer's own TUI and Crok Desktop list such sessions with theirs (§4, "Sessions on other computers", `here`). The caller opens the session
 right away (its own prompt shows optimistically, ticks from `commands:forSession`, which lists `create` commands with
 text like prompts).
 
@@ -210,6 +224,14 @@ A session started from another device can carry the same choice (`sessions:creat
 `devices:models`), which its crok applies after opening it and before its first prompt; `effort` is an option id or the
 level it stands for, and the session row holds the level. `devices:models({deviceId})` returns a computer's list
 before any session exists (the same shape as `sessions:get`'s `models`; null while it is offline).
+
+Crok up to 2.0.0 handles `create` but ignores its `model` and `effort`: it starts the session on its own default. So a
+`create` that carries a choice (from `sessions:create`, or a prompt or retry that reopens a failed `pending:` session)
+goes only to hosts that apply it: those listing `setup` in `features`, or `git` (crok 2.0.1 and 2.0.2 apply the choice
+without saying so, and are the first to list `git`). The inbox does not offer it to the others and they cannot claim
+it, so with an old and a new crok on one computer the new one starts it. With only older crok there, the call fails
+`OFFLINE` ("Update crok on … to start a session there with a chosen model or thinking level"), rather than starting
+the session on the default; one on Default still starts on any crok that handles `create`.
 
 ### Slash commands
 
@@ -273,8 +295,9 @@ callback.
 A **row** is `{_id, sessionId, title, cwd, model, gitBranch, usage, status, online, app, deviceId, deviceName,
 deviceOnline, preview, previewKind, lastActivityAt, pinned, archived, unread, plan: null|{done,total}, projectKey,
 projectPath, projectName,
-historyState: null|"none"|"requested"|"ready", starting}`; `starting` = made by `sessions:create` and not open on its
-computer yet. `historyState` `none`/`requested` with no events: the transcript is
+historyState: null|"none"|"requested"|"ready", starting, startedFrom: null|{kind, name, at}}`; `starting` = made by
+`sessions:create` and not open on its computer yet; `startedFrom` = the device that started it there (`sessions:create`:
+`kind` `phone`, `web` or `computer`, its `name`, and when), null for a session started on its computer. `historyState` `none`/`requested` with no events: the transcript is
 still only on the computer — show "Loading from <computer>…" while `deviceOnline`, else "<computer> is offline; this
 session's history shows once crok runs there".
 | `sessions:events` (paginated query) | `sessionDocId, paginationOpts:{numItems, cursor}` | `{page:[event], isDone, continueCursor}` newest first — every field of every item (the web, crok's viewer) |
@@ -348,22 +371,108 @@ computer accepted it (it is in the transcript or queued behind the running turn)
 `failed` = `error` says why (offline, busy, rejected). A viewer shows its own prompt optimistically from the moment
 of sending (keyed by `clientId`) until the transcript holds the user event whose `commandId` matches.
 
+### o11y (allowlisted viewers; the phones' o11y tab)
+
+Added 2026-10-26 for the phones' dev builds (mobile/DESIGN.md "o11y"). The relay reads its owner's Grafana Cloud stack
+with a read-only service-account token and hands the phones finished **pages**: the LLM Observability dashboards
+(`observability/grafana-llm`), crok's evaluation and guards (`observability/agento11y`, `evals/`) and Agent
+Observability. The phones never see the token, a query or a dashboard; they draw blocks.
+
+| function | args | returns |
+|---|---|---|
+| `o11y:page` (query) | `page, range?, lang?` | `{state: "ok", page: Page\|null, builtAt\|null, refreshing, error\|null}`, or `{state: "forbidden"}` / `{state: "unconfigured"}` |
+| `o11y:refresh` (action) | `page, range?, lang?, force?` | `{status: "built"\|"fresh"\|"busy"\|"failed", builtAt\|null, error\|null}` |
+
+- **Access.** The Convex environment of the deployment holds `GRAFANA_URL` (the stack, e.g.
+  `https://narrowgrotto289.grafana.net`), `GRAFANA_TOKEN` (a Viewer service-account token, `glsa_…`) and
+  `O11Y_VIEWERS` (comma-separated: `users` ids, Clerk subjects or emails of the accounts allowed to see it). Without
+  a token (or URL) every caller gets `unconfigured`; a caller not on the list gets `forbidden`, as does anyone when the
+  list is empty. A page holds the stack's conversation titles and spend, so nobody else may read it.
+  `relay/scripts/o11y-setup.sh dev|prod` makes the service account and token with gcx and sets the three variables.
+- **Cache.** `o11yPages` keeps the last page per `page|range|lang` (`builtAt`, `refreshing` since, `error`). The
+  query only reads it, so opening a screen is instant; `refresh` rebuilds it from Grafana when it is older than 90 s
+  (`fresh` otherwise; `force` lowers that to 10 s), and only one refresh per key runs at a time (`busy`, for 60 s).
+  A failed build keeps the old page and stores `error`. Pages are the same for every allowed viewer.
+- **Arguments.** `page` is a page id; `range` one of the page's `ranges` (else its default); `lang` `en`, `zh`, `ja`,
+  `es`, `fr` or `de` (else `en`). An unknown page is `NOT_FOUND`.
+
+**Page** (JSON, at most ~200 kB):
+
+```
+{ id, title, subtitle?, range, ranges: ["1h","6h","24h"] | ["24h","7d","14d"] | [], url?, builtAt,
+  sections: [{ title?, footer?, block }] }
+block =
+  { kind: "stats",   items: [{ label, value: number|null, unit, change?: number|null, better?: "up"|"down"|"none" }] }
+| { kind: "chart",   style: "line"|"bars", stacked?, unit, step (ms),
+                     series: [{ name, slot (0 = Other, 1–8), total: number|null, dashed?, points: [[ms, number|null]] }],
+                     more? }
+| { kind: "ranking", unit, rows: [{ label, value, slot?, detail?: chip[], change?, better? }], more?, empty }
+| { kind: "list",    rows: [{ title, detail?: chip[], value?: {v, u}, time?: ms, status?: "ok"|"warn"|"bad"|"info",
+                              page? }], empty }
+| { kind: "links",   rows: [{ page, title, subtitle?, icon, color: "#RRGGBB", value?: {v, u} }] }
+| { kind: "note",    text }
+| { kind: "error",   message }
+chip = { t: text } | { v: number, u: unit, s?: suffix }
+unit = "usd" | "count" | "tokens" | "ratio" | "seconds" | "ms" | "bytes" | "perMin" | "tps"
+```
+
+Text is already in `lang`; numbers are raw (the phones format them). A chart keeps at most 6 series (the largest by
+`total`) and folds the rest into "Other" (slot 0) for `bars`, or drops them (`more`) for `line`. Series that mean an
+outcome keep one slot everywhere (passed, completed, pass: 3 aqua; warn, cancelled, interrupted: 4 yellow; failed,
+error, deny: 8 red); the others take the free slots in alphabetical order, so a series keeps its colour as long as the
+set does. Totals per step (spend, calls, tokens per step) are stacked `bars`; rates, durations and ratios are lines.
+Charts carry ≤ 150 points.
+
+**How a page is built** (`convex/lib/o11y/`): each page is a spec of blocks. A dashboard block names a panel of a
+live Grafana dashboard by title; the relay fetches the dashboard (`/api/dashboards/uid/<uid>`), fills its variables
+with their defaults, runs the panel's own queries through `/api/ds/query` (so the phone shows the numbers Grafana
+shows, Claude's estimated spend and all) and reads them the way the panel does: totals over the range (stat panels
+summing a range, ranked tables, pies), the last value (instant stats), the week-over-week pair (value and change), a
+ratio of two totals (calculated fields), series after the panel's renames with same-named series added up
+(time series), span rows (span tables). Chart queries get a round step of range / 120 for lines and range / 48 for
+bars (30 s at least; a 24-hour bar chart has a bar per 30 minutes) instead of the dashboard's; a panel's fixed
+interval ("1d") stays; totals keep the dashboard's step. An additive series (spend, counts, tokens) is filled with 0
+on that step grid, since Tempo leaves out the steps without spans. Other blocks run their own PromQL (evaluation scores, guard outcomes,
+judge cost, crok's harness metrics, SLO SLIs) or read the Agent Observability plugin
+(`/api/plugins/grafana-agento11y-app/resources/query/agents`, `…/query/conversations`, `…/eval/experiments`), the
+SLO plugin (`/api/plugins/grafana-slo-app/resources/v1/slo`) and the alert rules (`/api/prometheus/grafana/api/v1/rules`).
+A block whose queries fail becomes an `error` block; the page still builds. Panels run 4 at a time.
+
+| page | from | ranges (default) | what it shows |
+|---|---|---|---|
+| `home` | the pages below | `24h` only | spend, calls, tokens and failures today (LLM Overview's stats), spend per day for 14 days, then links: Dashboards, Evaluation, Agent Observability (its conversation count leaves out what `conversations` does) |
+| `overview` | `llm-overview` | 1h 6h 24h (24h) | at a glance, week over week, spend per day by provider, requests per minute, latency p50/p95, spend and requests by model, latest calls |
+| `claude` | `llm-claude-platform` | 1h 6h 24h | requests, estimated spend, tokens, cache hit rate, latency, errors, spend by model, token mix, stop reasons, latest requests |
+| `openrouter` | `llm-openrouter` | 1h 6h 24h | requests, spend, cost per request, cached share, spend by model, upstream provider and API key, finish reasons, latest generations |
+| `crok` | `llm-crok` | 1h 6h 24h | Codex, GLM and DeepSeek: at a glance, week over week, spend by model and provider, time to first token, failures, machines, latest calls |
+| `harness` | `llm-crok-harness` | 1h 6h 24h | turns, completion, turn time, calls and tool runs per turn, turns by outcome and model, tools, latest and failed turns, failed tool runs |
+| `history` | `llm-history` | 24h 7d 14d (14d) | recorded spend, requests, tokens and error rate, week over week, spend and requests per day (and 7 days earlier), spend by price group |
+| `explorer` | `llm-request-explorer` | 1h 6h 24h | the saved searches: failed, slowest, expensive, cut off, huge prompts, cache misses |
+| `evaluators` | Prometheus `agento11y_eval_*` | 24h 7d 14d (7d) | scores, pass rate, failed scores, judge spend, pass rate by evaluator, scores per day, failed scores by model, by rule |
+| `guards` | Prometheus `agento11y_hook_*`, `crok_guard_checks_total` | 24h 7d 14d (7d) | checks, warns, warns by guard, checks per day, crok's own flagged checks |
+| `experiments` | plugin `eval/experiments`, Prometheus `agento11y_tag_eval_run` | 24h 7d 14d (14d) | published experiment runs, and the eval runs seen in the traffic (calls, tokens, failures) |
+| `agents` | plugin `query/agents`, Prometheus `gen_ai_client_*`, `agento11y_generation_cost_usd_total` | 24h 7d 14d (24h) | every agent (generations, versions, last seen), calls and cost by agent, calls per hour, time to first token; `claude-platform` counted without its copies of crok's calls (the annotations `observability/agento11y/stack.py duplicates --label` puts on them, summed from `query/conversations?has_annotations=true`) |
+| `conversations` | plugin `query/conversations` | none | the 30 most recent titled conversations (title, generations, last activity); conversations titled by their id left out: lone calls, and Claude Platform's trace of one crok turn |
+| `slos` | SLO plugin, `grafana_slo_*` | none | each SLO's 28-day SLI against its objective and the error budget left, per provider |
+| `alerts` | alert rules | none | crok's alert rules and their state, the recording rule groups' health |
+
 ### Bridge (linked computers only)
 
 | function | args | returns |
 |---|---|---|
-| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?, canAdopt?, features?` | `{hostId, deviceId, serverTime}` — `features`: command types beyond the first relay's it handles (`create`, `config`) |
+| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?, canAdopt?, features?` | `{hostId, deviceId, serverTime}` — `features`: command types beyond the first relay's it handles (`create`, `config`, `git`), `setup` when it applies a `create` command's model and thinking level (§2, "Model and thinking level"), and `catalog` when, holding its computer's catalog, it sends what changes (`catalogUpdate`) |
 | `bridge:heartbeat` | `hostId` | `{serverTime}` (every 30 s) |
 | `bridge:disconnect` | `hostId` | `null` |
 | `bridge:upsertSession` | `hostId, sessionId, fields:{title?, cwd?, model?, effort?, gitBranch?, status?, preview?, previewKind?, plan?, usage?, createdAt?, lastActivityAt?, projectPath?}` | `{sessionDocId, eventSeq, created}` |
 | `bridge:setBranch` | `hostId, sessionId, branch` | `null` — the branch a git command on that computer checked out, for a session another process may run (it does not mark the session open) |
 | `bridge:closeSession` | `hostId, sessionId` | `null` |
 | `bridge:pushEvents` | `hostId, sessionDocId, replace?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history) |
-| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt`; `hosted` = the sessions the relay has this host running |
+| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt` (one with a choice only to hosts that apply it: `setup` or `git` in `features`); `hosted` = the sessions the relay has this host running; `catalogWanted`: no crok keeps this computer's catalog (the holder is gone, or there never was one), so ask `beginCatalog` now |
 | `bridge:setPending` | `hostId, sessionId, pending?` | `null` — the session's permission request, or none (absent) once answered or gone |
-| `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another host did it lately, or is doing it) |
+| `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another running host holds the catalog and keeps it current, did it lately, or is doing it; the holder itself again after 30 min, an older one after 10) — a grant makes this host the holder |
 | `bridge:catalogBatch` | `hostId, syncId, sessions:[{sessionId, title, cwd, projectPath, createdAt, lastActivityAt, model?, effort?, gitBranch?, preview?}]` (≤100) | `{added}` |
 | `bridge:finishCatalog` | `hostId, syncId, sessionIds: string[]` (all listed) | `{removed}` — offline sessions of this computer not listed are dropped |
+| `bridge:catalogUpdate` | `hostId, syncId, sessions:[catalog entry]` (≤100), `removed: string[]` (≤500) | `{added, removed}` — what changed on disk since the holder's last upload or update; `EXPIRED` once another host holds the catalog |
 | `bridge:claimCommand` | `hostId, commandId` | `boolean` — claiming a prompt, config change or create for a session nobody runs makes this host its runner |
 | `bridge:bindSession` | `hostId, sessionDocId, sessionId` | `{sessionDocId, eventSeq}` — the crok session this host opened for a claimed `create` replaces the `pending:` id |
 | `bridge:setModels` | `hostId, models:[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]` (≤1,000, in picker order) | `null` — written only when it changed; descriptions, then the list's end, are dropped above 600 kB |
@@ -409,10 +518,11 @@ grew during a long turn, and its end reached the web and the phones long after t
 bridge sends all of the session's fields again 2 s later.
 
 Mirrored live: sessions that have a prompt or were loaded with history, not subagent children, hidden sessions or Crok
-Desktop's helper processes (`CROK_REMOTE_BRIDGE=0`). Listed: every session on disk (the catalog, §2), uploaded by one
-bridge per computer on sign-in and every 10 minutes after (`persistence::list_summaries`, cached by file time, so a
-re-list reads only changed summaries); history requests for listed sessions are answered by whichever bridge claims
-them. One-shot agents (`crok models`, `crok worktree`, headless `-p`)
+Desktop's helper processes (`CROK_REMOTE_BRIDGE=0`). Listed: every session on disk (the catalog, §2), uploaded by the
+bridge that holds the computer's catalog (the first to sign in, or the first to answer `catalogWanted` once the holder
+is gone), which lists the sessions again every 30 s (`persistence::list_summaries`, cached by file time, so a re-list
+reads only changed summaries) and sends only what changed (`bridge:catalogUpdate`); history requests for listed
+sessions are answered by whichever bridge claims them. One-shot agents (`crok models`, `crok worktree`, headless `-p`)
 never start a bridge. On first sight of a session whose relay copy is empty, the bridge backfills the tail of its
 transcript from `updates.jsonl` (`x.ai/session/updates`).
 
@@ -471,8 +581,13 @@ own:
 - The session's `pending` request becomes an ordinary `session/request_permission` to the front end; its choice goes
   back as `commands:answer`.
 - `x.ai/remote/sessions` (`{watch: true}` keeps `x.ai/remote/sessions_changed` coming for ten minutes) lists the other
-  computers' sessions (`sessions:groups` without this computer); `x.ai/session/list` adds them as rows with
-  `source: relay` when asked (`otherComputers: true`, or any search).
+  computers' sessions (`sessions:groups` without this computer), and `here: {deviceId, sessions}`: this computer's
+  sessions that another device started (rows with `startedFrom`, once open on this computer: `{sessionId` (crok's
+  own id), `relayId, title, cwd, projectPath, status, running, lastActivityAt, preview, startedFrom}`, newest first).
+  Its crok opens such a session hidden from its front end (§4, "Created sessions"), so this is how the TUI and Crok
+  Desktop learn of it. A change to the relay's list that leaves the payload as it was is not sent again.
+  `x.ai/session/list` adds the other computers' sessions as rows with `source: relay` when asked
+  (`otherComputers: true`, or any search).
 - The load response carries `models` and `configOptions` (`model`, `reasoning_effort`) built from the computer's
   `devices:models` (watched while the session is open; `sessions:get`'s short copy only with an older relay) and the
   session's `model` and `effort`, so the front end's model and thinking pickers list that computer's choices.
@@ -523,6 +638,11 @@ phones forget it and show "This build uses a different relay. Sign in again.").
 - TUI: `/resume` lists the other computers' sessions too ("Title · Computer", badge "other computer"); picking one opens
   it (§4, "Sessions on other computers"). A permission request answered on another device leaves the prompt queue with
   "Answered on another device".
+- TUI: while its bridge is connected, the TUI watches the list (`x.ai/remote/sessions {watch: true}`, renewed every 4
+  minutes) for sessions other devices start on this computer (`here`): each new one is announced in a toast ("iPhone
+  started a session in app: … — /resume or /remote opens it"); `/resume` lists it (it is on this computer's disk), and
+  the Remote panel lists them first, under "This computer" ("from iPhone"; Enter opens one here as `/resume` does; `n`
+  there says to use `/new`).
 - TUI: `/remote new` picks a project on another computer (computer · project, online ones) and opens a new session
   there; `/model` and the thinking level work in another computer's session with that computer's choices.
 - TUI: **the Remote panel**, what Crok Desktop's "Other computers" sidebar is (signed in, `/remote` with no argument,
@@ -550,7 +670,14 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   shows as running, the same as a typed prompt.
 - The sidebar has an "Other computers" section (from the remote host): each computer with its sessions; clicking one
   opens it as a task (`relay:` session id, kept under a hidden project whose folder is the app's own) that the other
-  computer runs. An approval answered on another device leaves the task.
+  computer runs. An approval answered on another device leaves the task. The remote host asks for the list as soon as
+  it is up, again whenever its relay link (re)connects, and every few seconds while the answer is still empty (not
+  signed in yet), then renews the watch every 4 minutes.
+- A session another device started on this Mac (`here`) is one of the Mac's own tasks: it appears in its project as
+  soon as the relay lists it (the project is added when the app has none for that folder), unread, titled as the relay
+  has it until it is opened, working while a turn runs there (and unread when that turn ends), and opens like any task
+  (its harness loads the session; the crok that ran it releases it once it is idle). A task removed from the sidebar
+  does not come back.
 - Each project of another computer has **New task** (a "+" on hover, and in its context menu): a new task whose first
   prompt starts the session on that computer in that folder (`x.ai/remote/new_session` through the remote host), then
   it is an ordinary remote task.

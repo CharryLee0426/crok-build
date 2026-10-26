@@ -2037,6 +2037,11 @@ pub enum Effect {
         agent_id: AgentId,
         request: crate::remote_panel::Request,
     },
+    /// After `delay`, `x.ai/remote/sessions {watch: true}` for the sessions other devices start on this computer.
+    RemoteHereWatch {
+        generation: u64,
+        delay: std::time::Duration,
+    },
     /// Fetch and display session info via x.ai/session/info.
     /// Auth lines are derived in the effect from SessionFlags and env (not Effect fields).
     ShowSessionInfo {
@@ -2973,6 +2978,11 @@ pub enum TaskResult {
     RemotePanel {
         agent_id: AgentId,
         response: crate::remote_panel::Response,
+    },
+    /// The agent answered a watch on the sessions other devices start on this computer.
+    RemoteHereWatched {
+        generation: u64,
+        result: Result<serde_json::Value, String>,
     },
     /// A `/remote` step finished: a line for the scrollback and, optionally, a toast.
     RemoteNotice {

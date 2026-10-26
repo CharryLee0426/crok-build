@@ -31,6 +31,12 @@ enum AppInfo {
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The o11y tab (mobile/DESIGN.md "o11y"): `CrokO11yTab` in the Info.plist, from `CROK_O11Y_TAB` (YES in
+    /// Config/Debug.xcconfig, NO in Release.xcconfig).
+    static var showsO11yTab: Bool {
+        (Bundle.main.object(forInfoDictionaryKey: "CrokO11yTab") as? String)?.uppercased() == "YES"
+    }
+
     /// `iOS 26.0` / `iPadOS 26.0`.
     @MainActor static var platform: String {
         let device = UIDevice.current

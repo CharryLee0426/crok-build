@@ -10,3 +10,6 @@ CROK_RELAY_URL = https:/$()/limitless-badger-727.convex.cloud
 
 // Debug builds wear the yellow icon, release builds the blue one (mobile/DESIGN.md "Dev builds").
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev
+
+// Debug builds have the o11y tab, the relay owner's Grafana stack on the phone (mobile/DESIGN.md "o11y").
+CROK_O11Y_TAB = YES

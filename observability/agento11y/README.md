@@ -21,6 +21,7 @@ python3 observability/agento11y/stack.py backfill --since 2026-10-16
 python3 observability/agento11y/stack.py report
 python3 observability/agento11y/stack.py alerts
 python3 observability/agento11y/stack.py slos
+python3 observability/agento11y/stack.py duplicates [--label]   # Claude Platform's copies of crok's calls
 ```
 
 ## Evaluators and rules
@@ -114,3 +115,27 @@ alert's uid in `alert_rule_uids`).
 
 `stack.py slos` creates each SLO once its metrics exist; the turn SLO waits for a crok release after 2.0.1 to
 report `crok_turns_total`.
+
+## Claude Platform's copies of crok's calls
+
+Claude Platform's telemetry export sends a span of every Claude API request to the same stack, and
+Agent Observability stores each one as a generation of agent `claude-platform`, in a conversation
+named by the trace id. crok 2.0.2 and older sent their Claude calls with a sampled `traceparent`, so
+each such call was stored twice: in crok's conversation and again as a `claude-platform` copy with
+the same response id (one `claude-platform` conversation per turn). crok releases after 2.0.2 send
+the calls they record unsampled, and Claude Platform exports nothing for them
+(`crates/codegen/xai-grok-agento11y/README.md`). There is no receiving-side filter, and Agent
+Observability cannot delete what it stored, so the copies already there stay until its 30-day
+retention drops them, and crok 2.0.2 and older keep adding some until they are updated.
+
+`stack.py duplicates` reads every stored conversation, matches `claude-platform` generations to crok's
+by response id and prints the counts with and without the copies; `--label` marks each copy with a
+`LABEL` annotation (`crok-copy-<generation id>`, tags `copy_of=crok`, `crok_conversation`,
+`crok_generation`). A `claude-platform` conversation's annotation count is then its number of copies:
+the phones' o11y pages subtract them from the agent list (`relay/convex/lib/o11y/pages.ts`). Run it
+again to label copies that arrived since; it skips the labelled ones. A `claude-platform` generation
+with no crok twin is a call only Claude Platform recorded (reporting off, or never recorded) and is
+left as it is. The scores are not affected: every rule matches `crok` and `crok/*` only.
+
+On 2026-10-26 the stack held 5,691 generations, 586 of them copies (in 144 conversations, from crok
+1.5.0 to 2.0.2), and 581 calls only Claude Platform recorded; all 586 were labelled.

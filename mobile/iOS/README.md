@@ -80,6 +80,7 @@ every screen runs unchanged.
 | `-CrokDemoHistory 120` | with `-CrokDemo`: 120 earlier events above the Markdown showcase, as in a long session |
 | `-CrokDemoStudioOnline YES` | with `-CrokDemo`: Studio is online with an older crok that publishes no models (the dimmed model pill) |
 | `-CrokDemoConfigFails "<reason>"` | with `-CrokDemo`: the computer refuses every model or thinking-level change with that reason |
+| `-CrokDemoO11y unconfigured` / `forbidden` | with `-CrokDemo`: the o11y tab shows that state instead of its demo pages |
 | `-CrokResetState YES` | forget the Keychain credentials, drafts and caches at launch |
 | `-CrokNoBrowser YES` | do not open the browser sheet when a sign-in starts |
 | `-CrokServer http://127.0.0.1:3210` | sign in to that relay instead of the built-in one (also `CROK_RELAY_URL`) |
@@ -158,6 +159,20 @@ Thinking level rows open the same picker and menu. A new session says **Default*
 the picks with `sessions:create`. The pills hide while the computer is offline and while a session is starting; a
 computer whose crok publishes no list shows the session's model dimmed. The logic is `Core/ModelSetup.swift` (list,
 sections, search, what the pills say), the views `Features/Session/ModelSetupViews.swift`.
+
+## o11y (Debug builds)
+
+As mobile/DESIGN.md "o11y" describes: Debug builds (`CROK_O11Y_TAB = YES` in `Config/Debug.xcconfig`, the Info.plist's
+`CrokO11yTab`) have a third tab, **o11y**, right of Profile: the relay owner's Grafana Cloud stack (the LLM
+Observability dashboards, crok's evaluators, guards and experiments, Agent Observability's agents, conversations, SLOs
+and alerts) as pages the relay builds (relay/DESIGN.md §3 "o11y"). Each screen subscribes to `o11y:page` and calls the
+`o11y:refresh` action when its page is missing or older than 90 s, every 60 s while it stays on screen, and on pull to
+refresh; the range it picks is kept per page (`crok.o11y.range.<page>`). The app only draws blocks: a stats grid (2
+columns upright, 4 on its side), time charts drawn on a `Canvas` (the same marks as Android's), ranked rows, lists and
+link rows; on a wide screen stats and charts span the width and the other sections pair up. The models and number
+rules are `Core/O11y.swift`, the views `Features/O11y/`, the demo pages `Engine/Demo/DemoO11y.swift` over
+`Resources/o11y-demo.json` (made by `relay/scripts/o11y-demo.mjs` from real pages with the owner's data swapped out).
+Release builds have no o11y tab.
 
 ## Replies in Markdown
 

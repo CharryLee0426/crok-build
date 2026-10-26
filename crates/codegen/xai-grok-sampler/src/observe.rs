@@ -11,6 +11,9 @@
 //! Each HTTP attempt is one observation, so a retried request shows as several.
 //! Compaction parses raw chunks itself and is not observed as a call (the session reports it as a step).
 //!
+//! A recorded call to Anthropic's own endpoint goes out with an unsampled `traceparent`, so Claude
+//! Platform's telemetry export does not report it a second time ([`send_recorded`]).
+//!
 //! The record format ([`ObservedCall::to_json_line`]) is the agento11y SDK's `GenerationStart` and
 //! `GenerationResult`, read by the bridge in `xai-grok-agento11y/bridge/src/protocol.ts`, plus
 //! `spanAttributes` the bridge puts on the call's span: crok's own report of what the call cost,
@@ -182,6 +185,89 @@ pub fn surface() -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Claude Platform's own export
+// ---------------------------------------------------------------------------------------------
+
+tokio::task_local! {
+    /// The tap of the recorded call whose HTTP request is being built and sent.
+    static RECORDED_SEND: Arc<Mutex<ResponseTap>>;
+}
+
+/// Sends the request of the call `observation` records; `None` (nothing records it) sends it as is.
+///
+/// Anthropic's endpoint exports a span of each request to the organization's telemetry destinations
+/// unless its `traceparent` says it is not sampled, and Agent Observability turns each of those
+/// traces into a conversation of its own (agent `claude-platform`, named by the trace id). A call
+/// recorded here would then show twice: in its session and again beside it. While `send` runs,
+/// [`SamplingClient::post`] marks the request's `traceparent` as not sampled
+/// ([`unsample_if_recorded`]), and the API exports nothing for it; the call's own span says so with
+/// `crok.unsampled`, so the dashboards count it in Claude Platform's place. Calls no sink records
+/// (compaction, or any call while the sink is off) keep their Claude Platform spans.
+pub(crate) async fn send_recorded<F: std::future::Future>(
+    observation: &Option<Observation>,
+    send: F,
+) -> F::Output {
+    match observation {
+        Some(observation) => {
+            RECORDED_SEND
+                .scope(Arc::clone(&observation.tap), send)
+                .await
+        }
+        None => send.await,
+    }
+}
+
+/// Marks the `traceparent` of a recorded call's request as not sampled, and the call as sent so;
+/// a request no sink records is left alone. See [`send_recorded`].
+pub(crate) fn unsample_if_recorded(headers: &mut reqwest::header::HeaderMap) {
+    let _ = RECORDED_SEND.try_with(|tap| {
+        unsample_traceparent(headers);
+        if let Ok(mut tap) = tap.lock() {
+            tap.unsampled = true;
+        }
+    });
+}
+
+/// Clears the sampled flag of the request's `traceparent`, or adds an unsampled one.
+fn unsample_traceparent(headers: &mut reqwest::header::HeaderMap) {
+    let current = headers
+        .get("traceparent")
+        .and_then(|value| value.to_str().ok());
+    if let Ok(value) = reqwest::header::HeaderValue::from_str(&unsampled_traceparent(current)) {
+        headers.insert("traceparent", value);
+    }
+}
+
+/// `traceparent` with the sampled flag (`01`) cleared, keeping its trace and parent ids; a fresh
+/// unsampled one when there is none or it is not a version-00 W3C trace context.
+fn unsampled_traceparent(current: Option<&str>) -> String {
+    const SAMPLED: u8 = 0x01;
+    let parts = current.map(|traceparent| traceparent.split('-').collect::<Vec<_>>());
+    if let Some(["00", trace_id, parent_id, flags]) = parts.as_deref()
+        && is_w3c_id(trace_id, 32)
+        && is_w3c_id(parent_id, 16)
+        && flags.len() == 2
+        && is_lower_hex(flags)
+        && let Ok(flags) = u8::from_str_radix(flags, 16)
+    {
+        return format!("00-{trace_id}-{parent_id}-{:02x}", flags & !SAMPLED);
+    }
+    let trace_id = uuid::Uuid::new_v4().simple();
+    // The low half of a v4 uuid holds its variant bits, so it is never all zeros.
+    let (_, parent_id) = uuid::Uuid::new_v4().as_u64_pair();
+    format!("00-{trace_id}-{parent_id:016x}-00")
+}
+
+/// `len` lowercase hex digits, not all zeros, as W3C trace context requires of its ids.
+fn is_w3c_id(id: &str, len: usize) -> bool {
+    id.len() == len && is_lower_hex(id) && id.bytes().any(|b| b != b'0')
+}
+
+fn is_lower_hex(text: &str) -> bool {
+    text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+// ---------------------------------------------------------------------------------------------
 // One observed call
 // ---------------------------------------------------------------------------------------------
 
@@ -227,6 +313,8 @@ pub struct ObservedCall {
     outcome: CallOutcome,
     response_id: Option<String>,
     response_model: Option<String>,
+    /// Sent with an unsampled `traceparent`, so Claude Platform exported no span of it.
+    unsampled: bool,
 }
 
 struct RequestSnapshot {
@@ -369,6 +457,25 @@ impl ObservedCall {
             }
             CallOutcome::Failed { .. } => {}
         }
+        // Set only here: this span is the call's only trace, so dashboards count it in Claude
+        // Platform's place, where older crok's calls of the same kind are already counted. It also
+        // carries the counts a ratio reads under Claude Platform's names (the SDK's differ), zeros
+        // included as Claude Platform sends them, so one query reads both sources' spans.
+        if self.unsampled {
+            span_attributes.insert("crok.unsampled".to_owned(), true.into());
+            if let CallOutcome::Completed(response) = &self.outcome
+                && let Some(usage) = &response.usage
+            {
+                span_attributes.insert(
+                    "gen_ai.usage.cache_read.input_tokens".to_owned(),
+                    usage.cached_prompt_tokens.into(),
+                );
+                span_attributes.insert(
+                    "gen_ai.usage.reasoning.output_tokens".to_owned(),
+                    usage.reasoning_tokens.into(),
+                );
+            }
+        }
 
         GenerationRecord {
             kind: "generation",
@@ -445,7 +552,8 @@ impl ObservedCall {
 pub(crate) struct Observation {
     sink: Arc<dyn GenerationSink>,
     call: ObservedCall,
-    /// Response id and model read off the raw stream, for the backends whose L2 response drops them.
+    /// Response id and model read off the raw stream, for the backends whose L2 response drops
+    /// them, and whether the request went out unsampled ([`send_recorded`]).
     tap: Arc<Mutex<ResponseTap>>,
 }
 
@@ -453,6 +561,7 @@ pub(crate) struct Observation {
 struct ResponseTap {
     id: Option<String>,
     model: Option<String>,
+    unsampled: bool,
 }
 
 impl Observation {
@@ -544,6 +653,7 @@ impl Observation {
             outcome: CallOutcome::Abandoned,
             response_id: None,
             response_model: None,
+            unsampled: false,
         };
         Some(Self {
             sink,
@@ -557,6 +667,7 @@ impl Observation {
         if let Ok(tap) = self.tap.lock() {
             self.call.response_id = tap.id.clone();
             self.call.response_model = tap.model.clone();
+            self.call.unsampled = tap.unsampled;
         }
         if let CallOutcome::Completed(response) = &outcome {
             if let Some(id) = &response.message_id {

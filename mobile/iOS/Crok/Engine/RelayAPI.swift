@@ -70,6 +70,15 @@ protocol AccountAPI: Sendable {
     func deny(userCode: String) async throws
 }
 
+/// The o11y tab's pages (relay/DESIGN.md §3 "o11y"): the cached page, and a request for a newer one that arrives
+/// through the same subscription.
+protocol O11yAPI: Sendable {
+    func page(_ id: String, range: String?, lang: String) -> RelayStream<O11yPageState>
+    /// Rebuilds the page from Grafana when it is stale (`force`: pull to refresh). `FORBIDDEN` / `NOT_CONFIGURED`
+    /// for an account that may not see it or a relay without a token.
+    func refresh(_ id: String, range: String?, lang: String, force: Bool) async throws -> O11yRefreshResult
+}
+
 /// What the backend reports about its link to the relay.
 enum ConnectionSignal: Sendable, Equatable {
     case network(available: Bool)
@@ -86,6 +95,7 @@ protocol RelayBackend: AnyObject, Sendable {
     var commands: any CommandsAPI { get }
     var devices: any DevicesAPI { get }
     var account: any AccountAPI { get }
+    var o11y: any O11yAPI { get }
 
     /// Network and socket changes, starting with the current state.
     func connectionSignals() -> AsyncStream<ConnectionSignal>
@@ -104,6 +114,21 @@ extension RelayBackend {
     /// Backends without a socket (the demo relay, test doubles) have nothing to refresh or replace.
     func refreshAuth() async throws {}
     func replaceClient() async {}
+    /// Test doubles serve no o11y: the tab says it is not set up.
+    var o11y: any O11yAPI { UnconfiguredO11y() }
+}
+
+/// A relay with no o11y for this account.
+struct UnconfiguredO11y: O11yAPI {
+    func page(_ id: String, range: String?, lang: String) -> RelayStream<O11yPageState> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(O11yPageState(state: .unconfigured))
+        }
+    }
+
+    func refresh(_ id: String, range: String?, lang: String, force: Bool) async throws -> O11yRefreshResult {
+        O11yRefreshResult(status: "failed", builtAt: nil, error: nil)
+    }
 }
 
 /// The device sign-in calls, made over the HTTP API (no auth needed).

@@ -91,6 +91,8 @@ android {
         debug {
             buildConfigField("String", "RELAY_URL", quoted(relayUrlFor("dev")))
             buildConfigField("boolean", "DEMO_ALLOWED", "true")
+            // The o11y tab, the relay owner's Grafana stack on the phone (mobile/DESIGN.md "o11y"): dev builds only.
+            buildConfigField("boolean", "O11Y_TAB", "true")
         }
         release {
             isMinifyEnabled = true
@@ -98,6 +100,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "RELAY_URL", quoted(relayUrlFor("prod")))
             buildConfigField("boolean", "DEMO_ALLOWED", "false")
+            buildConfigField("boolean", "O11Y_TAB", "false")
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }

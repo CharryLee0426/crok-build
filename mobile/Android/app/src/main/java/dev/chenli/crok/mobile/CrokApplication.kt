@@ -12,6 +12,7 @@ import dev.chenli.crok.mobile.data.DeviceAuthApiFactory
 import dev.chenli.crok.mobile.data.DraftStore
 import dev.chenli.crok.mobile.data.HttpDeviceAuthApi
 import dev.chenli.crok.mobile.data.KeystoreSecretBox
+import dev.chenli.crok.mobile.data.O11yRangeStore
 import dev.chenli.crok.mobile.data.PrefsKeyValueStore
 import dev.chenli.crok.mobile.data.SessionListCache
 import dev.chenli.crok.mobile.data.SettingsStore
@@ -39,6 +40,7 @@ class AppGraph(val context: Context) {
     val drafts = DraftStore(PrefsKeyValueStore(context, "crok_drafts"))
     val sessionCache = SessionListCache(File(context.filesDir, "session-cache"))
     val computerSelection = ComputerSelectionStore(PrefsKeyValueStore(context, "crok_selection"))
+    val o11yRanges = O11yRangeStore(PrefsKeyValueStore(context, "crok_o11y"))
 
     /** The Photo session theme's picture (Profile › Appearance › Choose a Photo), downscaled; kept across sign-ins. */
     val sessionBackgroundFile = File(context.filesDir, "session-background.jpg")

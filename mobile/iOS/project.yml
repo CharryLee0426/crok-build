@@ -61,6 +61,8 @@ targets:
           - CFBundleURLName: dev.chenli.crok.mobile
             CFBundleURLSchemes: [crok]
         CrokRelayURL: $(CROK_RELAY_URL)
+        # The o11y tab (mobile/DESIGN.md "o11y"): YES in Debug builds only.
+        CrokO11yTab: $(CROK_O11Y_TAB)
         ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
         NSAppTransportSecurity:

@@ -610,7 +610,9 @@ async fn run_one_attempt(
             .await
         }
         ApiBackend::Messages => {
-            let (raw, metadata) = match client.conversation_stream_messages(request).await {
+            let sent =
+                observe::send_recorded(&observation, client.conversation_stream_messages(request));
+            let (raw, metadata) = match sent.await {
                 Ok(pair) => pair,
                 Err(e) => {
                     observe::record_send_error(observation, &e);

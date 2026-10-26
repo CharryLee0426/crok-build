@@ -157,6 +157,18 @@ glass is a translucent frosted surface with a drawn rim (`GlassLevel`). The 2.x 
 Multiplatform 1.12, which needs compileSdk 37, so it waits like the AndroidX updates above. Accent: Telegram blue
 (`#3390EC` light, `#3E88F7` dark); the person's own bubbles are `#E1EFFD` (light) and `#2B5278` with white text (dark).
 
+## o11y (debug builds)
+
+As mobile/DESIGN.md "o11y" describes, and as the iOS app does: debug builds (`BuildConfig.O11Y_TAB`) have a third
+tab, **o11y**, right of Profile, with the relay owner's Grafana Cloud stack as pages the relay builds (relay/DESIGN.md
+§3 "o11y"). Each screen subscribes to `o11y:page` and calls the `o11y:refresh` action (`RelayTransport.action`) when
+its page is missing or older than 90 s, every 60 s while shown, and on pull to refresh; the range picked is kept per
+page. The app only draws blocks: a stats grid (2 columns upright, 4 on a wide screen), time charts drawn on a Canvas
+with the same marks as iOS (a tap or a hold-and-drag shows a callout; a swipe that starts on a chart scrolls the page),
+ranked rows, lists and link rows; wide screens put stats and charts across and pair the rest. Models in `data/O11y.kt`,
+the number rules and layout in `logic/O11y.kt`, the screens in `ui/o11y/`, the demo pages in `demo/DemoO11y.kt` over
+`app/src/debug/assets/o11y-demo.json` (made by `relay/scripts/o11y-demo.mjs`; release builds carry no demo pages).
+
 ## Replies in Markdown
 
 Agent replies render as full GitHub-flavoured Markdown with math, natively and the same way as the web and iOS
@@ -287,10 +299,10 @@ app/src/main/java/dev/chenli/crok/mobile/
   data/        wire models, RelayJson (float64 ↔ Long), errors, Convex HTTP API, Keystore box, settings/drafts/cache/collapsed projects
   engine/      CrokEngine (per-account facades), RelayConnection (staying connected), RelayTransport + ConvexTransport,
                TranscriptPager, ConnectionState (+ NetworkMonitor, AppForeground)
-  demo/        DemoData + DemoTransport (in-memory relay for demo mode and screenshots)
+  demo/        DemoData + DemoTransport (in-memory relay for demo mode and screenshots), DemoO11y (the o11y pages)
   logic/       pure logic: Transcript, ComposerCommands (command list, matching, bot cards), Markdown, MathExtractor,
                SyntaxHighlighter, RevealPacer, SessionList (sections), SessionOrder, PlanSummary, RelativeTime, UserCode
-  ui/          CrokRoot (navigation), theme, common components, signin/, sessions/, session/, settings/
+  ui/          CrokRoot (navigation), theme, common components, signin/, sessions/, session/, settings/, o11y/
 ```
 
 ## Telegram patterns

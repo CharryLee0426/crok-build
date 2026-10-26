@@ -329,4 +329,29 @@
         <item quantity="many">%d non lus</item>
         <item quantity="other">%d non lus</item>
     </plurals>
+
+    <!-- o11y (mobile/DESIGN.md "o11y"; dev builds) -->
+    <string name="o11y_updated">Mis à jour %1$s</string>
+    <string name="o11y_open_in_grafana">Ouvrir dans Grafana</string>
+    <string name="o11y_loading">Chargement d\'o11y…</string>
+    <string name="o11y_couldnt_update">Mise à jour impossible</string>
+    <string name="o11y_not_available_title">o11y n\'est pas disponible</string>
+    <string name="o11y_not_available_body">Ce compte ne peut pas voir la pile Grafana du relais. Demandez à la personne qui gère le relais de l\'ajouter.</string>
+    <string name="o11y_not_set_up_title">o11y n\'est pas configuré</string>
+    <string name="o11y_not_set_up_body">Le relais n\'a pas encore de jeton Grafana. Exécutez relay/scripts/o11y-setup.sh sur l\'ordinateur du propriétaire du relais.</string>
+    <string name="o11y_not_served">Ce relais ne propose pas encore o11y.</string>
+    <string name="o11y_range_hours">%1$d h</string>
+    <string name="o11y_range_days">%1$d j</string>
+    <string name="o11y_range">Période</string>
+    <string name="o11y_no_data">Aucune donnée sur cette période</string>
+    <plurals name="o11y_more">
+        <item quantity="one">et %d de plus</item>
+        <item quantity="many">et %d de plus</item>
+        <item quantity="other">et %d de plus</item>
+    </plurals>
+    <string name="o11y_panel_failed">Impossible de lire ce panneau</string>
+    <string name="o11y_spoken_up">%1$s, en hausse de %2$s</string>
+    <string name="o11y_spoken_down">%1$s, en baisse de %2$s</string>
+    <string name="o11y_status_ok">OK</string>
+    <string name="o11y_status_warning">Avertissement</string>
 </resources>

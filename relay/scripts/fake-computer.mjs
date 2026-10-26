@@ -64,7 +64,8 @@ const { hostId } = await client.mutation("bridge:connect", {
   appVersion: "crok 1.0.45 (fake)",
   pid: process.pid,
   canAdopt: true,
-  features: ["create", "config"],
+  // `setup`: it starts a new session on the model and thinking level its create command carries.
+  features: ["create", "config", "setup"],
 });
 const efforts = [
   { id: "low", name: "Low", value: "low" },

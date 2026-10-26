@@ -2660,6 +2660,358 @@
       "for": "0s"
     },
     {
+      "uid": "llm-hist-ae847e8e09cc",
+      "title": "llm_requests provider=claude, reporter=crok",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_requests",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.crok.unsampled=true}|count_over_time() by(name)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "reporter": "crok"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-6bb5600dac86",
+      "title": "llm_errors provider=claude, reporter=crok",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_errors",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.crok.unsampled=true&&status=error&&span.crok.cancelled=nil}|count_over_time()",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "reporter": "crok"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-a4e44c1b1f3a",
+      "title": "llm_tokens provider=claude, reporter=crok, direction=input",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_tokens",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.crok.unsampled=true&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens) by(name)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "reporter": "crok",
+        "direction": "input"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-c46c74a3e8f0",
+      "title": "llm_tokens provider=claude, reporter=crok, direction=output",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_tokens",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.crok.unsampled=true&&span.gen_ai.usage.output_tokens!=nil}|sum_over_time(span.gen_ai.usage.output_tokens) by(name)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "reporter": "crok",
+        "direction": "output"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-6332d277ff20",
+      "title": "llm_tokens provider=claude, reporter=crok, direction=cache_read",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_tokens",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.crok.unsampled=true&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(name)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "reporter": "crok",
+        "direction": "cache_read"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
+      "uid": "llm-hist-ee16970369f9",
+      "title": "llm_spend_usd provider=claude, reporter=crok, price_group=crok",
+      "folderUID": "llm-observability",
+      "ruleGroup": "llm-history",
+      "condition": "B",
+      "record": {
+        "metric": "llm_spend_usd",
+        "from": "B",
+        "targetDatasourceUid": "grafanacloud-prom"
+      },
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "datasourceUid": "grafanacloud-traces",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 1200
+          },
+          "model": {
+            "refId": "A",
+            "datasource": {
+              "type": "tempo",
+              "uid": "grafanacloud-traces"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.crok.unsampled=true&&span.crok.cost.usd!=nil}|sum_over_time(span.crok.cost.usd) by(name)",
+            "metricsQueryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "reduce",
+            "expression": "A",
+            "reducer": "last",
+            "settings": {
+              "mode": "dropNN"
+            },
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            }
+          }
+        }
+      ],
+      "labels": {
+        "source": "llm-observability",
+        "provider": "claude",
+        "reporter": "crok",
+        "price_group": "crok"
+      },
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s"
+    },
+    {
       "uid": "llm-hist-ac7f49a628eb",
       "title": "llm_spend_usd provider=codex, price_group=GPT-6 Astra, older crok, part 1",
       "folderUID": "llm-observability",

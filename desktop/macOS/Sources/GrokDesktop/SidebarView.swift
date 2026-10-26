@@ -100,7 +100,7 @@ struct SidebarView: View {
             Fold(isExpanded: expanded, spacing: 1) { toggle, isOpen in
                 ProjectFolderRow(store: store, project: project, isExpanded: isOpen,
                                  isActive: store.state.selectedProjectID == project.id && store.state.selectedConversationID == nil,
-                                 runningCount: tasks.filter { store.runs[$0.id]?.isRunning == true }.count,
+                                 runningCount: tasks.filter { store.runs[$0.id]?.isRunning == true || store.isWorkingElsewhere($0) }.count,
                                  hasManualOrder: store.hasManualOrder(.project(project.id)), onToggle: toggle)
                     .equatable()
                     .modifier(handle)
@@ -232,7 +232,8 @@ struct SidebarView: View {
                               projectName: showsProject ? projectName : nil,
                               isRemote: task.remote != nil,
                               indent: indent, now: now,
-                              isRunning: run?.isRunning == true, isConfiguring: run?.isConfiguring == true,
+                              // Another device's turn in one of this Mac's sessions shows too.
+                              isRunning: run?.isRunning == true || store.isWorkingElsewhere(task), isConfiguring: run?.isConfiguring == true,
                               isSelected: task.id == store.state.selectedConversationID,
                               needsApproval: !(run?.approvals.isEmpty ?? true) || !(run?.questions.isEmpty ?? true),
                               isUnread: store.unreadConversationIDs.contains(task.id))

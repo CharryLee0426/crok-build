@@ -22,6 +22,7 @@ import {
   isAbsolutePath,
   isStarting,
   modelsFor,
+  opensWithSetup,
   sessionSetup,
   supports,
   titleFromPrompt,
@@ -69,7 +70,14 @@ function sessionRow(session: Doc<"sessions">, device: Doc<"devices">) {
     historyState: session.historyState ?? null,
     /** Made by `sessions:create` and not open on its computer yet. */
     starting: isStarting(session),
+    /** The device that started it from afar (`sessions:create`), or null for one started on its computer. */
+    startedFrom: startedFromOf(session),
   };
+}
+
+function startedFromOf(session: Doc<"sessions">) {
+  const from = session.startedFrom;
+  return from ? { kind: from.kind, name: from.name, at: from.at } : null;
 }
 
 /**
@@ -166,6 +174,7 @@ export const get = query({
       starting: isStarting(session),
       /** A permission request waiting for an answer (`commands:answer`), or null. */
       pending: session.pending ?? null,
+      startedFrom: startedFromOf(session),
       /**
        * What its computer can run (`commands:setConfig` picks from these) when the list is short (`embeddedModels`);
        * current clients read `devices:models`. Null while the computer is offline.
@@ -179,7 +188,8 @@ export const get = query({
  * Starts a session in `path` on one of the person's computers, from any device: the relay lists it at once
  * (`starting`), and the first crok there to claim the `create` command opens it and runs `text` as its first prompt.
  * `model` and `effort` (the thinking level, an option id or its value) choose from that computer's models; its crok
- * applies them before the first prompt. `clientId` (a UUID the caller makes) makes a resend a no-op.
+ * applies them before the first prompt, so only a crok that does (`appliesSetup`) is given such a session.
+ * `clientId` (a UUID the caller makes) makes a resend a no-op.
  */
 export const create = mutation({
   args: {
@@ -207,20 +217,25 @@ export const create = mutation({
     if (!isAbsolutePath(folder)) fail("INVALID", "Choose a folder on the computer (a full path).");
     const prompt = text?.trim() || undefined;
     if (prompt && prompt.length > MAX_PROMPT) fail("INVALID", `Prompts are limited to ${MAX_PROMPT} characters.`);
+    const setup = sessionSetup(await modelsFor(ctx, device), model, effort);
     const hosts = await ctx.db
       .query("hosts")
       .withIndex("by_device_online", (q) => q.eq("deviceId", device._id).eq("online", true))
       .take(50);
-    const host = hosts.find((h) => h.canAdopt === true && supports(h, "create"));
+    const starters = hosts.filter((h) => h.canAdopt === true && supports(h, "create"));
+    // Only a crok that applies the chosen model and thinking level gets the session: an older one would start it on
+    // its own default.
+    const host = starters.find((h) => opensWithSetup(h, setup));
     if (!host) {
       fail(
         "OFFLINE",
-        hosts.some((h) => h.canAdopt === true)
-          ? `Update crok on ${device.name} to start sessions there from another device.`
-          : `${device.name} is offline: start crok or Crok Desktop there.`,
+        starters.length > 0
+          ? `Update crok on ${device.name} to start a session there with a chosen model or thinking level, or keep Default.`
+          : hosts.some((h) => h.canAdopt === true)
+            ? `Update crok on ${device.name} to start sessions there from another device.`
+            : `${device.name} is offline: start crok or Crok Desktop there.`,
       );
     }
-    const setup = sessionSetup(await modelsFor(ctx, device), model, effort);
     await ensureProject(ctx, viewer.user._id, device._id, folder);
     const now = Date.now();
     const sessionDocId = await ctx.db.insert("sessions", {
@@ -241,6 +256,11 @@ export const create = mutation({
       eventSeq: 0,
       assistantCount: 0,
       readAssistantCount: 0,
+      startedFrom: {
+        kind: viewer.device ? viewer.device.kind : "web",
+        name: viewerLabel(viewer).slice(0, 80),
+        at: now,
+      },
     });
     const commandId = await ctx.db.insert("commands", {
       userId: viewer.user._id,

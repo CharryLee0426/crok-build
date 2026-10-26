@@ -84,7 +84,8 @@ if pid == 0:
 import fcntl, struct, termios  # noqa: E402
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 48, 160, 0, 0))
 screen = ""
-ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\x1b[=>]")
+# Kitty graphics commands (`ESC _ G … ESC \`) come too where the terminal is taken for one that shows images.
+ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b_[^\x1b]*\x1b\\|\x1b[()][A-Z0-9]|\x1b[=>]")
 CSI = re.compile(r"\x1b\[([0-?]*)[ -/]*([@-~])")
 
 
@@ -444,6 +445,28 @@ if wait_screen(r"Other computers", 30, "/remote new opens the panel at the proje
             check(wait_for(r"You\W*asked", 60, "the first prompt runs there", mark), "the person types its first prompt")
             check(any("claimed prompt" in line and "first prompt from the panel" in line for line in fake_log),
                   "and it runs on the other computer", fake_log[-8:])
+
+print("a session started on this computer from the web")
+pump(2)
+devices = convex("devices:list", {}) or []
+this_computer = next((d for d in devices if d.get("kind") == "computer" and d.get("name") != "Test MacBook"), None)
+check(this_computer, "this computer is a linked device", devices)
+if this_computer:
+    mark = len(screen)
+    created = convex("sessions:create", {"deviceId": this_computer["_id"], "path": PROJECT,
+                                         "text": "started on the web for this desk", "clientId": str(time.time())})
+    check(created and created.get("sessionDocId"), "the web starts a session on this computer", created)
+    # This TUI's crok opens it out of sight; the TUI says so, and the Remote panel lists it under "This computer".
+    check(wait_for(r"Web\W*started\W*a\W*session", 60, "the TUI announces it", mark),
+          "the TUI announces the session the web started here")
+    pump(2)
+    type_text("/remote")
+    if wait_screen(r"This computer", 30, "the panel lists this computer's session"):
+        keep_screen("panel-this-computer")
+        dump = panel_text()
+        check("from Web" in dump and "started from other devices" in dump, "named with where it came from", dump)
+    os.write(fd, b"\x1b")
+    pump(1)
 
 print("quit")
 type_text("/quit")

@@ -28,6 +28,7 @@ use crate::types::{
 const HEARTBEAT: Duration = Duration::from_secs(30);
 const MAX_EVENTS_PER_CALL: usize = 100;
 const MAX_CATALOG_PER_CALL: usize = 100;
+const MAX_CATALOG_REMOVED_PER_CALL: usize = 500;
 /// Refresh the access token this long before it expires.
 const REFRESH_MARGIN_MS: f64 = 5.0 * 60.0 * 1000.0;
 
@@ -89,6 +90,15 @@ pub enum ToRelay {
     Catalog {
         sync_id: String,
         entries: Vec<CatalogEntry>,
+        reply: oneshot::Sender<CatalogOutcome>,
+    },
+    /// What changed on disk since this process's last upload or update: new or changed sessions and the ids of deleted
+    /// ones. Only the process holding the computer's catalog (its last upload's `sync_id`) sends it.
+    CatalogUpdate {
+        sync_id: String,
+        entries: Vec<CatalogEntry>,
+        removed: Vec<String>,
+        reply: oneshot::Sender<CatalogOutcome>,
     },
     /// A transcript read from disk for a session no crok runs, then the `history` command that asked for it completes.
     PushHistory {
@@ -134,6 +144,26 @@ pub enum ToRelay {
     Unsubscribe {
         id: u64,
     },
+}
+
+/// How a catalog upload or update ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatalogOutcome {
+    /// The relay took all of it.
+    Done,
+    /// The relay refused it: another crok on this computer holds the catalog now (`EXPIRED`), or the relay does not take
+    /// updates. This process sends no more updates until its next upload.
+    Refused,
+    /// It did not get through (the connection): the same changes go again next time.
+    Failed,
+}
+
+fn catalog_outcome(result: &anyhow::Result<FunctionResult>) -> CatalogOutcome {
+    match result {
+        Ok(FunctionResult::Value(_)) => CatalogOutcome::Done,
+        Ok(_) => CatalogOutcome::Refused,
+        Err(_) => CatalogOutcome::Failed,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -420,8 +450,10 @@ async fn run(
         "appVersion": config.app_version,
         "pid": f64::from(std::process::id()),
         "canAdopt": config.can_adopt,
-        // Command types this process handles beyond the first relay's.
-        "features": ["create", "config", "git"],
+        // Command types this process handles beyond the first relay's; `setup`: a `create` command's model and
+        // thinking level are applied before its first prompt (the relay gives such a session only to a crok that does);
+        // `catalog`: holding the computer's catalog, it sends what changes on disk between uploads.
+        "features": ["create", "config", "git", "setup", "catalog"],
     });
     let host_id = loop {
         match client
@@ -699,8 +731,25 @@ async fn write_loop(
                 let _ = reply.send(sync_id);
                 result
             }
-            ToRelay::Catalog { sync_id, entries } => {
-                upload_catalog(&mut client, &host_id, &sync_id, &entries).await
+            ToRelay::Catalog {
+                sync_id,
+                entries,
+                reply,
+            } => {
+                let result = upload_catalog(&mut client, &host_id, &sync_id, &entries).await;
+                let _ = reply.send(catalog_outcome(&result));
+                result
+            }
+            ToRelay::CatalogUpdate {
+                sync_id,
+                entries,
+                removed,
+                reply,
+            } => {
+                let result =
+                    update_catalog(&mut client, &host_id, &sync_id, &entries, &removed).await;
+                let _ = reply.send(catalog_outcome(&result));
+                result
             }
             ToRelay::PushHistory {
                 session_doc_id,
@@ -899,6 +948,35 @@ async fn upload_catalog(
     let ids: Vec<&str> = entries.iter().map(|e| e.session_id.as_str()).collect();
     let args = json!({ "hostId": host_id, "syncId": sync_id, "sessionIds": ids });
     client.mutation("bridge:finishCatalog", to_args(args)).await
+}
+
+/// Sends what changed on disk since the last upload or update, in as many calls as it takes. Stops at the first
+/// failure: one that another process took the catalog from answers `EXPIRED`.
+async fn update_catalog(
+    client: &mut ConvexClient,
+    host_id: &str,
+    sync_id: &str,
+    entries: &[CatalogEntry],
+    removed: &[String],
+) -> anyhow::Result<FunctionResult> {
+    let entry_chunks: Vec<&[CatalogEntry]> = entries.chunks(MAX_CATALOG_PER_CALL).collect();
+    let removed_chunks: Vec<&[String]> = removed.chunks(MAX_CATALOG_REMOVED_PER_CALL).collect();
+    let mut result = FunctionResult::Value(convex::Value::Null);
+    for index in 0..entry_chunks.len().max(removed_chunks.len()) {
+        let args = json!({
+            "hostId": host_id,
+            "syncId": sync_id,
+            "sessions": entry_chunks.get(index).copied().unwrap_or_default(),
+            "removed": removed_chunks.get(index).copied().unwrap_or_default(),
+        });
+        result = client
+            .mutation("bridge:catalogUpdate", to_args(args))
+            .await?;
+        if !matches!(result, FunctionResult::Value(_)) {
+            break;
+        }
+    }
+    Ok(result)
 }
 
 /// Replaces a session's transcript on the relay; the first call clears the old one even when there is nothing to add,
