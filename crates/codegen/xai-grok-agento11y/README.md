@@ -78,7 +78,7 @@ One generation per model API request (a retried request is one per attempt):
 | result | response id and model, stop reason, tokens (input, output, cache read, cache write, reasoning), the provider's own cost when it reports one, time to first token |
 | errors | the provider's message and HTTP status (429 shows as `rate_limit`); an interrupted turn as `cancelled` |
 | tags | `call_kind`, `backend`, `surface` (`tui`, `desktop`, `agent`), `host` (the machine's name, without `.local`); `surface` and `host` are client tags, so they reach the spans and metrics too |
-| span only | `crok.backend` (`openai_codex`, `glm`, `deepseek`, `messages`, …); `crok.cost.usd` with `crok.cost.source`: the provider's own cost when it reports one (`provider`: OpenRouter, xAI), else the model's standard API price for the call's tokens (`list_price`, from `xai-grok-models::pricing`, the table `/usage` estimates with), whatever paid for it; no cost for a model neither knows (an OpenRouter model, since a reported $0 counts as unreported and OpenRouter's catalog prices are not read here: its Broadcast export carries the bill); `crok.cancelled = true` on a call the user interrupted |
+| span only | `crok.backend` (`openai_codex`, `glm`, `deepseek`, `messages`, …); `crok.cost.usd` with `crok.cost.source`: the provider's own cost when it reports one (`provider`: OpenRouter, xAI), else the model's standard API price for the call's tokens (`list_price`, from `xai-grok-models::pricing`, the table `/usage` estimates with), whatever paid for it; no cost for a model neither knows (an OpenRouter model, since a reported $0 counts as unreported and OpenRouter's catalog prices are not read here: its Broadcast export carries the bill); `crok.cancelled = true` on a call the user interrupted; `crok.unsampled = true` on a call Claude Platform was told not to export (below), with its cache reads and thinking tokens also under Claude Platform's names (`gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.reasoning.output_tokens`, zeros included) so a dashboard ratio reads both sources' spans in one query |
 
 ### crok's own report for providers without traces
 
@@ -87,7 +87,8 @@ Claude Platform and OpenRouter export a span of every request to Grafana themsel
 record of those calls. That is why the span carries the cost: Agent Observability prices only the
 models in its own catalog (Claude and OpenRouter's), and Tempo keeps what the span says. The
 dashboards in `observability/grafana-llm` read crok's spans for every provider other than
-`anthropic` and `openrouter` (which would count twice), and its history rules keep them for
+`anthropic` and `openrouter` (which would count twice), plus the Claude calls marked
+`crok.unsampled`, which Claude Platform no longer exports; its history rules keep them for
 14 days. Nothing extra is switched on: it is the same span, sent wherever the rest of this goes.
 
 Text parts are cut at 64 KiB each (the SDK refuses a generation over 4 MiB). Images are not sent.
@@ -120,6 +121,24 @@ for the prompt cache are named by their request id (`crok/goal-eval`), and sessi
 
 `devtools/fake_stack.py` is a local stand-in for a stack: point an `agento11y.env` at it to see
 every record crok sends, and `fake_stack.py summary` prints each turn's tree.
+
+### Claude Platform's own export
+
+Anthropic's API can itself export a span of every request to the organization's telemetry
+destinations (Claude Console › Settings › OpenTelemetry). When that destination is the same Grafana
+stack, Agent Observability turns each of those traces into a conversation of its own, under the
+agent `claude-platform` and named by the trace id, so a crok session showed up once as itself and
+again as one `claude-platform` conversation per turn and per side call. A call crok records
+therefore goes to `api.anthropic.com` with its W3C `traceparent` marked not sampled (flags `00`,
+trace and parent ids kept, or fresh ones when crok had none), and the API exports nothing for it.
+The call's own span then carries `crok.unsampled = true`: it is the only trace of the call, and the
+LLM dashboards count it where they count Claude Platform's spans. What crok does not record keeps
+its Claude Platform spans: compaction, and every call while reporting is off
+(`CROK_AGENT_OBSERVABILITY=0`). Other hosts get the header unchanged.
+
+crok 2.0.2 and older send every Claude call both ways. Agent Observability has no way to delete
+what it stored, so those copies stay until its 30-day retention drops them;
+`observability/agento11y/stack.py duplicates` counts them and labels each one (see its README).
 
 ## How it works
 

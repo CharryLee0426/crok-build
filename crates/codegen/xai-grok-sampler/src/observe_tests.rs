@@ -466,6 +466,206 @@ fn a_switched_off_sink_gets_no_calls_but_sessions_are_still_registered() {
     );
 }
 
+const SAMPLED_TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+/// The caller's trace context, as crok's turns send it.
+#[derive(Debug)]
+struct SampledTraceparent;
+
+impl crate::config::HeaderInjector for SampledTraceparent {
+    fn inject(&self, headers: &mut reqwest::header::HeaderMap) {
+        headers.insert(
+            "traceparent",
+            reqwest::header::HeaderValue::from_static(SAMPLED_TRACEPARENT),
+        );
+    }
+}
+
+/// Stands in for a Messages endpoint: keeps each request's `traceparent`, then refuses the request.
+async fn messages_endpoint() -> (String, Arc<Mutex<Vec<Option<String>>>>) {
+    use axum::{Router, http::HeaderMap, http::StatusCode, routing::post};
+
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let kept = Arc::clone(&seen);
+    let app = Router::new().route(
+        "/v1/messages",
+        post(move |headers: HeaderMap| {
+            let kept = Arc::clone(&kept);
+            async move {
+                kept.lock().unwrap().push(
+                    headers
+                        .get("traceparent")
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_owned),
+                );
+                (
+                    StatusCode::BAD_REQUEST,
+                    r#"{"type":"error","error":{"type":"invalid_request_error","message":"stand-in"}}"#,
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{addr}/v1"), seen)
+}
+
+fn messages_client(
+    base_url: &str,
+    anthropic: Option<xai_grok_sampling_types::AnthropicOptions>,
+    header_injector: Option<crate::config::SharedHeaderInjector>,
+) -> SamplingClient {
+    SamplingClient::new(SamplerConfig {
+        api_key: Some("test-key".to_owned()),
+        base_url: base_url.to_owned(),
+        model: "claude-test".to_owned(),
+        api_backend: ApiBackend::Messages,
+        context_window: 200_000,
+        anthropic,
+        header_injector,
+        ..Default::default()
+    })
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_recorded_call_to_anthropic_goes_out_unsampled_so_claude_platform_does_not_report_it_again()
+ {
+    sink();
+    let (base_url, seen) = messages_endpoint().await;
+    let anthropic = Some(Default::default());
+    let traced = messages_client(&base_url, anthropic, Some(Arc::new(SampledTraceparent)));
+    let untraced = messages_client(&base_url, anthropic, None);
+    let other_host = messages_client(&base_url, None, Some(Arc::new(SampledTraceparent)));
+
+    let _ = traced
+        .conversation_collect(turn_request("platform-traced"))
+        .await;
+    let _ = untraced
+        .conversation_collect(turn_request("platform-untraced"))
+        .await;
+    let _ = other_host
+        .conversation_collect(turn_request("platform-other-host"))
+        .await;
+    SWITCHED_OFF.set(true);
+    let _ = traced
+        .conversation_collect(turn_request("platform-not-recorded"))
+        .await;
+    SWITCHED_OFF.set(false);
+
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 4, "one request per call: {seen:?}");
+    assert_eq!(
+        seen[0].as_deref(),
+        Some("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"),
+        "the caller's trace, no longer sampled"
+    );
+    let added = seen[1]
+        .as_deref()
+        .expect("added where the caller sent none");
+    assert!(
+        added.starts_with("00-") && added.ends_with("-00"),
+        "{added}"
+    );
+    assert_eq!(
+        seen[2].as_deref(),
+        Some(SAMPLED_TRACEPARENT),
+        "another Messages host is left alone"
+    );
+    assert_eq!(
+        seen[3].as_deref(),
+        Some(SAMPLED_TRACEPARENT),
+        "a call no sink records keeps its Claude Platform span"
+    );
+    assert_eq!(records_for("platform-traced").len(), 1);
+    assert!(records_for("platform-not-recorded").is_empty());
+    // The dashboards count a call's own span in Claude Platform's place only when it says so.
+    let unsampled = |id| {
+        records_for(id)[0]["spanAttributes"]
+            .get("crok.unsampled")
+            .cloned()
+    };
+    assert_eq!(unsampled("platform-traced"), Some(Value::Bool(true)));
+    assert_eq!(unsampled("platform-untraced"), Some(Value::Bool(true)));
+    assert_eq!(
+        unsampled("platform-other-host"),
+        None,
+        "another host's span is not the call's only trace"
+    );
+}
+
+#[tokio::test]
+async fn an_unsampled_call_carries_the_counts_its_ratios_need_under_claude_platforms_names() {
+    sink();
+    let client = anthropic_client();
+    for (id, unsample) in [("obs-unsampled", true), ("obs-sampled", false)] {
+        let request = turn_request(id);
+        let observation = Observation::start(&client, &request, CallPath::Turn);
+        // What `SamplingClient::post` does for Anthropic's endpoint while the request is built.
+        send_recorded(&observation, async {
+            if unsample {
+                unsample_if_recorded(&mut reqwest::header::HeaderMap::new());
+            }
+        })
+        .await;
+        let events = stream::iter(vec![SamplingEvent::Completed {
+            request_id: RequestId::from("r"),
+            response: Box::new(response("Found it.")),
+            metrics: InferenceLatencyStats::default(),
+        }]);
+        let _: Vec<_> = watch(observation, events).collect().await;
+    }
+
+    let span = |id| records_for(id)[0]["spanAttributes"].clone();
+    let unsampled = span("obs-unsampled");
+    assert_eq!(unsampled["crok.unsampled"], true);
+    assert_eq!(unsampled["gen_ai.usage.cache_read.input_tokens"], 1_000);
+    assert_eq!(unsampled["gen_ai.usage.reasoning.output_tokens"], 20);
+    assert_eq!(
+        span("obs-sampled"),
+        serde_json::json!({"crok.backend": "messages"}),
+        "Claude Platform's own span has these"
+    );
+}
+
+#[test]
+fn unsampling_keeps_the_trace_and_parent_ids_and_mints_them_for_a_missing_or_broken_header() {
+    assert_eq!(
+        unsampled_traceparent(Some(SAMPLED_TRACEPARENT)),
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"
+    );
+    assert_eq!(
+        unsampled_traceparent(Some(
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-03"
+        )),
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-02",
+        "only the sampled flag is cleared"
+    );
+    for broken in [
+        None,
+        Some("not-a-traceparent"),
+        Some("00-00000000000000000000000000000000-b7ad6b7169203331-01"),
+        Some("00-0AF7651916CD43DD8448EB211C80319C-b7ad6b7169203331-01"),
+        Some("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-+1"),
+        Some("01-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01-ff"),
+    ] {
+        let fresh = unsampled_traceparent(broken);
+        let parts = fresh.split('-').collect::<Vec<_>>();
+        assert!(
+            matches!(parts[..], ["00", trace_id, parent_id, "00"]
+                if is_w3c_id(trace_id, 32) && is_w3c_id(parent_id, 16)),
+            "{broken:?} gave {fresh}"
+        );
+        assert!(
+            !fresh.contains("0af7651916cd43dd8448eb211c80319c"),
+            "{broken:?} is not reused"
+        );
+    }
+}
+
 #[test]
 fn side_call_kinds_come_from_synthetic_conversation_ids() {
     let uuid = uuid::Uuid::new_v4();
