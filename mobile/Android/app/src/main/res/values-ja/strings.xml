@@ -311,4 +311,27 @@
     <plurals name="switcher_unread">
         <item quantity="other">未読 %d 件</item>
     </plurals>
+
+    <!-- o11y (mobile/DESIGN.md "o11y"; dev builds) -->
+    <string name="o11y_updated">%1$sに更新</string>
+    <string name="o11y_open_in_grafana">Grafana で開く</string>
+    <string name="o11y_loading">o11y を読み込み中…</string>
+    <string name="o11y_couldnt_update">更新できませんでした</string>
+    <string name="o11y_not_available_title">o11y は利用できません</string>
+    <string name="o11y_not_available_body">このアカウントではリレーの Grafana スタックを表示できません。リレーの管理者に追加を依頼してください。</string>
+    <string name="o11y_not_set_up_title">o11y は未設定です</string>
+    <string name="o11y_not_set_up_body">リレーにはまだ Grafana トークンがありません。リレーの所有者のコンピュータで relay/scripts/o11y-setup.sh を実行してください。</string>
+    <string name="o11y_not_served">このリレーはまだ o11y に対応していません。</string>
+    <string name="o11y_range_hours">%1$d時間</string>
+    <string name="o11y_range_days">%1$d日</string>
+    <string name="o11y_range">期間</string>
+    <string name="o11y_no_data">この期間のデータはありません</string>
+    <plurals name="o11y_more">
+        <item quantity="other">ほか %d 件</item>
+    </plurals>
+    <string name="o11y_panel_failed">このパネルを読み込めませんでした</string>
+    <string name="o11y_spoken_up">%1$s、%2$s 増加</string>
+    <string name="o11y_spoken_down">%1$s、%2$s 減少</string>
+    <string name="o11y_status_ok">OK</string>
+    <string name="o11y_status_warning">警告</string>
 </resources>

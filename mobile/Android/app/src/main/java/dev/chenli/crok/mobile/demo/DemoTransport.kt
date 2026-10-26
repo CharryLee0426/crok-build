@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -57,6 +58,8 @@ class DemoTransport(
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
     private val animate: Boolean = true,
+    /** The o11y tab's demo pages (o11y-demo.json); without them the tab says o11y is not set up. */
+    private val o11y: DemoO11y? = null,
 ) : RelayTransport {
     private val state = MutableStateFlow(DemoData.state(clock()))
     private val turns = HashMap<String, Job>()
@@ -83,10 +86,23 @@ class DemoTransport(
         if (animate) finishStreamingReply()
     }
 
-    override fun subscribe(name: String, args: Map<String, Any?>): Flow<Result<JsonElement>> =
-        combine(state, identity) { current, version -> version to runCatching { answer(current, name, args) } }
+    override fun subscribe(name: String, args: Map<String, Any?>): Flow<Result<JsonElement>> {
+        if (name == "o11y:page") {
+            return o11y?.page(args) ?: flowOf(
+                Result.success(buildJsonObject { put("state", "unconfigured") }),
+            )
+        }
+        return combine(state, identity) { current, version -> version to runCatching { answer(current, name, args) } }
             .distinctUntilChanged()
             .map { it.second }
+    }
+
+    override suspend fun action(name: String, args: Map<String, Any?>): JsonElement {
+        if (name == "o11y:refresh") {
+            return o11y?.refresh(args) ?: throw RelayException(RelayErrorCode.NOT_CONFIGURED, "The relay has no Grafana token yet.")
+        }
+        throw RelayException(RelayErrorCode.UNKNOWN, "The demo relay has no action $name")
+    }
 
     override suspend fun mutation(name: String, args: Map<String, Any?>): JsonElement {
         delay(if (animate) 150 else 0)

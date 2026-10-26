@@ -94,6 +94,15 @@ class ComputerSelectionStore(private val kv: KeyValueStore) {
     }
 }
 
+/** The range picked on each o11y page (`crok.o11y.range.<page>`, mobile/DESIGN.md "o11y" › Range). */
+class O11yRangeStore(private val kv: KeyValueStore) {
+    fun get(page: String): String? = kv.get(key(page))
+
+    fun set(page: String, range: String) = kv.put(key(page), range)
+
+    private fun key(page: String) = "crok.o11y.range.$page"
+}
+
 /** The composer's unsent text per session (Telegram's `saveDraft`): survives the app being killed. */
 class DraftStore(private val kv: KeyValueStore) {
     fun load(sessionDocId: String): String = kv.get(sessionDocId).orEmpty()

@@ -95,6 +95,8 @@ private class FakeTransport(val number: Int, private val server: FakeRelayServer
         return JsonPrimitive("done on #$number")
     }
 
+    override suspend fun action(name: String, args: Map<String, Any?>): JsonElement = mutation(name, args)
+
     override fun close() {
         closed = true
     }

@@ -82,6 +82,14 @@ class ConvexTransport(
         throw mapError(e)
     }
 
+    override suspend fun action(name: String, args: Map<String, Any?>): JsonElement = try {
+        client.action<JsonElement>(name, args)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        throw mapError(e)
+    }
+
     override fun close() {
         provider.close()
         val nativeClient = native

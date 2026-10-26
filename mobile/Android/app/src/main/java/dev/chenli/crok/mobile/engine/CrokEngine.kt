@@ -9,6 +9,9 @@ import dev.chenli.crok.mobile.data.CreateResult
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.Me
 import dev.chenli.crok.mobile.data.ModelChoice
+import dev.chenli.crok.mobile.data.O11yDecode
+import dev.chenli.crok.mobile.data.O11yPageState
+import dev.chenli.crok.mobile.data.O11yRefreshResult
 import dev.chenli.crok.mobile.data.PendingLogin
 import dev.chenli.crok.mobile.data.PromptCommand
 import dev.chenli.crok.mobile.data.RelayErrorCode
@@ -126,6 +129,7 @@ class CrokEngine(
     val commands = Commands()
     val devices = Devices()
     val accounts = Accounts()
+    val o11y = O11y()
 
     fun start() {
         relay.start()
@@ -151,6 +155,12 @@ class CrokEngine(
 
     internal suspend fun callUnit(name: String, args: Map<String, Any?>) {
         call(name, args, IgnoreValue)
+    }
+
+    /** An action, decoded. Throws RelayException / RelayNetworkException. */
+    internal suspend fun <T> act(name: String, args: Map<String, Any?>, strategy: DeserializationStrategy<T>): T {
+        val value: JsonElement = relay.call { transport -> transport.action(name, args) }
+        return RelayJson.decodeFromJsonElement(strategy, value)
     }
 
     // ---- Facades ----
@@ -486,6 +496,26 @@ class CrokEngine(
             call("deviceAuth:approve", mapOf("userCode" to userCode), ApproveResult.serializer())
 
         suspend fun deny(userCode: String) = callUnit("deviceAuth:deny", mapOf("userCode" to userCode))
+    }
+
+    /**
+     * The o11y tab's pages (relay/DESIGN.md §3 "o11y"): the cached page, and a request for a newer one that arrives
+     * through the same subscription.
+     */
+    inner class O11y {
+        private fun args(page: String, range: String?, lang: String): Map<String, Any?> =
+            buildMap {
+                put("page", page)
+                put("lang", lang)
+                if (range != null) put("range", range)
+            }
+
+        fun page(page: String, range: String?, lang: String): Flow<Result<O11yPageState>> =
+            live("o11y:page", args(page, range, lang), O11yDecode.StateStrategy)
+
+        /** Rebuilds the page from Grafana when it is stale ([force]: pull to refresh). */
+        suspend fun refresh(page: String, range: String?, lang: String, force: Boolean): O11yRefreshResult =
+            act("o11y:refresh", args(page, range, lang) + ("force" to force), O11yDecode.RefreshStrategy)
     }
 
     companion object {

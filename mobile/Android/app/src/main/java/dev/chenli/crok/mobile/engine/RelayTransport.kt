@@ -31,6 +31,9 @@ interface RelayTransport {
 
     suspend fun mutation(name: String, args: Map<String, Any?>): JsonElement
 
+    /** A Convex action (the o11y tab's `o11y:refresh`): it may call out of the relay, so it can take seconds. */
+    suspend fun action(name: String, args: Map<String, Any?>): JsonElement
+
     /** Closes this connection for good. */
     fun close()
 }

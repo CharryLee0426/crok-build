@@ -324,4 +324,29 @@
         <item quantity="one">%d unread</item>
         <item quantity="other">%d unread</item>
     </plurals>
+
+    <!-- o11y (mobile/DESIGN.md "o11y"; dev builds) -->
+    <string name="tab_o11y" translatable="false">o11y</string>
+    <string name="o11y_updated">Updated %1$s</string>
+    <string name="o11y_open_in_grafana">Open in Grafana</string>
+    <string name="o11y_loading">Loading o11y…</string>
+    <string name="o11y_couldnt_update">Couldn’t update</string>
+    <string name="o11y_not_available_title">o11y is not available</string>
+    <string name="o11y_not_available_body">This account can’t see the relay’s Grafana stack. Ask whoever runs the relay to add it.</string>
+    <string name="o11y_not_set_up_title">o11y is not set up</string>
+    <string name="o11y_not_set_up_body">The relay has no Grafana token yet. Run relay/scripts/o11y-setup.sh on the relay owner’s computer.</string>
+    <string name="o11y_not_served">This relay doesn’t serve o11y yet.</string>
+    <string name="o11y_range_hours">%1$dh</string>
+    <string name="o11y_range_days">%1$dd</string>
+    <string name="o11y_range">Range</string>
+    <string name="o11y_no_data">No data in this range</string>
+    <plurals name="o11y_more">
+        <item quantity="one">and %d more</item>
+        <item quantity="other">and %d more</item>
+    </plurals>
+    <string name="o11y_panel_failed">Couldn’t read this panel</string>
+    <string name="o11y_spoken_up">%1$s, up %2$s</string>
+    <string name="o11y_spoken_down">%1$s, down %2$s</string>
+    <string name="o11y_status_ok">OK</string>
+    <string name="o11y_status_warning">Warning</string>
 </resources>

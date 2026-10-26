@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -79,6 +82,7 @@ import dev.chenli.crok.mobile.ui.settings.LinkComputerScreen
 import dev.chenli.crok.mobile.ui.settings.LinkComputerViewModel
 import dev.chenli.crok.mobile.ui.settings.ProfileActions
 import dev.chenli.crok.mobile.ui.settings.ProfileScreen
+import dev.chenli.crok.mobile.ui.o11y.O11yTab
 import dev.chenli.crok.mobile.ui.settings.ProfileUiState
 import dev.chenli.crok.mobile.ui.signin.WaitingScreen
 import dev.chenli.crok.mobile.ui.signin.WaitingUiState
@@ -393,6 +397,8 @@ private fun HomeTabs(
                     }
                 }
             }
+        } else if (tab == O11Y_TAB) {
+            O11yTab(engine, graph.o11yRanges)
         } else {
             ProfileScreen(
                 ProfileUiState(
@@ -429,10 +435,14 @@ data class HomeTabActions(
     val onLinkComputer: () -> Unit = {},
 )
 
+/** The o11y tab's index, right of Profile (mobile/DESIGN.md "o11y"; dev builds only). */
+const val O11Y_TAB = 2
+
 /**
- * The two tabs, Sessions and Profile, under a floating Liquid Glass tab bar (mobile/DESIGN.md "Tabs"). Sessions shows
- * the selected computer's unread count, and a long press offers Mark All as Read; Profile shows the account picture
- * (ringed while selected) and the other computers' unread count, and a long press opens the computer switcher.
+ * The two tabs, Sessions and Profile, under a floating Liquid Glass tab bar (mobile/DESIGN.md "Tabs"), and o11y in
+ * dev builds ([showO11y]). Sessions shows the selected computer's unread count, and a long press offers Mark All as
+ * Read; Profile shows the account picture (ringed while selected) and the other computers' unread count, and a long
+ * press opens the computer switcher. o11y has no badge and no menu.
  */
 @Composable
 fun HomeScaffold(
@@ -441,6 +451,7 @@ fun HomeScaffold(
     ui: HomeTabsUi,
     actions: HomeTabActions = HomeTabActions(),
     initialMenu: Int? = null,
+    showO11y: Boolean = BuildConfig.O11Y_TAB,
     content: @Composable () -> Unit,
 ) {
     val colors = CrokTheme.colors
@@ -481,7 +492,11 @@ fun HomeScaffold(
                     )
                 },
             ),
-        ),
+        ) + if (showO11y) {
+            listOf(GlassTab(stringResource(R.string.tab_o11y), Icons.Outlined.Insights, Icons.Filled.Insights, tag = "tab-o11y"))
+        } else {
+            emptyList()
+        },
         selected = tab,
         onSelect = onTab,
         initialMenu = initialMenu,

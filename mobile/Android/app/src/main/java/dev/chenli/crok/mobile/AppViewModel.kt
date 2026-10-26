@@ -17,6 +17,7 @@ import dev.chenli.crok.mobile.data.PhotoImport
 import dev.chenli.crok.mobile.data.RelayUser
 import dev.chenli.crok.mobile.data.ThemeMode
 import dev.chenli.crok.mobile.demo.DemoData
+import dev.chenli.crok.mobile.demo.DemoO11y
 import dev.chenli.crok.mobile.demo.DemoTransport
 import dev.chenli.crok.mobile.engine.ConvexTransport
 import dev.chenli.crok.mobile.engine.CrokEngine
@@ -74,7 +75,8 @@ class AppViewModel(private val graph: AppGraph) : ViewModel() {
         val engine = if (state.demo) {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
             tokenScope = scope
-            CrokEngine(credentials, isDemo = true, transport = DemoTransport(scope), network = MutableStateFlow(true), cache = null)
+            val o11y = if (BuildConfig.O11Y_TAB) DemoO11y.fromAssets(graph.context) else null
+            CrokEngine(credentials, isDemo = true, transport = DemoTransport(scope, o11y = o11y), network = MutableStateFlow(true), cache = null)
         } else {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             tokenScope = scope
