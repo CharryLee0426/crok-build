@@ -131,7 +131,8 @@ for a in d.get("serviceAccounts") or []:
         || fail "cannot read the llm-overview dashboard (observability/grafana-llm/setup.sh dashboards pushes it)"
     if [[ -n "$folder" ]]; then
         printf '{"permission":"View"}' > "$work/view.json"
-        gcx_json "/api/access-control/folders/$folder/serviceAccounts/$account_id" -X POST -d "@$work/view.json" >/dev/null \
+        # A service account is a user to the resource-permission API (there is no serviceAccounts route).
+        gcx_json "/api/access-control/folders/$folder/users/$account_id" -X POST -d "@$work/view.json" >/dev/null \
             || fail "cannot give the service account View on folder $folder"
         printf 'View on folder %s\n' "$folder"
     fi
