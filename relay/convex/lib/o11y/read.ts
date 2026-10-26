@@ -19,6 +19,7 @@ import {
   seriesOf,
   total,
 } from "./grafana";
+import { nameTranslator } from "./i18n";
 import type { Block, Chip, ChartSeries, Lang, ListRow, RankRow, Section, Stat, Unit } from "./types";
 import { RANGE_MS } from "./types";
 
@@ -34,6 +35,8 @@ export type BuildCtx = {
   to: number;
   lang: Lang;
   t: (english: string) => string;
+  /** A name from the data (a series, a row), translated only where i18n.ts knows it. */
+  name: (name: string) => string;
   limit: <T>(work: () => Promise<T>) => Promise<T>;
   dashboards: Map<string, Promise<Dashboard>>;
 };
@@ -56,7 +59,18 @@ export function limiter(n: number): <T>(work: () => Promise<T>) => Promise<T> {
 
 export function makeCtx(g: Grafana, range: string, lang: Lang, t: (english: string) => string, now = Date.now()): BuildCtx {
   const rangeMs = RANGE_MS[range] ?? RANGE_MS["24h"];
-  return { g, range, rangeMs, from: now - rangeMs, to: now, lang, t, limit: limiter(4), dashboards: new Map() };
+  return {
+    g,
+    range,
+    rangeMs,
+    from: now - rangeMs,
+    to: now,
+    lang,
+    t,
+    name: nameTranslator(lang),
+    limit: limiter(4),
+    dashboards: new Map(),
+  };
 }
 
 export function message(error: unknown): string {
@@ -387,7 +401,7 @@ export function chartBlock(
   const rest = solid.slice(keep);
   const slots = new Map([...kept].sort((a, b) => a.name.localeCompare(b.name)).map((s, i) => [s.name, (i % 8) + 1]));
   const out: ChartSeries[] = kept.map((s) => ({
-    name: s.name,
+    name: ctx.name(s.name),
     slot: slots.get(s.name)!,
     total: additive ? round(size(s)) : null,
     points: s.points,
@@ -402,7 +416,7 @@ export function chartBlock(
     }
   }
   for (const s of dashed) {
-    out.push({ name: s.name, slot: 0, total: additive ? round(size(s)) : null, dashed: true, points: s.points });
+    out.push({ name: ctx.name(s.name), slot: 0, total: additive ? round(size(s)) : null, dashed: true, points: s.points });
   }
   return {
     kind: "chart",
@@ -473,7 +487,7 @@ export function rankingBlock(ctx: BuildCtx, values: { label: string; value: numb
     .sort((a, b) => (spec.order === "asc" ? a.value - b.value : b.value - a.value));
   const sum = sorted.reduce((acc, row) => acc + row.value, 0);
   const rows: RankRow[] = sorted.slice(0, limit).map((row) => ({
-    label: row.label,
+    label: ctx.name(row.label),
     value: tidy(round(row.value), unit),
     ...(spec.shares && sum > 0
       ? { detail: [{ v: round(row.value / sum), u: "ratio" as const }, ...(row.detail ?? [])] }
@@ -526,7 +540,7 @@ export async function wowRankingFromPanel(
     const c = change.get(name);
     const prior = before.get(name);
     return {
-      label: spec.rename ? spec.rename(name) : name,
+      label: ctx.name(spec.rename ? spec.rename(name) : name),
       value: tidy(round(value ?? 0), unit),
       ...(prior !== undefined && prior !== null ? { detail: [{ v: tidy(round(prior), unit), u: unit, s: ctx.t("the week before") }] } : {}),
       ...(c !== undefined && c !== null && Number.isFinite(c) ? { change: round(c), better: spec.better ?? "up" } : {}),

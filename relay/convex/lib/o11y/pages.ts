@@ -426,10 +426,26 @@ const history: PageDef = {
       section(t("Spend by provider, week over week"), () =>
         wowRankingFromPanel(ctx, uid, "Spend by provider, week over week", { better: "down" }),
       ),
-      section(t("Spend by price group"), () => rankingFromPanel(ctx, uid, "Spend by price group", { unit: "usd" })),
+      section(t("Spend by price group"), () => spendByPriceGroup(ctx)),
     ]);
   },
 };
+
+/**
+ * The history's spend by price group over the page's range. Not the dashboard's panel: its per-day label_replace
+ * fails as soon as two days' series share a label set ("vector cannot contain metrics with the same labelset").
+ * crok's own figure is one price group, "crok", told apart by the model in the rule's `name`.
+ */
+async function spendByPriceGroup(ctx: BuildCtx): Promise<Block> {
+  const series = await promInstant(ctx, "sum by (provider, price_group, name) (sum_over_time(llm_spend_usd[$__range]))");
+  const rows = series.map((s) => {
+    const group = label(s, "price_group");
+    const model = label(s, "name").replace(/^"?streamText (.+?)"?$/, "$1");
+    const which = group === "crok" && model ? model : group || "—";
+    return { label: `${which} · ${provider(label(s, "provider"))}`, value: lastValue(s) ?? 0 };
+  });
+  return rankingBlock(ctx, rows, "usd");
+}
 
 const explorer: PageDef = {
   id: "explorer",
