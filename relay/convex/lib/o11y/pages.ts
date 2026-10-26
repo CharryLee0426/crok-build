@@ -7,6 +7,7 @@ import type { Grafana, Series } from "./grafana";
 import { chartStep, lastValue, total } from "./grafana";
 import { translator } from "./i18n";
 import type { BuildCtx, StatSpec } from "./read";
+import { BAR_POINTS } from "./read";
 import {
   makeCtx,
   changeOf,
@@ -73,6 +74,12 @@ function time(value: unknown): number | undefined {
   if (typeof value !== "string") return undefined;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : undefined;
+}
+
+/** "1 generation", "12 generations": a count chip with the suffix that fits it. */
+function counted(ctx: BuildCtx, n: number, one: string, many: string, unit: "count" | "tokens" = "count"): Chip {
+  const whole = Math.round(n);
+  return { v: whole, u: unit, s: ctx.t(whole === 1 ? one : many) };
 }
 
 function clip(text: string, max = 160): string {
@@ -271,13 +278,13 @@ const claude: PageDef = {
         ]),
         t("Claude Platform sends tokens, not prices: spend is estimated from list prices."),
       ),
-      section(t("Estimated spend by model"), () => chartFromPanel(ctx, uid, "Estimated spend by model", { style: "line" })),
-      section(t("Token mix"), () => chartFromPanel(ctx, uid, "Token mix", { style: "line" })),
+      section(t("Estimated spend by model"), () => chartFromPanel(ctx, uid, "Estimated spend by model", { style: "bars", stacked: true })),
+      section(t("Token mix"), () => chartFromPanel(ctx, uid, "Token mix", { style: "bars", stacked: true, unit: "tokens" })),
       section(t("Estimated spend by model"), () => rankingFromPanel(ctx, uid, "Estimated spend by model")),
       section(t("Call duration by model"), () => chartFromPanel(ctx, uid, "Request duration by model", { style: "line" })),
       section(t("Stop reasons"), () => rankingFromPanel(ctx, uid, "Stop reasons")),
       section(t("Effort level"), () => rankingFromPanel(ctx, uid, "Effort level")),
-      section(t("Errors by type"), () => chartFromPanel(ctx, uid, "Errors by type", { style: "line" })),
+      section(t("Errors by type"), () => chartFromPanel(ctx, uid, "Errors by type", { style: "bars", stacked: true })),
       section(t("Latest calls"), () => listFromSpans(ctx, uid, "Latest requests")),
     ]);
   },
@@ -304,7 +311,7 @@ const openrouter: PageDef = {
           { panel: "p95 latency", better: "down" },
         ]),
       ),
-      section(t("Spend by model"), () => chartFromPanel(ctx, uid, "Spend by model", { style: "line" })),
+      section(t("Spend by model"), () => chartFromPanel(ctx, uid, "Spend by model", { style: "bars", stacked: true })),
       section(t("Spend by upstream provider"), () => rankingFromPanel(ctx, uid, "Spend by upstream provider")),
       section(t("Spend by API key"), () => rankingFromPanel(ctx, uid, "Spend by API key")),
       section(t("Calls per minute by model"), () => chartFromPanel(ctx, uid, "Requests per minute by model", { style: "line" })),
@@ -345,12 +352,12 @@ const crok: PageDef = {
       section(t("Spend per day by provider"), () =>
         chartFromPanel(ctx, uid, "Spend per day by provider (last 14 days)", { style: "bars", stacked: true }),
       ),
-      section(t("Spend by model"), () => chartFromPanel(ctx, uid, "Spend by model", { style: "line" })),
+      section(t("Spend by model"), () => chartFromPanel(ctx, uid, "Spend by model", { style: "bars", stacked: true })),
       section(t("Spend by provider"), () => rankingFromPanel(ctx, uid, "Spend by provider")),
       section(t("Time to first token by provider"), () =>
         chartFromPanel(ctx, uid, "Time to first token by provider", { style: "line" }),
       ),
-      section(t("Failures by category"), () => chartFromPanel(ctx, uid, "Failures by category", { style: "line" })),
+      section(t("Failures by category"), () => chartFromPanel(ctx, uid, "Failures by category", { style: "bars", stacked: true })),
       section(t("Calls by machine"), () => rankingFromPanel(ctx, uid, "Requests by machine")),
       section(t("Finish reasons"), () => rankingFromPanel(ctx, uid, "Finish reasons")),
       section(t("Latest calls"), () => listFromSpans(ctx, uid, "Latest calls")),
@@ -380,7 +387,7 @@ const harness: PageDef = {
         ]),
         t("Turns from crok releases after 2.0.1; experiment runs left out."),
       ),
-      section(t("Turns by outcome"), () => chartFromPanel(ctx, uid, "Turns by outcome", { style: "line" })),
+      section(t("Turns by outcome"), () => chartFromPanel(ctx, uid, "Turns by outcome", { style: "bars", stacked: true, slots: OUTCOME_SLOTS })),
       section(t("Turns by model"), () => rankingFromPanel(ctx, uid, "Turns by model")),
       section(t("Tool runs by tool"), () => rankingFromPanel(ctx, uid, "Tool runs by tool")),
       section(t("Failed tool runs by tool"), () => rankingFromPanel(ctx, uid, "Failed tool runs by tool")),
@@ -422,7 +429,7 @@ const history: PageDef = {
       ),
       section(t("Spend per day by provider"), () => chartFromPanel(ctx, uid, "Spend per day", { style: "bars", stacked: true })),
       section(t("Calls per day"), () => chartFromPanel(ctx, uid, "Requests per day", { style: "bars", stacked: true })),
-      section(t("Tokens per day"), () => chartFromPanel(ctx, uid, "Tokens per day", { style: "bars", stacked: true })),
+      section(t("Tokens per day"), () => chartFromPanel(ctx, uid, "Tokens per day", { style: "bars", stacked: true, unit: "tokens" })),
       section(t("Spend by provider, week over week"), () =>
         wowRankingFromPanel(ctx, uid, "Spend by provider, week over week", { better: "down" }),
       ),
@@ -540,7 +547,7 @@ async function passRates(ctx: BuildCtx): Promise<Block> {
       label: name,
       value: (passed.get(name) ?? 0) / n,
       detail: [
-        { v: Math.round(n), u: "count" as const, s: t("scores") },
+        counted(ctx, n, "score", "scores"),
         ...(n - (passed.get(name) ?? 0) >= 0.5 ? [{ v: Math.round(n - (passed.get(name) ?? 0)), u: "count" as const, s: t("failed") }] : []),
       ] as Chip[],
     }));
@@ -549,15 +556,19 @@ async function passRates(ctx: BuildCtx): Promise<Block> {
 
 async function scoresOverTime(ctx: BuildCtx): Promise<Block> {
   const t = ctx.t;
-  const series = await promRange(ctx, `sum by (passed) (increase(${SCORES}[$__interval]))`);
-  const named = wholePoints(series).map((s) => ({ ...s, name: label(s, "passed") === "true" ? t("Passed") : t("Failed") }));
-  return chartBlock(ctx, named, { style: "bars", stacked: true, unit: "count", step: chartStepOf(ctx) });
+  const step = chartStep(ctx.rangeMs, BAR_POINTS);
+  const series = await promRange(ctx, `sum by (passed) (increase(${SCORES}[$__interval]))`, step);
+  const named = wholePoints(series).map((s) => ({ ...s, name: label(s, "passed") === "true" ? "Passed" : "Failed" }));
+  return chartBlock(ctx, named, { style: "bars", stacked: true, unit: "count", step, slots: OUTCOME_SLOTS });
 }
 
-/** The step promRange and tempoQuery charts use. */
-function chartStepOf(ctx: BuildCtx): number {
-  return chartStep(ctx.rangeMs);
-}
+/**
+ * Series that mean good or bad keep one colour wherever they appear (the categorical palette's aqua, yellow, red):
+ * a passed score, a completed turn, a guard's pass; a warn; a failure.
+ */
+const OUTCOME_SLOTS: Record<string, number> = {
+  Passed: 3, pass: 3, completed: 3, Failed: 8, failed: 8, error: 8, deny: 8, warn: 4, cancelled: 4, interrupted: 4,
+};
 
 async function rankedProm(ctx: BuildCtx, expr: string, key: string, unit: "count" | "usd", rename?: (n: string) => string): Promise<Block> {
   const series = await promInstant(ctx, expr);
@@ -648,9 +659,10 @@ async function guardStats(ctx: BuildCtx): Promise<Block> {
 }
 
 async function checksOverTime(ctx: BuildCtx): Promise<Block> {
-  const series = await promRange(ctx, `sum by (outcome) (increase(${HOOKS}[$__interval]))`);
-  const named = wholePoints(series).map((s) => ({ ...s, name: ctx.t(label(s, "outcome") || "pass") }));
-  return chartBlock(ctx, named, { style: "bars", stacked: true, unit: "count", step: chartStepOf(ctx) });
+  const step = chartStep(ctx.rangeMs, BAR_POINTS);
+  const series = await promRange(ctx, `sum by (outcome) (increase(${HOOKS}[$__interval]))`, step);
+  const named = wholePoints(series).map((s) => ({ ...s, name: label(s, "outcome") || "pass" }));
+  return chartBlock(ctx, named, { style: "bars", stacked: true, unit: "count", step, slots: OUTCOME_SLOTS });
 }
 
 const guards: PageDef = {
@@ -727,8 +739,8 @@ async function evalRuns(ctx: BuildCtx): Promise<Block> {
       return {
         title: run,
         detail: [
-          { v: Math.round(trialsBy.get(run) ?? 0), u: "count" as const, s: t("trials") },
-          { v: Math.round(n), u: "count" as const, s: t("model calls") },
+          counted(ctx, trialsBy.get(run) ?? 0, "trial", "trials"),
+          counted(ctx, n, "model call", "model calls"),
           ...(tokensBy.get(run) ? [{ v: Math.round(tokensBy.get(run)!), u: "tokens" as const, s: t("tokens") }] : []),
           ...(fails ? [{ v: fails, u: "count" as const, s: t("failed") }] : []),
         ] as Chip[],
@@ -779,9 +791,9 @@ async function agentList(ctx: BuildCtx): Promise<Block> {
     .map((a) => ({
       title: a.agent_name ?? "—",
       detail: [
-        ...(a.generation_count ? [{ v: a.generation_count, u: "count" as const, s: t("generations") }] : []),
-        ...(a.version_count ? [{ v: a.version_count, u: "count" as const, s: t("versions") }] : []),
-        ...(a.tool_count ? [{ v: a.tool_count, u: "count" as const, s: t("tools") }] : []),
+        ...(a.generation_count ? [counted(ctx, a.generation_count, "generation", "generations")] : []),
+        ...(a.version_count ? [counted(ctx, a.version_count, "version", "versions")] : []),
+        ...(a.tool_count ? [counted(ctx, a.tool_count, "tool", "tools")] : []),
         ...(a.token_estimate?.total ? [{ v: a.token_estimate.total, u: "tokens" as const, s: t("tokens of prompt") }] : []),
         ...(a.latest_declared_version ? [{ t: a.latest_declared_version }] : []),
       ] as Chip[],
@@ -814,8 +826,8 @@ async function agentStats(ctx: BuildCtx): Promise<Block> {
 }
 
 async function callsByAgent(ctx: BuildCtx, chart: boolean): Promise<Block> {
-  const series = await tempoQuery(ctx, `${CROK_CALLS}|count_over_time() by(span.gen_ai.agent.name)`, chart ? "chart" : "totals");
-  if (chart) return chartBlock(ctx, series, { style: "line", unit: "count", step: chartStepOf(ctx) });
+  const series = await tempoQuery(ctx, `${CROK_CALLS}|count_over_time() by(span.gen_ai.agent.name)`, chart ? "chart" : "totals", BAR_POINTS);
+  if (chart) return chartBlock(ctx, series, { style: "bars", stacked: true, unit: "count", step: chartStep(ctx.rangeMs, BAR_POINTS) });
   return rankingBlock(ctx, series.map((s) => ({ label: s.name, value: total(s) })), "count");
 }
 
@@ -862,21 +874,20 @@ const conversations: PageDef = {
     const t = ctx.t;
     return sections([
       section(t("Latest conversations"), async () => {
-        const list = items<Conversation>(await ctx.g.get(`${AO}/query/conversations?limit=30`));
+        // A conversation whose title is its id is a lone call (a title, a summary): left out.
+        const list = items<Conversation>(await ctx.g.get(`${AO}/query/conversations?limit=60`))
+          .filter((c) => c.title && c.title !== c.id)
+          .slice(0, 30);
         const rows: ListRow[] = list.map((c) => {
-          const title = c.title && c.title !== c.id ? clip(c.title, 120) : t("Untitled");
           const at = time(c.last_generation_at ?? c.created_at);
           return {
-            title,
-            detail: [
-              ...(c.generation_count ? [{ v: c.generation_count, u: "count" as const, s: t("generations") }] : []),
-              ...(c.created_at && time(c.created_at) !== at ? [{ t: fill(t("started {date}"), { date: (c.created_at ?? "").slice(0, 10) }) }] : []),
-            ] as Chip[],
+            title: clip(c.title!, 120),
+            ...(c.generation_count ? { detail: [counted(ctx, c.generation_count, "generation", "generations")] } : {}),
             ...(at ? { time: at } : {}),
           };
         });
         return { kind: "list", rows, empty: t("No conversations yet") };
-      }),
+      }, t("Lone calls without a title (session titles, summaries) are left out.")),
     ]);
   },
 };
@@ -1007,7 +1018,7 @@ const alerts: PageDef = {
       return {
         title: g.name,
         detail: [
-          { v: g.rules.length, u: "count" as const, s: t("rules") },
+          counted(ctx, g.rules.length, "rule", "rules"),
           ...(bad ? [{ v: bad, u: "count" as const, s: t("unhealthy") }] : []),
           ...(g.file ? [{ t: g.file }] : []),
         ] as Chip[],

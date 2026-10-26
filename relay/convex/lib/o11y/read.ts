@@ -180,7 +180,14 @@ function panelUnit(panel: Panel): Unit {
   return unitOf(column ?? own);
 }
 
-type Ran = { panel: Panel; series: Series[]; rows: Record<string, unknown>[]; from: number };
+type Ran = { panel: Panel; series: Series[]; rows: Record<string, unknown>[]; from: number; step: number };
+
+/**
+ * Points a chart gets: lines about 120, bars 48 (a bar per 30 minutes of a day) so each is wide enough to see and a
+ * sparse total (spend in a step) reads as bars, not needles.
+ */
+export const LINE_POINTS = 120;
+export const BAR_POINTS = 48;
 
 /**
  * A quantile series the panel's renames left as Tempo names it, `{p=0.9, span.gen_ai.tool.name="grep"}`, becomes
@@ -201,12 +208,12 @@ export async function runPanel(
   ctx: BuildCtx,
   uid: string,
   title: string,
-  opts: { chart?: boolean; type?: string } = {},
+  opts: { chart?: boolean; type?: string; points?: number } = {},
 ): Promise<Ran> {
   const [board, panel] = await Promise.all([dashboard(ctx, uid), findPanel(ctx, uid, title, opts.type)]);
   const rangeMs = parseDuration(panel.timeFrom?.replace(/^now-/, "")) ?? ctx.rangeMs;
   const from = ctx.to - rangeMs;
-  const step = chartStep(rangeMs);
+  const step = chartStep(rangeMs, opts.points);
   const vars = { ...dashboardVars(board as never), ...builtinVars(rangeMs, step) };
   const legends: Record<string, string | undefined> = {};
   const fill = (value: unknown): unknown =>
@@ -238,16 +245,18 @@ export async function runPanel(
   const response = await ctx.limit(() =>
     ctx.g.post("/api/ds/query", { queries, from: String(from), to: String(ctx.to) }),
   );
+  // The step the points came back at: a query's fixed interval ("1d"), else the one asked for.
+  const served = queries.map((q) => parseDuration(q.interval)).find((ms): ms is number => !!ms) ?? step;
   const isSpans = queries.some((q) => q.tableType === "spans");
   if (isSpans) {
     const { rows, errors } = rowsOf(response);
     if (rows.length === 0 && errors.length > 0) throw new GrafanaError(errors[0]);
-    return { panel, series: [], rows, from };
+    return { panel, series: [], rows, from, step: served };
   }
   const { series, errors } = seriesOf(response, legends);
   if (!series.some(hasValue) && errors.length > 0) throw new GrafanaError(errors[0]);
   const renamed = applyRenames(series, panel.transformations).map((s) => ({ ...s, name: quantileName(s.name) }));
-  return { panel, series: renamed, rows: [], from };
+  return { panel, series: renamed, rows: [], from, step: served };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -348,6 +357,8 @@ export type ChartSpec = {
   rename?: (name: string) => string;
   /** The name of a series Grafana names after its query ("count_over_time"): the chart's own title. */
   name?: string;
+  /** Fixed colours for series that mean something (passed, failed); the rest take the free slots. */
+  slots?: Record<string, number>;
 };
 
 /** A name that is the query's expression, not a thing ("(count_over_time / count_over_time)", "Value"). */
@@ -399,7 +410,14 @@ export function chartBlock(
   const solid = series.filter((s) => !dashedNames.has(s.name)).sort((a, b) => size(b) - size(a));
   const kept = solid.slice(0, keep);
   const rest = solid.slice(keep);
-  const slots = new Map([...kept].sort((a, b) => a.name.localeCompare(b.name)).map((s, i) => [s.name, (i % 8) + 1]));
+  const fixed = spec.slots ?? {};
+  const taken = new Set(kept.map((s) => fixed[s.name]).filter((slot): slot is number => !!slot));
+  const free = [1, 2, 3, 4, 5, 6, 7, 8].filter((slot) => !taken.has(slot));
+  const slots = new Map<string, number>(kept.filter((s) => fixed[s.name]).map((s) => [s.name, fixed[s.name]]));
+  [...kept]
+    .filter((s) => !fixed[s.name])
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((s, i) => slots.set(s.name, free[i % free.length] ?? (i % 8) + 1));
   const out: ChartSeries[] = kept.map((s) => ({
     name: ctx.name(s.name),
     slot: slots.get(s.name)!,
@@ -433,17 +451,9 @@ function round(value: number): number {
   return Number(value.toPrecision(6));
 }
 
-/** The step a panel's chart came back at: the dashboard's fixed interval, else the chart step. */
-function panelStep(ctx: BuildCtx, panel: Panel): number {
-  for (const target of panel.targets ?? []) {
-    const interval = parseDuration(target.interval);
-    if (interval) return interval;
-  }
-  return chartStep(ctx.rangeMs);
-}
-
 export async function chartFromPanel(ctx: BuildCtx, uid: string, title: string, spec: ChartSpec): Promise<Block> {
-  const { panel, series, from } = await runPanel(ctx, uid, title, { chart: true, type: "timeseries" });
+  const points = spec.style === "bars" ? BAR_POINTS : LINE_POINTS;
+  const { panel, series, from, step } = await runPanel(ctx, uid, title, { chart: true, type: "timeseries", points });
   const dashed =
     spec.dashed ??
     (panel.fieldConfig?.overrides ?? [])
@@ -453,7 +463,7 @@ export async function chartFromPanel(ctx: BuildCtx, uid: string, title: string, 
     ...spec,
     dashed,
     unit: spec.unit ?? panelUnit(panel),
-    step: panelStep(ctx, panel),
+    step,
     from,
     name: spec.name ?? ctx.t(title),
   });
@@ -681,14 +691,19 @@ export async function promRange(ctx: BuildCtx, expr: string, stepMs = chartStep(
  * A TraceQL metrics query of the page's own. `totals` runs it as a range at a 1-minute step (to be added up, as the
  * dashboards' totals are); `instant` gives one value per series; otherwise it is a chart at the chart step.
  */
-export async function tempoQuery(ctx: BuildCtx, query: string, mode: "totals" | "instant" | "chart" = "chart"): Promise<Series[]> {
+export async function tempoQuery(
+  ctx: BuildCtx,
+  query: string,
+  mode: "totals" | "instant" | "chart" = "chart",
+  points = LINE_POINTS,
+): Promise<Series[]> {
   const target = {
     refId: "A",
     datasource: { type: "tempo", uid: TEMPO_UID },
     queryType: "traceql",
     query,
     metricsQueryType: mode === "instant" ? "instant" : "range",
-    ...(mode === "instant" ? {} : { step: mode === "totals" ? "1m" : durationText(chartStep(ctx.rangeMs)) }),
+    ...(mode === "instant" ? {} : { step: mode === "totals" ? "1m" : durationText(chartStep(ctx.rangeMs, points)) }),
   };
   const response = await ctx.limit(() => ctx.g.post("/api/ds/query", { queries: [target], from: String(ctx.from), to: String(ctx.to) }));
   const { series, errors } = seriesOf(response);

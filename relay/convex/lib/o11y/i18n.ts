@@ -533,13 +533,6 @@ export const STRINGS: Record<string, Translations> = {
     fr: "Expériences",
     de: "Experimente",
   },
-  "Failed": {
-    zh: "失败",
-    ja: "失敗",
-    es: "Fallidas",
-    fr: "Échec",
-    de: "Fehlgeschlagen",
-  },
   "failed": {
     zh: "失败",
     ja: "失敗",
@@ -630,6 +623,13 @@ export const STRINGS: Record<string, Translations> = {
     es: "Marcadas por crok",
     fr: "Signalées par crok",
     de: "Von crok markiert",
+  },
+  "generation": {
+    zh: "次生成",
+    ja: "件の生成",
+    es: "generación",
+    fr: "génération",
+    de: "Generierung",
   },
   "generations": {
     zh: "次生成",
@@ -813,6 +813,13 @@ export const STRINGS: Record<string, Translations> = {
     fr: "Historique des dépenses LLM",
     de: "LLM-Kostenverlauf",
   },
+  "Lone calls without a title (session titles, summaries) are left out.": {
+    zh: "没有标题的单次调用（会话标题、摘要）不在此列。",
+    ja: "タイトルのない単発の呼び出し（セッションのタイトル付け、要約）は除いています。",
+    es: "Se omiten las llamadas sueltas sin título (títulos de sesión, resúmenes).",
+    fr: "Les appels isolés sans titre (titres de session, résumés) sont exclus.",
+    de: "Einzelne Aufrufe ohne Titel (Sitzungstitel, Zusammenfassungen) sind ausgelassen.",
+  },
   "Lowest first.": {
     zh: "从低到高排列。",
     ja: "低い順です。",
@@ -826,6 +833,13 @@ export const STRINGS: Record<string, Translations> = {
     es: "límite de turnos",
     fr: "limite de tours",
     de: "Durchgangslimit",
+  },
+  "model call": {
+    zh: "次模型调用",
+    ja: "回のモデル呼び出し",
+    es: "llamada al modelo",
+    fr: "appel au modèle",
+    de: "Modellaufruf",
   },
   "Model calls": {
     zh: "模型调用",
@@ -1128,13 +1142,6 @@ export const STRINGS: Record<string, Translations> = {
     fr: "Taux de réussite des scores en ligne, 7 jours",
     de: "Erfolgsquote der Online-Scores, 7 Tage",
   },
-  "Passed": {
-    zh: "通过",
-    ja: "合格",
-    es: "Aprobadas",
-    fr: "Réussite",
-    de: "Bestanden",
-  },
   "pending": {
     zh: "待触发",
     ja: "保留中",
@@ -1233,6 +1240,13 @@ export const STRINGS: Record<string, Translations> = {
     fr: "Requêtes par minute, par modèle",
     de: "Anfragen pro Minute nach Modell",
   },
+  "rule": {
+    zh: "条规则",
+    ja: "件のルール",
+    es: "regla",
+    fr: "règle",
+    de: "Regel",
+  },
   "rules": {
     zh: "条规则",
     ja: "件のルール",
@@ -1253,6 +1267,13 @@ export const STRINGS: Record<string, Translations> = {
     es: "Ejecuciones de evals/run.py, según las métricas del propio crok (origin eval).",
     fr: "Exécutions de evals/run.py, d'après les propres métriques de crok (origin eval).",
     de: "Läufe von evals/run.py, aus den eigenen Metriken von crok (origin eval).",
+  },
+  "score": {
+    zh: "次评分",
+    ja: "件のスコア",
+    es: "puntuación",
+    fr: "score",
+    de: "Score",
   },
   "Scores": {
     zh: "评分",
@@ -1387,13 +1408,6 @@ export const STRINGS: Record<string, Translations> = {
     fr: "Dépenses, 7 derniers jours",
     de: "Kosten, letzte 7 Tage",
   },
-  "started {date}": {
-    zh: "开始于 {date}",
-    ja: "{date} 開始",
-    es: "iniciada el {date}",
-    fr: "commencée le {date}",
-    de: "gestartet {date}",
-  },
   "Stop reasons": {
     zh: "停止原因",
     ja: "停止理由",
@@ -1471,6 +1485,13 @@ export const STRINGS: Record<string, Translations> = {
     fr: "Tokens, 7 derniers jours",
     de: "Tokens, letzte 7 Tage",
   },
+  "tool": {
+    zh: "个工具",
+    ja: "個のツール",
+    es: "herramienta",
+    fr: "outil",
+    de: "Tool",
+  },
   "tool errors": {
     zh: "次工具错误",
     ja: "件のツールエラー",
@@ -1519,6 +1540,13 @@ export const STRINGS: Record<string, Translations> = {
     es: "Totales",
     fr: "Totaux",
     de: "Summen",
+  },
+  "trial": {
+    zh: "次试验",
+    ja: "回の試行",
+    es: "ensayo",
+    fr: "essai",
+    de: "Versuch",
   },
   "trials": {
     zh: "次试验",
@@ -1597,19 +1625,19 @@ export const STRINGS: Record<string, Translations> = {
     fr: "inconnu",
     de: "unbekannt",
   },
-  "Untitled": {
-    zh: "无标题",
-    ja: "無題",
-    es: "Sin título",
-    fr: "Sans titre",
-    de: "Ohne Titel",
-  },
   "Value": {
     zh: "数值",
     ja: "値",
     es: "Valor",
     fr: "Valeur",
     de: "Wert",
+  },
+  "version": {
+    zh: "个版本",
+    ja: "個のバージョン",
+    es: "versión",
+    fr: "version",
+    de: "Version",
   },
   "versions": {
     zh: "个版本",

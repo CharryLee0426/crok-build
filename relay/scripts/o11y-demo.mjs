@@ -52,6 +52,12 @@ const PUBLIC_WORDS = new Set([
   "tool_execution_error", "validation_error", "rate_limit", "rate_limit_error", "overloaded_error", "timeout", "unknown",
   "chat_completions", "messages", "responses", "normal", "warning", "info", "critical", "crok-alerts", "Grafana SLO",
   "LLM Observability", "llm-history", "pass", "warn", "deny", "preflight", "postflight", "Passed", "Failed",
+  "LLM Generation",
+  // OpenRouter's upstream providers, as its spans name them.
+  "meta", "digitalocean", "wafer", "relace", "ionstream", "morph", "fireworks", "together", "deepinfra", "novita",
+  "groq", "cerebras", "chutes", "baseten", "parasail", "nebius", "google", "amazon", "azure", "mistral", "moonshotai",
+  "alibaba", "siliconflow", "crusoe", "friendli", "hyperbolic", "lambda", "sambanova", "venice", "minimax", "atlas-cloud",
+  "inference-net", "gmicloud", "phala", "targon", "ubicloud", "z-ai", "xai", "cohere", "perplexity",
 ]);
 const MODEL = /(claude|deepseek|gpt|glm|muse|minimax|grok|gemini|llama|qwen|kimi|mistral|aion|o\d)/i;
 // crok's tools (a snake_case word that is not one of these, a repository say, is not public).
@@ -66,11 +72,12 @@ function isPublic(text) {
   if (/^crok(\/[\w-]+)?$/.test(text)) return true; // agent names
   if (/^crok_[a-z_]+$/.test(text) || /^guard\.crok\.[a-z_]+$/.test(text)) return true; // evaluators, rules, guards
   if (TOOLS.has(text)) return true;
-  if (/^(release|eval)-[\w.]+$/.test(text)) return true; // eval run ids
+  if (/^(release|eval)-[\w.-]+$/.test(text)) return true; // eval run ids
+  if (/^\d{3}$/.test(text)) return true; // HTTP status codes
   if (/^\d+\.\d+(\.\d+)?([+-][\w.]+)?$/.test(text)) return true; // versions
   if (/^exit -?\d+$/.test(text)) return true;
   if (/^(crok: |crok |llm_)/.test(text) || / \(Grafana SLO\)( rules)?$/.test(text)) return true; // alert rules, SLOs
-  if (/^~?[\w.-]+\/[\w.:~-]+$/.test(text) && MODEL.test(text)) return true; // provider/model ids
+  if (/^~?[\w.~-]+(\/[\w.:~-]+)+$/.test(text) && MODEL.test(text)) return true; // provider/model ids
   if (MODEL.test(text) && /^[\w.:~-]+$/.test(text)) return true; // bare model ids
   if (/^(Sonnet|Opus|Haiku|Fable|Mythos) [\d.]+/.test(text)) return true; // Claude price groups
   if (/^[A-Z][a-zA-Z]+$/.test(text) && text.length <= 14) return true; // upstream providers (Fireworks, Together)
@@ -109,12 +116,19 @@ function demoText(text, section, rand) {
   return pick([...HOSTS, ...REPOS]);
 }
 
+/**
+ * Money and amounts scaled by the page's factor; a whole count stays whole. Ratios stay as they are (pass rates, SLIs
+ * and objectives must still agree with each other) and times are only nudged.
+ */
 function scale(value, unit, factor, rand) {
   if (typeof value !== "number") return value;
-  if (unit === "ratio") return Math.min(1, Math.max(0, value * (0.92 + rand() * 0.16)));
+  if (unit === "ratio") return value;
   if (unit === "seconds" || unit === "ms" || unit === "tps" || unit === "perMin") return value * (0.8 + rand() * 0.4);
   const v = value * factor;
-  return unit === "count" || unit === "tokens" ? (Math.abs(v) >= 10 ? Math.round(v) : Math.round(v * 10) / 10) : Number(v.toPrecision(4));
+  if (unit === "count" || unit === "tokens") {
+    return Number.isInteger(value) || Math.abs(v) >= 10 ? Math.round(v) : Math.round(v * 10) / 10;
+  }
+  return Number(v.toPrecision(4));
 }
 
 function sanitizeChips(chips, section, factor, rand) {

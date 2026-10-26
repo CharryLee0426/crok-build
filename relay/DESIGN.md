@@ -402,8 +402,11 @@ unit = "usd" | "count" | "tokens" | "ratio" | "seconds" | "ms" | "bytes" | "perM
 ```
 
 Text is already in `lang`; numbers are raw (the phones format them). A chart keeps at most 6 series (the largest by
-`total`) and folds the rest into "Other" (slot 0) for `bars`, or drops them (`more`) for `line`; slots go to the kept
-series in alphabetical order, so a series keeps its colour as long as the set does. Charts carry ≤ 150 points.
+`total`) and folds the rest into "Other" (slot 0) for `bars`, or drops them (`more`) for `line`. Series that mean an
+outcome keep one slot everywhere (passed, completed, pass: 3 aqua; warn, cancelled, interrupted: 4 yellow; failed,
+error, deny: 8 red); the others take the free slots in alphabetical order, so a series keeps its colour as long as the
+set does. Totals per step (spend, calls, tokens per step) are stacked `bars`; rates, durations and ratios are lines.
+Charts carry ≤ 150 points.
 
 **How a page is built** (`convex/lib/o11y/`): each page is a spec of blocks. A dashboard block names a panel of a
 live Grafana dashboard by title; the relay fetches the dashboard (`/api/dashboards/uid/<uid>`), fills its variables
@@ -411,8 +414,10 @@ with their defaults, runs the panel's own queries through `/api/ds/query` (so th
 shows, Claude's estimated spend and all) and reads them the way the panel does: totals over the range (stat panels
 summing a range, ranked tables, pies), the last value (instant stats), the week-over-week pair (value and change), a
 ratio of two totals (calculated fields), series after the panel's renames with same-named series added up
-(time series), span rows (span tables). Chart queries get a step of range / 120 (at least 1 minute) instead of the
-dashboard's; totals keep the dashboard's step. Other blocks run their own PromQL (evaluation scores, guard outcomes,
+(time series), span rows (span tables). Chart queries get a round step of range / 120 for lines and range / 48 for
+bars (30 s at least; a 24-hour bar chart has a bar per 30 minutes) instead of the dashboard's; a panel's fixed
+interval ("1d") stays; totals keep the dashboard's step. An additive series (spend, counts, tokens) is filled with 0
+on that step grid, since Tempo leaves out the steps without spans. Other blocks run their own PromQL (evaluation scores, guard outcomes,
 judge cost, crok's harness metrics, SLO SLIs) or read the Agent Observability plugin
 (`/api/plugins/grafana-agento11y-app/resources/query/agents`, `…/query/conversations`, `…/eval/experiments`), the
 SLO plugin (`/api/plugins/grafana-slo-app/resources/v1/slo`) and the alert rules (`/api/prometheus/grafana/api/v1/rules`).
@@ -432,7 +437,7 @@ A block whose queries fail becomes an `error` block; the page still builds. Pane
 | `guards` | Prometheus `agento11y_hook_*`, `crok_guard_checks_total` | 24h 7d 14d (7d) | checks, warns, warns by guard, checks per day, crok's own flagged checks |
 | `experiments` | plugin `eval/experiments`, Prometheus `agento11y_tag_eval_run` | 24h 7d 14d (14d) | published experiment runs, and the eval runs seen in the traffic (calls, tokens, failures) |
 | `agents` | plugin `query/agents`, Prometheus `gen_ai_client_*`, `agento11y_generation_cost_usd_total` | 24h 7d 14d (24h) | every agent (generations, versions, last seen), calls and cost by agent, calls per hour, time to first token |
-| `conversations` | plugin `query/conversations` | none | the 30 most recent conversations (title, generations, last activity) |
+| `conversations` | plugin `query/conversations` | none | the 30 most recent titled conversations (title, generations, last activity); lone untitled calls left out |
 | `slos` | SLO plugin, `grafana_slo_*` | none | each SLO's 28-day SLI against its objective and the error budget left, per provider |
 | `alerts` | alert rules | none | crok's alert rules and their state, the recording rule groups' health |
 
