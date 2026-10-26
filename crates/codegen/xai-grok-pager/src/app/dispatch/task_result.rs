@@ -1517,6 +1517,18 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
         TaskResult::RemotePanel { agent_id, response } => {
             super::remote::dispatch_remote_panel_response(app, agent_id, response)
         }
+        TaskResult::RemoteHereWatched { generation, result } => {
+            let (lines, next) = app.remote_here.answered(generation, &result);
+            if let Ok(payload) = &result {
+                super::remote::remote_sessions_changed(app, payload);
+            }
+            for line in lines {
+                app.show_toast(&line);
+            }
+            next.map(|delay| Effect::RemoteHereWatch { generation, delay })
+                .into_iter()
+                .collect()
+        }
         TaskResult::RemoteNotice {
             agent_id,
             text,

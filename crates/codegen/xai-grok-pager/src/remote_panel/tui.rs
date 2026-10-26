@@ -632,6 +632,12 @@ impl RemotePanel {
         let Some(project) = computer.projects.get(p) else {
             return Outcome::Unchanged;
         };
+        if computer.here {
+            self.notice = Some(
+                tl("This is the computer you are on: start a session here with /new.").to_string(),
+            );
+            return Outcome::Changed;
+        }
         if !computer.online {
             self.notice = Some(tlf(
                 "{computer} is offline: nothing can start there until crok or Crok Desktop runs on it.",
@@ -1109,7 +1115,9 @@ fn tree_cells(
     };
     match kind {
         RowKind::Computer { .. } => {
-            let (badge, color) = if computer.online {
+            let (badge, color) = if computer.here {
+                (tl("started from other devices").to_string(), theme.gray)
+            } else if computer.online {
                 (format!("● {}", tl("online")), theme.accent_success)
             } else {
                 let seen = time_ago(computer.last_seen_ms)
@@ -1174,7 +1182,10 @@ fn tree_cells(
                     (tl("needs approval").to_string(), Some(theme.warning))
                 }
                 Some(Activity::Starting) => (tl("starting…").to_string(), Some(theme.gray)),
-                None => (String::new(), None),
+                None => match &session.from {
+                    Some(from) => (tlf("from {device}", &[("device", from)]), Some(theme.gray)),
+                    None => (String::new(), None),
+                },
             };
             let time = time_ago(session.last_activity_ms).unwrap_or_default();
             let right = match (session.unread, time.is_empty()) {

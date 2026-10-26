@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use agent_client_protocol::{self as acp, Agent as _};
 use crok_remote::credentials::{self, Credentials};
-use crok_remote::link::{FromRelay, Link, LinkConfig, LinkState, ToRelay};
+use crok_remote::link::{CatalogOutcome, FromRelay, Link, LinkConfig, LinkState, ToRelay};
 use crok_remote::types::{
     CatalogEntry, CommandOutcome, CommandType, EffortOption, EventInput, EventKind, InboxCommand,
     ModelOption, PendingInteraction, PendingOption, SessionFields, SessionStatus, SessionUsage,
@@ -37,6 +37,9 @@ const BACKFILL_TURNS: usize = 8;
 const HISTORY_TURNS: usize = 20;
 /// How often a process offers to list this computer's sessions (in ticks: 10 min). The relay lets one per computer.
 const CATALOG_TICKS: u32 = 2_400;
+/// How often the process holding this computer's catalog looks for sessions made, changed or deleted on disk since
+/// (in ticks: 30 s). Only what changed goes to the relay.
+const CATALOG_CHECK_TICKS: u32 = 120;
 const TITLE_FALLBACK_MAX: usize = 80;
 /// A session opened here for a prompt from elsewhere is closed again after this long without a turn or a viewer.
 const ADOPTED_IDLE: Duration = Duration::from_secs(10 * 60);
@@ -85,6 +88,16 @@ enum Internal {
     Catalog {
         upload: Option<(String, Vec<CatalogEntry>)>,
     },
+    /// This computer's sessions, listed again by the process holding its catalog (`None`: the folder was unreadable).
+    CatalogListed { entries: Option<Vec<CatalogEntry>> },
+    /// How a catalog upload (`removed: None`) or update ended.
+    CatalogSent {
+        activation: u32,
+        sync_id: String,
+        entries: Vec<CatalogEntry>,
+        removed: Option<Vec<String>>,
+        outcome: CatalogOutcome,
+    },
     /// A transcript read from disk for a `history` command.
     History {
         command_id: String,
@@ -125,6 +138,34 @@ enum Internal {
         id: String,
         by_remote: bool,
     },
+}
+
+/// The computer's catalog as this process last sent it, while this process holds it: later checks send only what
+/// changed on disk.
+struct CatalogHold {
+    sync_id: String,
+    sent: HashMap<String, CatalogEntry>,
+}
+
+/// What a new listing changes against the catalog as it was sent: sessions new or changed on disk, and the ids of those
+/// gone since.
+fn catalog_changes(
+    sent: &HashMap<String, CatalogEntry>,
+    listed: &[CatalogEntry],
+) -> (Vec<CatalogEntry>, Vec<String>) {
+    let changed: Vec<CatalogEntry> = listed
+        .iter()
+        .filter(|entry| sent.get(&entry.session_id) != Some(*entry))
+        .cloned()
+        .collect();
+    let ids: HashSet<&str> = listed.iter().map(|e| e.session_id.as_str()).collect();
+    let mut removed: Vec<String> = sent
+        .keys()
+        .filter(|id| !ids.contains(id.as_str()))
+        .cloned()
+        .collect();
+    removed.sort();
+    (changed, removed)
 }
 
 /// A permission request offered to every device; the first answer wins.
@@ -267,8 +308,10 @@ pub(crate) struct Bridge {
     activations: u32,
     /// Each listed session's project, from the last catalog, for the sessions this process mirrors.
     project_of: HashMap<String, String>,
-    /// A catalog offer or upload is under way.
+    /// A catalog offer, listing, upload or update is under way.
     catalog_busy: bool,
+    /// Set while this process holds the computer's catalog (its last upload went through).
+    catalog: Option<CatalogHold>,
     /// Numbers permission requests, so an answer to an old one is told apart.
     interactions: u64,
     /// The models (with thinking levels) the relay has for this process.
@@ -804,6 +847,7 @@ impl Bridge {
             activations: 0,
             project_of: HashMap::new(),
             catalog_busy: false,
+            catalog: None,
             interactions: 0,
             sent_models: None,
         }
@@ -846,6 +890,8 @@ impl Bridge {
                     }
                     if ticks.is_multiple_of(CATALOG_TICKS) {
                         self.offer_catalog();
+                    } else if ticks.is_multiple_of(CATALOG_CHECK_TICKS) {
+                        self.check_catalog();
                     }
                     if ticks.is_multiple_of(RELEASE_CHECK_TICKS) {
                         self.release_idle();
@@ -1013,9 +1059,54 @@ impl Bridge {
         });
     }
 
+    /// Looks for sessions made, changed or deleted on disk since this process last sent the catalog it holds.
+    fn check_catalog(&mut self) {
+        if !self.active() || self.catalog_busy || self.catalog.is_none() {
+            return;
+        }
+        self.catalog_busy = true;
+        let tx = self.internal_tx.clone();
+        tokio::task::spawn_local(async move {
+            let entries = super::catalog::list().await;
+            let _ = tx.send(Internal::CatalogListed { entries });
+        });
+    }
+
+    /// Waits for the relay's answer to a catalog upload or update.
+    fn await_catalog(
+        &self,
+        sync_id: String,
+        entries: Vec<CatalogEntry>,
+        removed: Option<Vec<String>>,
+        outcome: oneshot::Receiver<CatalogOutcome>,
+    ) {
+        let tx = self.internal_tx.clone();
+        let activation = self.activations;
+        tokio::task::spawn_local(async move {
+            let outcome = outcome.await.unwrap_or(CatalogOutcome::Failed);
+            let _ = tx.send(Internal::CatalogSent {
+                activation,
+                sync_id,
+                entries,
+                removed,
+                outcome,
+            });
+        });
+    }
+
+    /// Sessions mirrored here follow the projects the catalog puts them in.
+    fn follow_projects(&mut self) {
+        for (session_id, mirror) in &mut self.mirrors {
+            if let Some(project) = self.project_of.get(session_id) {
+                mirror.desired.project_path = Some(project.clone());
+            }
+        }
+    }
+
     fn deactivate(&mut self) {
         self.link = None;
         self.link_rx = None;
+        self.catalog = None;
         self.observer.set_live(false);
         self.observer.viewer().set_link(None, None);
         self.watched.clear();
@@ -1580,6 +1671,11 @@ impl Bridge {
                 if let Some(hosted) = inbox.hosted {
                     self.release_taken(&hosted.into_iter().collect());
                 }
+                // The crok that kept this computer's sessions listed is gone: take over at once rather than at the
+                // next regular offer.
+                if inbox.catalog_wanted && self.catalog.is_none() {
+                    self.offer_catalog();
+                }
                 for command in inbox.commands {
                     // A kind of command this crok does not know (a newer relay): another crok may.
                     if command.kind == CommandType::Unknown
@@ -1717,13 +1813,80 @@ impl Bridge {
                     .iter()
                     .map(|e| (e.session_id.clone(), e.project_path.clone()))
                     .collect();
-                // Sessions mirrored here follow the projects the catalog puts them in.
-                for (session_id, mirror) in &mut self.mirrors {
-                    if let Some(project) = self.project_of.get(session_id) {
-                        mirror.desired.project_path = Some(project.clone());
-                    }
+                self.follow_projects();
+                self.catalog_busy = true;
+                let (reply, outcome) = oneshot::channel();
+                self.send(ToRelay::Catalog {
+                    sync_id: sync_id.clone(),
+                    entries: entries.clone(),
+                    reply,
+                });
+                self.await_catalog(sync_id, entries, None, outcome);
+            }
+            Internal::CatalogListed { entries } => {
+                let (Some(hold), Some(entries)) = (self.catalog.as_ref(), entries) else {
+                    self.catalog_busy = false;
+                    return;
+                };
+                let (changed, removed) = catalog_changes(&hold.sent, &entries);
+                if changed.is_empty() && removed.is_empty() {
+                    self.catalog_busy = false;
+                    return;
                 }
-                self.send(ToRelay::Catalog { sync_id, entries });
+                let sync_id = hold.sync_id.clone();
+                for entry in &changed {
+                    self.project_of
+                        .insert(entry.session_id.clone(), entry.project_path.clone());
+                }
+                for id in &removed {
+                    self.project_of.remove(id);
+                }
+                self.follow_projects();
+                let (reply, outcome) = oneshot::channel();
+                self.send(ToRelay::CatalogUpdate {
+                    sync_id: sync_id.clone(),
+                    entries: changed.clone(),
+                    removed: removed.clone(),
+                    reply,
+                });
+                self.await_catalog(sync_id, changed, Some(removed), outcome);
+            }
+            Internal::CatalogSent {
+                activation,
+                sync_id,
+                entries,
+                removed,
+                outcome,
+            } => {
+                self.catalog_busy = false;
+                if activation != self.activations {
+                    return;
+                }
+                match (outcome, removed) {
+                    (CatalogOutcome::Done, None) => {
+                        self.catalog = Some(CatalogHold {
+                            sync_id,
+                            sent: entries
+                                .into_iter()
+                                .map(|e| (e.session_id.clone(), e))
+                                .collect(),
+                        });
+                    }
+                    (CatalogOutcome::Done, Some(removed)) => {
+                        if let Some(hold) = self.catalog.as_mut().filter(|h| h.sync_id == sync_id) {
+                            for id in removed {
+                                hold.sent.remove(&id);
+                            }
+                            for entry in entries {
+                                hold.sent.insert(entry.session_id.clone(), entry);
+                            }
+                        }
+                    }
+                    // The same changes go again at the next check.
+                    (CatalogOutcome::Failed, Some(_)) => {}
+                    // Another process holds the catalog now (or the relay takes no updates): it lists the sessions.
+                    _ => self.catalog = None,
+                }
             }
             Internal::History {
                 command_id,
@@ -2708,6 +2871,45 @@ mod tests {
         );
         assert_eq!(effort_label("xhigh"), "Extra high");
         assert_eq!(effort_label("low"), "Low");
+    }
+
+    fn catalog_entry(id: &str, title: &str) -> CatalogEntry {
+        CatalogEntry {
+            session_id: id.into(),
+            title: title.into(),
+            cwd: "/w".into(),
+            project_path: "/w".into(),
+            created_at: 1.0,
+            last_activity_at: 2.0,
+            model: None,
+            effort: None,
+            git_branch: None,
+            preview: None,
+        }
+    }
+
+    #[test]
+    fn a_catalog_check_sends_only_what_changed_on_disk() {
+        let sent: HashMap<String, CatalogEntry> = [
+            catalog_entry("kept", "Kept"),
+            catalog_entry("renamed", "Old name"),
+            catalog_entry("deleted", "Gone"),
+        ]
+        .into_iter()
+        .map(|e| (e.session_id.clone(), e))
+        .collect();
+        let listed = [
+            catalog_entry("kept", "Kept"),
+            catalog_entry("renamed", "New name"),
+            catalog_entry("new", "Made on the phone"),
+        ];
+        let (changed, removed) = catalog_changes(&sent, &listed);
+        let ids: Vec<&str> = changed.iter().map(|e| e.session_id.as_str()).collect();
+        assert_eq!(ids, ["renamed", "new"]);
+        assert_eq!(removed, ["deleted"]);
+        let unchanged: Vec<CatalogEntry> = sent.values().cloned().collect();
+        let (changed, removed) = catalog_changes(&sent, &unchanged);
+        assert!(changed.is_empty() && removed.is_empty());
     }
 
     #[test]

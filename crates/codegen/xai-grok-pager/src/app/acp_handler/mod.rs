@@ -665,7 +665,7 @@ fn handle_ext_notification(notif: &acp::ExtNotification, app: &mut AppView) -> b
         }
         "x.ai/mcp/elicit_complete" => handle_mcp_elicit_complete(notif, app),
         "x.ai/mcp/servers_updated" => handle_mcp_servers_updated(notif, app),
-        xai_grok_shell::remote_control::REMOTE_STATUS_METHOD => handle_remote_status(notif),
+        xai_grok_shell::remote_control::REMOTE_STATUS_METHOD => handle_remote_status(notif, app),
         xai_grok_shell::remote_control::REMOTE_PROMPT_METHOD => handle_remote_prompt(notif, app),
         xai_grok_shell::remote_control::REMOTE_SESSIONS_CHANGED_METHOD => {
             handle_remote_sessions_changed(notif, app)
@@ -676,12 +676,18 @@ fn handle_ext_notification(notif: &acp::ExtNotification, app: &mut AppView) -> b
         _ => false,
     }
 }
-/// The other computers' sessions changed while a Remote panel watches them.
+/// The sessions list changed while it is watched: open Remote panels take it, and a session another device started
+/// on this computer is announced.
 fn handle_remote_sessions_changed(notif: &acp::ExtNotification, app: &mut AppView) -> bool {
     let Ok(payload) = serde_json::from_str::<serde_json::Value>(notif.params.get()) else {
         return false;
     };
-    super::dispatch::remote_sessions_changed(app, &payload)
+    let lines = app.remote_here.changed(&payload);
+    let shown = !lines.is_empty();
+    for line in lines {
+        app.show_toast(&line);
+    }
+    super::dispatch::remote_sessions_changed(app, &payload) || shown
 }
 /// A session of another computer reports its figures (`remote_usage`, from the remote-control viewer, when the session
 /// opens and when a turn there ends): the footer's token readout takes its totals, and its branch is read again
@@ -753,7 +759,7 @@ fn handle_remote_usage(notif: &acp::ExtNotification, app: &mut AppView) -> Optio
     Some(changed && active == Some(agent_id))
 }
 /// Remote control's link state, for the footer indicator.
-fn handle_remote_status(notif: &acp::ExtNotification) -> bool {
+fn handle_remote_status(notif: &acp::ExtNotification, app: &mut AppView) -> bool {
     let Ok(params) = serde_json::from_str::<serde_json::Value>(notif.params.get()) else {
         return false;
     };
@@ -761,6 +767,13 @@ fn handle_remote_status(notif: &acp::ExtNotification) -> bool {
         .get("state")
         .and_then(|s| s.as_str())
         .unwrap_or("off");
+    // Connected: watch for sessions other devices start on this computer, which its crok opens out of this view.
+    if let Some(generation) = app.remote_here.link_state(state) {
+        app.pending_effects.push(Effect::RemoteHereWatch {
+            generation,
+            delay: std::time::Duration::ZERO,
+        });
+    }
     let before = crate::remote_cmd::indicator();
     crate::remote_cmd::set_indicator_from(state);
     before != crate::remote_cmd::indicator()

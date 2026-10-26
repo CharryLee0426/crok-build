@@ -29,7 +29,8 @@ use xai_acp_lib::AcpAgentGatewaySender as GatewaySender;
 /// Session ids a front end uses for a session on another computer: this prefix and the relay's document id.
 pub const RELAY_PREFIX: &str = "relay:";
 /// Ext method: the person's other computers and their sessions (`{watch: true}` keeps
-/// [`REMOTE_SESSIONS_CHANGED_METHOD`] coming for ten minutes).
+/// [`REMOTE_SESSIONS_CHANGED_METHOD`] coming for ten minutes), and `here`: this computer's sessions that another device
+/// started, for the front end to list with its own.
 pub const REMOTE_SESSIONS_METHOD: &str = "x.ai/remote/sessions";
 /// Ext notification: the same list as [`REMOTE_SESSIONS_METHOD`] returns, after any change.
 pub const REMOTE_SESSIONS_CHANGED_METHOD: &str = "x.ai/remote/sessions_changed";
@@ -53,6 +54,8 @@ const WATCH_EVERY: Duration = Duration::from_secs(60);
 const LIST_KEEP: Duration = Duration::from_secs(10 * 60);
 /// How long to wait for the first list when a front end asks before it arrived.
 const LIST_FIRST_WAIT: Duration = Duration::from_secs(4);
+/// This computer's sessions started from other devices that the list carries at most (the newest).
+const HERE_MAX: usize = 100;
 /// After a turn ends, a moment for the relay's last transcript writes to arrive before the prompt returns: each query
 /// streams on its own, so the transcript's last update can come after the command's "done".
 const SETTLE: Duration = Duration::from_millis(600);
@@ -162,6 +165,8 @@ struct ListState {
     last_use: Option<Instant>,
     /// A front end wants [`REMOTE_SESSIONS_CHANGED_METHOD`] until then.
     watch_until: Option<Instant>,
+    /// The list as the front end last got it: a change elsewhere in the relay's list that leaves it alone is not sent.
+    sent: Option<Value>,
     waiters: Vec<oneshot::Sender<()>>,
 }
 
@@ -219,7 +224,9 @@ impl Viewer {
             list.last_use.is_some_and(|t| t.elapsed() < LIST_KEEP)
         };
         if link.is_none() {
-            self.list.borrow_mut().groups = None;
+            let mut list = self.list.borrow_mut();
+            list.groups = None;
+            list.sent = None;
         } else if wanted {
             self.subscribe_list();
         }
@@ -967,6 +974,52 @@ impl Viewer {
             .unwrap_or_default()
     }
 
+    /// This computer's sessions that another device started (a phone, the web, another computer), newest first: the
+    /// TUI and Crok Desktop list them with their own. One still starting has no crok session yet and waits.
+    fn started_here(&self, groups: &Value) -> Vec<Value> {
+        let me = self.device_id.borrow().clone();
+        let mut sessions: Vec<Value> = groups
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|g| me.is_some() && str_of(g, "deviceId") == me.as_deref())
+            .flat_map(|g| {
+                g.get("sessions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .filter(|row| {
+                row.get("startedFrom").is_some_and(Value::is_object)
+                    && row.get("starting").and_then(Value::as_bool) != Some(true)
+            })
+            .map(|row| {
+                json!({
+                    "sessionId": row.get("sessionId"),
+                    "relayId": format!("{RELAY_PREFIX}{}", str_of(&row, "_id").unwrap_or_default()),
+                    "title": row.get("title"),
+                    "cwd": row.get("cwd"),
+                    "projectPath": row.get("projectPath"),
+                    "status": row.get("status"),
+                    "running": row.get("online"),
+                    "lastActivityAt": row.get("lastActivityAt"),
+                    "preview": row.get("preview"),
+                    "startedFrom": row.get("startedFrom"),
+                })
+            })
+            .collect();
+        sessions.sort_by(|a, b| {
+            let at = |v: &Value| {
+                v.get("lastActivityAt")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+            };
+            at(b).total_cmp(&at(a))
+        });
+        sessions.truncate(HERE_MAX);
+        sessions
+    }
+
     fn list_payload(&self, groups: Option<&Value>) -> Value {
         let Some(groups) = groups else {
             return json!({ "signedIn": self.signed_in(), "computers": [] });
@@ -1003,7 +1056,14 @@ impl Viewer {
                 }));
             }
         }
-        json!({ "signedIn": true, "computers": computers })
+        json!({
+            "signedIn": true,
+            "computers": computers,
+            "here": {
+                "deviceId": self.device_id.borrow().clone(),
+                "sessions": self.started_here(groups),
+            },
+        })
     }
 
     /// `x.ai/remote/sessions`.
@@ -1013,7 +1073,11 @@ impl Viewer {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let groups = self.groups(watch).await;
-        self.list_payload(groups.as_ref())
+        let payload = self.list_payload(groups.as_ref());
+        if groups.is_some() {
+            self.list.borrow_mut().sent = Some(payload.clone());
+        }
+        payload
     }
 
     /// Rows for `x.ai/session/list` (the TUI's session picker): one per session of another computer, `source: relay`.
@@ -1126,6 +1190,12 @@ impl Viewer {
         }
         if watching {
             let payload = self.list_payload(Some(&value));
+            let mut list = self.list.borrow_mut();
+            if list.sent.as_ref() == Some(&payload) {
+                return;
+            }
+            list.sent = Some(payload.clone());
+            drop(list);
             self.ext_notify(REMOTE_SESSIONS_CHANGED_METHOD, payload);
         }
     }
@@ -1583,6 +1653,7 @@ impl Viewer {
             let mut list = self.list.borrow_mut();
             list.feed = None;
             list.groups = None;
+            list.sent = None;
         }
     }
 }
@@ -1939,6 +2010,35 @@ mod tests {
         );
         // While the computer is offline `devices:models` is null: the session's own copy stands.
         assert_eq!(Choices::of(&detail(), Some(&Value::Null)).models.len(), 2);
+    }
+
+    #[test]
+    fn this_computers_sessions_started_elsewhere_come_as_here() {
+        let viewer = Viewer::new();
+        *viewer.device_id.borrow_mut() = Some("me".into());
+        let groups = json!([
+            { "deviceId": "me", "deviceName": "This Mac", "path": "/w", "sessions": [
+                { "_id": "a", "sessionId": "01a-local", "title": "Typed here", "lastActivityAt": 5.0 },
+                { "_id": "b", "sessionId": "01b-phone", "title": "From the phone", "cwd": "/w/app", "projectPath": "/w",
+                  "status": "running", "online": true, "lastActivityAt": 3.0,
+                  "startedFrom": { "kind": "phone", "name": "iPhone", "at": 2.0 } },
+                { "_id": "c", "sessionId": "pending:x", "title": "Still starting", "starting": true, "lastActivityAt": 9.0,
+                  "startedFrom": { "kind": "web", "name": "Web", "at": 9.0 } },
+            ] },
+            { "deviceId": "other", "deviceName": "Office PC", "path": "/o", "sessions": [
+                { "_id": "d", "sessionId": "01d", "title": "Elsewhere", "lastActivityAt": 4.0,
+                  "startedFrom": { "kind": "phone", "name": "iPhone", "at": 1.0 } },
+            ] },
+        ]);
+        let payload = viewer.list_payload(Some(&groups));
+        assert_eq!(payload["here"]["deviceId"], "me");
+        let here = payload["here"]["sessions"].as_array().unwrap();
+        assert_eq!(here.len(), 1);
+        assert_eq!(here[0]["sessionId"], "01b-phone");
+        assert_eq!(here[0]["relayId"], "relay:b");
+        assert_eq!(here[0]["projectPath"], "/w");
+        assert_eq!(here[0]["running"], true);
+        assert_eq!(here[0]["startedFrom"]["name"], "iPhone");
     }
 
     #[test]

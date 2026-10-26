@@ -7,6 +7,7 @@
 //! The panel asks for work through [`Request`]s; the app runs each off the UI thread with [`run`] and hands the
 //! [`Response`] back to the panel, which drops any it no longer wants.
 
+pub mod here;
 pub mod tree;
 pub mod tui;
 

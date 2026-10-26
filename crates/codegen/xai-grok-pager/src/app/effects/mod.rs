@@ -3678,6 +3678,19 @@ pub(crate) fn execute(
                 TaskResult::RemotePanel { agent_id, response }
             });
         }
+        Effect::RemoteHereWatch { generation, delay } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                tokio::time::sleep(delay).await;
+                let result = crate::remote_cmd::ext_call(
+                    &tx,
+                    xai_grok_shell::remote_control::REMOTE_SESSIONS_METHOD,
+                    serde_json::json!({ "watch": true }),
+                )
+                .await;
+                TaskResult::RemoteHereWatched { generation, result }
+            });
+        }
         Effect::ShowSessionInfo { agent_id, session_id, show_resolved_model, nonce } => {
             let is_api_key_auth = session_flags.is_api_key_auth;
             let api_key_env_set = xai_grok_shell::agent::auth_method::has_xai_api_key_env();
