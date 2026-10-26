@@ -423,6 +423,16 @@ enum O11yFormat {
         }
     }
 
+    /// A row's detail line: the chips joined with " · ", each value chip kept on one line ("12.3K in" never splits).
+    static func chipLine(_ chips: [O11yChip], locale: Locale = .current) -> String {
+        chips.map { item in
+            let text = chip(item, locale: locale)
+            if case .value = item { return text.replacingOccurrences(of: " ", with: "\u{00A0}") }
+            return text
+        }
+        .joined(separator: " · ")
+    }
+
     // MARK: Pieces
 
     static func count(_ v: Double, locale: Locale) -> String {

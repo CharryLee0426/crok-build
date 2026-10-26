@@ -3,7 +3,8 @@
 // shape — every section, chart and list — but none of the owner's data:
 //
 //   node scripts/o11y-preview.mjs --out <dir>      # real pages, every range (gcx's sign-in)
-//   node scripts/o11y-demo.mjs <dir>               # → mobile/iOS/Crok/Resources/o11y-demo.json and the Android asset
+//   node scripts/o11y-demo.mjs <dir>               # → mobile/iOS/Crok/Resources/o11y-demo.json and the Android
+//                                                  #   debug asset (app/src/debug/assets: release builds have no demo)
 //
 // Numbers are scaled by a factor per page (ratios and times only nudged), times are kept (the apps move them to
 // now), and every text that is not a known public word — a model, provider, tool, agent, rule, outcome — is swapped
@@ -52,7 +53,7 @@ const PUBLIC_WORDS = new Set([
   "tool_execution_error", "validation_error", "rate_limit", "rate_limit_error", "overloaded_error", "timeout", "unknown",
   "chat_completions", "messages", "responses", "normal", "warning", "info", "critical", "crok-alerts", "Grafana SLO",
   "LLM Observability", "llm-history", "pass", "warn", "deny", "preflight", "postflight", "Passed", "Failed",
-  "LLM Generation",
+  "LLM Generation", "billed",
   // OpenRouter's upstream providers, as its spans name them.
   "meta", "digitalocean", "wafer", "relace", "ionstream", "morph", "fireworks", "together", "deepinfra", "novita",
   "groq", "cerebras", "chutes", "baseten", "parasail", "nebius", "google", "amazon", "azure", "mistral", "moonshotai",
@@ -191,7 +192,7 @@ const fixture = { builtAt, pages, strings: STRINGS };
 const text = JSON.stringify(fixture);
 for (const target of [
   path.join(repo, "mobile", "iOS", "Crok", "Resources", "o11y-demo.json"),
-  path.join(repo, "mobile", "Android", "app", "src", "main", "assets", "o11y-demo.json"),
+  path.join(repo, "mobile", "Android", "app", "src", "debug", "assets", "o11y-demo.json"),
 ]) {
   writeFileSync(target, text);
   console.log(`${path.relative(repo, target)}: ${text.length} bytes, ${Object.keys(pages).length} pages`);

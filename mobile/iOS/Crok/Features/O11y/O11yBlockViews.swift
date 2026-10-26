@@ -190,7 +190,7 @@ struct O11yRankingView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if let detail = row.detail, !detail.isEmpty {
-                        Text(detail.map { O11yFormat.chip($0) }.joined(separator: " · "))
+                        Text(O11yFormat.chipLine(detail))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -300,7 +300,7 @@ struct O11yListRowView: View {
     }
 
     private var detailText: String {
-        (row.detail ?? []).map { O11yFormat.chip($0) }.joined(separator: " · ")
+        O11yFormat.chipLine(row.detail ?? [])
     }
 
     @ViewBuilder

@@ -127,6 +127,9 @@ final class O11yTests: XCTestCase {
         XCTAssertEqual(O11yFormat.tone(0.1, better: .up), .good)
         XCTAssertEqual(O11yFormat.tone(0.1, better: O11yBetter.none), .neutral)
         XCTAssertEqual(O11yFormat.chip(.value(12_345, .tokens, suffix: "in"), locale: en), "12.3K in")
+        XCTAssertEqual(
+            O11yFormat.chipLine([.text("OpenRouter"), .value(12_345, .tokens, suffix: "in"), .value(4.3, .seconds, suffix: nil)], locale: en),
+            "OpenRouter · 12.3K\u{00A0}in · 4.3\u{00A0}s", "a value chip never splits across lines")
     }
 
     func testAxisLabelsShareTheTopTicksUnit() {

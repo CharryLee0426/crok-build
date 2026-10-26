@@ -392,7 +392,7 @@ per page (`crok.o11y.range.<page id>`, default the page's `range` as the relay f
 
 **Layout.** The page's sections in order, each a card in the grouped-list look (iOS: `secondarySystemGroupedBackground`
 cards, radius 10, on `systemGroupedBackground`, 16 pt side margins plus the safe area; Android: `colors.card` on
-`colors.background`, radius 12, the Profile list margins). A section's `title` sits above its card as a list header
+`colors.grouped`, radius 16 as Profile's sections, the Profile list margins). A section's `title` sits above its card as a list header
 (iOS footnote uppercase secondary; Android `labelLarge` in the accent, as Profile's headers), its `footer` under it
 (footnote / `bodySmall` secondary).
 
@@ -449,7 +449,8 @@ cards, radius 10, on `systemGroupedBackground`, 16 pt side margins plus the safe
   panel failed, the rest of the page stands.
 
 **Chips** (`detail`): a chip is text (`{"t": "anthropic"}`) or a value (`{"v": 12345, "u": "tokens", "s": "in"}`:
-formatted value, then a space and the suffix when there is one, "12.3K in").
+formatted value, then a space and the suffix when there is one, "12.3K in"). A detail line joins its chips with
+" · " and never breaks inside a value chip (its spaces are no-break spaces).
 
 **Icons** (`links` rows and nothing else): `overview` square.grid.2x2 / `Dashboard`, `claude` sparkle /
 `AutoAwesome`, `openrouter` arrow.triangle.branch / `AltRoute`, `crok` cpu / `Memory`, `harness` hammer / `Build`,
@@ -476,7 +477,7 @@ A `change` is a fraction: "+" or "−" (U+2212), × 100, no decimals ("+12%", "�
 null or a value the previous period divided by zero gives no change text.
 
 **Demo mode** serves pages from the bundled fixture `o11y-demo.json` (iOS `Crok/Resources/`, Android
-`app/src/main/assets/`; both copies made by `relay/scripts/o11y-demo.mjs`): synthetic numbers built from the relay's own
+`app/src/debug/assets/`; both copies made by `relay/scripts/o11y-demo.mjs`): synthetic numbers built from the relay's own
 page specs, English text plus a `strings` table per language that the demo applies to every title, label and chip.
 `o11y:refresh` there only moves `builtAt` to now.
 
