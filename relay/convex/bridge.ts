@@ -5,7 +5,7 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { fail, requireHost, requireViewer } from "./lib/auth";
 import { ensureProject, inferProjectPath } from "./lib/projects";
-import { appendNotice, isStarting, supports } from "./lib/starting";
+import { appendNotice, isStarting, opensWithSetup, supports } from "./lib/starting";
 import {
   eventKind,
   hostApp,
@@ -452,6 +452,8 @@ export const pushEvents = mutation({
 function forHost(command: Doc<"commands">, session: Doc<"sessions"> | null, host: Doc<"hosts">): boolean {
   if (!session) return false;
   if (!supports(host, command.type)) return false;
+  // An older crok would open it on its own default model.
+  if (command.type === "create" && !opensWithSetup(host, command)) return false;
   if (command.type === "history") return session.deviceId === host.deviceId && !session.online;
   // A git read runs in the session's folder without opening it; any crok of that computer can serve it.
   if (command.type === "git") return session.deviceId === host.deviceId;

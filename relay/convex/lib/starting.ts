@@ -36,6 +36,23 @@ export function supports(host: Pick<Doc<"hosts">, "features">, type: Doc<"comman
 }
 
 /**
+ * Whether a crok process applies the model and thinking level a `create` command carries before its first prompt. It
+ * says so with `setup`; crok 2.0.1 and 2.0.2 do it without saying, and are the first to announce `git`. An older crok
+ * still opens the session, on its own default model, so a session started with a choice must not go to one.
+ */
+export function appliesSetup(host: Pick<Doc<"hosts">, "features">): boolean {
+  return host.features?.some((feature) => feature === "setup" || feature === "git") ?? false;
+}
+
+/** Whether `host` can open a session for this command: one that carries a model or thinking level needs that applied. */
+export function opensWithSetup(
+  host: Pick<Doc<"hosts">, "features">,
+  setup: { model?: string | null; effort?: string | null },
+): boolean {
+  return (!setup.model && !setup.effort) || appliesSetup(host);
+}
+
+/**
  * A model and thinking level chosen when starting a session on another computer, checked against that computer's
  * `models` when the relay has them: `effort` is what the bridge applies (an option id), `effortValue` what the
  * session row stores (the level itself, `low`, `high`, …).

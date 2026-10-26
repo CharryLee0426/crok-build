@@ -420,8 +420,9 @@ async fn run(
         "appVersion": config.app_version,
         "pid": f64::from(std::process::id()),
         "canAdopt": config.can_adopt,
-        // Command types this process handles beyond the first relay's.
-        "features": ["create", "config", "git"],
+        // Command types this process handles beyond the first relay's; `setup`: a `create` command's model and
+        // thinking level are applied before its first prompt (the relay gives such a session only to a crok that does).
+        "features": ["create", "config", "git", "setup"],
     });
     let host_id = loop {
         match client

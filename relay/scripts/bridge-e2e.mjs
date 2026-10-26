@@ -8,7 +8,8 @@
 //
 //   CROK_BIN=…/xai-grok-pager CROK_HOME=/tmp/home E2E_PROJECT=~/e2e-project node scripts/bridge-e2e.mjs
 //
-// CROK_HOME/config.toml should point the default model at that server. E2E_PROJECT must not be under the system's
+// CROK_HOME/config.toml should point the default model at that server, and a second model at it too, named by
+// E2E_SETUP_MODEL, for the session started from the phone on a model of its own. E2E_PROJECT must not be under the system's
 // temp folder (crok leaves sessions there out of the list of every session). It also checks that a session from before
 // the sign-in is listed, grouped with the running one, and that opening it fetches its transcript from disk.
 
@@ -404,10 +405,14 @@ console.log("a new session from the phone");
 const computerDevice = (await phone.query("devices:list", {})).find((d) => d.name === "E2E Mac");
 const deviceModels = await phone.query("devices:models", { deviceId: computerDevice?._id });
 check(deviceModels?.length > 0, "the phone lists what that computer can run", deviceModels?.map((m) => m.id));
-// The model this computer's session runs (the mock one), with a thinking level when it has one: chosen before the
-// session exists.
-const setupModel = deviceModels?.find((m) => m.id === withModels?.model) ?? deviceModels?.[0];
-const setupEffort = setupModel?.efforts?.[0];
+// A model and thinking level chosen before the session exists: E2E_SETUP_MODEL, a second model the agent can call
+// (not the computer's default, so a crok that ignores the choice fails here), else the one this session runs; and a
+// level other than the model's default.
+const otherModel = process.env.E2E_SETUP_MODEL;
+const setupModel = deviceModels?.find((m) => m.id === (otherModel ?? withModels?.model)) ?? deviceModels?.[0];
+if (otherModel) check(setupModel?.id === otherModel, "the other model is listed", deviceModels?.map((m) => m.id));
+else console.log("  --  (no E2E_SETUP_MODEL: the new session picks the model it would get anyway)");
+const setupEffort = setupModel?.efforts?.find((e) => e.id !== setupModel.defaultEffort) ?? setupModel?.efforts?.[0];
 const created = await phone.mutation("sessions:create", {
   deviceId: computerDevice?._id,
   path: PROJECT,
@@ -432,6 +437,25 @@ check(createdDone?.status === "done", "the computer started it and ran the promp
 const createdNow = await phone.query("sessions:get", { sessionDocId: created.sessionDocId });
 check(!createdNow.starting && createdNow.online && /^[0-9a-f-]{36}$/.test(createdNow.sessionId), "it has crok's own id now", createdNow.sessionId);
 check(!setupModel || createdNow.model === setupModel.id, "it runs with the model chosen before it started", createdNow);
+// What its first turn really ran on, from the session's files (the relay row above only echoes the choice).
+const createdFiles = `${HOME}/sessions/${encodeURIComponent(PROJECT)}/${createdNow.sessionId}`;
+const ranOn = await until("its session files say what it ran on", async () => {
+  const turn = readFileSync(`${createdFiles}/events.jsonl`, "utf8")
+    .split("\n")
+    .find((l) => l.includes('"turn_started"'));
+  const summary = JSON.parse(readFileSync(`${createdFiles}/summary.json`, "utf8"));
+  return turn ? { model: JSON.parse(turn).model_id, effort: summary.reasoning_effort } : null;
+});
+check(
+  !setupModel || setupModel.id === ranOn?.model || setupModel.id.endsWith(`/${ranOn?.model}`),
+  "its first turn ran on the chosen model, not the computer's default",
+  ranOn,
+);
+check(
+  !setupEffort || ranOn?.effort === (setupEffort.value ?? setupEffort.id),
+  "at the chosen thinking level",
+  ranOn,
+);
 const createdReply = await until("its reply is mirrored", async () => {
   const page = await phone.query("sessions:events", { sessionDocId: created.sessionDocId, paginationOpts: { numItems: 20, cursor: null } });
   // A new session's first prompt reaches the model wrapped in its opening context, so the mock's echo differs.

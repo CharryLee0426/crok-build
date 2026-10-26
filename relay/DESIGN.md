@@ -211,6 +211,14 @@ A session started from another device can carry the same choice (`sessions:creat
 level it stands for, and the session row holds the level. `devices:models({deviceId})` returns a computer's list
 before any session exists (the same shape as `sessions:get`'s `models`; null while it is offline).
 
+Crok up to 2.0.0 handles `create` but ignores its `model` and `effort`: it starts the session on its own default. So a
+`create` that carries a choice (from `sessions:create`, or a prompt or retry that reopens a failed `pending:` session)
+goes only to hosts that apply it: those listing `setup` in `features`, or `git` (crok 2.0.1 and 2.0.2 apply the choice
+without saying so, and are the first to list `git`). The inbox does not offer it to the others and they cannot claim
+it, so with an old and a new crok on one computer the new one starts it. With only older crok there, the call fails
+`OFFLINE` ("Update crok on … to start a session there with a chosen model or thinking level"), rather than starting
+the session on the default; one on Default still starts on any crok that handles `create`.
+
 ### Slash commands
 
 A session's slash commands — crok's own (`compact`, `context`, `memory`, …), skills and workflows, as the agent
@@ -352,14 +360,14 @@ of sending (keyed by `clientId`) until the transcript holds the user event whose
 
 | function | args | returns |
 |---|---|---|
-| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?, canAdopt?, features?` | `{hostId, deviceId, serverTime}` — `features`: command types beyond the first relay's it handles (`create`, `config`) |
+| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?, canAdopt?, features?` | `{hostId, deviceId, serverTime}` — `features`: command types beyond the first relay's it handles (`create`, `config`, `git`), and `setup` when it applies a `create` command's model and thinking level (§2, "Model and thinking level") |
 | `bridge:heartbeat` | `hostId` | `{serverTime}` (every 30 s) |
 | `bridge:disconnect` | `hostId` | `null` |
 | `bridge:upsertSession` | `hostId, sessionId, fields:{title?, cwd?, model?, effort?, gitBranch?, status?, preview?, previewKind?, plan?, usage?, createdAt?, lastActivityAt?, projectPath?}` | `{sessionDocId, eventSeq, created}` |
 | `bridge:setBranch` | `hostId, sessionId, branch` | `null` — the branch a git command on that computer checked out, for a session another process may run (it does not mark the session open) |
 | `bridge:closeSession` | `hostId, sessionId` | `null` |
 | `bridge:pushEvents` | `hostId, sessionDocId, replace?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history) |
-| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt`; `hosted` = the sessions the relay has this host running |
+| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt` (one with a choice only to hosts that apply it: `setup` or `git` in `features`); `hosted` = the sessions the relay has this host running |
 | `bridge:setPending` | `hostId, sessionId, pending?` | `null` — the session's permission request, or none (absent) once answered or gone |
 | `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another host did it lately, or is doing it) |
 | `bridge:catalogBatch` | `hostId, syncId, sessions:[{sessionId, title, cwd, projectPath, createdAt, lastActivityAt, model?, effort?, gitBranch?, preview?}]` (≤100) | `{added}` |

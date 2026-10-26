@@ -82,6 +82,15 @@ async function codeOf(promise) {
     return error?.data?.code ?? String(error);
   }
 }
+/** The relay's error: `CODE: message`. */
+async function errorOf(promise) {
+  try {
+    await promise;
+    return "ok";
+  } catch (error) {
+    return `${error?.data?.code}: ${error?.data?.message}`;
+  }
+}
 
 console.log(`Commands e2e against ${url}`);
 const computerTokens = await link("computer", "E2E Mac Studio");
@@ -97,7 +106,7 @@ const { hostId, deviceId } = await computer.mutation("bridge:connect", {
   app: "desktop",
   appVersion: "crok e2e",
   canAdopt: true,
-  features: ["create", "config"],
+  features: ["create", "config", "git", "setup"],
 });
 // An older crok on the same computer: it must never be handed the command types it cannot parse.
 const { hostId: oldHostId } = await computer.mutation("bridge:connect", {
@@ -105,6 +114,22 @@ const { hostId: oldHostId } = await computer.mutation("bridge:connect", {
   app: "tui",
   appVersion: "crok 1.0.45 (old)",
   canAdopt: true,
+});
+// crok up to 2.0.0: it starts new sessions but on its own default model, whatever the create command chose.
+const { hostId: noSetupHostId } = await computer.mutation("bridge:connect", {
+  instanceId: `cmd-e2e-2.0.0-${process.pid}`,
+  app: "tui",
+  appVersion: "crok 1.0.45 (2.0.0)",
+  canAdopt: true,
+  features: ["create", "config"],
+});
+// crok 2.0.1 and 2.0.2 apply the choice without announcing `setup`; `git` came with it.
+const { hostId: gitHostId } = await computer.mutation("bridge:connect", {
+  instanceId: `cmd-e2e-2.0.1-${process.pid}`,
+  app: "desktop",
+  appVersion: "crok 1.0.45 (2.0.1)",
+  canAdopt: true,
+  features: ["create", "config", "git"],
 });
 const idleMe = await idle.query("users:me", {});
 const idleDeviceId = idleMe.device.deviceId;
@@ -246,6 +271,18 @@ check(
   configuredCommand,
 );
 check(
+  !(await computer.query("bridge:inbox", { hostId: noSetupHostId })).commands.some((c) => c._id === configured.commandId),
+  "a crok that would start it on its own default model is not offered it",
+);
+check(
+  !(await computer.mutation("bridge:claimCommand", { hostId: noSetupHostId, commandId: configured.commandId })),
+  "nor can it claim it",
+);
+check(
+  (await computer.query("bridge:inbox", { hostId: gitHostId })).commands.some((c) => c._id === configured.commandId),
+  "crok 2.0.1 (git, no setup) is, as it applies the choice",
+);
+check(
   (await codeOf(phone.mutation("sessions:create", { deviceId, path: project, model: "gpt-9", clientId: crypto.randomUUID() }))) ===
     "INVALID",
   "a model that computer lacks is INVALID",
@@ -336,6 +373,10 @@ check(
   !(await computer.mutation("bridge:claimCommand", { hostId: oldHostId, commandId: created.commandId })),
   "nor can it claim them",
 );
+check(
+  (await computer.query("bridge:inbox", { hostId: noSetupHostId })).commands.some((c) => c._id === created.commandId),
+  "a session without a chosen model goes to any crok that starts sessions, crok 2.0.0 too",
+);
 const inbox2 = await computer.query("bridge:inbox", { hostId });
 const createCommand = inbox2.commands.find((c) => c._id === created.commandId);
 check(
@@ -387,6 +428,38 @@ const { commandId: stopId } = await phone.mutation("commands:stop", { sessionDoc
 const stopped = await phone.query("commands:get", { commandId: retry.commandId });
 check(stopped?.status === "failed", "Stop drops the waiting create", stopped);
 check((await phone.query("commands:get", { commandId: stopId }))?.status === "done", "and is done at once");
+// The same with a model and thinking level chosen: opening it again keeps that choice.
+const failingSetup = await phone.mutation("sessions:create", {
+  deviceId,
+  path: "/nowhere-either",
+  text: "hi",
+  model: "grok-4",
+  effort: "high",
+  clientId: crypto.randomUUID(),
+});
+await computer.mutation("bridge:claimCommand", { hostId, commandId: failingSetup.commandId });
+await computer.mutation("bridge:completeCommand", {
+  hostId,
+  commandId: failingSetup.commandId,
+  status: "failed",
+  error: "The computer could not start this session: /nowhere-either is not a folder on this computer.",
+});
+const retrySetup = await phone.mutation("commands:sendPrompt", {
+  sessionDocId: failingSetup.sessionDocId,
+  text: "try again",
+  clientId: crypto.randomUUID(),
+});
+const retriedSetup = (await computer.query("bridge:inbox", { hostId })).commands.find((c) => c._id === retrySetup.commandId);
+check(
+  retriedSetup?.type === "create" && retriedSetup.model === "grok-4" && retriedSetup.effort === "high",
+  "a prompt that opens it again carries the chosen model and thinking level",
+  retriedSetup,
+);
+check(
+  !(await computer.query("bridge:inbox", { hostId: noSetupHostId })).commands.some((c) => c._id === retrySetup.commandId),
+  "and only a crok that applies them is offered it",
+);
+await phone.mutation("commands:stop", { sessionDocId: failingSetup.sessionDocId });
 
 console.log("Config for a session nobody runs");
 await computer.mutation("bridge:closeSession", { hostId, sessionId });
@@ -412,6 +485,30 @@ const fallback = await phone.query("sessions:commands", { sessionDocId: otherDoc
 check(fallback.source === "computer" && fallback.commands.length === 2, "a session without its own list gets the computer's", fallback);
 
 await computer.mutation("bridge:disconnect", { hostId });
+await computer.mutation("bridge:disconnect", { hostId: gitHostId });
+console.log("Only crok 2.0.0 there");
+const noSetupError = await errorOf(
+  phone.mutation("sessions:create", { deviceId, path: project, model: "grok-4", effort: "high", clientId: crypto.randomUUID() }),
+);
+check(
+  noSetupError.startsWith("OFFLINE: ") && noSetupError.includes("Update crok on E2E Mac Studio") && noSetupError.includes("chosen model"),
+  "a new session with a chosen model asks to update crok instead of starting on the default",
+  noSetupError,
+);
+const plain = await phone.mutation("sessions:create", { deviceId, path: project, clientId: crypto.randomUUID() });
+check(
+  (await computer.query("bridge:inbox", { hostId: noSetupHostId })).commands.some((c) => c._id === plain.commandId),
+  "one on Default still starts there",
+);
+const reopenError = await errorOf(
+  phone.mutation("commands:sendPrompt", { sessionDocId: failingSetup.sessionDocId, text: "again", clientId: crypto.randomUUID() }),
+);
+check(
+  reopenError.startsWith("OFFLINE: ") && reopenError.includes("chosen model"),
+  "nor does a prompt open a failed one with a chosen model there",
+  reopenError,
+);
+await computer.mutation("bridge:disconnect", { hostId: noSetupHostId });
 check(
   (await codeOf(phone.mutation("sessions:create", { deviceId, path: project, clientId: crypto.randomUUID() }))) === "OFFLINE",
   "with only an older crok running there, a new session asks to update crok",
