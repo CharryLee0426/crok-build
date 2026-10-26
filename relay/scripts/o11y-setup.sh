@@ -145,12 +145,19 @@ for r in json.load(sys.stdin):
         has="$(gcx_json "/api/access-control/users/$account_id/roles" | /usr/bin/python3 -c '
 import json, sys
 print("yes" if any(r.get("uid") == sys.argv[1] for r in json.load(sys.stdin) or []) else "")' "$role")"
-        if [[ -z "$has" ]]; then
+        if [[ -n "$has" ]]; then
+            printf 'role Agento11y Reader (agents, conversations, evaluation)\n'
+        else
             printf '{"roleUid":"%s","global":false}' "$role" > "$work/role.json"
-            gcx_json "/api/access-control/users/$account_id/roles" -X POST -d "@$work/role.json" >/dev/null \
-                || fail "cannot give the service account the Agento11y Reader role"
+            # gcx's sign-in may not assign roles (HTTP 403 through its proxy): then it is one step in Grafana's UI.
+            if gcx_json "/api/access-control/users/$account_id/roles" -X POST -d "@$work/role.json" >/dev/null 2>&1; then
+                printf 'role Agento11y Reader (agents, conversations, evaluation)\n'
+            else
+                printf 'note: could not give the role through the API. In Grafana: Administration › Users and access ›\n'
+                printf '      Service accounts › crok-relay-o11y › Roles (or the role picker) › add "Agento11y Reader".\n'
+                printf '      Until then the agents, conversations and evaluation lists say they cannot be read.\n'
+            fi
         fi
-        printf 'role Agento11y Reader (agents, conversations, evaluation)\n'
     else
         printf 'note: no Agent Observability plugin on this stack; its pages will show errors\n'
     fi
