@@ -8,7 +8,7 @@ Observability) is in `observability/agento11y/`.
 ```sh
 python3 evals/run.py list                                   # suites, cases and tags
 python3 evals/run.py selftest                               # every case against its reference fix, no model
-python3 evals/run.py run --select smoke --model openrouter/~deepseek/deepseek-flash-latest
+python3 evals/run.py run --select smoke --model openrouter/meta/muse-spark-1.3-contributor
 python3 evals/run.py run --select s1,s2,s3 --model claude-sonnet-5-5 --trials 3 --jobs 3 --publish
 python3 evals/run.py gate target/evals/<run> --baseline evals/baselines/smoke.json
 python3 evals/run.py baseline target/evals/<run> > evals/baselines/smoke.json
@@ -85,23 +85,31 @@ per case and attempt (linked to crok's conversation of that trial), a primary ve
 `.github/workflows/release.yml` runs `.github/scripts/release/eval-gate.sh` after the TUI build and
 before publishing: the smoke cases against the release binary, two trials each, gated on
 `evals/baselines/smoke.json`. It fails when pass@1 over the shared cases drops by more than 20 points
-(`CROK_EVAL_MAX_DROP`), or when a safety case that passed every baseline trial fails. It needs the
-`CROK_EVAL_OPENROUTER_API_KEY` secret in the `release` environment (and optionally the
-`CROK_EVAL_MODEL` variable); without the secret it warns and lets the release through.
+(`CROK_EVAL_MAX_DROP`), or when a safety case that passed every baseline trial fails.
+
+The trials run on the model the baseline was measured with (its `model`, now
+`openrouter/meta/muse-spark-1.3-contributor`, Meta's low-cost tier on OpenRouter), since a drop
+against a baseline from another model would be the model's, not crok's. A `CROK_EVAL_MODEL` variable
+in the `release` environment overrides it, with a warning. The job needs the
+`CROK_EVAL_OPENROUTER_API_KEY` secret in the `release` environment
+(`release/ci-secrets.sh --only CROK_EVAL_OPENROUTER_API_KEY` sets it from crok's OpenRouter sign-in);
+without it the job warns and lets the release through.
 
 The OpenRouter key needs more credit than a run spends: crok asks OpenRouter for up to the model's
-whole remaining context as output (about 900K tokens for DeepSeek Flash), and OpenRouter refuses a
-request (HTTP 402) whose worst case the balance cannot cover, even though a trial uses a few thousand
-tokens. A run that hits this shows trials ending after 0 turns with `402 Payment Required` in their
-`stderr.log`.
+whole remaining context as output (about 940K tokens, so about $0.19 at Muse Spark Contributor's
+price), and OpenRouter refuses a request (HTTP 402) whose worst case the balance cannot cover, even
+though a trial uses a few thousand tokens. A run that hits this shows trials ending after 0 turns with
+`402 Payment Required` in their `stderr.log`.
 
-Refresh the baseline after an intended change in behaviour: run the smoke suite with the release
-model and `--trials 3`, then `evals/run.py baseline <run dir> > evals/baselines/smoke.json`.
+Refresh the baseline after an intended change in behaviour, or to change the release model: run the
+smoke suite with that model and `--trials 3`, then
+`evals/run.py baseline <run dir> > evals/baselines/smoke.json` (keep its `_comment`).
 
 ## How much a run costs and detects
 
-With DeepSeek V4.1 Flash a trial costs about $0.002 per model call and makes about 15 calls; the
-seven smoke cases cost a few cents. All 22 cases at 3 trials is 66 trials. A suite this size detects
+With Muse Spark 1.3 Contributor ($0.10 per million input tokens, $0.20 per million output) a smoke
+trial costs about $0.004 and takes about 20 seconds: the baseline's 21 trials cost $0.08, the release
+gate's 14 about $0.05. All 22 cases at 3 trials is 66 trials. A suite this size detects
 a pass@1 drop of roughly 15-20 points; the 65-case plan in the research report detects about 12.
 Add cases from real failures: the `crok-regressions` collection in Agent Observability holds the
 conversations an evaluator failed (`observability/agento11y/stack.py backfill`, then `apply`); write
