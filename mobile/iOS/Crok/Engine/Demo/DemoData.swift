@@ -287,8 +287,37 @@ extension DemoWorld {
             listed("lexer", 2, .assistant, "Started with the number literals.", at: t - 4 * day),
         ]
 
+        // 9. Photos and files (relay/DESIGN.md §5 "Photos and files in prompts"): a prompt with two mockups and a PDF,
+        // then a photo alone.
+        var mockups = Session(
+            detail: detail(
+                "s-mockups", title: "Match the settings mockups", cwd: website, device: "mbp", app: .desktop,
+                status: .idle, online: true, last: t - 7.5 * hour, created: t - 8.4 * hour, branch: "feat/dark-settings"),
+            events: [], commands: [], preview: "The switch now follows the system unless you pick Light or Dark.",
+            previewKind: .assistant)
+        let mockupsAt = t - 8.4 * hour
+        mockups.events = [
+            TranscriptEvent(
+                id: "e-mockups-1", seq: 1, key: "k1", kind: .user,
+                text: "Make the Settings screen match these two mockups. The spec is in the PDF.", origin: "remote",
+                commandId: "c-mockups-1", fromLabel: "Charlie's iPhone",
+                attachments: [DemoMedia.mockupLight, DemoMedia.mockupDark, DemoMedia.spec].map(DemoMedia.attachment),
+                at: mockupsAt),
+            TranscriptEvent(id: "e-mockups-2", seq: 2, key: "k2", kind: .tool, text: "settings-spec.pdf", title: "Read settings-spec.pdf", toolKind: "read", status: "completed", at: mockupsAt + 15_000),
+            TranscriptEvent(id: "e-mockups-3", seq: 3, key: "k3", kind: .assistant, text: "Done: the Settings rows are 44 pt with rounded icons, and **Dark Mode** sits under Appearance as in the mockups. Cards use `#1F1F1F` on `#141414` in dark mode.", at: mockupsAt + 120_000),
+            TranscriptEvent(
+                id: "e-mockups-4", seq: 4, key: "k4", kind: .user, text: "", origin: "remote", commandId: "c-mockups-2",
+                fromLabel: "Charlie's iPhone", attachments: [DemoMedia.attachment(DemoMedia.sketch)], at: t - 7.6 * hour),
+            TranscriptEvent(id: "e-mockups-5", seq: 5, key: "k5", kind: .assistant, text: "The switch now follows the system unless you pick Light or Dark.", at: t - 7.5 * hour),
+        ]
+        mockups.commands = [
+            PromptCommand(id: "c-mockups-2", clientId: "demo-client-m2", text: "", status: .done, error: nil, fromLabel: "Charlie's iPhone", fromDeviceId: "demo-phone", mine: true, createdAt: t - 7.6 * hour, updatedAt: t - 7.5 * hour),
+            PromptCommand(id: "c-mockups-1", clientId: "demo-client-m1", text: "Make the Settings screen match these two mockups. The spec is in the PDF.", status: .done, error: nil, fromLabel: "Charlie's iPhone", fromDeviceId: "demo-phone", mine: true, createdAt: mockupsAt, updatedAt: mockupsAt + 121_000),
+        ]
+
         sessions = [
             flaky, darkMode, deps, relay, bench, pager, notes, old, pricing, changelog, releaseScript, settingsI18n, lexer,
+            mockups,
         ]
             .map { session in
                 var session = session

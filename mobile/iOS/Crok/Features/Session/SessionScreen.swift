@@ -186,6 +186,16 @@ private struct SessionContent: View {
             }
         }
         .toolbar(.hidden, for: .tabBar)
+        .fullScreenCover(item: $model.viewer) { item in
+            MediaViewer(item: item)
+        }
+        .alert(
+            FileOpener.shared.failure ?? "",
+            isPresented: Binding(
+                get: { FileOpener.shared.failure != nil }, set: { if !$0 { FileOpener.shared.failure = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        }
         .sheet(isPresented: $model.showsInfo) {
             SessionInfoView(sessionDocId: model.sessionDocId, session: model, onRemoved: { dismiss() })
                 .environment(engine)

@@ -89,6 +89,8 @@ final class NewSessionModel {
     private(set) var pickedLevel: String?
     /// Choose a Model (the model pill).
     var showsModelPicker = false
+    /// Photos and files for the first prompt.
+    let attachments: AttachmentDraft
     @ObservationIgnored var onCreated: ((DocID) -> Void)?
 
     init(target: NewSessionTarget, engine: CrokEngine, draft: String = "", clientId: String = UUID().uuidString.lowercased()) {
@@ -99,6 +101,7 @@ final class NewSessionModel {
         let devices = engine.devices
         let deviceId = target.deviceId
         modelQuery = LiveQuery(engine: engine) { devices.models(deviceId) }
+        attachments = engine.attachments(for: "new:" + clientId)
     }
 
     /// Watches the computer's list while the screen shows.
@@ -136,21 +139,27 @@ final class NewSessionModel {
     }
 
     var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCreating && computerOnline
+        let hasText = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return (hasText || !attachments.isEmpty) && attachments.isReady && !isCreating && computerOnline
     }
 
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isCreating else { return }
+        guard !text.isEmpty || !attachments.isEmpty, attachments.isReady, !isCreating else { return }
         isCreating = true
         draft = ""
-        pendingPrompt = LocalPrompt(clientId: clientId, text: text, createdAt: Date().milliseconds)
+        let shown = attachments.messageAttachments
+        let inputs = attachments.inputs
+        pendingPrompt = LocalPrompt(
+            clientId: clientId, text: text, createdAt: Date().milliseconds, attachments: shown, inputs: inputs)
         let setup = ModelSetup.createArguments(list: modelList, model: pickedModel, effort: pickedLevel)
         let result = await engine.startSession(
-            in: target, text: text, model: setup.model, effort: setup.effort, clientId: clientId)
+            in: target, text: text, model: setup.model, effort: setup.effort, clientId: clientId, attachments: shown,
+            inputs: inputs)
         isCreating = false
         switch result {
         case .success(let sessionDocId):
+            attachments.clear()
             onCreated?(sessionDocId)
         case .failure(let error):
             // Nothing was made (offline, an older crok there, a bad folder): the text goes back to the field.
@@ -223,13 +232,18 @@ struct NewSessionContent: View {
                             onLevel: { model.chooseLevel($0) })
                         .transition(.opacity)
                     }
+                    if model.pendingPrompt == nil && (!model.attachments.isEmpty || model.attachments.notice != nil) {
+                        AttachmentStrip(draft: model.attachments)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                     ComposerInputRow(
                         draft: $model.draft,
                         placeholder: String(localized: "Message crok on \(model.target.deviceName)…"),
-                        focused: $composerFocused, menu: nil, isRunning: false, canSend: model.canSend,
-                        onStop: {}, onSend: { Task { await model.send() } })
+                        focused: $composerFocused, menu: nil, attachments: model.attachments, isRunning: false,
+                        canSend: model.canSend, onStop: {}, onSend: { Task { await model.send() } })
                 }
                 .animation(.snappy, value: model.setupRow == nil)
+                .animation(.snappy, value: model.attachments.isEmpty)
             }
         }
         .sheet(isPresented: $model.showsModelPicker) {
@@ -278,9 +292,20 @@ private struct PendingPromptBubble: View {
         HStack(alignment: .bottom) {
             Spacer(minLength: 48)
             VStack(alignment: .trailing, spacing: 3) {
-                Text(prompt.text)
-                    .foregroundStyle(palette.userBubbleText)
-                    .fixedSize(horizontal: false, vertical: true)
+                let images = prompt.attachments.filter(\.showsAsImage)
+                if !images.isEmpty {
+                    MediaGrid(images: images) { _ in }
+                }
+                ForEach(prompt.attachments.filter { !$0.showsAsImage }) { file in
+                    MessageFileRow(
+                        attachment: file, computerName: "", textColor: palette.userBubbleText,
+                        metaColor: palette.userBubbleMeta)
+                }
+                if !prompt.text.isEmpty {
+                    Text(prompt.text)
+                        .foregroundStyle(palette.userBubbleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: 4) {
                     Text(Date(milliseconds: prompt.createdAt), format: .dateTime.hour().minute())
                     DeliveryTickView(tick: .sending, color: palette.userBubbleMeta)

@@ -39,6 +39,10 @@ struct ComposerView: View {
                                 onLevel: { model.chooseLevel($0) })
                             .transition(.opacity)
                         }
+                        if !model.attachments.isEmpty || model.attachments.notice != nil {
+                            AttachmentStrip(draft: model.attachments)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                         ComposerInputRow(
                             draft: $model.draft,
                             placeholder: String(localized: "Message crok on \(model.computerName)…"),
@@ -46,6 +50,7 @@ struct ComposerView: View {
                             menu: .init(
                                 collapsed: !model.draft.isEmpty, open: !model.commandMenuItems.isEmpty,
                                 action: { withAnimation(.snappy) { model.toggleMenu() } }),
+                            attachments: model.attachments,
                             isRunning: model.isRunning, canSend: model.canSendDraft,
                             onStop: { Task { await model.stop() } },
                             onSend: {
@@ -56,6 +61,7 @@ struct ComposerView: View {
                     .animation(.snappy, value: model.pendingRequest?.id)
                     .animation(.snappy, value: model.commandMenuItems.map(\.id))
                     .animation(.snappy, value: model.setupRow == nil)
+                    .animation(.snappy, value: model.attachments.isEmpty)
                 }
             }
         }
@@ -138,17 +144,23 @@ struct ComposerInputRow: View {
     let placeholder: String
     var focused: FocusState<Bool>.Binding
     let menu: MenuConfig?
+    /// The paperclip's strip; nil for no paperclip.
+    var attachments: AttachmentDraft? = nil
     let isRunning: Bool
     let canSend: Bool
     let onStop: () -> Void
     let onSend: () -> Void
 
     private var hasText: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var hasContent: Bool { hasText || !(attachments?.isEmpty ?? true) }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if let menu {
                 MenuPill(collapsed: menu.collapsed, open: menu.open, action: menu.action)
+            }
+            if let attachments {
+                AttachButton(draft: attachments)
             }
             TextField(placeholder, text: $draft, axis: .vertical)
                 .lineLimit(1...6)
@@ -169,7 +181,7 @@ struct ComposerInputRow: View {
                 .accessibilityIdentifier("stopButton")
                 .transition(.scale.combined(with: .opacity))
             }
-            if hasText || !isRunning {
+            if hasContent || !isRunning {
                 Button(action: onSend) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 17, weight: .bold))
@@ -184,7 +196,7 @@ struct ComposerInputRow: View {
             }
         }
         .animation(.snappy, value: isRunning)
-        .animation(.snappy, value: hasText)
+        .animation(.snappy, value: hasContent)
     }
 
     private struct FieldSurface: ViewModifier {

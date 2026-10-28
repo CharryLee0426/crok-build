@@ -32,6 +32,10 @@ final class SessionViewModel {
     var showsModelPicker = false
     /// The dimmed model pill's explanation: the computer's crok publishes no list.
     var showsNotOffered = false
+    /// The photos and files waiting in the composer (kept while the app runs, per session).
+    let attachments: AttachmentDraft
+    /// The full-screen image viewer: a message's images and the one tapped.
+    var viewer: MediaViewerItem?
 
     private(set) var items: [TranscriptItem] = []
     private(set) var hasOlder = false
@@ -107,6 +111,7 @@ final class SessionViewModel {
         commands = LiveQuery(engine: engine) { commandsAPI.forSession(sessionDocId) }
         slashCommands = LiveQuery(engine: engine) { sessions.slashCommands(sessionDocId) }
         draft = engine.drafts.draft(for: sessionDocId)
+        attachments = engine.attachments(for: sessionDocId)
     }
 
     // MARK: Lifecycle
@@ -500,11 +505,22 @@ final class SessionViewModel {
     // MARK: Actions
 
     /// Sends the draft: a phone command (`/new`, `/model`, `/think`, `/stop`, `/info`) is handled here; anything else,
-    /// the session's commands (`/compact`) and unknown ones alike, goes to the computer as a prompt.
+    /// the session's commands (`/compact`) and unknown ones alike, goes to the computer as a prompt. With photos or
+    /// files attached, the text always goes as a prompt with them.
     func send() {
         let text = draft
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, canSendPrompts else { return }
+        guard canSendDraft, canSendPrompts else { return }
         menuOpen = false
+        if !attachments.isEmpty {
+            engine.sendPrompt(
+                text, to: sessionDocId, attachments: attachments.messageAttachments, inputs: attachments.inputs)
+            attachments.clear()
+            bottomSeenAt = Date()
+            draft = ""
+            saveDraftNow()
+            rebuild()
+            return
+        }
         if let command = ComposerCommand.parse(text), let device = command.deviceCommand {
             draft = ""
             saveDraftNow()
@@ -518,9 +534,20 @@ final class SessionViewModel {
         rebuild()
     }
 
-    /// Send is enabled: the field has text (a command, or a prompt).
+    /// Send is enabled: the field has text (a command, or a prompt), or photos and files are attached, and none of
+    /// them is still uploading or failed.
     var canSendDraft: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasText = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return (hasText || !attachments.isEmpty) && attachments.isReady
+    }
+
+    // MARK: Photos and files
+
+    /// A tap on an image in a bubble: the viewer with that message's images.
+    func openImage(_ attachment: MessageAttachment, in message: UserMessage) {
+        let images = message.attachments.filter(\.showsAsImage)
+        guard let index = images.firstIndex(where: { $0.id == attachment.id }) else { return }
+        viewer = MediaViewerItem(images: images, index: index)
     }
 
     // MARK: Commands

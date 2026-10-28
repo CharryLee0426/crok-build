@@ -30,6 +30,8 @@ final class CrokEngine {
     let account: LiveQuery<AccountInfo?>
 
     @ObservationIgnored let drafts: DraftStore
+    /// Photos and files waiting in each composer (a session's id, or a new session's client id), while the app runs.
+    @ObservationIgnored private var attachmentDrafts: [String: AttachmentDraft] = [:]
     @ObservationIgnored private let selectedStore: SelectedComputerStore
     @ObservationIgnored private let cache: SessionListCache?
     /// Network, sync and the recovery steps (relay/DESIGN.md §5 "Staying connected").
@@ -53,6 +55,15 @@ final class CrokEngine {
     var commands: any CommandsAPI { backend.commands }
     var devices: any DevicesAPI { backend.devices }
     var accountAPI: any AccountAPI { backend.account }
+    var files: any FilesAPI { backend.files }
+
+    /// The attachment strip of one composer: a session's (`sessionDocId`) or a new session's (its client id).
+    func attachments(for key: String) -> AttachmentDraft {
+        if let draft = attachmentDrafts[key] { return draft }
+        let draft = AttachmentDraft(files: files)
+        attachmentDrafts[key] = draft
+        return draft
+    }
 
     /// - Parameters:
     ///   - now: the clock the connection keeper runs on (tests pass their own).
@@ -406,7 +417,8 @@ final class CrokEngine {
     /// session, under the same client id as the relay's `create` command, so its ticks follow `commands:forSession`. The
     /// same client id never makes two sessions.
     func startSession(
-        in target: NewSessionTarget, text: String?, model: String? = nil, effort: String? = nil, clientId: String
+        in target: NewSessionTarget, text: String?, model: String? = nil, effort: String? = nil, clientId: String,
+        attachments: [MessageAttachment] = [], inputs: [AttachmentInput] = []
     ) async -> Result<DocID, RelayError> {
         if let started = startedSessions[clientId] { return .success(started) }
         let prompt = text?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -415,11 +427,13 @@ final class CrokEngine {
         do {
             let created = try await sessions.create(
                 deviceId: target.deviceId, path: target.path, text: prompt?.isEmpty == false ? prompt : nil, model: model,
-                effort: effort, clientId: clientId)
+                effort: effort, clientId: clientId, attachments: inputs)
             startedSessions[clientId] = created.sessionDocId
-            if let prompt, !prompt.isEmpty {
+            if prompt?.isEmpty == false || !inputs.isEmpty {
                 localPrompts[created.sessionDocId, default: []].append(
-                    LocalPrompt(clientId: clientId, text: prompt, createdAt: sentAt, commandId: created.commandId))
+                    LocalPrompt(
+                        clientId: clientId, text: prompt ?? "", createdAt: sentAt, attachments: attachments, inputs: inputs,
+                        commandId: created.commandId))
             }
             return .success(created.sessionDocId)
         } catch {
@@ -432,12 +446,16 @@ final class CrokEngine {
 
     // MARK: Prompts
 
-    /// Shows the prompt at once and sends it; the bubble's ticks follow `commands:forSession`.
-    func sendPrompt(_ text: String, to sessionDocId: DocID) {
+    /// Shows the prompt at once and sends it; the bubble's ticks follow `commands:forSession`. With uploads (`inputs`,
+    /// shown as `attachments`) the text may be empty.
+    func sendPrompt(
+        _ text: String, to sessionDocId: DocID, attachments: [MessageAttachment] = [], inputs: [AttachmentInput] = []
+    ) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty || !inputs.isEmpty else { return }
         let prompt = LocalPrompt(
-            clientId: UUID().uuidString.lowercased(), text: trimmed, createdAt: Date().milliseconds)
+            clientId: UUID().uuidString.lowercased(), text: trimmed, createdAt: Date().milliseconds,
+            attachments: attachments, inputs: inputs)
         localPrompts[sessionDocId, default: []].append(prompt)
         deliver(prompt.clientId, in: sessionDocId)
     }
@@ -447,7 +465,8 @@ final class CrokEngine {
         let commands = self.commands
         Task { [weak self] in
             do {
-                let commandId = try await commands.sendPrompt(sessionDocId, text: prompt.text, clientId: clientId)
+                let commandId = try await commands.sendPrompt(
+                    sessionDocId, text: prompt.text, clientId: clientId, attachments: prompt.inputs)
                 self?.updatePrompt(clientId, in: sessionDocId) {
                     $0.commandId = commandId
                     $0.failure = nil

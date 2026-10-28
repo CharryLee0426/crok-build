@@ -48,37 +48,37 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok verwendet die Kamera, um den QR-Code zu scannen, den crok remote login auf deinem Computer zeigt."
+            "value": "Crok verwendet die Kamera, um den QR-Code zu scannen, den crok remote login auf deinem Computer zeigt, und um Fotos aufzunehmen, die du an crok sendest."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok uses the camera to scan the QR code that crok remote login shows on your computer."
+            "value": "Crok uses the camera to scan the QR code that crok remote login shows on your computer, and to take photos you send to crok."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok usa la cámara para escanear el código QR que crok remote login muestra en tu ordenador."
+            "value": "Crok usa la cámara para escanear el código QR que crok remote login muestra en tu ordenador y para hacer fotos que envías a crok."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok utilise l'appareil photo pour scanner le QR code que crok remote login affiche sur votre ordinateur."
+            "value": "Crok utilise l'appareil photo pour scanner le QR code que crok remote login affiche sur votre ordinateur, et pour prendre les photos que vous envoyez à crok."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok はコンピュータで crok remote login が表示する QR コードをスキャンするためにカメラを使用します。"
+            "value": "Crok はカメラを使って、コンピュータの crok remote login が表示する QR コードを読み取り、crok に送る写真を撮影します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crok 使用相机扫描电脑上 crok remote login 显示的二维码。"
+            "value": "Crok 使用相机扫描电脑上 crok remote login 显示的二维码，并拍摄你要发送给 crok 的照片。"
           }
         }
       }
@@ -120,6 +120,47 @@
           "stringUnit": {
             "state": "translated",
             "value": "仅当开发版本指向你本地网络中的中继时，Crok 才会使用本地网络。"
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryAddUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crok sichert ein Foto aus einer Sitzung in deiner Mediathek, wenn du auf „In Fotos sichern“ tippst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crok saves a photo from a session to your library when you tap Save to Photos."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crok guarda una foto de una sesión en tu fototeca cuando tocas Guardar en Fotos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crok enregistre une photo d'une session dans votre photothèque lorsque vous touchez Enregistrer dans Photos."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「写真に保存」をタップすると、Crok はセッションの写真をライブラリに保存します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当你轻点“存储到照片”时，Crok 会把会话中的照片存储到你的图库。"
           }
         }
       }

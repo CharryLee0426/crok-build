@@ -280,6 +280,13 @@ while the phone was suspended), and point the test at it (`TEST_RUNNER_CROK_LIVE
 then freezes the proxy, unfreezes it and expects the app back by itself, and does the same around a trip to the
 background.
 
+`CrokUITests/AttachmentsUITests/testSendingPhotosThroughARealRelay` sends photos through a local relay
+(`TEST_RUNNER_CROK_LIVE_ATTACHMENTS=1`, `TEST_RUNNER_CROK_SCREENSHOT_DIR=<dir>`): a script in `relay/` approves the code
+it writes to `<dir>/live-user-code.txt`, links a fake computer for the same person with a session "Look at this photo"
+and answers the prompt by downloading each attachment from its inbox URL, pushing the user item with them and a reply
+"Got 2 attachments: …". The app adds sample photos with `-CrokSampleAttachments YES` (UI tests cannot drive the
+system photo picker).
+
 ## Layout
 
 ```
@@ -293,7 +300,8 @@ Crok/
   Engine/      CrokEngine (one per signed-in account), RelayAPI (facades), ConvexRelay + QueryHub + DeviceAuthProvider
                (ConvexMobile, replaceable clients, the token source), LiveQuery, Demo/ (in-memory relay, sample data)
   Features/    SignIn, Sessions (a computer's projects, a project's sessions, archived, new-session picker and
-               screen), Session (transcript, composer with the Menu and command list, bot cards, plan bar), Info,
+               screen), Session (transcript, composer with the Menu and command list, bot cards, plan bar, the
+               paperclip and attachment strip, media bubbles, the image viewer and Quick Look), Info,
                Settings (Profile, Appearance, devices, link a computer, QR)
   UI/          Theme (semantic colours, Liquid Glass surfaces, code colours), avatars and topic icons, session themes
                and backgrounds, tab bar menus, shared components, Markdown rendering and math images

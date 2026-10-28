@@ -36,6 +36,8 @@ final class DemoWorld {
     var modelsByDevice: [DocID: [ModelChoice]] = [:]
     /// When set, the computer refuses every model or thinking-level change with this reason (`-CrokDemoConfigFails`).
     var configFailure: String?
+    /// What the demo's file storage holds (`files:uploadUrl` uploads), by storage id: its type and size.
+    var uploads: [String: (mimeType: String, size: Double)] = [:]
     let currentDeviceId = "demo-phone"
     private var observers: [UUID: @MainActor () -> Void] = [:]
     private var nextId = 1000
@@ -254,7 +256,7 @@ final class DemoWorld {
 
     func pushEvent(_ session: Int, kind: EventKind, text: String, title: String? = nil, toolKind: String? = nil,
                    status: String? = nil, origin: String? = nil, commandId: DocID? = nil, fromLabel: String? = nil,
-                   key: String? = nil) -> DocID
+                   attachments: [Attachment]? = nil, key: String? = nil) -> DocID
     {
         let seq = (sessions[session].events.map(\.seq).max() ?? 0) + 1
         let id = newId("event")
@@ -262,7 +264,7 @@ final class DemoWorld {
         sessions[session].events.append(
             TranscriptEvent(
                 id: id, seq: seq, key: key ?? id, kind: kind, text: text, title: title, toolKind: toolKind, status: status,
-                origin: origin, commandId: commandId, fromLabel: fromLabel, at: now))
+                origin: origin, commandId: commandId, fromLabel: fromLabel, attachments: attachments, at: now))
         sessions[session].detail.lastActivityAt = now
         sessions[session].detail.eventSeq = seq
         return id
@@ -281,8 +283,23 @@ final class DemoWorld {
         sessions[session].commands[index].updatedAt = Date().milliseconds
     }
 
+    /// The relay's attachments for uploads named in a prompt: type and size from the storage, as the relay claims them.
+    func attachments(from inputs: [AttachmentInput]) -> [Attachment]? {
+        guard !inputs.isEmpty else { return nil }
+        return inputs.map { input in
+            let stored = uploads[input.storageId]
+            let mime = stored?.mimeType ?? "application/octet-stream"
+            let image = ["image/png", "image/jpeg", "image/gif", "image/webp"].contains(mime)
+            return Attachment(
+                storageId: input.storageId, thumbId: image ? input.thumbId : nil, name: input.name, mimeType: mime,
+                size: stored?.size ?? 0, kind: image ? .image : .file, width: image ? input.width.map(Double.init) : nil,
+                height: image ? input.height.map(Double.init) : nil, url: DemoMedia.url(input.storageId),
+                thumbUrl: image ? input.thumbId.map(DemoMedia.url) : nil)
+        }
+    }
+
     /// A prompt from the phone: queued, picked up, a tool call, a reply streamed in chunks, done.
-    func runPrompt(sessionId: DocID, commandId: DocID, text: String) {
+    func runPrompt(sessionId: DocID, commandId: DocID, text: String, attachments: [Attachment]? = nil) {
         guard let s = try? index(of: sessionId) else { return }
         sessions[s].turn?.cancel()
         sessions[s].turn = Task { [weak self] in
@@ -290,9 +307,11 @@ final class DemoWorld {
             guard let self, !Task.isCancelled, let s = try? self.index(of: sessionId) else { return }
             self.adopt(s)
             self.setCommand(s, commandId, status: .delivered)
-            _ = self.pushEvent(s, kind: .user, text: text, origin: "remote", commandId: commandId, fromLabel: "Charlie's iPhone")
+            _ = self.pushEvent(
+                s, kind: .user, text: text, origin: "remote", commandId: commandId, fromLabel: "Charlie's iPhone",
+                attachments: attachments)
             self.sessions[s].detail.status = .running
-            self.sessions[s].preview = text
+            self.sessions[s].preview = text.isEmpty ? DemoMedia.preview(attachments ?? []) : text
             self.sessions[s].previewKind = .user
             self.changed()
 
@@ -379,7 +398,8 @@ final class DemoWorld {
     /// `sessions:create`: the session is listed at once (`starting`) with the model and thinking level asked for
     /// (checked against the computer's list), and a crok on the computer opens it a moment later and runs the prompt.
     func createSession(
-        deviceId: DocID, path: String, text: String?, model: String? = nil, effort: String? = nil, clientId: String
+        deviceId: DocID, path: String, text: String?, model: String? = nil, effort: String? = nil, clientId: String,
+        attachments inputs: [AttachmentInput] = []
     ) throws -> CreatedSession {
         if let existing = sessions.first(where: { $0.createdClientId == clientId }) {
             return CreatedSession(
@@ -395,7 +415,9 @@ final class DemoWorld {
             throw RelayError(.offline, "\(device.name) is offline: start crok or Crok Desktop there.")
         }
         let setup = try startSetup(on: device, model: model, effort: effort)
-        let prompt = text?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let files = attachments(from: inputs)
+        // Photos and files alone make a prompt too.
+        let prompt = text?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? (files == nil ? nil : "")
         let id = newId("session")
         let commandId = newId("command")
         let now = Date().milliseconds
@@ -412,13 +434,13 @@ final class DemoWorld {
             session.commands = [
                 PromptCommand(
                     id: commandId, type: "create", clientId: clientId, text: prompt, status: .pending, error: nil,
-                    fromLabel: "Charlie's iPhone", fromDeviceId: currentDeviceId, mine: true, createdAt: now,
-                    updatedAt: now)
+                    fromLabel: "Charlie's iPhone", fromDeviceId: currentDeviceId, mine: true, attachments: files,
+                    createdAt: now, updatedAt: now)
             ]
         }
         sessions.append(session)
         if let prompt {
-            runPrompt(sessionId: id, commandId: commandId, text: prompt)
+            runPrompt(sessionId: id, commandId: commandId, text: prompt, attachments: files)
         } else {
             Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(1200))
