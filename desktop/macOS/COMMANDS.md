@@ -12,6 +12,18 @@ tool, account, project-trust, plugin, and skill availability.
 - [CLI command tree](../../crates/codegen/xai-grok-pager/src/app/cli.rs): process-level commands, distinct from conversation slash commands.
 - [ACP extension dispatch](../../crates/codegen/xai-grok-shell/src/agent/mvp_agent/acp_agent.rs), [extension result envelope](../../crates/codegen/xai-grok-shell/src/session/result.rs), and [session notifications](../../crates/codegen/xai-grok-shell/src/extensions/notification.rs).
 
+## Reply controls
+
+Every finished reply that ends a turn shows three controls under its Markdown:
+
+- **Copy** writes the reply's Markdown exactly as the model wrote it to the pasteboard.
+- **Thumbs up / thumbs down** send `_x.ai/feedback/rating` for that turn. Clicking the selected
+  thumb again sends `0`, which takes the verdict back; the row, the conversation rating and the
+  Grafana feedback gauge update together.
+
+The controls are hidden while the reply streams, and an intermediate assistant message before a
+tool call gets them only when it is the turn's final reply.
+
 ## Desktop routing contract
 
 The composer should merge native actions with the live harness command catalog.
@@ -67,6 +79,9 @@ the resolver but are not separate advertised entries.
 | `/reload-plugins` | Alias action for `/plugins reload` | Plugins |
 | `/session-info`, `/status`, `/info` | Model, turns, context, session details | Always |
 | `/feedback` | Feedback text | Feedback |
+| `/good` | — | Turn feedback question |
+| `/not-so-well` | — | Turn feedback question |
+| `/dont-show-again` | — | Turn feedback question |
 | `/deep-research` | Research query | Workflow launches |
 | `/workflow` | `<name> [input]`; or `runs`, `pause <run>`, `resume <run>`, `stop <run>`, `save <run>` | Workflow launch or retained-run management |
 | `/goal` | `<objective> [--budget <positive tokens>]`; or `status`, `pause`, `resume`, `clear` | Goal |

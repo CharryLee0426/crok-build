@@ -1233,6 +1233,10 @@ pub(crate) async fn run(
     app.cancel_rewind_enabled = connection.cancel_rewind_enabled;
     apply_session_recap_available(&mut app, connection.session_recap_available);
     app.shell_feedback_trace_offer = connection.feedback_trace_offer;
+    app.shell_quick_feedback_offer = connection.quick_feedback_offer;
+    for agent in app.agents.values_mut() {
+        agent.quick_feedback_offer = connection.quick_feedback_offer;
+    }
     app.auth_methods = connection.auth_methods.clone();
     // xAI account sign-in is not supported, so the harness only withholds its
     // provider-credential method when nothing is signed in; say how to sign in.

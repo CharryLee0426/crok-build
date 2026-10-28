@@ -67,6 +67,9 @@ pub struct TelemetryPersistConfig {
 pub struct FeaturesPersistConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feedback_trace_card: Option<bool>,
+    /// The quick feedback question after a TUI turn. `None` keeps the default (shown).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback_prompt: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

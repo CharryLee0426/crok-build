@@ -133,6 +133,7 @@ fn features_merge_writes_feedback_trace_card_without_splatting_section() {
     let mut root = root_val.as_table().unwrap().clone();
     let features = super::super::mcp::FeaturesPersistConfig {
         feedback_trace_card: Some(false),
+        ..Default::default()
     };
     merge_section(&mut root, "features", &features);
     let section = root.get("features").and_then(|v| v.as_table()).unwrap();

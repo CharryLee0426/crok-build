@@ -1469,6 +1469,8 @@ pub(super) fn handle_prompt_response(
     // The leader's `running_prompt_id` broadcast can arrive before this `PromptResponse`
     // Take any stashed adoption now; it is applied after `finish_turn` clears `current_prompt_id` below
     let pending_adoption = app.pending_running_adoptions.remove(&agent_id);
+    let offer_quick_feedback = app.quick_feedback_offer();
+    let screen_is_minimal = app.screen_mode.is_minimal();
     if let Some(agent) = app.agents.get_mut(&agent_id) {
         // Discard PromptResponses that don't belong to the currently active prompt
         // They belong to a turn the user rewound, or to a queued prompt that never became the running turn
@@ -1763,6 +1765,13 @@ pub(super) fn handle_prompt_response(
             &result,
             Ok(pr) if !was_cancelling && pr.stop_reason == acp::StopReason::EndTurn
         );
+        if completed_end_turn
+            && offer_quick_feedback
+            && !agent.bash_turn
+            && !screen_is_minimal
+        {
+            agent.arm_quick_feedback();
+        }
         if execute_plan_settled {
             // Failed or cancelled start keeps the original review. Do
             // not treat !plan_mode_active as proof: a user Default can

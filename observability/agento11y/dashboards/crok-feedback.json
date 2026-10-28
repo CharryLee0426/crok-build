@@ -1,0 +1,498 @@
+{
+  "apiVersion": "dashboard.grafana.app/v1beta1",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "crok-feedback",
+    "annotations": {
+      "grafana.app/folder": "llm-observability"
+    }
+  },
+  "spec": {
+    "title": "crok Feedback",
+    "description": "The user's thumbs on crok's replies: positive feedback rate, volume, and the minimum-sample rule behind it. The same series feed the monthly 80% SLO and the low-rate alert.",
+    "tags": [
+      "llm-observability",
+      "feedback",
+      "evaluation"
+    ],
+    "timezone": "browser",
+    "editable": true,
+    "graphTooltip": 1,
+    "schemaVersion": 41,
+    "time": {
+      "from": "now-30d",
+      "to": "now"
+    },
+    "refresh": "30s",
+    "timepicker": {
+      "refresh_intervals": [
+        "30s",
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h"
+      ]
+    },
+    "links": [
+      {
+        "type": "dashboards",
+        "tags": [
+          "llm-observability"
+        ],
+        "asDropdown": false,
+        "title": "LLM dashboards",
+        "includeVars": false,
+        "keepTime": true,
+        "targetBlank": false
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "type": "datasource",
+          "name": "prom",
+          "label": "Metrics",
+          "query": "prometheus",
+          "regex": "",
+          "refresh": 1,
+          "hide": 0,
+          "current": {
+            "selected": true,
+            "text": "grafanacloud-narrowgrotto289-prom",
+            "value": "grafanacloud-prom"
+          }
+        }
+      ]
+    },
+    "annotations": {
+      "list": []
+    },
+    "panels": [
+      {
+        "type": "row",
+        "title": "Evaluation (selected time range, at least 20 feedbacks)",
+        "collapsed": false,
+        "panels": [],
+        "id": 1,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Positive feedback rate",
+        "description": "Thumbs up divided by every turn with a thumb up or down. Shown only when the selected range holds at least 20 feedbacks; below that the 80% threshold does not apply.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "decimals": 1,
+            "noValue": "Not enough feedback (<20)",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "green",
+                  "value": 0.8
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "center",
+          "textMode": "auto",
+          "orientation": "auto",
+          "wideLayout": true,
+          "showPercentChange": true
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "instant": true,
+            "range": false,
+            "expr": "(sum(last_over_time(crok_feedback_rating[$__range]) > 0) / count(last_over_time(crok_feedback_rating[$__range]) != 0)) and on() (count(last_over_time(crok_feedback_rating[$__range]) != 0) >= 20)"
+          }
+        ],
+        "id": 2,
+        "gridPos": {
+          "h": 5,
+          "w": 9,
+          "x": 0,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Feedback received",
+        "description": "Turns with a current thumb verdict in the selected range. A thumb taken back is not a record.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "green",
+                  "value": 20
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "auto",
+          "orientation": "auto",
+          "wideLayout": true
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "instant": true,
+            "range": false,
+            "expr": "count(last_over_time(crok_feedback_rating[$__range]) != 0)"
+          }
+        ],
+        "id": 3,
+        "gridPos": {
+          "h": 5,
+          "w": 5,
+          "x": 9,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Thumbs up",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "green"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "auto"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "instant": true,
+            "range": false,
+            "expr": "sum(last_over_time(crok_feedback_rating[$__range]) > 0)"
+          }
+        ],
+        "id": 4,
+        "gridPos": {
+          "h": 5,
+          "w": 5,
+          "x": 14,
+          "y": 1
+        }
+      },
+      {
+        "type": "stat",
+        "title": "Thumbs down",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "noValue": "0",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "red"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "auto"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "instant": true,
+            "range": false,
+            "expr": "sum(last_over_time(crok_feedback_rating[$__range]) < 0)"
+          }
+        ],
+        "id": 5,
+        "gridPos": {
+          "h": 5,
+          "w": 5,
+          "x": 19,
+          "y": 1
+        }
+      },
+      {
+        "type": "row",
+        "title": "Over time",
+        "collapsed": false,
+        "panels": [],
+        "id": 6,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 6
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Positive feedback rate (rolling selected range)",
+        "description": "The same ratio at each step, over the selected range ending at that step. Before 20 feedbacks the gate empties the series, so a thin period shows no line rather than a misleading rate.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "decimals": 1,
+            "min": 0,
+            "max": 1,
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 8,
+              "showPoints": "never",
+              "spanNulls": false
+            },
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "green",
+                  "value": 0.8
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "mode": "single",
+            "sort": "none"
+          }
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "expr": "(sum(last_over_time(crok_feedback_rating[$__range]) > 0) / count(last_over_time(crok_feedback_rating[$__range]) != 0)) and on() (count(last_over_time(crok_feedback_rating[$__range]) != 0) >= 20)"
+          }
+        ],
+        "id": 7,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 7
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Feedback by surface",
+        "description": "Current thumbs per surface: the terminal and Crok Desktop. A turn changes or retracts its own series, so each surface shows its latest verdicts.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "drawStyle": "bars",
+              "lineWidth": 1,
+              "fillOpacity": 60,
+              "showPoints": "never",
+              "stacking": {
+                "mode": "normal",
+                "group": "A"
+              }
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${prom}"
+            },
+            "instant": true,
+            "range": false,
+            "expr": "sum by (surface) (last_over_time(crok_feedback_rating[$__range]) != 0)"
+          }
+        ],
+        "id": 8,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 7
+        }
+      },
+      {
+        "type": "row",
+        "title": "How this is measured",
+        "collapsed": false,
+        "panels": [],
+        "id": 9,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 15
+        }
+      },
+      {
+        "type": "text",
+        "title": "Evaluation and SLO",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prom}"
+        },
+        "options": {
+          "mode": "markdown",
+          "code": {
+            "language": "plaintext",
+            "showLineNumbers": false,
+            "showMiniMap": false
+          },
+          "content": "## Good rate\n\n`positive = sum(last_over_time(crok_feedback_rating[range]) > 0)`  \n`feedback = count(last_over_time(crok_feedback_rating[range]) != 0)`  \n`good rate = positive / feedback`\n\nThe threshold is **80%**, and it applies only when `feedback >= 20` in the selected range. Below 20 the stat, the time series and the alert return no data, so a quiet period cannot trip the SLO.\n\n`crok_feedback_rating` is a gauge with one series per conversation turn: `1` thumbs up, `-1` thumbs down, `0` the user took the verdict back. Changing a thumb overwrites the same series, so reverted feedback leaves no stale record in the ratio.\n\n## Monthly SLO\n\nThe `crok feedback is mostly good` SLO measures the same ratio over 30 days against an 80% objective. Its query carries the same 20-feedback gate.\n\n## Source\n\nCrok Desktop sends the reply's thumb through `_x.ai/feedback/rating`; the TUI sends the answer to the question under a finished turn (`/good`, `/not-so-well`, `/dont-show-again`). The shell records each change on the Agent Observability conversation and in this gauge."
+        },
+        "id": 10,
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 16
+        }
+      }
+    ]
+  }
+}

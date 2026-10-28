@@ -237,6 +237,38 @@ final class TranscriptListTests: XCTestCase {
         }
     }
 
+    func testAReplyCopiesItsMarkdownAndSendsBothThumbs() throws {
+        let messages = [Message(kind: .user, text: "Summarize"), Message(kind: .assistant, text: "**Done** with `tests`")]
+        show(messages)
+        var copied: String?
+        var rated: (Int?, String)?
+        list.copyReply = { copied = $0.text }
+        list.rateReply = { message, rating in rated = (rating, message.text) }
+        let row = try XCTUnwrap(list.rowView(for: messages[1].id) as? TranscriptAssistantRow)
+        let buttons = row.subviews.compactMap { $0 as? NSButton }
+        let copy = try XCTUnwrap(buttons.first { $0.toolTip == "Copy Markdown" })
+        let up = try XCTUnwrap(buttons.first { $0.toolTip == "Good response" })
+        let down = try XCTUnwrap(buttons.first { $0.toolTip == "Not so well" })
+
+        copy.performClick(nil)
+        XCTAssertEqual(copied, "**Done** with `tests`", "the copy is the Markdown, not the rendered text")
+        up.performClick(nil)
+        XCTAssertEqual(rated?.0, 1)
+        XCTAssertEqual(rated?.1, "**Done** with `tests`")
+
+        // The selected thumb clicked again takes the verdict back.
+        var ratedUp = messages
+        ratedUp[1].rating = 1
+        apply(ratedUp)
+        let selectedRow = try XCTUnwrap(list.rowView(for: messages[1].id) as? TranscriptAssistantRow)
+        let selectedUp = try XCTUnwrap(selectedRow.subviews.compactMap { $0 as? NSButton }.first { $0.toolTip == "Good response" })
+        selectedUp.performClick(nil)
+        XCTAssertNil(rated?.0, "a second click on the selected thumb retracts it")
+
+        down.performClick(nil)
+        XCTAssertEqual(rated?.0, -1)
+    }
+
     func testAReplyIsRenderedOnceWhenTheAppearanceChanges() throws {
         // Math is drawn for one appearance, so a reply renders again in another. It replaced
         // nothing when it did: the text was added after itself, and every reply said everything twice.

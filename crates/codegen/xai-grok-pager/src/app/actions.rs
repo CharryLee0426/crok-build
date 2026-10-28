@@ -752,6 +752,8 @@ pub enum Action {
         images: crate::views::prompt_widget::FeedbackImages,
         trace: Option<FeedbackTraceChoice>,
     },
+    /// Answer the quick feedback question under the latest reply.
+    QuickFeedback(crate::app::agent_view::QuickFeedbackChoice),
     /// Enter remember mode (visual prompt change, not a send).
     EnterRememberMode,
     /// Send a remember note from # mode.
@@ -2060,6 +2062,13 @@ pub enum Effect {
     },
     /// Fetch current bundle cache status via `x.ai/bundle/status`.
     FetchBundleStatus,
+    /// Record the user's thumbs verdict on one turn (Agent Observability rating + feedback gauge).
+    SendFeedbackRating {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        turn_number: u64,
+        rating: i8,
+    },
     /// Send feedback about the current session (fire-and-forget POST).
     /// `origin` rides through to the completion so a modal send's parked consent can be matched or dropped.
     SendFeedback {
@@ -3093,6 +3102,12 @@ pub enum TaskResult {
     /// Feedback submission failed. A draft send keeps its draft on disk; any other report is
     /// re-saved as a text-only draft from `feedback_text` so the user can retry from `/feedback`.
     /// A modal-origin failure additionally drops its parked consent so a failed report never uploads a trace.
+    FeedbackRatingComplete {
+        agent_id: AgentId,
+        turn_number: u64,
+        rating: i8,
+        error: Option<String>,
+    },
     FeedbackFailed {
         agent_id: AgentId,
         origin: FeedbackSendOrigin,

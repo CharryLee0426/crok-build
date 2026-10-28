@@ -54,6 +54,7 @@ fn registered_settings() {
             ("write_file", ("GROK_WRITE_FILE", true)),
             ("feedback", ("GROK_FEEDBACK_ENABLED", true)),
             ("feedback_trace_card", ("GROK_FEEDBACK_TRACE_CARD", false)),
+            ("feedback_prompt", ("GROK_FEEDBACK_PROMPT", true)),
             ("turn_summary", ("GROK_TURN_SUMMARY", true)),
             ("cancel_rewind", ("GROK_CANCEL_REWIND", true)),
             (
@@ -122,6 +123,7 @@ fn every_registered_feature_reads_its_own_remote_setting() {
             | Feature::BrowserUse
             | Feature::ComputerUse
             | Feature::PhoneUse
+            | Feature::FeedbackPrompt
             | Feature::AgentObservability => {
                 assert!(spec.remote.is_none(), "{} grew a remote tier", spec.key);
                 continue;

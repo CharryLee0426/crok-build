@@ -16,8 +16,8 @@ use super::{ExtResult, btw, feedback_drafts, feedback_trace, parse_params, revie
 use crate::agent::MvpAgent;
 use crate::session::persistence::{LocalFeedbackEntry, UserFeedbackEntry};
 use crate::session::{
-    ClientFeedbackInput, FeedbackContext, FeedbackDraftSendRequest, FeedbackOutcome,
-    FeedbackRequestDismiss, FeedbackResponse, SessionCommand,
+    ClientFeedbackInput, ClientRatingInput, FeedbackContext, FeedbackDraftSendRequest,
+    FeedbackOutcome, FeedbackRequestDismiss, FeedbackResponse, SessionCommand,
 };
 
 #[tracing::instrument(skip_all, fields(method = %args.method))]
@@ -35,6 +35,7 @@ pub async fn handle(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
             tracing::info!("handling user feedback");
             handle_feedback(agent, args).await
         }
+        "x.ai/feedback/rating" => handle_rating(agent, args).await,
         "x.ai/feedback/upload-trace" => feedback_trace::handle_upload_trace(agent, args).await,
         m if m.starts_with("x.ai/review") => {
             tracing::info!("handling review comment");
@@ -414,6 +415,42 @@ pub fn request_may_have_arrived(error: &reqwest::Error) -> bool {
 }
 
 /// Tells the proxy that the user dismissed a solicited feedback request.
+/// `x.ai/feedback/rating`: the user's per-turn thumbs verdict. Recorded on the Agent Observability
+/// conversation as a rating and as the feedback gauge the Grafana evaluation reads; a later value
+/// replaces the earlier one, so retracting a thumb removes it from the good rate.
+async fn handle_rating(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
+    if !agent.cfg.borrow().is_feedback_enabled() {
+        return Err(acp::Error::internal_error().data(FEEDBACK_DISABLED_MESSAGE));
+    }
+    let input: ClientRatingInput = parse_params(args)?;
+    let rating = input.rating.clamp(-1, 1);
+    let session_id = acp::SessionId::new(input.session_id.clone());
+
+    xai_grok_sampler::observe::record_turn_rating(
+        xai_grok_sampler::observe::TurnRating {
+            session_id: &input.session_id,
+            turn_index: input.turn_number,
+            rating,
+        },
+    );
+
+    if let Some(session_handle) = agent.resident_handle(&session_id) {
+        if rating > 0 {
+            session_handle.signals_handle.record_positive_rating();
+        } else if rating < 0 {
+            session_handle.signals_handle.record_negative_rating();
+        }
+    }
+
+    tracing::info!(
+        session_id = %input.session_id,
+        turn_number = input.turn_number,
+        rating,
+        "Per-turn feedback rating recorded"
+    );
+    super::to_raw_response(&serde_json::json!({ "ok": true }))
+}
+
 async fn dismiss_request(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
     let input: FeedbackRequestDismiss = parse_params(args)?;
     tracing::info!(

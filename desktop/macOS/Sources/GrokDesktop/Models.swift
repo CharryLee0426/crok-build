@@ -56,6 +56,19 @@ struct Message: Identifiable, Codable, Sendable {
     /// A prompt sent from a phone or the web through remote control: who sent it ("Charlie's
     /// iPhone"), or empty when the relay did not say. Nil for a prompt typed here.
     var remoteFrom: String?
+    /// The user's thumbs verdict on a reply: 1 up, -1 down, nil unrated. Clicking the selected
+    /// thumb again clears it, which retracts the rating from the feedback evaluation.
+    var rating: Int?
+}
+
+extension Message {
+    /// The 0-based turn a reply at `index` belongs to: one less than the number of prompts that
+    /// came with or before it, which is the shell's prompt index.
+    static func turnNumber(ofReplyAt index: Int, in messages: [Message]) -> Int {
+        guard messages.indices.contains(index) else { return 0 }
+        let prompts = messages[...index].reduce(0) { $0 + ($1.kind == .user ? 1 : 0) }
+        return max(0, prompts - 1)
+    }
 }
 
 /// What a sent prompt carried, or an image a tool or reply showed, as the transcript shows it:

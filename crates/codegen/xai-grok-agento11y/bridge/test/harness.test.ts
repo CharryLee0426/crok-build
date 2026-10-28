@@ -73,6 +73,39 @@ function harness(line: unknown): void {
   assert.equal(recordHarness(deps, parsed as HarnessLine), undefined);
 }
 
+test("a per-turn thumb becomes one gauge series that a later verdict overwrites", async () => {
+  const thumb = (value: number, rating: string) => ({
+    type: "rating",
+    conversationId: "session-thumb",
+    ratingId: `crok_${value}`,
+    rating,
+    value,
+    turnNumber: 4,
+  });
+  harness(thumb(1, "CONVERSATION_RATING_VALUE_GOOD"));
+  harness(thumb(-1, "CONVERSATION_RATING_VALUE_BAD"));
+  harness(thumb(0, "CONVERSATION_RATING_VALUE_NEUTRAL"));
+  await flushOtel(otel);
+
+  const metric = metricExporter
+    .getMetrics()
+    .flatMap((batch) => batch.scopeMetrics)
+    .flatMap((scope) => scope.metrics)
+    .find((item) => item.descriptor.name === "crok.feedback.rating");
+  assert.ok(metric, "the feedback gauge is exported");
+  const points = metric.dataPoints.map((point) => ({
+    value: point.value,
+    conversation: point.attributes.conversation_id,
+    turn: point.attributes.turn,
+  }));
+  assert.equal(points.length, 1, "the three verdicts are one series");
+  const [point] = points;
+  assert.ok(point, "the gauge has a point");
+  assert.equal(point.value, 0, "the last verdict is the one the evaluation reads");
+  assert.equal(point.conversation, "session-thumb");
+  assert.equal(point.turn, "4");
+});
+
 test("a turn's generation and tool run are children of the turn span crok named", async () => {
   const generation: GenerationLine = {
     type: "generation",

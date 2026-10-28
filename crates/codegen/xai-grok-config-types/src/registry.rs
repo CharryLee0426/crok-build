@@ -29,6 +29,8 @@ pub enum Feature {
     Feedback,
     /// The `/feedback` trace-consent card (the trace-upload opt-in offer).
     FeedbackTraceCard,
+    /// The quick feedback question the TUI asks after a turn.
+    FeedbackPrompt,
     /// The per-turn summary on the agent dashboard.
     TurnSummary,
     /// Ctrl+C before a turn's first activity restores the prompt.
@@ -232,6 +234,15 @@ pub const FEATURES: &[FeatureSpec] = &[
         env: "GROK_FEEDBACK_TRACE_CARD",
         default_enabled: false,
         remote: Some(|settings| settings.feedback_trace_card_enabled),
+        capability: None,
+    },
+    FeatureSpec {
+        id: Feature::FeedbackPrompt,
+        key: "feedback_prompt",
+        path: "features.feedback_prompt",
+        env: "GROK_FEEDBACK_PROMPT",
+        default_enabled: true,
+        remote: None,
         capability: None,
     },
     FeatureSpec {

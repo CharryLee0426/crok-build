@@ -36,8 +36,9 @@ use super::modes::{
 };
 use super::notes::{
     dispatch_enter_remember_mode, dispatch_open_feedback_modal,
-    dispatch_save_remember_note_from_modal, dispatch_send_btw, dispatch_send_feedback,
-    dispatch_send_recap, dispatch_send_remember_note, dispatch_submit_feedback_modal,
+    dispatch_quick_feedback, dispatch_save_remember_note_from_modal, dispatch_send_btw,
+    dispatch_send_feedback, dispatch_send_recap, dispatch_send_remember_note,
+    dispatch_submit_feedback_modal,
 };
 use super::permissions::{
     dispatch_permission_cancel, dispatch_permission_followup, dispatch_permission_select,
@@ -1156,6 +1157,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             images,
             trace,
         } => dispatch_send_feedback(app, text, images, trace),
+        Action::QuickFeedback(choice) => dispatch_quick_feedback(app, choice),
         Action::EnterRememberMode => dispatch_enter_remember_mode(app),
         Action::SendRememberNote(text) => dispatch_send_remember_note(app, text),
         Action::SaveRememberNoteFromModal => dispatch_save_remember_note_from_modal(app),

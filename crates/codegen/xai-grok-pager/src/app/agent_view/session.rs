@@ -453,6 +453,10 @@ impl AgentView {
             follow_up_next_gen: 0,
             follow_up_pending: HashMap::new(),
             follow_up_pending_order: VecDeque::new(),
+            quick_feedback_offer: true,
+            quick_feedback: None,
+            quick_feedback_chips: Vec::new(),
+            hovered_quick_feedback_chip: None,
             pending_adoption_updates: Vec::new(),
         };
         let mode = if crate::appearance::cache::load_simple_mode() {
@@ -732,6 +736,7 @@ impl AgentView {
     /// Start a locally-tracked turn: enter TurnRunning with the turn-scoped bookkeeping every real turn start must apply, so no caller can miss it.
     /// Deliberately NOT used by server-initiated synthetic turns (auto-wake / actor runs): they never call `start_turn`.
     pub(crate) fn start_turn_boundary(&mut self, starting_prompt_id: Option<&str>) {
+        self.clear_quick_feedback();
         if self
             .expect_send_now_cancel
             .as_deref()

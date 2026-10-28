@@ -3617,6 +3617,13 @@ impl MvpAgent {
         cfg.endpoints.deployment_key.is_none()
             && self.auth_manager.current_or_expired().is_some_and(|a| a.is_xai_auth())
     }
+    /// Whether the TUI may ask the quick feedback question after a turn (`[features] feedback_prompt`,
+    /// default true). The desktop shows its own thumbs, gated by the same rating path.
+    pub(crate) fn quick_feedback_offer(&self) -> bool {
+        self.cfg
+            .borrow()
+            .is_feature_enabled(crate::agent::config::Feature::FeedbackPrompt)
+    }
     /// Trace upload being off as *policy* (an MDM/requirements pin or a telemetry-disabled posture) must suppress the card. It must not invite the user to override the policy.
     /// The accepted consent persists at the config tier, which those postures cannot outrank. Trace upload being off via the remote `trace_upload_enabled` default is different: that is the card's audience.
     /// Individual consent overriding a fleet default is the feature (its own kill switch is `feedback_trace_card_enabled`).

@@ -9,7 +9,8 @@ tool runs, steps, verdicts, ratings, guard checks) is `crates/codegen/xai-grok-a
 | --- | --- |
 | `stack.json` | 13 evaluators, 5 rules, 3 guards and the `crok-regressions` collection |
 | `alerts.json` | The `crok-alerts` Grafana alert rule group |
-| `slos.json` | Three SLOs |
+| `slos.json` | Four SLOs |
+| `dashboards/crok-feedback.json` | The thumbs evaluation: positive rate with its 20-feedback gate, volume, surfaces |
 | `stack.py` | Applies the files with gcx, scores the conversations already stored, reports |
 
 ```sh
@@ -21,6 +22,7 @@ python3 observability/agento11y/stack.py backfill --since 2026-10-16
 python3 observability/agento11y/stack.py report
 python3 observability/agento11y/stack.py alerts
 python3 observability/agento11y/stack.py slos
+python3 observability/agento11y/stack.py dashboards
 python3 observability/agento11y/stack.py duplicates [--label]   # Claude Platform's copies of crok's calls
 ```
 
@@ -112,9 +114,36 @@ alert's uid in `alert_rule_uids`).
 | model calls succeed, per provider | 97% over 28 days | OpenRouter 96.5%, Anthropic 97.8%, DeepSeek 100% |
 | first token within 5 s, per provider | 90% over 28 days | p90 5.1 s, 3.8 s, 2.3 s |
 | turns complete | 95% over 28 days | 96.3% on one Mac |
+| feedback is mostly positive (thumbs up / all with feedback) | 80% over 30 days, once 20 feedbacks exist | new; the dashboard opens on the same 20-feedback gate |
 
 `stack.py slos` creates each SLO once its metrics exist; the turn SLO waits for a crok release after 2.0.1 to
 report `crok_turns_total`.
+
+## Feedback evaluation
+
+Crok Desktop puts a thumb up/down under every finished reply, and the TUI asks one question per
+finished turn (`/good`, `/not-so-well`, `/dont-show-again`). Both send the turn's current verdict to
+the shell, which records it on the Agent Observability conversation and as the gauge
+`crok_feedback_rating` in Prometheus. The gauge's series is one conversation turn, so changing a
+thumb or taking it back overwrites the same series instead of adding another record.
+
+The evaluation is **thumbs up / every turn with a thumb up or down**. The **80%** threshold applies
+only once the selected range holds **20** feedbacks; below that the queries return no data, so a
+quiet week cannot trip the alert or the SLO.
+
+- `stack.py dashboards` pushes `dashboards/crok-feedback.json` into the `llm-observability` folder.
+  Its time picker is the selected range; the stat, rolling rate and per-surface panels use the
+  same `last_over_time` expression, filtered to the last sample of each turn.
+- `crok-feedback-good-rate-low` in `alerts.json` fires when the last 24 hours' rate is below 80%
+  with at least 20 feedbacks (`noDataState: OK` covers the gate).
+- `crok feedback is mostly positive` in `slos.json` is a freeform 30-day SLO at 80%, with the same
+  20-feedback gate in its query.
+
+```promql
+(sum(last_over_time(crok_feedback_rating[$__range]) > 0)
+ / count(last_over_time(crok_feedback_rating[$__range]) != 0))
+and on() (count(last_over_time(crok_feedback_rating[$__range]) != 0) >= 20)
+```
 
 ## Claude Platform's copies of crok's calls
 

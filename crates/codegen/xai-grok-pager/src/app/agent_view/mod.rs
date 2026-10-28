@@ -170,6 +170,8 @@ pub(crate) use plan::{
 };
 mod prompt;
 mod prompt_stash;
+mod quick_feedback;
+pub use quick_feedback::QuickFeedbackChoice;
 pub(in crate::app) use prompt_stash::prompt_history_text;
 pub use prompt_stash::{PromptStashEntry, StashCause};
 mod queue;
@@ -722,6 +724,13 @@ pub(crate) struct FollowUps {
     /// stripped) and length-bounded at ingestion. Non-empty whenever
     /// `AgentView::follow_ups` is `Some`.
     pub(crate) suggestions: Vec<String>,
+}
+
+/// The one-line feedback question shown under a finished turn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct QuickFeedbackPrompt {
+    /// The turn the answer is about, as crok counts them (0-based).
+    pub(crate) turn_index: u64,
 }
 /// A composer action held back while a clipboard attachment probe is off-thread.
 ///
@@ -1536,6 +1545,15 @@ pub struct AgentView {
     /// Insertion order of `follow_up_pending` keys, so an overflow evicts ONLY
     /// the OLDEST buffered entry (never the whole map).
     pub(crate) follow_up_pending_order: VecDeque<String>,
+    /// Whether this view's shell allows the quick feedback question (initialize `quickFeedbackOffer`).
+    pub(crate) quick_feedback_offer: bool,
+    /// The feedback question under the latest finished turn, when it is shown. Cleared by the
+    /// next turn, by an answer, and by "don't show again".
+    pub(crate) quick_feedback: Option<QuickFeedbackPrompt>,
+    /// Clickable rects of the three feedback choices, rebuilt every frame.
+    pub(crate) quick_feedback_chips: Vec<Rect>,
+    /// Choice under the mouse, for the hover highlight.
+    pub(crate) hovered_quick_feedback_chip: Option<usize>,
     /// Live `session/update`s buffered for the stashed pending running
     /// adoption: in the FIFO handoff window an instant turn emits its whole
     /// stream before the previous turn's PromptResponse applies the adoption.

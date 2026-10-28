@@ -211,6 +211,7 @@ User-level configuration lives in `$CROK_HOME/config.toml` (default `~/.crok/con
 | `features.computer_use` | `boolean` | `pin` | `user` | The `computer` tool: see the screen and use the mouse and keyboard (macOS only). Default false. Also `CROK_COMPUTER_USE`. Read when a session starts. See [Browser and Computer Use](28-browser-and-computer-use.md). |
 | `features.dock` | `boolean` | `pin` | `user` | Enable or disable `dock`. Default false. Also `CROK_DOCK`. |
 | `features.feedback` | `boolean` | `pin` | `user` | Enable or disable `feedback`. Default true. Also `CROK_FEEDBACK_ENABLED`. |
+| `features.feedback_prompt` | `boolean` | `pin` | `user` | Ask the one-line feedback question after a finished TUI turn (`/good`, `/not-so-well`, `/dont-show-again`). Default true. Also `CROK_FEEDBACK_PROMPT`. |
 | `features.feedback_trace_card` | `boolean` | `pin` | `user` | Show a trace-upload consent question after `/feedback`. Default false. Also `CROK_FEEDBACK_TRACE_CARD`. |
 | `features.file_acceleration` | `boolean` | `pin` | `user` | Hand local sessions' file systems to a file accelerator when the build installs one. Default false. Also `CROK_FILE_ACCELERATION`. |
 | `features.image_edit_model_override` | `string` | `yes` | `user` | Imagine model id for image_edit. |

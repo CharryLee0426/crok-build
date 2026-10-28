@@ -3968,6 +3968,37 @@ pub(crate) fn execute(
                     }
                 });
         }
+        Effect::SendFeedbackRating {
+            agent_id,
+            session_id,
+            turn_number,
+            rating,
+        } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let params = serde_json::json!({
+                    "session_id": session_id.0.to_string(),
+                    "turn_number": turn_number,
+                    "rating": rating,
+                });
+                let error = match serde_json::value::to_raw_value(&params) {
+                    Ok(raw) => {
+                        let request = acp::ExtRequest::new("x.ai/feedback/rating", raw.into());
+                        acp_send(request, &tx).await.err().map(|e| e.to_string())
+                    }
+                    Err(e) => Some(e.to_string()),
+                };
+                if let Some(error) = error.as_deref() {
+                    tracing::warn!(%error, "failed to record per-turn feedback rating");
+                }
+                TaskResult::FeedbackRatingComplete {
+                    agent_id,
+                    turn_number,
+                    rating,
+                    error,
+                }
+            });
+        }
         Effect::SendFeedback {
             agent_id,
             session_id,

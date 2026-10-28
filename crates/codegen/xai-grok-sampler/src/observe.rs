@@ -44,9 +44,9 @@ use crate::events::{SamplingErrorInfo, SamplingEvent};
 mod harness;
 pub use harness::{
     GuardCheck, GuardToolCall, GuardToolResult, HarnessEvent, Rating, SpanRef, Step, ToolRun,
-    ToolRunOutcome, TurnEnd, TurnScope, TurnStart, Verdict, VerdictValue, begin_turn, check_guard,
-    current_surface, guard_provider, note_prompt_origin, record_rating, record_step, record_tool,
-    record_verdict, set_session_tag,
+    ToolRunOutcome, TurnEnd, TurnRating, TurnScope, TurnStart, Verdict, VerdictValue, begin_turn,
+    check_guard, current_surface, guard_provider, note_prompt_origin, record_rating, record_step,
+    record_tool, record_turn_rating, record_verdict, set_session_tag,
 };
 
 /// Receives every observed call. Called on the sampler's task: hand the call off and return.

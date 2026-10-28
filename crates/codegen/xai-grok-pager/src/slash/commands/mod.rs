@@ -45,6 +45,7 @@ pub mod personas;
 pub mod plan;
 pub mod plugin;
 pub mod queue;
+pub mod quick_feedback;
 pub mod recap;
 pub mod release_notes;
 pub mod remember;
@@ -155,6 +156,9 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(release_notes::ReleaseNotesCommand),
         Arc::new(announcements::AnnouncementsCommand),
         Arc::new(feedback::FeedbackCommand),
+        Arc::new(quick_feedback::GoodCommand),
+        Arc::new(quick_feedback::NotSoWellCommand),
+        Arc::new(quick_feedback::DontShowAgainCommand),
         Arc::new(doctor::DoctorCommand),
         Arc::new(import_claude::ImportClaudeCommand),
         Arc::new(home::HomeCommand),

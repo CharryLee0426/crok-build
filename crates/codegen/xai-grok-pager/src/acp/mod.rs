@@ -120,6 +120,8 @@ pub struct AcpConnection {
     pub session_recap_available: bool,
     /// Shell-side feedback trace-offer eligibility (see `feedbackTraceOffer`).
     pub feedback_trace_offer: bool,
+    /// Shell-side quick feedback question eligibility (see `quickFeedbackOffer`).
+    pub quick_feedback_offer: bool,
     /// `AuthManager` for pager-side authenticated channels (voice STT and TTS).
     /// In-process mode shares the agent's instance (single token cache); leader mode builds a dedicated one off the same local `auth.json`.
     /// Either way it resolves a fresh bearer per request via the refresh chain.
@@ -274,6 +276,7 @@ pub(in crate::acp) async fn initialize_connection(
         cancel_rewind_enabled: agent.cancel_rewind_enabled,
         session_recap_available: agent.session_recap_available,
         feedback_trace_offer: agent.feedback_trace_offer,
+        quick_feedback_offer: agent.quick_feedback_offer,
         auth_manager,
     })
 }
@@ -481,6 +484,7 @@ pub(crate) struct InitializedAgent {
     pub(crate) cancel_rewind_enabled: bool,
     pub(crate) session_recap_available: bool,
     pub(crate) feedback_trace_offer: bool,
+    pub(crate) quick_feedback_offer: bool,
 }
 /// Send InitializeRequest and parse the response.
 async fn initialize(tx: &AcpAgentTx, flags: &ConnectFlags) -> Result<InitializedAgent> {
@@ -521,6 +525,7 @@ async fn initialize(tx: &AcpAgentTx, flags: &ConnectFlags) -> Result<Initialized
         .unwrap_or(true);
     let session_recap_available = parse_session_recap_available(resp.meta.as_ref());
     let feedback_trace_offer = parse_feedback_trace_offer(resp.meta.as_ref());
+    let quick_feedback_offer = parse_quick_feedback_offer(resp.meta.as_ref());
     let default_auth_method_id = parse_default_auth_method_id(resp.meta.as_ref());
     Ok(InitializedAgent {
         models,
@@ -531,6 +536,7 @@ async fn initialize(tx: &AcpAgentTx, flags: &ConnectFlags) -> Result<Initialized
         cancel_rewind_enabled,
         session_recap_available,
         feedback_trace_offer,
+        quick_feedback_offer,
     })
 }
 /// Parse `availableCommands` from an `InitializeResponse.meta` value.
@@ -553,6 +559,12 @@ pub fn parse_feedback_trace_offer(meta: Option<&acp::Meta>) -> bool {
     meta.and_then(|m| m.get("feedbackTraceOffer"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
+}
+/// Parse `quickFeedbackOffer` from `InitializeResponse.meta`; default true for older shells.
+pub fn parse_quick_feedback_offer(meta: Option<&acp::Meta>) -> bool {
+    meta.and_then(|m| m.get("quickFeedbackOffer"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
 }
 /// Determine whether interactive login is needed based on the advertised auth methods. Otherwise, authenticate
 /// eagerly.
@@ -826,6 +838,21 @@ mod tests {
     fn parse_session_recap_available_non_bool_defaults_off() {
         let meta = serde_json::json!({ "sessionRecap": "yes" });
         assert!(!parse_session_recap_available(meta.as_object()));
+    }
+    #[test]
+    fn parse_quick_feedback_offer_defaults_on_for_older_shells() {
+        let meta = serde_json::json!({ "grokShell": true });
+        assert!(parse_quick_feedback_offer(meta.as_object()));
+        assert!(parse_quick_feedback_offer(None));
+    }
+    #[test]
+    fn parse_quick_feedback_offer_reads_the_shell_flag() {
+        assert!(!parse_quick_feedback_offer(
+            serde_json::json!({ "quickFeedbackOffer": false }).as_object()
+        ));
+        assert!(parse_quick_feedback_offer(
+            serde_json::json!({ "quickFeedbackOffer": true }).as_object()
+        ));
     }
     fn make_auth_method(id: &str, name: &str, meta: Option<serde_json::Value>) -> acp::AuthMethod {
         let mut agent = acp::AuthMethodAgent::new(acp::AuthMethodId::new(id), name.to_string());

@@ -13,6 +13,13 @@ struct TranscriptRowModel {
     var isExpanded = false
     /// A turn is still going, so a tool call that has not finished is at work. Set for tool calls only.
     var isTurnRunning = false
+    /// No message of the turn follows this one, so its answer is the reply the controls rate.
+    var isTurnEnd = false
+
+    /// A finished reply shows its copy and feedback controls under the text.
+    var showsReplyActions: Bool {
+        message.kind == .assistant && !message.text.isEmpty && !isStreaming && isTurnEnd
+    }
 
     /// The height of a row that is as tall whatever its width and its text, so it never needs
     /// laying out to be placed: a folded reasoning block that has finished, which is most of a long task.
@@ -32,6 +39,7 @@ struct TranscriptRowModel {
             return min(lines(message.text, characterWidth: 8.5, in: column - 92) * 20 + 26, 446) + images + (message.remoteFrom == nil ? 0 : 19)
         case .assistant:
             return 30 + lines(message.text, characterWidth: 8, in: column) * 26 + (images > 0 ? images + 12 : 0)
+                + (showsReplyActions ? TranscriptAssistantRow.actionsHeight + 4 : 0)
         case .thought:
             let open = isExpanded ? min(360, lines(message.text, characterWidth: 7, in: column - 56) * 20) + 12 : 0
             return TranscriptFoldHeader.minHeight + open + (isStreaming ? ThoughtPreview.height + 14 : 0)
@@ -304,14 +312,40 @@ final class TranscriptAssistantRow: TranscriptRowView {
     private var reply: TranscriptTextBox?
     private var images: TranscriptHostedView?
     private var shownImages: [UUID] = []
+    private let copyButton = TranscriptAssistantRow.actionButton(symbol: "doc.on.doc", label: "Copy Markdown")
+    private let upButton = TranscriptAssistantRow.actionButton(symbol: "hand.thumbsup", label: "Good response")
+    private let downButton = TranscriptAssistantRow.actionButton(symbol: "hand.thumbsdown", label: "Not so well")
 
     private static let headerHeight: CGFloat = 18
+    /// The row of reply controls under the text.
+    static let actionsHeight: CGFloat = 22
+    private static let actionGap: CGFloat = 6
 
     override var isHeightSettled: Bool { reply?.awaitsImage != true }
 
     override func build() {
         addSubview(mark)
         addSubview(name)
+        copyButton.target = self
+        copyButton.action = #selector(copyReply)
+        upButton.target = self
+        upButton.action = #selector(thumbsUp)
+        downButton.target = self
+        downButton.action = #selector(thumbsDown)
+        for button in [copyButton, upButton, downButton] { addSubview(button) }
+    }
+
+    private static func actionButton(symbol: String, label: String) -> NSButton {
+        let button = NSButton()
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
+        button.contentTintColor = Theme.palette.mutedNS
+        button.image = TranscriptParts.symbol(symbol, size: 13)
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
+        button.setButtonType(.momentaryChange)
+        return button
     }
 
     override func show(_ model: TranscriptRowModel) {
@@ -346,11 +380,19 @@ final class TranscriptAssistantRow: TranscriptRowView {
                 images = view
             }
         }
+        let showsActions = model.showsReplyActions
+        for button in [copyButton, upButton, downButton] { button.isHidden = !showsActions }
+        let rating = message.rating ?? 0
+        upButton.state = rating == 1 ? .on : .off
+        downButton.state = rating == -1 ? .on : .off
+        upButton.contentTintColor = rating == 1 ? Theme.palette.accentNS : Theme.palette.mutedNS
+        downButton.contentTintColor = rating == -1 ? Theme.palette.accentNS : Theme.palette.mutedNS
+        copyButton.contentTintColor = Theme.palette.mutedNS
     }
 
     override func layoutContent(width: CGFloat, place: Bool) -> CGFloat {
         var y = Self.headerHeight
-        var replyFrame = NSRect.zero, imagesFrame = NSRect.zero
+        var replyFrame = NSRect.zero, imagesFrame = NSRect.zero, actionsFrame = NSRect.zero
         if let reply {
             y += 12
             replyFrame = NSRect(x: 0, y: y, width: width, height: reply.height(forWidth: width))
@@ -362,6 +404,11 @@ final class TranscriptAssistantRow: TranscriptRowView {
             imagesFrame = NSRect(x: 0, y: y, width: size.width, height: size.height)
             y = imagesFrame.maxY
         }
+        if !copyButton.isHidden {
+            y += 4
+            actionsFrame = NSRect(x: 0, y: y, width: width, height: Self.actionsHeight)
+            y = actionsFrame.maxY
+        }
         guard place else { return y }
         mark.frame = NSRect(x: 0, y: 0, width: Self.headerHeight, height: Self.headerHeight)
         let nameSize = name.size()
@@ -372,7 +419,34 @@ final class TranscriptAssistantRow: TranscriptRowView {
         }
         reply?.frame = replyFrame
         images?.frame = imagesFrame
+        if !copyButton.isHidden {
+            let buttonSize = NSSize(width: 24, height: 22)
+            var x = actionsFrame.minX
+            for button in [copyButton, upButton, downButton] {
+                button.frame = NSRect(x: x, y: actionsFrame.minY, width: buttonSize.width, height: buttonSize.height)
+                x += buttonSize.width + Self.actionGap
+            }
+        }
         return y
+    }
+
+    @objc private func copyReply() {
+        list?.copyReply?(model.message)
+        let original = copyButton.image
+        copyButton.image = TranscriptParts.symbol("checkmark", size: 13)
+        copyButton.contentTintColor = Theme.palette.greenNS
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.copyButton.image = original
+            self?.copyButton.contentTintColor = Theme.palette.mutedNS
+        }
+    }
+
+    @objc private func thumbsUp() {
+        list?.rateReply?(model.message, model.message.rating == 1 ? nil : 1)
+    }
+
+    @objc private func thumbsDown() {
+        list?.rateReply?(model.message, model.message.rating == -1 ? nil : -1)
     }
 }
 
