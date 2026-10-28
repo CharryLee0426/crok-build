@@ -205,6 +205,8 @@ impl ShellToolsetConfig {
     pub fn new(base: Option<Self>, sampling_config: Option<SamplerConfig>) -> Self {
         let default_base = SamplerConfig {
             supports_tools: None,
+            supports_reasoning: None,
+            lightest_reasoning_effort: None,
             supports_images: None,
             anthropic: None,
             api_key: None,

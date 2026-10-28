@@ -387,6 +387,7 @@ struct ClientDefaults {
     extra_response_includes: Vec<String>,
     doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
     supports_tools: Option<bool>,
+    openrouter_reasoning: crate::provider_compat::OpenRouterReasoning,
     supports_images: Option<bool>,
     anthropic: Option<xai_grok_sampling_types::AnthropicOptions>,
 }
@@ -714,6 +715,10 @@ impl SamplingClient {
             extra_response_includes: config.extra_response_includes,
             doom_loop_recovery: config.doom_loop_recovery,
             supports_tools: config.supports_tools,
+            openrouter_reasoning: crate::provider_compat::OpenRouterReasoning {
+                supported: config.supports_reasoning,
+                lightest_effort: config.lightest_reasoning_effort,
+            },
             supports_images: config.supports_images,
             anthropic: config.anthropic,
         };
@@ -1089,6 +1094,7 @@ impl SamplingClient {
                     .as_deref()
                     .or(payload.x_grok_conv_id.as_deref()),
                 self.defaults.context_window,
+                self.defaults.openrouter_reasoning,
             );
             self.build_json_request(grok_headers.apply(builder), &body)
                 .await?
@@ -1256,6 +1262,7 @@ impl SamplingClient {
                     .as_deref()
                     .or(payload.x_grok_conv_id.as_deref()),
                 self.defaults.context_window,
+                self.defaults.openrouter_reasoning,
             );
             self.build_json_request(http_request, &body).await?
         } else if let Some(dialect) =

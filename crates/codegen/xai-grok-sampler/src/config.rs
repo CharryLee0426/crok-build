@@ -110,6 +110,16 @@ pub struct SamplerConfig {
     #[serde(default)]
     pub supports_tools: Option<bool>,
 
+    /// Whether the model reasons, from the OpenRouter catalog; `None` when it doesn't say.
+    /// The reasoning is spent from the output budget, so a request with a small one is given more.
+    #[serde(default)]
+    pub supports_reasoning: Option<bool>,
+
+    /// The least reasoning effort the model takes, from the OpenRouter catalog.
+    /// A request with a small output budget and no effort of its own asks for it.
+    #[serde(default)]
+    pub lightest_reasoning_effort: Option<ReasoningEffort>,
+
     /// Whether the model reads images, where its provider's catalog says so (DeepSeek, GLM).
     /// `Some(false)` sends a note in place of each image; `None` sends images as they are.
     #[serde(default)]
@@ -175,6 +185,8 @@ impl Default for SamplerConfig {
             bearer_resolver: None,
             supports_backend_search: false,
             supports_tools: None,
+            supports_reasoning: None,
+            lightest_reasoning_effort: None,
             supports_images: None,
             anthropic: None,
             compactions_remaining: None,

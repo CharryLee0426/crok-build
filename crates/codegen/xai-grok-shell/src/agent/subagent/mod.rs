@@ -795,11 +795,15 @@ async fn read_parent_sampling_config(
                 &cfg.api_backend,
                 &cfg.base_url,
             );
+            let (supports_reasoning, lightest_reasoning_effort) =
+                crate::agent::builtin_providers::reasoning_support(&cfg.api_backend, &cfg.model);
             let inherited = xai_grok_sampler::SamplerConfig {
                 supports_tools: crate::agent::builtin_providers::tool_support(
                     &cfg.api_backend,
                     &cfg.model,
                 ),
+                supports_reasoning,
+                lightest_reasoning_effort,
                 supports_images: crate::agent::builtin_providers::image_support(
                     &cfg.api_backend,
                     &cfg.model,

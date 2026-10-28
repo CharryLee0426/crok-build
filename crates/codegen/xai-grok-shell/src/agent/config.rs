@@ -4778,6 +4778,8 @@ pub(crate) fn sampling_config_for_model(
     );
     let request_compression =
         crate::util::config::request_compression_for_url(&credentials.base_url);
+    let (supports_reasoning, lightest_reasoning_effort) =
+        super::builtin_providers::reasoning_support(&info.api_backend, &info.model);
     SamplerConfig {
         api_key: credentials.api_key,
         model: model_name,
@@ -4815,6 +4817,8 @@ pub(crate) fn sampling_config_for_model(
         bearer_resolver: None,
         supports_backend_search: info.supports_backend_search,
         supports_tools: super::builtin_providers::tool_support(&info.api_backend, &info.model),
+        supports_reasoning,
+        lightest_reasoning_effort,
         supports_images: super::builtin_providers::image_support(&info.api_backend, &info.model),
         anthropic: super::builtin_providers::anthropic_options(&info.api_backend, &info.base_url),
         compactions_remaining: info.compactions_remaining,
