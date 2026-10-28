@@ -68,6 +68,12 @@ pub enum ToRelay {
         events: Vec<EventInput>,
         replace: bool,
     },
+    /// Items already on the relay, again with what changed (images uploaded after a transcript went out); items the
+    /// relay no longer has are not added.
+    PatchEvents {
+        target: PatchTarget,
+        events: Vec<EventInput>,
+    },
     CloseSession {
         session_id: String,
     },
@@ -144,6 +150,22 @@ pub enum ToRelay {
     Unsubscribe {
         id: u64,
     },
+}
+
+/// The session whose items [`ToRelay::PatchEvents`] updates: a mirrored one (by crok's id) or any of this computer's
+/// (by the relay's id, as a `history` command names it).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PatchTarget {
+    Session(String),
+    Doc(String),
+}
+
+/// Items for a relay that does not take attachments yet (it would refuse the whole write).
+fn without_attachments(mut events: Vec<EventInput>) -> Vec<EventInput> {
+    for event in &mut events {
+        event.attachments = None;
+    }
+    events
 }
 
 /// How a catalog upload or update ended.
@@ -453,16 +475,22 @@ async fn run(
         // Command types this process handles beyond the first relay's; `setup`: a `create` command's model and
         // thinking level are applied before its first prompt (the relay gives such a session only to a crok that does);
         // `catalog`: holding the computer's catalog, it sends what changes on disk between uploads.
-        "features": ["create", "config", "git", "setup", "catalog"],
+        "features": ["create", "config", "git", "setup", "catalog", "attachments"],
     });
-    let host_id = loop {
+    // The relay says what it takes beyond the first relay's (`attachments`: transcript items with photos and files).
+    let (host_id, takes_files) = loop {
         match client
             .mutation("bridge:connect", to_args(connect_args.clone()))
             .await
         {
             Ok(FunctionResult::Value(value)) => {
-                if let Some(id) = value.export().get("hostId").and_then(Value::as_str) {
-                    break id.to_string();
+                let value = value.export();
+                if let Some(id) = value.get("hostId").and_then(Value::as_str) {
+                    let takes_files = value
+                        .get("features")
+                        .and_then(Value::as_array)
+                        .is_some_and(|features| features.iter().any(|f| f == "attachments"));
+                    break (id.to_string(), takes_files);
                 }
             }
             Ok(other) => {
@@ -500,6 +528,7 @@ async fn run(
     let writer = tokio::spawn(write_loop(
         client.clone(),
         host_id.clone(),
+        takes_files,
         work_rx,
         from_relay.clone(),
         tokens.clone(),
@@ -611,6 +640,7 @@ async fn run(
 async fn write_loop(
     mut client: ConvexClient,
     host_id: String,
+    takes_files: bool,
     mut work: mpsc::UnboundedReceiver<ToRelay>,
     from_relay: mpsc::UnboundedSender<FromRelay>,
     tokens: Arc<Tokens>,
@@ -670,12 +700,40 @@ async fn write_loop(
                     tracing::debug!(%session_id, "remote link: events for an unregistered session");
                     continue;
                 };
+                let events = if takes_files {
+                    events
+                } else {
+                    without_attachments(events)
+                };
                 let mut last = Ok(FunctionResult::Value(convex::Value::Null));
                 for (index, chunk) in events.chunks(MAX_EVENTS_PER_CALL).enumerate() {
                     let args = json!({
                         "hostId": host_id,
                         "sessionDocId": doc,
                         "replace": replace && index == 0,
+                        "events": chunk,
+                    });
+                    last = client.mutation("bridge:pushEvents", to_args(args)).await;
+                    if !matches!(last, Ok(FunctionResult::Value(_))) {
+                        break;
+                    }
+                }
+                last
+            }
+            ToRelay::PatchEvents { target, events } => {
+                let doc = match target {
+                    PatchTarget::Doc(doc) => Some(doc),
+                    PatchTarget::Session(session_id) => doc_ids.get(&session_id).cloned(),
+                };
+                let Some(doc) = doc.filter(|_| takes_files) else {
+                    continue;
+                };
+                let mut last = Ok(FunctionResult::Value(convex::Value::Null));
+                for chunk in events.chunks(MAX_EVENTS_PER_CALL) {
+                    let args = json!({
+                        "hostId": host_id,
+                        "sessionDocId": doc,
+                        "onlyExisting": true,
                         "events": chunk,
                     });
                     last = client.mutation("bridge:pushEvents", to_args(args)).await;
@@ -757,6 +815,11 @@ async fn write_loop(
                 events,
                 preview,
             } => {
+                let events = if takes_files {
+                    events
+                } else {
+                    without_attachments(events)
+                };
                 let pushed =
                     push_history(&mut client, &host_id, &session_doc_id, &events, preview).await;
                 let (status, error) = match &pushed {
@@ -1050,6 +1113,7 @@ mod tests {
             origin: None,
             command_id: None,
             from_label: None,
+            attachments: None,
             at: 1.0,
         }
     }

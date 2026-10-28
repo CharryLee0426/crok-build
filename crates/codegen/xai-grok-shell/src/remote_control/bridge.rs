@@ -8,7 +8,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 use agent_client_protocol::{self as acp, Agent as _};
 use crok_remote::credentials::{self, Credentials};
-use crok_remote::link::{CatalogOutcome, FromRelay, Link, LinkConfig, LinkState, ToRelay};
+use crok_remote::link::{
+    CatalogOutcome, FromRelay, Link, LinkConfig, LinkState, PatchTarget, ToRelay,
+};
 use crok_remote::types::{
     CatalogEntry, CommandOutcome, CommandType, EffortOption, EventInput, EventKind, InboxCommand,
     ModelOption, PendingInteraction, PendingOption, SessionFields, SessionStatus, SessionUsage,
@@ -17,7 +19,8 @@ use crok_remote::types::{
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
-use super::transcript::{Signal, Transcript, shorten};
+use super::attachments;
+use super::transcript::{NewAttachment, Signal, Transcript, Uploaded, shorten};
 use super::{
     HostApp, Observed, Observer, PERMISSION_RESOLVED_METHOD, PermissionAsk, REMOTE_PROMPT_METHOD,
     REMOTE_STATUS_METHOD,
@@ -65,6 +68,14 @@ enum Internal {
         session_id: String,
         events: Vec<EventInput>,
         preview: Option<(EventKind, String)>,
+        /// What read them, holding the images still to upload.
+        read: Transcript,
+    },
+    /// Images of a prompt typed here are in the relay's storage (`keys`: the item of each one that was tried).
+    Uploaded {
+        session_id: String,
+        keys: Vec<String>,
+        uploaded: Vec<Uploaded>,
     },
     Claimed {
         command: InboxCommand,
@@ -101,9 +112,11 @@ enum Internal {
     /// A transcript read from disk for a `history` command.
     History {
         command_id: String,
+        session_id: String,
         session_doc_id: String,
         events: Vec<EventInput>,
         preview: Option<(EventKind, String)>,
+        read: Transcript,
     },
     /// A session opened for a prompt from elsewhere is loaded (or could not be).
     Opened {
@@ -755,7 +768,8 @@ fn status_from_activity(activity: &str) -> Option<SessionStatus> {
 }
 
 /// The last `turns` user turns of a session, read from disk (`updates.jsonl`; the session need not be loaded), as
-/// transcript items and the list's preview. `skip_prompt` leaves out the turn that is running now.
+/// transcript items and the list's preview, and the transcript that read them (its prompts' images still to upload).
+/// `skip_prompt` leaves out the turn that is running now.
 async fn read_transcript(
     agent: &MvpAgent,
     session_id: &str,
@@ -763,7 +777,7 @@ async fn read_transcript(
     turns: usize,
     skip_prompt: Option<&str>,
     prefix: String,
-) -> (Vec<EventInput>, Option<(EventKind, String)>) {
+) -> (Vec<EventInput>, Option<(EventKind, String)>, Transcript) {
     let response = ext_json(
         agent,
         "x.ai/session/updates",
@@ -797,7 +811,9 @@ async fn read_transcript(
         transcript.apply(method, params, at);
     }
     transcript.close_text();
-    (transcript.take_dirty(), transcript.preview())
+    let events = transcript.take_dirty();
+    let preview = transcript.preview();
+    (events, preview, transcript)
 }
 
 async fn git_branch(cwd: String) -> Option<String> {
@@ -859,6 +875,8 @@ impl Bridge {
 
     pub(crate) async fn run(mut self, mut stop: oneshot::Receiver<oneshot::Sender<()>>) {
         self.check_settings();
+        // Files other devices sent with prompts, saved here: those of a month ago go.
+        drop(tokio::task::spawn_blocking(crok_remote::files::prune_saved));
         let mut tick = tokio::time::interval(TICK);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut ticks = 0u32;
@@ -1244,6 +1262,7 @@ impl Bridge {
                 session_id,
                 prompt_id,
                 text,
+                attachments,
             } => {
                 let prefix = self.prefix();
                 let active = self.active();
@@ -1266,11 +1285,17 @@ impl Bridge {
                 mirror.set_status(SessionStatus::Running);
                 mirror.title_from_prompt(&text);
                 if active {
-                    mirror
-                        .transcript
-                        .user_prompt(&text, "local", None, None, now_ms());
+                    mirror.transcript.user_prompt(
+                        &text,
+                        "local",
+                        None,
+                        None,
+                        now_ms(),
+                        attachments,
+                    );
                     mirror.boundary = true;
                     self.register(&session_id);
+                    self.upload_prompt_images(&session_id);
                 }
             }
             // Its turn ends with the agent's own signals; `settle_turns` ends it if those named another prompt.
@@ -1751,6 +1776,7 @@ impl Bridge {
                 session_id,
                 events,
                 preview,
+                read,
             } => {
                 let Some(mirror) = self.mirrors.get_mut(&session_id) else {
                     return;
@@ -1765,10 +1791,31 @@ impl Bridge {
                 }
                 mirror.boundary = true;
                 self.send(ToRelay::PushEvents {
-                    session_id,
+                    session_id: session_id.clone(),
                     events,
                     replace: true,
                 });
+                self.upload_read_images(read, session_id.clone(), PatchTarget::Session(session_id));
+            }
+            Internal::Uploaded {
+                session_id,
+                mut keys,
+                uploaded,
+            } => {
+                let Some(mirror) = self.mirrors.get_mut(&session_id) else {
+                    return;
+                };
+                for image in &uploaded {
+                    mirror.transcript.set_upload(image);
+                    if let Some(at) = keys.iter().position(|key| *key == image.key) {
+                        keys.swap_remove(at);
+                    }
+                }
+                // The ones that could not go: their items keep the name without a preview.
+                for key in &keys {
+                    mirror.transcript.upload_done(key);
+                }
+                mirror.boundary = true;
             }
             Internal::Claimed { command, claimed } => {
                 if claimed {
@@ -1890,16 +1937,19 @@ impl Bridge {
             }
             Internal::History {
                 command_id,
+                session_id,
                 session_doc_id,
                 events,
                 preview,
+                read,
             } => {
                 self.send(ToRelay::PushHistory {
-                    session_doc_id,
+                    session_doc_id: session_doc_id.clone(),
                     command_id,
                     events,
                     preview,
                 });
+                self.upload_read_images(read, session_id, PatchTarget::Doc(session_doc_id));
             }
             Internal::Opened { session_id, error } => self.on_opened(session_id, error),
             Internal::Created { command, result } => self.on_created(command, result),
@@ -2258,10 +2308,12 @@ impl Bridge {
         mirror.opening = false;
         // The command still names the relay's placeholder id.
         command.session_id = session_id.clone();
+        // A first prompt may be photos and files alone.
         if command
             .text
             .as_deref()
             .is_some_and(|t| !t.trim().is_empty())
+            || !command.attachments.is_empty()
         {
             // Its first prompt runs once the mirror is registered.
             mirror.set_status(SessionStatus::Running);
@@ -2397,7 +2449,7 @@ impl Bridge {
         let tx = self.internal_tx.clone();
         tokio::task::spawn_local(async move {
             let cwd = command.cwd.clone().unwrap_or_default();
-            let (events, preview) = read_transcript(
+            let (events, preview, read) = read_transcript(
                 &agent,
                 &command.session_id,
                 &cwd,
@@ -2408,9 +2460,11 @@ impl Bridge {
             .await;
             let _ = tx.send(Internal::History {
                 command_id: command.id,
+                session_id: command.session_id,
                 session_doc_id: command.session_doc_id,
                 events,
                 preview,
+                read,
             });
         });
     }
@@ -2434,12 +2488,14 @@ impl Bridge {
         mirror.live_prompt_id = Some(prompt_id.clone());
         mirror.set_status(SessionStatus::Running);
         mirror.title_from_prompt(&text);
+        let files = command.attachments.clone();
         mirror.transcript.user_prompt(
             &text,
             "remote",
             Some(&command.id),
             Some(&command.from_label),
             now_ms(),
+            files.iter().cloned().map(NewAttachment::Stored).collect(),
         );
         mirror.boundary = true;
         let notice = json!({
@@ -2448,6 +2504,15 @@ impl Bridge {
             "text": text,
             "from": command.from_label,
             "fromKind": command.from_kind,
+            "attachments": files
+                .iter()
+                .map(|file| json!({
+                    "name": file.name,
+                    "kind": file.kind,
+                    "mimeType": file.mime_type,
+                    "url": file.url,
+                }))
+                .collect::<Vec<_>>(),
         });
         agent
             .gateway
@@ -2458,13 +2523,22 @@ impl Bridge {
         let tx = self.internal_tx.clone();
         let command_id = command.id;
         tokio::task::spawn_local(async move {
+            // The photos and files come down before the prompt runs; one that cannot fails the prompt.
+            let blocks =
+                match attachments::prompt_blocks(&text, &files, &session_id, &command_id).await {
+                    Ok(blocks) => blocks,
+                    Err(error) => {
+                        let _ = tx.send(Internal::PromptReturned {
+                            session_id,
+                            command_id,
+                            error: Some(error),
+                        });
+                        return;
+                    }
+                };
             let mut meta = acp::Meta::new();
             meta.insert("promptId".into(), Value::String(prompt_id));
-            let request = acp::PromptRequest::new(
-                session_id.clone(),
-                vec![acp::ContentBlock::Text(acp::TextContent::new(text))],
-            )
-            .meta(meta);
+            let request = acp::PromptRequest::new(session_id.clone(), blocks).meta(meta);
             let error = agent
                 .prompt(request)
                 .await
@@ -2475,6 +2549,55 @@ impl Bridge {
                 command_id,
                 error,
             });
+        });
+    }
+
+    /// Sends the images of a prompt typed here to the relay's storage; its item goes out again with them.
+    fn upload_prompt_images(&mut self, session_id: &str) {
+        let Some(link) = self.link.as_ref().map(Link::sender) else {
+            return;
+        };
+        let Some(mirror) = self.mirrors.get_mut(session_id) else {
+            return;
+        };
+        let pending = mirror.transcript.take_pending_images();
+        if pending.is_empty() {
+            return;
+        }
+        let keys = pending.iter().map(|image| image.key.clone()).collect();
+        let tx = self.internal_tx.clone();
+        let session_id = session_id.to_string();
+        tokio::task::spawn_local(async move {
+            let uploaded =
+                attachments::upload_images(link, session_id.clone(), pending, false).await;
+            let _ = tx.send(Internal::Uploaded {
+                session_id,
+                keys,
+                uploaded,
+            });
+        });
+    }
+
+    /// Uploads the images of a transcript read from disk (linking the ones the relay already has) and sends their
+    /// items again with them, after the transcript itself went out.
+    fn upload_read_images(&self, mut read: Transcript, session_id: String, target: PatchTarget) {
+        let pending = read.take_pending_images();
+        if pending.is_empty() {
+            return;
+        }
+        let Some(link) = self.link.as_ref().map(Link::sender) else {
+            return;
+        };
+        tokio::task::spawn_local(async move {
+            let uploaded =
+                attachments::upload_images(link.clone(), session_id, pending, true).await;
+            for image in &uploaded {
+                read.set_upload(image);
+            }
+            let events = read.take_dirty();
+            if !events.is_empty() {
+                let _ = link.send(ToRelay::PatchEvents { target, events });
+            }
         });
     }
 
@@ -2699,7 +2822,7 @@ impl Bridge {
         let tx = self.internal_tx.clone();
         let session_id = session_id.to_string();
         tokio::task::spawn_local(async move {
-            let (events, preview) = read_transcript(
+            let (events, preview, read) = read_transcript(
                 &agent,
                 &session_id,
                 &cwd,
@@ -2712,6 +2835,7 @@ impl Bridge {
                 session_id,
                 events,
                 preview,
+                read,
             });
         });
     }

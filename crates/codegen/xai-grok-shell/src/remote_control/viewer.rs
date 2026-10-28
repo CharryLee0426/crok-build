@@ -674,7 +674,7 @@ impl Viewer {
         self: &Rc<Self>,
         acp_id: &str,
         prompt_id: Option<String>,
-        text: String,
+        blocks: &[acp::ContentBlock],
     ) -> acp::Result<acp::PromptResponse> {
         let doc = doc_id(acp_id)
             .ok_or_else(|| error("Not a session of another computer."))?
@@ -682,8 +682,17 @@ impl Viewer {
         if !self.views.borrow().contains_key(&doc) {
             self.load(acp_id).await?;
         }
-        let text = text.trim().to_string();
-        if text.is_empty() {
+        // Images and files of this computer go to the relay first; that computer downloads them.
+        let link = self
+            .link
+            .borrow()
+            .clone()
+            .ok_or_else(|| error("The relay connection closed."))?;
+        let at = chrono::Utc::now().timestamp_millis() as f64;
+        let (text, attachments) = super::attachments::outgoing(&link, blocks, at)
+            .await
+            .map_err(error)?;
+        if text.is_empty() && attachments.is_empty() {
             return Err(error("The prompt is empty."));
         }
         let client_id = uuid::Uuid::new_v4().to_string();
@@ -701,12 +710,14 @@ impl Viewer {
                 },
             );
         }
+        let mut args = json!({ "sessionDocId": doc, "text": text, "clientId": client_id });
+        if !attachments.is_empty()
+            && let Some(object) = args.as_object_mut()
+        {
+            object.insert("attachments".into(), Value::Array(attachments));
+        }
         let sent = self
-            .call(
-                CallKind::Mutation,
-                "commands:sendPrompt",
-                json!({ "sessionDocId": doc, "text": text, "clientId": client_id }),
-            )
+            .call(CallKind::Mutation, "commands:sendPrompt", args)
             .await;
         let command_id = match sent {
             Ok(value) => str_of(&value, "commandId").map(str::to_owned),
@@ -722,13 +733,25 @@ impl Viewer {
         {
             mine.command_id = command_id;
         }
-        // The agent echoes every prompt; front ends show their own from it.
+        // The agent echoes every prompt; front ends show their own from it, its images too.
         let _ = self.notify(
             acp_id,
             json!({ "sessionUpdate": "user_message_chunk", "content": { "type": "text", "text": text } }),
             Some(&prompt_id),
             false,
         );
+        for block in blocks {
+            if let acp::ContentBlock::Image(image) = block {
+                let content =
+                    json!({ "type": "image", "data": image.data, "mimeType": image.mime_type });
+                let _ = self.notify(
+                    acp_id,
+                    json!({ "sessionUpdate": "user_message_chunk", "content": content }),
+                    Some(&prompt_id),
+                    false,
+                );
+            }
+        }
         let stop_reason = match outcome.await {
             Ok(Ok(reason)) => reason,
             Ok(Err(message)) => {
@@ -1546,7 +1569,8 @@ impl Viewer {
                             None => {
                                 let prompt_id =
                                     format!("remote-{}", command.unwrap_or(key.as_str()));
-                                let update = text_update("user", &text);
+                                let shown = user_text(event, &text);
+                                let update = text_update("user", &shown);
                                 out.push((view.acp_id.clone(), update, Some(prompt_id.clone())));
                                 if !replay {
                                     let from = str_of(event, "fromLabel")
@@ -1560,6 +1584,7 @@ impl Viewer {
                                             "text": text,
                                             "from": from,
                                             "fromKind": "computer",
+                                            "attachments": event.get("attachments").cloned().unwrap_or(json!([])),
                                         }),
                                     ));
                                     view.turn_prompt = Some(prompt_id);
@@ -1877,6 +1902,32 @@ fn set(object: &mut Value, key: &str, value: Value) {
     }
 }
 
+/// A prompt's text as this computer's front end shows it, its photos and files named under it (they stay on the
+/// relay and on the computer that runs the session).
+fn user_text(event: &Value, text: &str) -> String {
+    let names: Vec<String> = event
+        .get("attachments")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|attachment| {
+                    let name = str_of(attachment, "name")?;
+                    let glyph = match str_of(attachment, "kind") {
+                        Some("image") => "🖼",
+                        _ => "📎",
+                    };
+                    Some(format!("{glyph} {name}"))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    match (text.is_empty(), names.is_empty()) {
+        (_, true) => text.to_string(),
+        (true, false) => names.join("\n"),
+        (false, false) => format!("{text}\n{}", names.join("\n")),
+    }
+}
+
 fn text_update(kind: &str, text: &str) -> Value {
     let update = match kind {
         "user" => "user_message_chunk",
@@ -1906,6 +1957,19 @@ mod tests {
         assert_eq!(entry["sessionId"], "relay:k1");
         assert_eq!(entry["gitBranch"], "fix/login-redirect");
         assert_eq!(entry["usage"]["outputTokens"], 300);
+    }
+
+    #[test]
+    fn a_prompts_photos_and_files_are_named_under_its_text() {
+        let event = json!({
+            "attachments": [
+                { "name": "photo.jpg", "kind": "image" },
+                { "name": "notes.md", "kind": "file" },
+            ],
+        });
+        assert_eq!(user_text(&event, "Look"), "Look\n🖼 photo.jpg\n📎 notes.md");
+        assert_eq!(user_text(&event, ""), "🖼 photo.jpg\n📎 notes.md");
+        assert_eq!(user_text(&json!({}), "Plain"), "Plain");
     }
 
     #[test]

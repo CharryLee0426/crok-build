@@ -143,6 +143,18 @@ final class RemoteControlTests: XCTestCase {
         XCTAssertEqual(RemoteLink.file(home: home).lastPathComponent, "credentials.json")
     }
 
+    func testARemotePromptsPhotosAndFilesAreNamed() {
+        let carried = AppStore.remoteAttachments([
+            ["name": "photo.jpg", "kind": "image", "mimeType": "image/jpeg", "url": "https://relay.example/api/storage/1"],
+            ["name": "notes.md", "kind": "file", "mimeType": "text/markdown"],
+            ["kind": "file"],
+        ])
+        XCTAssertEqual(carried.map(\.name), ["photo.jpg", "notes.md"])
+        XCTAssertEqual(carried.map(\.kind), [.image, .file])
+        XCTAssertEqual(carried.first?.mimeType, "image/jpeg")
+        XCTAssertTrue(AppStore.remoteAttachments(nil).isEmpty)
+    }
+
     func testTheBridgeStatusParsesAndTheBestLinkWins() {
         let status = RemoteBridgeStatus(params: ["state": "connected", "account": "Ada (ada@example.com)", "device": "Mac", "server": "https://x"])
         XCTAssertEqual(status, RemoteBridgeStatus(state: .connected, account: "Ada (ada@example.com)", device: "Mac", server: "https://x"))
