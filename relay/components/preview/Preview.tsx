@@ -21,11 +21,13 @@ import { LinkApprovalView, LinkEntry } from "@/components/LinkDevice";
 import type { LinkOutcome } from "@/components/LinkDevice";
 import { useBotCards } from "@/components/session/BotCommands";
 import type { BotCard } from "@/components/session/BotCommands";
+import { MediaViewer } from "@/components/session/Attachments";
 import { NewSessionView } from "@/components/session/NewSession";
 import { SessionView } from "@/components/session/SessionView";
 import type { ConfigChange, InfoState, SessionModel } from "@/components/session/SessionView";
 import { SettingsProvider } from "@/components/Settings";
 import type { ColorMode } from "@/components/Settings";
+import { attachmentViews } from "@/lib/attachments";
 import type { Lang } from "@/lib/i18n";
 import { addSession, applyProjectOrder, applyResetOrder, applySessionOrder, patchSession, removeSession } from "@/lib/order";
 import type {
@@ -40,13 +42,17 @@ import type {
   SessionRow,
   TranscriptEvent,
 } from "@/lib/types";
+import type { DraftAttachment, Uploader } from "@/lib/upload";
 import {
+  attachmentEvents,
   fakeAccount,
   fakeArchived,
+  fakeAttachmentPending,
   fakeCards,
   fakeCatalogSession,
   fakeCommands,
   fakeDevices,
+  fakeDraftAttachments,
   fakeEvents,
   fakeGroups,
   fakeLogin,
@@ -91,7 +97,11 @@ export const SCREENS = [
   "session-starting",
   "session-markdown",
   "session-markdown-streaming",
+  "session-attachments",
+  "session-attachments-composer",
+  "session-attachments-viewer",
   "new-session",
+  "new-session-attachments",
   "new-session-model-dialog",
   "new-session-sent",
   "new-session-failed",
@@ -109,6 +119,15 @@ export const SCREENS = [
 ] as const;
 
 const noop = () => {};
+
+/** Uploads nothing: a little progress, then a made-up storage id (attaching real files in the preview still works). */
+const fakeUploader: Uploader = async (_blob, _type, onProgress) => {
+  for (let step = 1; step <= 8; step++) {
+    await new Promise((resolve) => window.setTimeout(resolve, 150));
+    onProgress(step / 8);
+  }
+  return `st_fake_${Date.now()}`;
+};
 
 function FakeAccount() {
   return (
@@ -188,6 +207,7 @@ function SessionScreenPreview({
   models = FAKE_MODELS,
   config: initialConfig = null,
   modelDialog = false,
+  draftAttachments,
 }: {
   session: SessionDetail;
   infoOpen?: boolean;
@@ -200,10 +220,13 @@ function SessionScreenPreview({
   models?: ModelChoice[] | null;
   config?: ConfigChange | null;
   modelDialog?: boolean;
+  draftAttachments?: DraftAttachment[];
 }) {
   const router = useRouter();
   const [now] = useState(() => Date.now());
   const [session, setSession] = useState(initialSession);
+  /** Prompts "sent" here: their optimistic bubbles stay. */
+  const [sent, setSent] = useState<PendingPrompt[]>([]);
   const [config, setConfig] = useState<ConfigChange | null>(initialConfig);
   const cardSession = { ...session, models };
   const cards = useBotCards({
@@ -250,15 +273,21 @@ function SessionScreenPreview({
     events: events ?? fakeEvents(now),
     pagination: { canLoadMore: false, loadingMore: false, isDone: true, firstLoad: false, loadMore: noop },
     commands: commands ?? (events ? [] : fakeCommands(now)),
-    pending: pending ?? (session.online && !events ? fakePending(now) : []),
+    pending: [...(pending ?? (session.online && !events ? fakePending(now) : [])), ...sent],
     slashCommands: FAKE_SLASH_COMMANDS,
     cards: cards.cards,
     info,
     stopping: false,
     answering: null,
     now,
+    uploader: fakeUploader,
+    draftAttachments,
     actions: {
-      send: noop,
+      send: (text, attachments = []) =>
+        setSent((list) => [
+          ...list,
+          { key: `sent_${Date.now()}`, text, createdAt: Date.now(), tick: "sending", attachments },
+        ]),
       stop: noop,
       answer: noop,
       retry: noop,
@@ -289,10 +318,12 @@ function NewSessionPreview({
   target,
   state = "empty",
   modelDialog = false,
+  draftAttachments,
 }: {
   target?: { deviceId: string; path: string };
   state?: "empty" | "sent" | "failed";
   modelDialog?: boolean;
+  draftAttachments?: DraftAttachment[];
 }) {
   const router = useRouter();
   const [now] = useState(() => Date.now());
@@ -327,13 +358,15 @@ function NewSessionPreview({
         effort={effort}
         onPickModel={setModel}
         onPickEffort={setEffort}
-        onSend={(value) => {
-          setPrompt({ key: "c_new", text: value, createdAt: Date.now(), tick: "sending", clientId: "c_new" });
-          window.setTimeout(() => router.replace("/preview/session-starting"), 1500);
+        onSend={(value, attachments) => {
+          setPrompt({ key: "c_new", text: value, createdAt: Date.now(), tick: "sending", clientId: "c_new", attachments });
+          if (!attachments.length) window.setTimeout(() => router.replace("/preview/session-starting"), 1500);
         }}
         onRetry={(p) => setPrompt({ ...p, tick: "sending", error: null })}
         onDiscard={() => setPrompt(null)}
         initialModelDialog={modelDialog}
+        uploader={fakeUploader}
+        draftAttachments={draftAttachments}
       />
     </ChatLayout>
   );
@@ -510,8 +543,38 @@ function Screen({
           events={markdownEvents(now, showcase ?? "", true)}
         />
       );
+    case "session-attachments":
+      return (
+        <SessionScreenPreview
+          session={fakeSession(now, { status: "idle", plan: [] })}
+          events={attachmentEvents(now)}
+          pending={fakeAttachmentPending(now)}
+        />
+      );
+    case "session-attachments-composer":
+      return (
+        <SessionScreenPreview
+          session={fakeSession(now, { status: "idle", plan: [] })}
+          events={attachmentEvents(now)}
+          pending={[]}
+          draft="Which one is closer to the mockup?"
+          draftAttachments={fakeDraftAttachments()}
+        />
+      );
+    case "session-attachments-viewer": {
+      const events = attachmentEvents(now);
+      const images = attachmentViews(events[events.length - 1].attachments).filter((a) => a.kind === "image");
+      return (
+        <>
+          <SessionScreenPreview session={fakeSession(now, { status: "idle", plan: [] })} events={events} pending={[]} />
+          <MediaViewer images={images} index={1} onClose={noop} />
+        </>
+      );
+    }
     case "new-session":
       return <NewSessionPreview target={target} />;
+    case "new-session-attachments":
+      return <NewSessionPreview target={target} draftAttachments={fakeDraftAttachments().slice(0, 3)} />;
     case "new-session-model-dialog":
       return <NewSessionPreview target={target} modelDialog />;
     case "new-session-sent":

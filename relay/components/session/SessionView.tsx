@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import type { OutgoingAttachment } from "@/lib/attachments";
 import { readStorage, writeStorage } from "@/lib/browser";
 import {
   folderName,
@@ -23,6 +24,8 @@ import type {
   SlashCommand,
   TranscriptEvent,
 } from "@/lib/types";
+import type { AttachController, DraftAttachment, Uploader } from "@/lib/upload";
+import { outgoing, useDraftAttachments } from "@/lib/upload";
 import { TopicIcon } from "../avatars";
 import { useI18n } from "../I18nProvider";
 import {
@@ -57,6 +60,7 @@ import {
 import type { BotCard, ComposerCommand, ConfigKind, LocalCommand } from "./BotCommands";
 import { effortMenuItems, ModelDialog, SetupRow } from "./SetupRow";
 import type { SetupRowProps } from "./SetupRow";
+import { AttachButton, AttachmentStrip, DropOverlay, useAttachNotices, useFileDrop } from "./Attachments";
 import { Transcript } from "./Transcript";
 
 export type InfoState = {
@@ -90,8 +94,13 @@ export type SessionModel = {
   /** The pending request this viewer just answered, until the computer takes the answer. */
   answering: string | null;
   now: number;
+  /** Uploads the composer's photos and files (`files:uploadUrl`); none in the dev preview. */
+  uploader: Uploader | null;
+  /** The dev preview: what the attachment strip starts with. */
+  draftAttachments?: DraftAttachment[];
   actions: {
-    send: (text: string) => void;
+    /** A prompt, with the photos and files from the composer's strip (already uploaded). */
+    send: (text: string, attachments?: OutgoingAttachment[]) => void;
     stop: () => void;
     /** Answers the session's pending permission request (`commands:answer`). */
     answer: (interactionId: string, optionId: string) => void;
@@ -174,8 +183,19 @@ export function SessionView({
   const cardSession = useMemo(() => ({ ...session, models: setup.listed }), [session, setup.listed]);
   const commands = useMemo(() => composerCommands(t, cardSession, model.slashCommands), [t, cardSession, model.slashCommands]);
 
-  /** The device's own commands run here; any other text, `/compact` or `/whatever` too, goes to the computer. */
-  const submit = (text: string) => {
+  const attach = useDraftAttachments(`crok-draft:${session._id}`, model.uploader, model.draftAttachments);
+  const notices = useAttachNotices();
+  const drop = useFileDrop(session.deviceOnline ? (files) => notices(attach.add(files)) : null);
+
+  /**
+   * The device's own commands run here; any other text, `/compact` or `/whatever` too, goes to the computer. With
+   * photos or files the text always goes as a prompt as it is.
+   */
+  const submit = (text: string, attachments: OutgoingAttachment[]) => {
+    if (attachments.length) {
+      actions.send(text, attachments);
+      return;
+    }
     const slash = parseSlash(text);
     const local = slash && commands.find((c) => c.local && c.name === slash.name);
     if (!slash || !local) {
@@ -230,7 +250,8 @@ export function SessionView({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1">
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <section className="relative flex min-h-0 min-w-0 flex-1 flex-col" {...drop.handlers}>
+        {drop.dragging ? <DropOverlay /> : null}
         <SessionHeader
           session={session}
           now={model.now}
@@ -250,6 +271,7 @@ export function SessionView({
           onRetry={actions.retry}
           onDiscard={actions.discard}
           now={model.now}
+          computer={session.deviceName}
           history={
             session.historyState === "none" || session.historyState === "requested"
               ? { computer: session.deviceName, online: session.deviceOnline }
@@ -279,6 +301,7 @@ export function SessionView({
           stopping={model.stopping}
           commands={commands}
           setup={setupRow ? <SetupRow {...setupRow} /> : null}
+          attach={attach}
           onSend={submit}
           onStop={actions.stop}
         />
@@ -528,6 +551,7 @@ export function Composer({
   placeholder,
   offlineText,
   autoFocus = false,
+  attach,
   onSend,
   onStop,
 }: {
@@ -547,10 +571,15 @@ export function Composer({
   offlineText?: string;
   /** Focus the field on open (the new-session screen, like a new chat). */
   autoFocus?: boolean;
-  onSend: (text: string) => void;
+  /** The draft's photos and files: the paperclip, the strip above the field, pasting into the field. */
+  attach?: AttachController;
+  /** The text (trimmed) and the strip's uploads, in order. */
+  onSend: (text: string, attachments: OutgoingAttachment[]) => void;
   onStop?: () => void;
 }) {
   const { t } = useI18n();
+  const notices = useAttachNotices();
+  const attached = attach?.items.length ?? 0;
   const [text, setText] = useState(initialText ?? "");
   const ref = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -589,7 +618,8 @@ export function Composer({
     () => (!commands ? [] : typed === null ? commands : commands.filter((c) => c.name.toLowerCase().startsWith(typed))),
     [commands, typed],
   );
-  const listOpen = shown.length > 0 && (menuOpen || (typed !== null && dismissedAt !== text));
+  // With photos or files in the strip the text goes as a prompt as it is: no command list.
+  const listOpen = attached === 0 && shown.length > 0 && (menuOpen || (typed !== null && dismissedAt !== text));
   const highlighted = Math.min(active, Math.max(0, shown.length - 1));
 
   useEffect(() => {
@@ -622,11 +652,15 @@ export function Composer({
     if (remember) writeStorage(draftKey, null);
   };
 
+  /** Text or attachments, and every attachment uploaded. */
+  const canSend = (text.trim().length > 0 || attached > 0) && (attached === 0 || attach?.ready === true);
+
   const submit = () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    onSend(trimmed);
+    if (!canSend) return;
+    onSend(trimmed, attach?.items.map(outgoing) ?? []);
     clear();
+    attach?.clear();
     setMenuOpen(false);
     ref.current?.focus();
   };
@@ -638,7 +672,7 @@ export function Composer({
       setText(`/${command.name} `);
       return;
     }
-    onSend(`/${command.name}`);
+    onSend(`/${command.name}`, []);
     // Typed `/st…`: the command replaces it. Picked from the menu over other text: that text stays.
     if (typed !== null) clear();
   };
@@ -656,6 +690,7 @@ export function Composer({
           </div>
         ) : null}
         {listOpen ? null : setup}
+        {attach ? <AttachmentStrip controller={attach} /> : null}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -681,14 +716,21 @@ export function Composer({
                 aria-haspopup="listbox"
                 aria-expanded={listOpen}
                 aria-controls={listOpen ? listId : undefined}
-                className={`mb-[7px] ml-[7px] flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-accent text-[14px] font-medium text-accent-fg transition-[background-color,width,padding] hover:bg-accent-hover ${
-                  text ? "w-8 px-0" : "pl-2.5 pr-3.5"
+                disabled={attached > 0}
+                className={`mb-[7px] ml-[7px] flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-accent text-[14px] font-medium text-accent-fg transition-[background-color,width,padding] hover:bg-accent-hover disabled:opacity-50 ${
+                  text || attached
+                    ? "w-8 px-0"
+                    : attach
+                      ? // On a phone-wide screen the paperclip leaves no room for the word: the icon alone.
+                        "w-8 px-0 sm:w-auto sm:pl-2.5 sm:pr-3.5"
+                      : "pl-2.5 pr-3.5"
                 }`}
               >
                 <MenuIcon size={17} />
-                {text ? null : <span>{t("menu")}</span>}
+                {text || attached ? null : <span className={attach ? "hidden sm:inline" : undefined}>{t("menu")}</span>}
               </button>
             ) : null}
+            {attach ? <AttachButton first={!commands} onFiles={(files) => notices(attach.add(files))} /> : null}
             <textarea
               ref={ref}
               value={text}
@@ -697,6 +739,13 @@ export function Composer({
               onChange={(e) => {
                 setText(e.target.value);
                 if (dismissedAt !== null && e.target.value !== dismissedAt) setDismissedAt(null);
+              }}
+              onPaste={(e) => {
+                // Pasted images and files are attached (a pasted image, "image.png", becomes photo-….png).
+                const files = Array.from(e.clipboardData.files);
+                if (!attach || !files.length) return;
+                e.preventDefault();
+                notices(attach.add(files));
               }}
               onKeyDown={(e) => {
                 const composing = e.nativeEvent.isComposing || e.keyCode === 229; // IME candidate confirmation
@@ -740,7 +789,7 @@ export function Composer({
               aria-controls={listOpen ? listId : undefined}
               aria-activedescendant={listOpen ? `${listId}-${highlighted}` : undefined}
               className={`scroll-quiet max-h-[220px] min-h-[46px] min-w-0 flex-1 resize-none bg-transparent py-[11px] pr-4 text-[15px] leading-6 text-fg placeholder:text-faint focus:outline-none ${
-                commands ? "pl-2.5" : "pl-4"
+                commands || attach ? "pl-1.5" : "pl-4"
               }`}
             />
           </div>
@@ -756,10 +805,10 @@ export function Composer({
               {stopping ? <SpinnerIcon size={18} /> : <StopIcon size={20} />}
             </button>
           ) : null}
-          {!running || text.trim() ? (
+          {!running || text.trim() || attached ? (
             <button
               type="submit"
-              disabled={!text.trim()}
+              disabled={!canSend}
               aria-label={t("send")}
               title={t("send")}
               className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg shadow-[0_1px_2px_rgb(0_0_0/0.15)] transition-opacity hover:bg-accent-hover disabled:opacity-60"

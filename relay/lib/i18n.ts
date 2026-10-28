@@ -386,6 +386,21 @@ const en = {
   config_failed_model: "Couldn't change the model",
   config_failed_effort: "Couldn't change the thinking level",
   no_results: "No Results",
+  // Photos and files in prompts
+  attach: "Attach",
+  drop_to_attach: "Drop to attach",
+  attach_too_many: "Up to 10 photos and files per message",
+  attach_too_big: "Files are limited to 20 MB",
+  attach_uploading: "Uploading…",
+  attach_failed: "Upload failed — click to retry",
+  attach_remove: "Remove",
+  open_original: "Open original",
+  download: "Download",
+  attachment_on_computer: "On {computer}",
+  attachment_gone: "No longer available",
+  viewer_counter: "{index} of {count}",
+  viewer_previous: "Previous",
+  viewer_next: "Next",
 };
 
 export type MessageKey = keyof typeof en;
@@ -760,6 +775,21 @@ const zhHans: Dict = {
   config_failed_model: "无法更改模型",
   config_failed_effort: "无法更改思考级别",
   no_results: "无结果",
+  // Photos and files in prompts
+  attach: "添加附件",
+  drop_to_attach: "松开以添加附件",
+  attach_too_many: "每条消息最多 10 张照片和文件",
+  attach_too_big: "文件不能超过 20 MB",
+  attach_uploading: "正在上传…",
+  attach_failed: "上传失败 — 点击重试",
+  attach_remove: "移除",
+  open_original: "打开原图",
+  download: "下载",
+  attachment_on_computer: "在 {computer} 上",
+  attachment_gone: "已不可用",
+  viewer_counter: "第 {index} 张，共 {count} 张",
+  viewer_previous: "上一张",
+  viewer_next: "下一张",
 };
 
 // 日本語
@@ -1125,6 +1155,21 @@ const ja: Dict = {
   config_failed_model: "モデルを変更できませんでした",
   config_failed_effort: "思考レベルを変更できませんでした",
   no_results: "結果なし",
+  // Photos and files in prompts
+  attach: "添付",
+  drop_to_attach: "ドロップして添付",
+  attach_too_many: "1 つのメッセージに添付できる写真とファイルは 10 個までです",
+  attach_too_big: "ファイルは 20 MB までです",
+  attach_uploading: "アップロード中…",
+  attach_failed: "アップロードに失敗しました — クリックして再試行",
+  attach_remove: "取り除く",
+  open_original: "元の画像を開く",
+  download: "ダウンロード",
+  attachment_on_computer: "{computer} 上",
+  attachment_gone: "利用できなくなりました",
+  viewer_counter: "{index} / {count}",
+  viewer_previous: "前へ",
+  viewer_next: "次へ",
 };
 
 // Español
@@ -1491,6 +1536,21 @@ const es: Dict = {
   config_failed_model: "No se pudo cambiar el modelo",
   config_failed_effort: "No se pudo cambiar el nivel de razonamiento",
   no_results: "Sin resultados",
+  // Photos and files in prompts
+  attach: "Adjuntar",
+  drop_to_attach: "Suelta para adjuntar",
+  attach_too_many: "Hasta 10 fotos y archivos por mensaje",
+  attach_too_big: "Los archivos tienen un límite de 20 MB",
+  attach_uploading: "Subiendo…",
+  attach_failed: "Error al subir: haz clic para reintentar",
+  attach_remove: "Quitar",
+  open_original: "Abrir original",
+  download: "Descargar",
+  attachment_on_computer: "En {computer}",
+  attachment_gone: "Ya no está disponible",
+  viewer_counter: "{index} de {count}",
+  viewer_previous: "Anterior",
+  viewer_next: "Siguiente",
 };
 
 // Français
@@ -1860,6 +1920,21 @@ const fr: Dict = {
   config_failed_model: "Impossible de changer le modèle",
   config_failed_effort: "Impossible de changer le niveau de réflexion",
   no_results: "Aucun résultat",
+  // Photos and files in prompts
+  attach: "Joindre",
+  drop_to_attach: "Déposez pour joindre",
+  attach_too_many: "10 photos et fichiers au maximum par message",
+  attach_too_big: "Les fichiers sont limités à 20 Mo",
+  attach_uploading: "Envoi…",
+  attach_failed: "Échec de l’envoi — cliquez pour réessayer",
+  attach_remove: "Retirer",
+  open_original: "Ouvrir l’original",
+  download: "Télécharger",
+  attachment_on_computer: "Sur {computer}",
+  attachment_gone: "N’est plus disponible",
+  viewer_counter: "{index} sur {count}",
+  viewer_previous: "Précédente",
+  viewer_next: "Suivante",
 };
 
 // Deutsch
@@ -2228,6 +2303,21 @@ const de: Dict = {
   config_failed_model: "Das Modell konnte nicht geändert werden",
   config_failed_effort: "Die Denkstufe konnte nicht geändert werden",
   no_results: "Keine Ergebnisse",
+  // Photos and files in prompts
+  attach: "Anhängen",
+  drop_to_attach: "Zum Anhängen ablegen",
+  attach_too_many: "Bis zu 10 Fotos und Dateien pro Nachricht",
+  attach_too_big: "Dateien dürfen höchstens 20 MB groß sein",
+  attach_uploading: "Wird hochgeladen …",
+  attach_failed: "Hochladen fehlgeschlagen – zum Wiederholen klicken",
+  attach_remove: "Entfernen",
+  open_original: "Original öffnen",
+  download: "Herunterladen",
+  attachment_on_computer: "Auf {computer}",
+  attachment_gone: "Nicht mehr verfügbar",
+  viewer_counter: "{index} von {count}",
+  viewer_previous: "Zurück",
+  viewer_next: "Weiter",
 };
 
 

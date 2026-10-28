@@ -4,10 +4,13 @@ import { useMutation, usePaginatedQuery, useQueries, useQuery } from "convex/rea
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
+import type { OutgoingAttachment } from "@/lib/attachments";
+import { attachmentInput, attachmentViews, withLocalCopies } from "@/lib/attachments";
 import { newClientId } from "@/lib/browser";
 import { relayError } from "@/lib/errors";
 import { dropHandedOver, handedOverPrompt, newSessionHref, queueNewSessionPrompt } from "@/lib/new-session";
 import type { CommandId, ModelChoice, OutboxItem, PendingPrompt, SessionId, SessionInfoResult } from "@/lib/types";
+import { relayUploader, rememberSent, sentCopies } from "@/lib/upload";
 import { ErrorBoundary } from "../AccountGate";
 import { useI18n } from "../I18nProvider";
 import { ChatsIcon } from "../icons";
@@ -92,6 +95,8 @@ function LiveSession({ id }: { id: SessionId }) {
   const requestInfo = useMutation(api.commands.requestInfo);
   const answerRequest = useMutation(api.commands.answer);
   const setConfig = useMutation(api.commands.setConfig);
+  const uploadUrl = useMutation(api.files.uploadUrl);
+  const uploader = useMemo(() => relayUploader(() => uploadUrl({})), [uploadUrl]);
   // Pin and archive from the info panel move the row in the list at once, like the list's own menu.
   const sessionActions = useSessionActions();
   const watch = useMutation(api.sessions.watch);
@@ -183,6 +188,8 @@ function LiveSession({ id }: { id: SessionId }) {
         tick: item.error ? "failed" : "sending",
         error: item.error,
         clientId: item.clientId,
+        attachments: item.attachments,
+        outgoing: item.attachments,
       });
     }
     for (const command of commands ?? []) {
@@ -197,20 +204,28 @@ function LiveSession({ id }: { id: SessionId }) {
         error: command.error,
         commandId: command._id,
         clientId: command.clientId,
+        attachments: withLocalCopies(attachmentViews(command.attachments), sentCopies(command.clientId)),
       });
     }
     return list.sort((a, b) => a.createdAt - b.createdAt);
   }, [events, commands, outbox, transcript.status]);
 
   const send = useCallback(
-    (text: string, clientId = newClientId()) => {
+    (text: string, attachments: OutgoingAttachment[] = [], clientId = newClientId()) => {
+      rememberSent(clientId, attachments);
       setOutbox((items) => [
         ...items.filter((i) => i.clientId !== clientId),
-        { clientId, text, createdAt: Date.now() },
+        { clientId, text, createdAt: Date.now(), attachments: attachments.length ? attachments : undefined },
       ]);
-      sendPrompt({ sessionDocId: id, text, clientId }).catch((error) => {
-        const message = errorText(error);
-        setOutbox((items) => items.map((i) => (i.clientId === clientId ? { ...i, error: message } : i)));
+      // `attachments` only when there are some: an older relay refuses the argument.
+      const args = attachments.length
+        ? { sessionDocId: id, text, clientId, attachments: attachments.map(attachmentInput) }
+        : { sessionDocId: id, text, clientId };
+      sendPrompt(args).catch((error) => {
+        // The relay's own words for refused uploads ("Update crok on … to send photos and files there").
+        const { code, message } = relayError(error);
+        const shown = attachments.length && (code === "INVALID" || code === "FORBIDDEN") && message ? message : errorText(error);
+        setOutbox((items) => items.map((i) => (i.clientId === clientId ? { ...i, error: shown } : i)));
       });
     },
     [id, sendPrompt, errorText],
@@ -312,8 +327,9 @@ function LiveSession({ id }: { id: SessionId }) {
     stopping,
     answering,
     now,
+    uploader,
     actions: {
-      send: (text) => send(text),
+      send: (text, attachments) => send(text, attachments),
       answer: (interactionId, optionId) => {
         setAnswering(interactionId);
         answerRequest({ sessionDocId: id, interactionId, optionId }).catch((error) => {
@@ -332,7 +348,7 @@ function LiveSession({ id }: { id: SessionId }) {
         if (prompt.commandId) {
           retryCommand({ commandId: prompt.commandId }).catch((error) => toast.show(errorText(error), "error"));
         } else if (prompt.clientId) {
-          send(prompt.text, prompt.clientId);
+          send(prompt.text, prompt.outgoing, prompt.clientId);
         }
       },
       discard: (prompt) => {

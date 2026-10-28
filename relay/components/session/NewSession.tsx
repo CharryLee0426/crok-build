@@ -5,16 +5,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
+import type { OutgoingAttachment } from "@/lib/attachments";
+import { attachmentInput } from "@/lib/attachments";
 import { newClientId } from "@/lib/browser";
 import { relayError } from "@/lib/errors";
 import { folderName, tildePath } from "@/lib/format";
 import { handOverPrompt, takeQueuedPrompt } from "@/lib/new-session";
 import type { EffortChoice, ModelChoice, OutboxItem, PendingPrompt } from "@/lib/types";
+import type { DraftAttachment, Uploader } from "@/lib/upload";
+import { relayUploader, rememberSent, useDraftAttachments } from "@/lib/upload";
 import { ForumAvatar } from "../avatars";
 import { useI18n } from "../I18nProvider";
 import { ArrowLeftIcon, ComputerIcon, FolderIcon } from "../icons";
 import { useErrorText } from "../SessionList";
 import { ButtonLink, Loading, Notice, useNow } from "../ui";
+import { DropOverlay, useAttachNotices, useFileDrop } from "./Attachments";
 import { levelName } from "./BotCommands";
 import { Composer } from "./SessionView";
 import { effortMenuItems, ModelDialog, SetupRow } from "./SetupRow";
@@ -64,6 +69,8 @@ export function NewSessionView({
   onRetry,
   onDiscard,
   initialModelDialog = false,
+  uploader = null,
+  draftAttachments,
 }: {
   deviceId: string;
   path: string;
@@ -80,19 +87,27 @@ export function NewSessionView({
   effort?: EffortChoice | null;
   onPickModel?: (model: ModelChoice | null) => void;
   onPickEffort?: (effort: EffortChoice | null) => void;
-  onSend: (text: string) => void;
+  onSend: (text: string, attachments: OutgoingAttachment[]) => void;
   onRetry: (prompt: PendingPrompt) => void;
   onDiscard: (prompt: PendingPrompt) => void;
   /** The dev preview: Choose a Model open from the start. */
   initialModelDialog?: boolean;
+  /** Uploads the first prompt's photos and files (`files:uploadUrl`); none in the dev preview. */
+  uploader?: Uploader | null;
+  /** The dev preview: what the attachment strip starts with. */
+  draftAttachments?: DraftAttachment[];
 }) {
   const { t } = useI18n();
   const name = folderName(path);
+  const attach = useDraftAttachments(`crok-draft:new:${deviceId}:${path}`, uploader, draftAttachments);
+  const notices = useAttachNotices();
+  const drop = useFileDrop(online ? (files) => notices(attach.add(files)) : null);
   const [dialog, setDialog] = useState(initialModelDialog);
   const efforts = model?.efforts ?? [];
   const offers = Boolean(models?.length);
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col" {...drop.handlers}>
+      {drop.dragging ? <DropOverlay /> : null}
       <header className="relative z-10 flex h-14 shrink-0 items-center gap-1 border-b border-line bg-surface px-2 sm:px-3">
         <Link
           href="/"
@@ -125,6 +140,7 @@ export function NewSessionView({
         onRetry={onRetry}
         onDiscard={onDiscard}
         now={now}
+        computer={computer}
         emptyNotice={<StartsIn path={path} computer={computer} />}
       />
       <Composer
@@ -137,6 +153,7 @@ export function NewSessionView({
         placeholder={t("new_session_placeholder")}
         offlineText={t("new_session_offline", { computer })}
         autoFocus
+        attach={attach}
         setup={
           offers ? (
             <SetupRow
@@ -183,6 +200,8 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
   const now = useNow(30_000);
   const devices = useQuery(api.devices.list);
   const create = useMutation(api.sessions.create);
+  const uploadUrl = useMutation(api.files.uploadUrl);
+  const uploader = useMemo(() => relayUploader(() => uploadUrl({})), [uploadUrl]);
   /** That computer's own models, for the setup row; null while it is offline (an error, an older relay: none). */
   // Memoized: useQueries resubscribes whenever it gets a new object.
   const modelQueries = useMemo(() => ({ models: { query: api.devices.models, args: { deviceId } } }), [deviceId]);
@@ -216,8 +235,14 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
   );
 
   const send = useCallback(
-    (text: string, clientId = newClientId()) => {
-      const item: OutboxItem = { clientId, text, createdAt: Date.now() };
+    (text: string, attachments: OutgoingAttachment[] = [], clientId = newClientId()) => {
+      rememberSent(clientId, attachments);
+      const item: OutboxItem = {
+        clientId,
+        text,
+        createdAt: Date.now(),
+        attachments: attachments.length ? attachments : undefined,
+      };
       setOutbox(item);
       create({
         deviceId,
@@ -226,6 +251,8 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
         model: chosenModel?.id,
         effort: chosenEffort?.id,
         clientId,
+        // Only when there are some: an older relay refuses the argument.
+        ...(attachments.length ? { attachments: attachments.map(attachmentInput) } : {}),
       }).then(
         ({ sessionDocId }) => {
           handOverPrompt(sessionDocId, item);
@@ -240,7 +267,7 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
   // `/new <prompt>` in a session: its prompt waits here and goes out at once.
   useEffect(() => {
     const queued = takeQueuedPrompt(deviceId, path);
-    if (queued) send(queued.text, queued.clientId);
+    if (queued) send(queued.text, [], queued.clientId);
   }, [deviceId, path, send]);
 
   const validPath = path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
@@ -271,6 +298,8 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
         tick: outbox.error ? "failed" : "sending",
         error: outbox.error,
         clientId: outbox.clientId,
+        attachments: outbox.attachments,
+        outgoing: outbox.attachments,
       }
     : null;
 
@@ -291,10 +320,11 @@ export function NewSessionScreen({ deviceId, path }: { deviceId: string; path: s
       }}
       onPickEffort={(picked) => setEffortId(picked?.id ?? null)}
       // One session per screen: a second prompt while the first is on its way would start another.
-      onSend={(text) => {
-        if (!outbox || outbox.error) send(text);
+      onSend={(text, attachments) => {
+        if (!outbox || outbox.error) send(text, attachments);
       }}
-      onRetry={(p) => send(p.text, p.clientId ?? undefined)}
+      onRetry={(p) => send(p.text, p.outgoing, p.clientId ?? undefined)}
+      uploader={uploader}
       onDiscard={() => setOutbox(null)}
     />
   );

@@ -348,6 +348,18 @@ export const PhotoIcon = (p: IconProps) => (
     <path d="m3.5 17.5 5-4.5 3.5 3 3-2.5 5.5 4.5" />
   </Icon>
 );
+/** The composer's attach button (Telegram's paperclip). */
+export const PaperclipIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2a3.4 3.4 0 0 1 4.8 4.8l-8.2 8.2a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6" />
+  </Icon>
+);
+/** Opens something in a new tab (the image viewer's "Open original"). */
+export const ExternalIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M13.5 4.5h6v6M19.5 4.5 11 13M10 6H6a1.5 1.5 0 0 0-1.5 1.5v10.5A1.5 1.5 0 0 0 6 19.5h10.5A1.5 1.5 0 0 0 18 18v-4" />
+  </Icon>
+);
 /** "Mark as Read": a bubble with a check. */
 export const ReadIcon = (p: IconProps) => (
   <Icon {...p}>
