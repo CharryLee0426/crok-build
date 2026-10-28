@@ -13,6 +13,7 @@ import type * as commands from "../commands.js";
 import type * as crons from "../crons.js";
 import type * as deviceAuth from "../deviceAuth.js";
 import type * as devices from "../devices.js";
+import type * as files from "../files.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_crypto from "../lib/crypto.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   deviceAuth: typeof deviceAuth;
   devices: typeof devices;
+  files: typeof files;
   http: typeof http;
   "lib/auth": typeof lib_auth;
   "lib/crypto": typeof lib_crypto;

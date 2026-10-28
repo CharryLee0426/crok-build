@@ -109,6 +109,11 @@ so a session with thousands of turns opens on its newest 40 items and a streamed
 Sending a prompt (also a new session's first) keeps the transcript's end in sight whatever its length: a transcript
 shorter than the screen sits at the bottom above the composer, never scrolled away from it.
 
+Photos and files (added 2026-10-27): the composer's paperclip, the attachment strip, uploads, media bubbles, the
+image viewer and opening files follow relay/DESIGN.md §5 "Photos and files in prompts" on both phones and the web.
+Media bubbles take the session theme's outgoing bubble colour around file rows and the bubble's corner radius on
+images.
+
 ### Thinking and tool calls
 
 After Crok Desktop's reasoning and tool rows (`desktop/macOS/…/TranscriptRowViews.swift`, `ThinkingEffects.swift`), but

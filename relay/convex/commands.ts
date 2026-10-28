@@ -4,8 +4,10 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import type { Viewer } from "./lib/auth";
 import { fail, ownCommand, requireSession, requireViewer, viewerLabel } from "./lib/auth";
-import { isStarting, modelsFor, opensWithSetup, supports } from "./lib/starting";
-import { configId } from "./schema";
+import type { Attachment } from "./files";
+import { claimAttachments, withUrls } from "./files";
+import { isStarting, modelsFor, opensWithSetup, supports, takesAttachments } from "./lib/starting";
+import { attachmentInput, configId } from "./schema";
 
 /**
  * What a phone or the web asks a computer to do. The computer's bridge sees new commands at once (its `inbox`
@@ -18,15 +20,19 @@ const MAX_PROMPT = 32_000;
 
 /**
  * Whether a command for the session has somewhere to go: the crok process running it, or, for a session nobody runs,
- * any crok on its computer that can open it (the first to claim the command opens the session there).
+ * any crok on its computer that can open it (the first to claim the command opens the session there). A prompt with
+ * photos or files (`withFiles`) needs a crok that passes them on.
  */
 export async function reachable(
   ctx: QueryCtx,
   session: Doc<"sessions">,
   type: Doc<"commands">["type"] = "prompt",
   setup: { model?: string; effort?: string } = {},
+  withFiles = false,
 ): Promise<boolean> {
-  if (session.online && type !== "git") return true;
+  if (session.online && type !== "git") {
+    return !withFiles || takesAttachments((await ctx.db.get(session.hostId)) ?? {});
+  }
   const hosts = await ctx.db
     .query("hosts")
     .withIndex("by_device_online", (q) => q.eq("deviceId", session.deviceId).eq("online", true))
@@ -36,7 +42,11 @@ export async function reachable(
   if (type === "git") return hosts.some((host) => supports(host, "git"));
   // A `create` that carries a model or thinking level needs a crok that applies it.
   return hosts.some(
-    (host) => host.canAdopt === true && supports(host, type) && (type !== "create" || opensWithSetup(host, setup)),
+    (host) =>
+      host.canAdopt === true &&
+      supports(host, type) &&
+      (type !== "create" || opensWithSetup(host, setup)) &&
+      (!withFiles || takesAttachments(host)),
   );
 }
 
@@ -45,14 +55,18 @@ async function requireReachable(
   session: Doc<"sessions">,
   type: Doc<"commands">["type"] = "prompt",
   setup: { model?: string; effort?: string } = {},
+  withFiles = false,
 ) {
   // A git read may be served by any of the computer's processes, so only its own reachability decides.
   if (type !== "git" && session.online && !supports((await ctx.db.get(session.hostId)) ?? {}, type)) {
     fail("INVALID", "Update crok on that computer to do this from another device.");
   }
-  if (await reachable(ctx, session, type, setup)) return;
+  if (await reachable(ctx, session, type, setup, withFiles)) return;
   const device = await ctx.db.get(session.deviceId);
   const name = device?.name ?? "that computer";
+  if (withFiles && (await reachable(ctx, session, type, setup))) {
+    fail("INVALID", `Update crok on ${name} to send photos and files there.`);
+  }
   if (type === "create" && (await reachable(ctx, session, type))) {
     fail("OFFLINE", `Update crok on ${name} to start a session there with a chosen model or thinking level.`);
   }
@@ -77,9 +91,11 @@ async function insertCommand(
     configId?: Doc<"commands">["configId"];
     model?: string;
     effort?: string;
+    attachments?: Attachment[];
   },
 ): Promise<Id<"commands">> {
-  await requireReachable(ctx, session, type, extra);
+  const attachments = extra.attachments && extra.attachments.length > 0 ? extra.attachments : undefined;
+  await requireReachable(ctx, session, type, extra, attachments !== undefined);
   const now = Date.now();
   return await ctx.db.insert("commands", {
     userId: viewer.user._id,
@@ -92,6 +108,7 @@ async function insertCommand(
     configId: extra.configId,
     model: extra.model,
     effort: extra.effort,
+    attachments,
     status: "pending",
     fromDeviceId: viewer.device?._id,
     fromLabel: viewerLabel(viewer),
@@ -149,11 +166,17 @@ function storedInfo(session: Doc<"sessions">) {
 /**
  * Sends a prompt into a session, as if typed on its computer. A session nobody runs is opened by a crok on that
  * computer first. `clientId` (a UUID the sender makes) makes a resend after a dropped connection a no-op and lets the
- * sender match its optimistic bubble.
+ * sender match its optimistic bubble. `attachments`: photos and files uploaded with `files:uploadUrl`, in order (the
+ * text may then be empty).
  */
 export const sendPrompt = mutation({
-  args: { sessionDocId: v.string(), text: v.string(), clientId: v.string() },
-  handler: async (ctx, { sessionDocId, text, clientId }) => {
+  args: {
+    sessionDocId: v.string(),
+    text: v.string(),
+    clientId: v.string(),
+    attachments: v.optional(v.array(attachmentInput)),
+  },
+  handler: async (ctx, { sessionDocId, text, clientId, attachments }) => {
     const viewer = await requireViewer(ctx);
     const duplicate = await ctx.db
       .query("commands")
@@ -162,8 +185,9 @@ export const sendPrompt = mutation({
     if (duplicate) return { commandId: duplicate._id };
     const session = await requireSession(ctx, viewer, sessionDocId);
     const trimmed = text.trim();
-    if (!trimmed) fail("INVALID", "The prompt is empty.");
+    if (!trimmed && !attachments?.length) fail("INVALID", "The prompt is empty.");
     if (trimmed.length > MAX_PROMPT) fail("INVALID", `Prompts are limited to ${MAX_PROMPT} characters.`);
+    const files = await claimAttachments(ctx, viewer.user._id, session._id, attachments ?? []);
     // A new session whose computer never opened it (it failed, or nobody claimed it): this prompt opens it, with the
     // model and thinking level chosen for it when it was created.
     const type = isStarting(session) && !session.online ? "create" : "prompt";
@@ -172,6 +196,7 @@ export const sendPrompt = mutation({
       clientId,
       model: type === "create" ? session.model : undefined,
       effort: type === "create" ? session.effort : undefined,
+      attachments: files,
     });
     return { commandId };
   },
@@ -303,9 +328,11 @@ export const forSession = query({
       .withIndex("by_session", (q) => q.eq("sessionDocId", session._id))
       .order("desc")
       .take(50);
-    return commands
-      .filter((c) => c.type === "prompt" || (c.type === "create" && c.text))
-      .map((c) => ({
+    const prompts = commands.filter(
+      (c) => c.type === "prompt" || (c.type === "create" && (c.text || c.attachments?.length)),
+    );
+    return await Promise.all(
+      prompts.map(async (c) => ({
         _id: c._id,
         type: c.type,
         clientId: c.clientId ?? null,
@@ -315,9 +342,11 @@ export const forSession = query({
         fromLabel: c.fromLabel,
         fromDeviceId: c.fromDeviceId ?? null,
         mine: c.fromDeviceId === viewer.device?._id,
+        attachments: (await withUrls(ctx, c.attachments)) ?? [],
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
-      }));
+      })),
+    );
   },
 });
 
@@ -341,7 +370,7 @@ export const retry = mutation({
         : command.type === "create"
           ? { model: command.model, effort: command.effort }
           : { model: session.model, effort: session.effort };
-    await requireReachable(ctx, session, type, setup);
+    await requireReachable(ctx, session, type, setup, (command.attachments?.length ?? 0) > 0);
     await ctx.db.patch(command._id, {
       type,
       status: "pending",

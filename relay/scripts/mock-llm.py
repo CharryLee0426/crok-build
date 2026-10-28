@@ -5,7 +5,9 @@ Streams "Hi from mock: <prompt>" in a few chunks. A prompt containing "slow" str
 test can stop the turn while it runs. A prompt containing "run the marker command" first calls the terminal tool to
 `echo marker > $E2E_MARKER` (a write, so crok asks for permission), then answers once the tool result is back.
 A prompt containing "busy N" works like a long agent turn: N rounds of streamed text and a quick tool call (reading
-`steps/step-<round>.txt` in the project, else an `echo`; no permission needed), then the answer. A prompt containing "sleepy" calls `sleep 30`, so a test can stop the turn inside a tool call.
+`steps/step-<round>.txt` in the project, else an `echo`; no permission needed), then the answer. A prompt containing "sleepy" calls `sleep 30`, so a test can stop the turn inside a tool call. A prompt containing
+"describe the attachments" answers with what the request carried: `images=N` (image parts in user messages) and
+`marker=yes` when a file's text `ATTACHMENT-MARKER-42` reached it.
 """
 import json
 import re
@@ -87,6 +89,24 @@ def busy_turn(body):
     return None
 
 
+def attachment_summary(body):
+    """What a prompt's photos and files became in the request: image parts, and whether a file's text was inlined."""
+    images = 0
+    text = ""
+    for message in body.get("messages") or []:
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, list):
+            images += sum(
+                1
+                for part in content
+                if isinstance(part, dict) and part.get("type") in ("image_url", "input_image", "image")
+            )
+        text += message_text(message)
+    return f"images={images} marker={'yes' if 'ATTACHMENT-MARKER-42' in text else 'no'}"
+
+
 def last_role(body):
     messages = body.get("messages") or []
     return messages[-1].get("role") if messages else None
@@ -118,6 +138,8 @@ class Handler(BaseHTTPRequestHandler):
             delay = 0.25
         else:
             text = f"Hi from mock: {tail}"
+            if "describe the attachments" in prompt.lower():
+                text = f"Hi from mock: {attachment_summary(body)}"
             pieces = [text[i : i + 6] for i in range(0, len(text), 6)]
             delay = 0.03
         if not body.get("stream"):
