@@ -152,7 +152,7 @@ class EngineOverDemoTest {
         // Sessions: a pinned one stays first whatever is asked.
         engine.sessions.reorderSessions(DemoData.MACBOOK_CROK_SITE, listOf("demo-s12", DemoData.WAITING_SESSION))
         assertEquals(listOf(DemoData.WAITING_SESSION, "demo-s12"), engine.sessions.active.value.ids(DemoData.MACBOOK_CROK_SITE))
-        val build = listOf("demo-s9", DemoData.RUNNING_SESSION, "demo-s7", DemoData.CATALOG_SESSION, "demo-s10", "demo-s11")
+        val build = listOf("demo-s9", DemoData.RUNNING_SESSION, "demo-s7", DemoData.ATTACHMENTS_SESSION, DemoData.CATALOG_SESSION, "demo-s10", "demo-s11")
         engine.sessions.reorderSessions(DemoData.MACBOOK_CROK_BUILD, build)
         assertEquals(build, engine.sessions.active.first { it.ids(DemoData.MACBOOK_CROK_BUILD) == build }.ids(DemoData.MACBOOK_CROK_BUILD))
 

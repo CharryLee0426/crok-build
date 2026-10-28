@@ -86,7 +86,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chenli.crok.mobile.R
+import dev.chenli.crok.mobile.data.AttachNotice
 import dev.chenli.crok.mobile.data.PendingInteraction
+import dev.chenli.crok.mobile.logic.AttachmentRules
 import dev.chenli.crok.mobile.data.PlanEntry
 import dev.chenli.crok.mobile.engine.ConnectionState
 import dev.chenli.crok.mobile.logic.PlanSummary
@@ -134,6 +136,10 @@ data class SessionActions(
     /** The thinking menu (an effort's id; null: Default, on the new-session screen). */
     val onChooseEffort: (String?) -> Unit = {},
     val transcript: TranscriptActions = TranscriptActions(),
+    /** The attach menu's pickers; null: no paperclip. */
+    val attach: AttachLaunchers? = null,
+    val onRemoveAttachment: (String) -> Unit = {},
+    val onRetryAttachment: (String) -> Unit = {},
 )
 
 @Composable
@@ -150,6 +156,7 @@ fun SessionScreen(
     val scope = rememberCoroutineScope()
     var showInfo by rememberSaveable { mutableStateOf(false) }
     val pickers = rememberSetupPickers()
+    val launchers = rememberAttachLaunchers(viewModel::attach)
 
     LifecycleResumeEffect(viewModel) {
         viewModel.setVisible(true)
@@ -167,6 +174,9 @@ fun SessionScreen(
                     val title = resources.getString(if (event.model) R.string.setup_model_failed else R.string.setup_thinking_failed)
                     snackbar.showSnackbar(if (event.message.isBlank()) title else "$title\n${event.message}")
                 }
+                is SessionEvent.AttachRefused -> snackbar.showSnackbar(
+                    resources.getString(if (event.notice == AttachNotice.TooMany) R.string.attach_too_many else R.string.attach_too_big),
+                )
             }
         }
     }
@@ -189,6 +199,9 @@ fun SessionScreen(
             onPickCommand = viewModel::pickCommand,
             onChooseModel = viewModel::chooseModel,
             onChooseEffort = viewModel::chooseEffort,
+            attach = launchers.takeIf { state.canAttach },
+            onRemoveAttachment = viewModel::removeAttachment,
+            onRetryAttachment = viewModel::retryAttachment,
             transcript = TranscriptActions(
                 onCopy = { text ->
                     scope.launch {
@@ -241,8 +254,26 @@ fun SessionContent(
     menuInitiallyOpen: Boolean = false,
     /** Which of the setup row's pickers is open (hoisted: the info sheet opens them too). */
     pickers: SetupPickers = rememberSetupPickers(),
+    /** The image viewer open from the start (screenshots). */
+    initialViewer: ViewerRequest? = null,
+) {
+    ProvideFileOpener { SessionLayout(state, draft, now, actions, snackbar, listState, menuInitiallyOpen, pickers, initialViewer) }
+}
+
+@Composable
+private fun SessionLayout(
+    state: SessionUiState,
+    draft: String,
+    now: Long,
+    actions: SessionActions,
+    snackbar: SnackbarHostState,
+    listState: LazyListState,
+    menuInitiallyOpen: Boolean,
+    pickers: SetupPickers,
+    initialViewer: ViewerRequest?,
 ) {
     val colors = CrokTheme.colors
+    var viewer by remember { mutableStateOf(initialViewer) }
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
     var planExpanded by rememberSaveable { mutableStateOf(false) }
@@ -428,8 +459,9 @@ fun SessionContent(
                 // Rows scroll under the glass bars: the padding only keeps the ends clear of them.
                 contentPadding = PaddingValues(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 12.dp),
             ) {
+                val transcriptActions = actions.transcript.copy(onOpenImages = { viewer = it })
                 items(state.items, key = { it.key }, contentType = { it::class.simpleName }) { item ->
-                    TranscriptRow(item, now, actions.transcript, bot)
+                    TranscriptRow(item, now, transcriptActions, bot)
                 }
                 item(key = "history-edge", contentType = "edge") {
                     Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
@@ -463,6 +495,7 @@ fun SessionContent(
             onDismiss = { pickers.modelSheet = false },
         )
     }
+    viewer?.let { request -> ImageViewer(request) { viewer = null } }
 }
 
 @Composable
@@ -704,6 +737,14 @@ private fun Composer(
         } else {
             state.setup?.let { SetupRowView(it, setup.onModel, setup.onThinking, setup.onThinkingPlaced) }
         }
+        if (state.attachments.isNotEmpty()) {
+            AttachmentStrip(
+                state.attachments,
+                onRemove = actions.onRemoveAttachment,
+                onRetry = actions.onRetryAttachment,
+                modifier = Modifier.padding(bottom = 6.dp).glass(GlassShapes.rounded(20.dp), GlassStyle.Bar),
+            )
+        }
         Row(verticalAlignment = Alignment.Bottom) {
             Row(
                 Modifier
@@ -714,7 +755,12 @@ private fun Composer(
                 verticalAlignment = Alignment.Bottom,
             ) {
                 if (state.hasMenu) {
-                    MenuPill(expanded = draft.isEmpty(), open = menuOpen, onClick = onMenu)
+                    MenuPill(expanded = draft.isEmpty() && state.attachments.isEmpty(), open = menuOpen, onClick = onMenu)
+                }
+                if (actions.attach != null) {
+                    Box(Modifier.padding(start = if (state.hasMenu) 2.dp else 0.dp, bottom = 0.dp)) {
+                        AttachButton(actions.attach, enabled = state.attachments.size < AttachmentRules.MAX_COUNT)
+                    }
                 }
                 val newSession = state.newSession
                 val placeholder = if (newSession != null) {
@@ -749,17 +795,18 @@ private fun Composer(
                         }
                     },
                 )
-                if (state.running && draft.isNotBlank()) {
+                val hasContent = draft.isNotBlank() || state.attachments.isNotEmpty()
+                if (state.running && hasContent) {
                     IconButton(onClick = actions.onStop, modifier = Modifier.size(36.dp)) {
                         Icon(CrokIcons.Stop, contentDescription = stringResource(R.string.composer_stop), tint = colors.danger)
                     }
                 }
             }
             Spacer(Modifier.width(6.dp))
-            val blank = draft.isBlank()
+            val blank = draft.isBlank() && state.attachments.isEmpty()
             if (state.running && blank) {
                 RoundAction(CrokIcons.Stop, stringResource(R.string.composer_stop), colors.danger, Color.White, onClick = actions.onStop)
-            } else if (blank) {
+            } else if (!state.canSubmit(draft)) {
                 GlassCircle(onClick = {}, size = 48.dp) {
                     Icon(CrokIcons.Send, contentDescription = stringResource(R.string.composer_send), tint = colors.textTertiary, modifier = Modifier.size(22.dp))
                 }

@@ -2,6 +2,11 @@ package dev.chenli.crok.mobile.engine
 
 import dev.chenli.crok.mobile.auth.StoredCredentials
 import dev.chenli.crok.mobile.data.ApproveResult
+import dev.chenli.crok.mobile.data.AttachmentUploader
+import dev.chenli.crok.mobile.data.RelayFiles
+import dev.chenli.crok.mobile.data.UploadUrl
+import dev.chenli.crok.mobile.logic.OutgoingAttachment
+import java.io.File
 import dev.chenli.crok.mobile.data.CommandDoc
 import dev.chenli.crok.mobile.data.CommandRef
 import dev.chenli.crok.mobile.data.ConfigId
@@ -130,6 +135,7 @@ class CrokEngine(
     val devices = Devices()
     val accounts = Accounts()
     val o11y = O11y()
+    val files = Files()
 
     fun start() {
         relay.start()
@@ -334,14 +340,16 @@ class CrokEngine(
             clientId: String,
             model: String? = null,
             effort: String? = null,
+            attachments: List<OutgoingAttachment> = emptyList(),
         ): CreateResult {
             val args = buildMap<String, Any?> {
                 put("deviceId", deviceId)
                 put("path", path)
-                // Optional on the relay: leave them out rather than send null.
+                // Optional on the relay: leave them out rather than send null (an older relay refuses `attachments`).
                 if (!text.isNullOrBlank()) put("text", text)
                 if (!model.isNullOrBlank()) put("model", model)
                 if (!effort.isNullOrBlank()) put("effort", effort)
+                if (attachments.isNotEmpty()) put("attachments", attachments.map { it.args() })
                 put("clientId", clientId)
             }
             return call("sessions:create", args, CreateResult.serializer())
@@ -419,12 +427,24 @@ class CrokEngine(
     }
 
     inner class Commands {
-        suspend fun sendPrompt(sessionDocId: String, text: String, clientId: String): String =
-            call(
-                "commands:sendPrompt",
-                mapOf("sessionDocId" to sessionDocId, "text" to text, "clientId" to clientId),
-                CommandRef.serializer(),
-            ).commandId
+        /**
+         * `commands:sendPrompt`, with the photos and files uploaded for it ([attachments]; the text may be empty then).
+         * The key goes only with attachments: an older relay refuses it.
+         */
+        suspend fun sendPrompt(
+            sessionDocId: String,
+            text: String,
+            clientId: String,
+            attachments: List<OutgoingAttachment> = emptyList(),
+        ): String {
+            val args = buildMap<String, Any?> {
+                put("sessionDocId", sessionDocId)
+                put("text", text)
+                put("clientId", clientId)
+                if (attachments.isNotEmpty()) put("attachments", attachments.map { it.args() })
+            }
+            return call("commands:sendPrompt", args, CommandRef.serializer()).commandId
+        }
 
         suspend fun stop(sessionDocId: String): String =
             call("commands:stop", mapOf("sessionDocId" to sessionDocId), CommandRef.serializer()).commandId
@@ -516,6 +536,14 @@ class CrokEngine(
         /** Rebuilds the page from Grafana when it is stale ([force]: pull to refresh). */
         suspend fun refresh(page: String, range: String?, lang: String, force: Boolean): O11yRefreshResult =
             act("o11y:refresh", args(page, range, lang) + ("force" to force), O11yDecode.RefreshStrategy)
+    }
+
+    /** Photos and files for prompts (relay/DESIGN.md §2 "Photos and files"): each upload gets a URL of its own. */
+    inner class Files : AttachmentUploader {
+        suspend fun uploadUrl(): String = call("files:uploadUrl", emptyMap(), UploadUrl.serializer()).url
+
+        override suspend fun upload(file: File, mimeType: String, onProgress: (Float) -> Unit): String =
+            RelayFiles.upload(uploadUrl(), file, mimeType, onProgress)
     }
 
     companion object {

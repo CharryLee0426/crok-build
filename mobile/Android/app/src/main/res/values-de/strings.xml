@@ -344,4 +344,27 @@
     <string name="o11y_spoken_down">%1$s, gesunken um %2$s</string>
     <string name="o11y_status_ok">OK</string>
     <string name="o11y_status_warning">Warnung</string>
+
+    <!-- Photos and files in prompts (relay/DESIGN.md §5) -->
+    <string name="attach">Anhängen</string>
+    <string name="attach_photos">Fotos</string>
+    <string name="attach_camera">Kamera</string>
+    <string name="attach_files">Dateien</string>
+    <string name="attach_too_many">Bis zu 10 Fotos und Dateien pro Nachricht</string>
+    <string name="attach_too_big">Dateien dürfen höchstens 20 MB groß sein</string>
+    <string name="attach_uploading">Wird hochgeladen …</string>
+    <string name="attach_failed">Hochladen fehlgeschlagen – zum Wiederholen tippen</string>
+    <string name="attach_remove">Entfernen</string>
+    <string name="attach_photo">Foto</string>
+    <string name="attach_file">Datei</string>
+    <string name="media_share">Teilen</string>
+    <string name="media_save">Speichern</string>
+    <string name="media_saved">Gespeichert</string>
+    <string name="media_save_failed">Das Foto konnte nicht gespeichert werden</string>
+    <string name="media_on_computer">Auf %1$s</string>
+    <string name="media_unavailable">Nicht mehr verfügbar</string>
+    <string name="media_open_failed">Keine App kann diese Datei öffnen</string>
+    <string name="media_download_failed">Die Datei konnte nicht geladen werden</string>
+    <string name="media_count">%1$d von %2$d</string>
+    <string name="media_close">Schließen</string>
 </resources>

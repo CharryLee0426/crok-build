@@ -331,6 +331,40 @@ data class SessionCommands(
 @Serializable
 data class CreateResult(val sessionDocId: String, val commandId: String = "")
 
+/**
+ * A photo or file sent with a prompt (relay/DESIGN.md §2 "Photos and files"), on a transcript item or a pending prompt.
+ * [url] / [thumbUrl] are the relay's download links, null once the upload is gone; no [storageId] means a file that
+ * exists only on the computer (attached there). [kind] is `image` only for PNG, JPEG, GIF and WebP.
+ */
+@Serializable
+data class Attachment(
+    val storageId: String? = null,
+    val thumbId: String? = null,
+    val name: String = "",
+    val mimeType: String = "application/octet-stream",
+    val size: WireLong = 0,
+    val kind: String = KIND_FILE,
+    val width: WireInt? = null,
+    val height: WireInt? = null,
+    val url: String? = null,
+    val thumbUrl: String? = null,
+) {
+    val isImage: Boolean get() = kind == KIND_IMAGE
+
+    companion object {
+        const val KIND_IMAGE = "image"
+        const val KIND_FILE = "file"
+    }
+}
+
+/** `files:uploadUrl`: where to `POST` one file's bytes (valid for an hour). */
+@Serializable
+data class UploadUrl(val url: String)
+
+/** What Convex answers an upload with. */
+@Serializable
+data class UploadResult(val storageId: String)
+
 object EventKind {
     const val USER = "user"
     const val ASSISTANT = "assistant"
@@ -359,6 +393,8 @@ data class RelayEvent(
     /** For a remote prompt: who sent it (a device name, or "Web"). */
     val fromLabel: String? = null,
     val at: WireLong = 0,
+    /** For a prompt: the photos and files sent with it, in order (absent when none). */
+    val attachments: List<Attachment> = emptyList(),
 )
 
 /** A part of the transcript (`sessions:transcript`), newest first; [more]: the range holds older items than these. */
@@ -410,6 +446,8 @@ data class PromptCommand(
     val createdAt: WireLong = 0,
     val updatedAt: WireLong = 0,
     val type: String = CommandType.PROMPT,
+    /** The photos and files sent with it (with their URLs); older relays leave it out. */
+    val attachments: List<Attachment> = emptyList(),
 ) {
     val isMine: Boolean get() = mine ?: true
 }

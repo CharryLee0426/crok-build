@@ -6,6 +6,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.chenli.crok.mobile.data.AttachNotice
+import dev.chenli.crok.mobile.data.AttachmentDrafts
+import dev.chenli.crok.mobile.data.AttachmentPick
 import dev.chenli.crok.mobile.data.CommandStatus
 import dev.chenli.crok.mobile.data.ConfigId
 import dev.chenli.crok.mobile.data.DraftStore
@@ -34,6 +37,7 @@ import dev.chenli.crok.mobile.logic.BotCardKind
 import dev.chenli.crok.mobile.logic.BotCardProblem
 import dev.chenli.crok.mobile.logic.ChoiceMatch
 import dev.chenli.crok.mobile.logic.CommandEntry
+import dev.chenli.crok.mobile.logic.DraftAttachment
 import dev.chenli.crok.mobile.logic.ComposerCommands
 import dev.chenli.crok.mobile.logic.LocalCommand
 import dev.chenli.crok.mobile.logic.ModelSetup
@@ -161,9 +165,17 @@ data class SessionUiState(
     val choice: SetupChoice = SetupChoice(),
     /** A model or thinking-level change on its way to the computer. */
     val changing: SetupChange = SetupChange(),
+    /** The composer's photos and files (relay/DESIGN.md §5 "The attachment strip"). */
+    val attachments: List<DraftAttachment> = emptyList(),
+    /** This phone can attach (false in tests and previews without a store). */
+    val canAttach: Boolean = false,
 ) {
     /** Prompts go wherever the computer is online: one for a session nobody runs opens it there. */
     val canSend: Boolean get() = (newSession != null || phase != SessionPhase.Offline) && !gone
+
+    /** Send is on: there is text or an attachment, and every attachment is uploaded. */
+    fun canSubmit(draft: String): Boolean =
+        (draft.isNotBlank() || attachments.isNotEmpty()) && attachments.all { it.ready }
     val running: Boolean get() = phase == SessionPhase.Working
 
     /** The Menu button: only in a session (a new one has no commands yet). */
@@ -221,6 +233,8 @@ data class SessionUiState(
             deviceModels: Result<List<ModelChoice>?>? = null,
             choice: SetupChoice = SetupChoice(),
             changing: SetupChange = SetupChange(),
+            attachments: List<DraftAttachment> = emptyList(),
+            canAttach: Boolean = false,
         ): SessionUiState {
             val status = detail?.status ?: row?.status ?: SessionStatus.IDLE
             val online = detail?.online ?: row?.online ?: false
@@ -279,6 +293,8 @@ data class SessionUiState(
                 setup = setup,
                 choice = choice,
                 changing = changing,
+                attachments = attachments,
+                canAttach = canAttach,
             )
         }
     }
@@ -299,6 +315,9 @@ sealed interface SessionEvent {
 
     /** A model ([model]) or thinking-level change from the setup row failed; [message] is the computer's or relay's. */
     data class ConfigFailed(val model: Boolean, val message: String) : SessionEvent
+
+    /** Not everything picked was attached: more than ten, or a file over 20 MB. */
+    data class AttachRefused(val notice: AttachNotice) : SessionEvent
 }
 
 /**
@@ -321,6 +340,8 @@ class SessionViewModel(
     private val saved: SavedStateHandle? = null,
     /** The first prompt's client id, stable across a restore so a resend finds the same session (the relay dedupes). */
     firstPromptClientId: String? = null,
+    /** The composer's photos and files, kept per draft for as long as the app runs; null: no attaching (tests). */
+    private val attachments: AttachmentDrafts? = null,
 ) : ViewModel() {
     private val restoredSessionDocId: String? = saved?.get<String>(CREATED_KEY)
     private val docId = MutableStateFlow(initialSessionDocId ?: restoredSessionDocId)
@@ -335,7 +356,9 @@ class SessionViewModel(
     private val _events = Channel<SessionEvent>(Channel.BUFFERED)
     val events: Flow<SessionEvent> = _events.receiveAsFlow()
 
-    private val draftKey: String get() = docId.value ?: newSession?.let { "new:${it.deviceId}:${it.path}" } ?: ""
+    private val draftKey: String get() = keyFor(docId.value)
+
+    private fun keyFor(sessionDocId: String?): String = sessionDocId ?: newSession?.let { "new:${it.deviceId}:${it.path}" } ?: ""
 
 
     /** The composer's text; saved per session so it survives the app being killed (Telegram's saveDraft). */
@@ -369,6 +392,11 @@ class SessionViewModel(
     /** The new-session screen's picks (not stored: they live on the screen until the first prompt goes). */
     private val setupChoice = MutableStateFlow(SetupChoice())
 
+    /** The draft's attachments; the key follows the screen once a new session exists. */
+    private val draftAttachments: StateFlow<List<DraftAttachment>> = docId
+        .flatMapLatest { id -> attachments?.draft(keyFor(id)) ?: flowOf(emptyList()) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /** A model or thinking-level change on its way to the computer. */
     private val changing = MutableStateFlow(SetupChange())
 
@@ -386,12 +414,12 @@ class SessionViewModel(
         val cards: List<BotCard>,
         val commands: SessionCommands?,
         val deviceModels: Result<List<ModelChoice>?>?,
-        val setup: Pair<SetupChoice, SetupChange>,
+        val setup: Triple<SetupChoice, SetupChange, List<DraftAttachment>>,
     )
 
     private val header = combine(row, detail, answering, docId) { r, d, a, id -> Header(r, d, a, id) }
 
-    private val local = combine(optimistic, cards, commands, deviceModels, combine(setupChoice, changing, ::Pair)) { o, c, s, m, setup ->
+    private val local = combine(optimistic, cards, commands, deviceModels, combine(setupChoice, changing, draftAttachments, ::Triple)) { o, c, s, m, setup ->
         Local(o, c, s, m, setup)
     }
 
@@ -413,6 +441,8 @@ class SessionViewModel(
             deviceModels = mine.deviceModels,
             choice = mine.setup.first,
             changing = mine.setup.second,
+            attachments = mine.setup.third,
+            canAttach = attachments != null,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionUiState(newSession = newSession, loaded = newSession != null))
 
@@ -441,6 +471,12 @@ class SessionViewModel(
                 answering.update { if (it != null && it != pendingId) null else it }
             }
         }
+        // Picks the composer could not take (too many, too big): a notice on this screen.
+        attachments?.let { store ->
+            viewModelScope.launch {
+                store.notices.collect { (key, notice) -> if (key == draftKey) _events.trySend(SessionEvent.AttachRefused(notice)) }
+            }
+        }
         firstPrompt?.trim()?.takeIf { it.isNotEmpty() && newSession != null && docId.value == null }?.let { text ->
             val clientId = firstPromptClientId ?: UUID.randomUUID().toString()
             val prompt = OptimisticPrompt(clientId = clientId, text = text, createdAt = engine.clock())
@@ -460,6 +496,19 @@ class SessionViewModel(
         drafts.save(draftKey, text)
     }
 
+    /** Photos or files picked for the composer: prepared and uploaded at once. */
+    fun attach(picks: List<AttachmentPick>) {
+        attachments?.add(draftKey, picks, engine.files)
+    }
+
+    fun removeAttachment(id: String) {
+        attachments?.remove(draftKey, id)
+    }
+
+    fun retryAttachment(id: String) {
+        attachments?.retry(draftKey, id, engine.files)
+    }
+
     fun loadMore() = window.value?.loadMore() ?: Unit
 
     fun reload() = window.value?.reload() ?: Unit
@@ -471,13 +520,23 @@ class SessionViewModel(
      */
     fun send() {
         val text = draft.trim()
-        if (text.isEmpty()) return
-        val command = if (docId.value != null) ComposerCommands.parse(text) else null
+        val attached = attachments?.current(draftKey).orEmpty()
+        if (text.isEmpty() && attached.isEmpty()) return
+        // Send waits until every attachment is uploaded (or removed).
+        if (attached.any { !it.ready }) return
+        // With attachments the text always goes as a prompt: the phone's own commands work only without them.
+        val command = if (docId.value != null && attached.isEmpty()) ComposerCommands.parse(text) else null
         if (command?.local != null && runLocal(command.local, command.argument)) {
             updateDraft("")
             return
         }
-        val prompt = OptimisticPrompt(clientId = UUID.randomUUID().toString(), text = text, createdAt = engine.clock())
+        val outgoing = if (attached.isEmpty()) emptyList() else attachments?.take(draftKey).orEmpty()
+        val prompt = OptimisticPrompt(
+            clientId = UUID.randomUUID().toString(),
+            text = text,
+            createdAt = engine.clock(),
+            attachments = outgoing,
+        )
         optimistic.update { it + prompt }
         updateDraft("")
         submit(prompt)
@@ -680,6 +739,7 @@ class SessionViewModel(
                         newSession.deviceId, newSession.path, prompt.text, prompt.clientId,
                         model = choice.model,
                         effort = choice.effort?.takeIf { choice.model != null },
+                        attachments = prompt.attachments,
                     )
                     replace(prompt.clientId) { it.copy(commandId = created.commandId, localError = null) }
                     drafts.save(draftKey, "")
@@ -687,7 +747,7 @@ class SessionViewModel(
                     window.value = startWindow(created.sessionDocId)
                     docId.value = created.sessionDocId
                 } else if (existing != null) {
-                    val commandId = engine.commands.sendPrompt(existing, prompt.text, prompt.clientId)
+                    val commandId = engine.commands.sendPrompt(existing, prompt.text, prompt.clientId, prompt.attachments)
                     replace(prompt.clientId) { it.copy(commandId = commandId, localError = null) }
                 }
             } catch (e: CancellationException) {

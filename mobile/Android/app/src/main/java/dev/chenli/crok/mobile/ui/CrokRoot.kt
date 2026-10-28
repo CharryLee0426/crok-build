@@ -220,7 +220,9 @@ private fun SignedInApp(engine: CrokEngine, appearance: AppearanceUiState, appVi
             }
             composable<SessionRoute> { entry ->
                 val route = entry.toRoute<SessionRoute>()
-                val viewModel = viewModel(key = "session-${route.id}") { SessionViewModel(engine, route.id, graph.drafts) }
+                val viewModel = viewModel(key = "session-${route.id}") {
+                    SessionViewModel(engine, route.id, graph.drafts, attachments = graph.attachments)
+                }
                 SessionScreen(
                     viewModel = viewModel,
                     onBack = { nav.popBackStack() },
@@ -239,6 +241,7 @@ private fun SignedInApp(engine: CrokEngine, appearance: AppearanceUiState, appVi
                         saved = createSavedStateHandle(),
                         // The entry's id survives the app being killed: a restored screen resends the same create.
                         firstPromptClientId = UUID.nameUUIDFromBytes(entry.id.toByteArray()).toString(),
+                        attachments = graph.attachments,
                     )
                 }
                 SessionScreen(

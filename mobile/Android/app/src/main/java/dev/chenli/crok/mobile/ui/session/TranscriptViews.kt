@@ -8,6 +8,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,6 +36,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +63,8 @@ data class TranscriptActions(
     val onDelete: (TranscriptItem.User) -> Unit = {},
     /** A bot card's button (`cardId`, the choice's id). */
     val onApplyConfig: (String, String) -> Unit = { _, _ -> },
+    /** A prompt's image: the full-screen viewer on that one, with the prompt's other images beside it. */
+    val onOpenImages: (ViewerRequest) -> Unit = {},
 )
 
 /** What a bot card shows its choices from: the session's models and its computer. */
@@ -91,7 +95,7 @@ fun TranscriptRow(item: TranscriptItem, now: Long, actions: TranscriptActions, b
     when (item) {
         is TranscriptItem.Bot -> BotCardRow(item.card, bot, actions.onApplyConfig)
         is TranscriptItem.Day -> DayHeader(item, now)
-        is TranscriptItem.User -> UserBubble(item, actions)
+        is TranscriptItem.User -> UserBubble(item, actions, bot.deviceName)
         is TranscriptItem.Assistant -> AssistantBubble(item, actions)
         is TranscriptItem.Thought -> ThoughtRow(item)
         is TranscriptItem.Tool -> ToolCard(item, actions)
@@ -115,7 +119,7 @@ private fun DayHeader(item: TranscriptItem.Day, now: Long) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun UserBubble(item: TranscriptItem.User, actions: TranscriptActions) {
+private fun UserBubble(item: TranscriptItem.User, actions: TranscriptActions, computer: String) {
     val colors = CrokTheme.colors
     val session = SessionTheme.current
     val formatter = rememberFormatter()
@@ -149,27 +153,69 @@ private fun UserBubble(item: TranscriptItem.User, actions: TranscriptActions) {
                     }
                 }
             }
+            // Photos show inside the bubble above the text (Telegram's media with a caption); files and pictures that
+            // cannot be shown as rows under them.
+            val images = item.attachments.filter { it.isImage && it.preview != null }
+            val rows = item.attachments.filter { !(it.isImage && it.preview != null) }
+            val hasText = item.text.isNotBlank()
+            val shape = outShape(item.grouping)
+            val meta = session.outMeta
+            // Time and label on the bubble: muted ordinary text on light blue, translucent white on dark blue, or the
+            // session theme's own colour; on a dark pill over the picture when the bubble is pictures alone.
+            val metaRow: @Composable (Color, Boolean) -> Unit = { color, onPicture ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (item.remote && item.fromLabel != null) {
+                        Icon(CrokIcons.Phone, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
+                        Text(stringResource(R.string.message_from, item.fromLabel), fontSize = 12.sp, color = color, maxLines = 1)
+                        Spacer(Modifier.width(2.dp))
+                    }
+                    Text(formatter.time(item.at), fontSize = 12.sp, color = color)
+                    item.tick?.let { TickIcon(it, onPicture) }
+                }
+            }
             Column(
                 Modifier
                     .weight(1f, fill = false)
-                    .clip(outShape(item.grouping))
+                    .clip(shape)
                     .background(session.bubbleOut)
-                    .combinedClickable(onClick = { if (failed) menu = true }, onLongClick = { actions.onCopy(item.text) })
-                    .padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 6.dp),
+                    .combinedClickable(onClick = { if (failed) menu = true }, onLongClick = { if (hasText) actions.onCopy(item.text) })
+                    .then(if (images.isNotEmpty()) Modifier.width(IntrinsicSize.Min) else Modifier),
                 horizontalAlignment = Alignment.End,
             ) {
-                Text(item.text, style = MaterialTheme.typography.bodyLarge, color = session.onBubbleOut, modifier = Modifier.align(Alignment.Start))
-                // Time and label on the bubble: muted ordinary text on light blue, translucent white on dark blue, or
-                // the session theme's own colour.
-                val meta = session.outMeta
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (item.remote && item.fromLabel != null) {
-                        Icon(CrokIcons.Phone, contentDescription = null, tint = meta, modifier = Modifier.size(12.dp))
-                        Text(stringResource(R.string.message_from, item.fromLabel), fontSize = 12.sp, color = meta, maxLines = 1)
-                        Spacer(Modifier.width(2.dp))
+                if (images.isNotEmpty()) {
+                    val picturesOnly = !hasText && rows.isEmpty()
+                    Box(Modifier.padding(2.dp)) {
+                        BubbleImages(
+                            images = images,
+                            shape = RoundedCornerShape(16.dp),
+                            minWidth = if (hasText) 200.dp else 0.dp,
+                            onOpen = { index -> actions.onOpenImages(ViewerRequest(images, index)) },
+                            overlay = if (picturesOnly) {
+                                {
+                                    Box(Modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                        metaRow(Color.White, true)
+                                    }
+                                }
+                            } else {
+                                null
+                            },
+                        )
                     }
-                    Text(formatter.time(item.at), fontSize = 12.sp, color = meta)
-                    item.tick?.let { TickIcon(it) }
+                    if (picturesOnly) return@Column
+                }
+                if (rows.isNotEmpty()) {
+                    Column(Modifier.align(Alignment.Start).padding(start = 8.dp, end = 10.dp, top = if (images.isEmpty()) 6.dp else 2.dp)) {
+                        rows.forEach { FileRow(it, computer, session.onBubbleOut, meta) }
+                    }
+                }
+                Column(
+                    Modifier.padding(start = 12.dp, end = 10.dp, top = if (item.attachments.isEmpty()) 8.dp else 2.dp, bottom = 6.dp),
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    if (hasText || item.attachments.isEmpty()) {
+                        Text(item.text, style = MaterialTheme.typography.bodyLarge, color = session.onBubbleOut, modifier = Modifier.align(Alignment.Start))
+                    }
+                    metaRow(meta, false)
                 }
             }
         }
@@ -185,11 +231,11 @@ private fun UserBubble(item: TranscriptItem.User, actions: TranscriptActions) {
 }
 
 @Composable
-private fun TickIcon(tick: Tick) {
+private fun TickIcon(tick: Tick, onPicture: Boolean = false) {
     val colors = CrokTheme.colors
     val session = SessionTheme.current
-    val check = session.outTick
-    val clock = session.outMeta
+    val check = if (onPicture) Color.White else session.outTick
+    val clock = if (onPicture) Color.White else session.outMeta
     val (icon, tint, label) = when (tick) {
         Tick.Clock -> Triple(CrokIcons.Clock, clock, R.string.tick_clock)
         Tick.Sent -> Triple(CrokIcons.Check, check, R.string.tick_sent)
