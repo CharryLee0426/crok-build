@@ -663,8 +663,8 @@
       },
       {
         "type": "stat",
-        "title": "Claude cache hit rate",
-        "description": "Share of Claude input tokens read from the prompt cache. A cache read costs a tenth of input or less, so higher is cheaper. Long agent sessions usually stay above 80%. crok after 2.0.2 asks Claude Platform not to export the Claude calls it reports itself, so those calls count from crok's own span (its cost is crok's figure at the same list prices). Covers the time range up to about 15 minutes ago.",
+        "title": "Cache hit rate",
+        "description": "Share of input tokens read from the prompt cache across every source: Claude, OpenRouter and the providers crok reports itself. A cache read costs a fraction of input, so higher is cheaper. Long agent sessions usually stay above 80%. crok after 2.0.2 asks Claude Platform not to export the Claude calls it reports itself, so those calls count from crok's own span (its cost is crok's figure at the same list prices). Covers the time range up to about 15 minutes ago.",
         "datasource": {
           "type": "tempo",
           "uid": "${ds}"
@@ -702,7 +702,7 @@
             "calcs": [
               "lastNotNull"
             ],
-            "fields": "",
+            "fields": "/^Cache hit rate$/",
             "values": false
           },
           "colorMode": "value",
@@ -721,8 +721,97 @@
               "uid": "${ds}"
             },
             "queryType": "traceql",
-            "query": "({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"crok\"&&span.crok.unsampled=true))&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"crok\"&&span.crok.unsampled=true))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens))",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"crok\"&&span.crok.unsampled=true))&&span.gen_ai.usage.cache_read.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by(resource.service.name)",
             "metricsQueryType": "instant"
+          },
+          {
+            "refId": "B",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"crok\"&&span.gen_ai.provider.name!~\"anthropic|openrouter\"&&span.gen_ai.usage.cache_read_input_tokens!=nil}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by(resource.service.name)",
+            "metricsQueryType": "instant"
+          },
+          {
+            "refId": "C",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil&&span.gen_ai.usage.input_tokens.cached!=nil}|sum_over_time(span.gen_ai.usage.input_tokens.cached) by(resource.service.name)",
+            "metricsQueryType": "instant"
+          },
+          {
+            "refId": "D",
+            "datasource": {
+              "type": "tempo",
+              "uid": "${ds}"
+            },
+            "queryType": "traceql",
+            "query": "{((resource.service.name=\"claude-platform\"&&name=\"anthropic.messages.create\"&&kind=server)||(resource.service.name=\"openrouter\"&&span.gen_ai.request.model!=nil)||(resource.service.name=\"crok\"&&span.gen_ai.provider.name!=nil&&(span.gen_ai.provider.name!~\"anthropic|openrouter\"||span.crok.unsampled=true)))&&span.gen_ai.usage.input_tokens!=nil}|sum_over_time(span.gen_ai.usage.input_tokens)",
+            "metricsQueryType": "instant"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "renameByRegex",
+            "options": {
+              "regex": "^(claude\\-platform|crok|openrouter)$",
+              "renamePattern": "cache_read"
+            }
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "mode": "seriesToRows",
+              "reducers": [
+                "sum"
+              ]
+            }
+          },
+          {
+            "id": "groupBy",
+            "options": {
+              "fields": {
+                "Field": {
+                  "operation": "groupby",
+                  "aggregations": []
+                },
+                "Total": {
+                  "operation": "aggregate",
+                  "aggregations": [
+                    "sum"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "transpose",
+            "options": {}
+          },
+          {
+            "id": "labelsToFields",
+            "options": {
+              "mode": "columns",
+              "valueLabel": "Field"
+            }
+          },
+          {
+            "id": "calculateField",
+            "options": {
+              "mode": "binary",
+              "binary": {
+                "left": "cache_read",
+                "operator": "/",
+                "right": "sum_over_time"
+              },
+              "alias": "Cache hit rate",
+              "replaceFields": false
+            }
           }
         ],
         "id": 5,

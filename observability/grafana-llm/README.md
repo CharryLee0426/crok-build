@@ -67,7 +67,7 @@ Rules:
 
 ## What the dashboards show
 
-- **LLM Overview**: requests, spend, tokens, Claude cache hit rate, error rate and p95 latency over
+- **LLM Overview**: requests, spend, tokens, cache hit rate over every source, error rate and p95 latency over
   the time range; week over week (last 7 days against the 7 before) and the last 14 days per day,
   from the recorded history; traffic, spend, latency and errors over time (crok's reports split
   by provider); models ranked; latest calls.

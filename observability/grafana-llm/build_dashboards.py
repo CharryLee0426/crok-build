@@ -752,6 +752,45 @@ CROK_CLAUDE_NOTE = (" crok after 2.0.2 asks Claude Platform not to export the Cl
 # Dashboards
 
 
+def cache_hit_stat(ctx: Ctx) -> dict:
+    """Cache-read share of input tokens over every source, as one ratio.
+
+    Claude, crok's own reports and OpenRouter name the cached-token attribute differently, and a
+    TraceQL expression that adds a source with no spans in the range comes back empty. So each
+    source's cache reads is a query of its own, named by service; the transformations add them up
+    and divide by one query over every input token. `reduce` sums each series over the range,
+    `groupBy` adds the cache-read rows, and `transpose` with `labelsToFields` puts the two totals
+    in one row for the division.
+    """
+    by = "resource.service.name"
+    cache = [
+        target(f"{{{ctx.claude_calls()}}}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens) by({by})", instant=True),
+        target(f"{{{ctx.crok_req()}}}|sum_over_time(span.gen_ai.usage.cache_read_input_tokens) by({by})", instant=True),
+        target(f"{{{ctx.or_req()}}}|sum_over_time(span.gen_ai.usage.input_tokens.cached) by({by})", instant=True),
+    ]
+    inputs = target(f"{{{ctx.any_req()}}}|sum_over_time(span.gen_ai.usage.input_tokens)", instant=True)
+    services = "|".join(re.escape(s) for s in (ctx.claude, ctx.crok, ctx.openrouter))
+    panel = stat("Cache hit rate", cache + [inputs],
+                 unit="percentunit", decimals=1, no_value="–",
+                 steps=[{"color": "red", "value": None}, {"color": "orange", "value": 0.5}, {"color": "green", "value": 0.8}],
+                 desc="Share of input tokens read from the prompt cache across every source: Claude, OpenRouter and the "
+                      "providers crok reports itself. A cache read costs a fraction of input, so higher is cheaper. Long "
+                      "agent sessions usually stay above 80%." + CROK_CLAUDE_NOTE)
+    panel["transformations"] = [
+        {"id": "renameByRegex", "options": {"regex": f"^({services})$", "renamePattern": "cache_read"}},
+        {"id": "reduce", "options": {"mode": "seriesToRows", "reducers": ["sum"]}},
+        {"id": "groupBy", "options": {"fields": {"Field": {"operation": "groupby", "aggregations": []},
+                                                 "Total": {"operation": "aggregate", "aggregations": ["sum"]}}}},
+        {"id": "transpose", "options": {}},
+        {"id": "labelsToFields", "options": {"mode": "columns", "valueLabel": "Field"}},
+        {"id": "calculateField", "options": {"mode": "binary",
+                                             "binary": {"left": "cache_read", "operator": "/", "right": "sum_over_time"},
+                                             "alias": "Cache hit rate", "replaceFields": False}},
+    ]
+    panel["options"]["reduceOptions"] = {"calcs": ["lastNotNull"], "fields": "/^Cache hit rate$/", "values": False}
+    return panel
+
+
 def overview(ctx: Ctx) -> Board:
     b = Board(ctx, "llm-overview", "LLM Overview",
               "Start here: requests, spend, tokens, latency and errors of every LLM call that Claude Platform and "
@@ -761,7 +800,6 @@ def overview(ctx: Ctx) -> Board:
     anyq = f"{{{ctx.any_req()}}}"
     exported = f"{{({ctx.claude_req()})||({ctx.or_req()})}}"
     ors = f"{{{ctx.or_req()}}}"
-    calls = f"{{{ctx.claude_calls()}}}"
     ck = f"{{{ctx.crok_req(claude=True)}}}"
     spend_note = SPEND_NOTE.format(read_on=ctx.prices["read_on"])
     crok_spend_note = (spend_note + " The rest is what crok worked out per call: the provider's cost when it reports one, else "
@@ -780,11 +818,7 @@ def overview(ctx: Ctx) -> Board:
                unit="currencyUSD", decimals=2, color="green", no_value="$0", total=True, desc=crok_spend_note), 4, 4)
     b.add(stat("Tokens", [target(f"({anyq}|sum_over_time(span.gen_ai.usage.input_tokens))+({anyq}|sum_over_time(span.gen_ai.usage.output_tokens))", instant=True)],
                desc="Input plus output tokens. Input includes prompt-cache reads and writes.", total=True), 4, 4)
-    b.add(stat("Claude cache hit rate", [target(f"({calls}|sum_over_time(span.gen_ai.usage.cache_read.input_tokens))/({calls}|sum_over_time(span.gen_ai.usage.input_tokens))", instant=True)],
-               unit="percentunit", decimals=1, no_value="–",
-               steps=[{"color": "red", "value": None}, {"color": "orange", "value": 0.5}, {"color": "green", "value": 0.8}],
-               desc="Share of Claude input tokens read from the prompt cache. A cache read costs a tenth of input or less, so higher is cheaper. Long agent sessions usually stay above 80%."
-                    + CROK_CLAUDE_NOTE), 4, 4)
+    b.add(cache_hit_stat(ctx), 4, 4)
     b.add(stat("Error rate", [target(f"({{{ctx.any_failed()}}}|count_over_time())/({anyq}|count_over_time())", instant=True)],
                unit="percentunit", decimals=1, no_value="0%",
                steps=[{"color": "green", "value": None}, {"color": "orange", "value": 0.01}, {"color": "red", "value": 0.05}],
