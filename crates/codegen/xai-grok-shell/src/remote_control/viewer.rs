@@ -43,6 +43,10 @@ pub const REMOTE_NEW_SESSION_METHOD: &str = "x.ai/remote/new_session";
 /// Ext method `{deviceId}` → `{models, availableModels}`: what another computer can run, before any session there is
 /// open (`devices:models`: `models` in the relay's shape, null while it is offline; `availableModels` in the agent's).
 pub const REMOTE_MODELS_METHOD: &str = "x.ai/remote/models";
+/// Ext method `{}` → `{asked, offline, pending}`: Refresh. Every online computer of the person lists all its sessions
+/// again now (`sessions:refresh`); answers once each has (`pending` empty), or after [`REFRESH_WAIT`] with the ids of
+/// those still listing. The list itself arrives as usual ([`REMOTE_SESSIONS_CHANGED_METHOD`]).
+pub const REMOTE_REFRESH_METHOD: &str = "x.ai/remote/refresh";
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 /// How much transcript a session starts with when opened here.
@@ -64,6 +68,10 @@ const SETTLE_MAX: Duration = Duration::from_secs(3);
 /// How long a model or thinking-level change may take on the other computer (it may have to open the session first).
 const CONFIG_WAIT: Duration = Duration::from_secs(75);
 const CONFIG_POLL: Duration = Duration::from_millis(400);
+/// How long Refresh waits for the computers to list their sessions; one whose crok predates Refresh lists them only at
+/// its next regular check.
+const REFRESH_WAIT: Duration = Duration::from_secs(15);
+const REFRESH_POLL: Duration = Duration::from_millis(500);
 
 pub(crate) fn doc_id(session_id: &str) -> Option<&str> {
     session_id
@@ -566,6 +574,38 @@ impl Viewer {
             "deviceId": device,
             "models": models,
             "availableModels": choices.model_state().get("availableModels"),
+        }))
+    }
+
+    /// `x.ai/remote/refresh`: asks every online computer to list its sessions again and waits until each has.
+    pub(crate) async fn refresh(&self) -> acp::Result<Value> {
+        let asked = self
+            .call(CallKind::Mutation, "sessions:refresh", json!({}))
+            .await?;
+        let count = asked.get("asked").and_then(Value::as_f64).unwrap_or(0.0);
+        let mut pending = json!([]);
+        if let Some(at) = asked.get("at").filter(|at| at.is_number() && count > 0.0) {
+            let started = Instant::now();
+            loop {
+                tokio::time::sleep(REFRESH_POLL).await;
+                let state = self
+                    .call(
+                        CallKind::Query,
+                        "sessions:refreshState",
+                        json!({ "since": at }),
+                    )
+                    .await?;
+                pending = state.get("pending").cloned().unwrap_or_else(|| json!([]));
+                if pending.as_array().is_none_or(Vec::is_empty) || started.elapsed() >= REFRESH_WAIT
+                {
+                    break;
+                }
+            }
+        }
+        Ok(json!({
+            "asked": count,
+            "offline": asked.get("offline").and_then(Value::as_f64).unwrap_or(0.0),
+            "pending": pending,
         }))
     }
 

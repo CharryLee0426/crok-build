@@ -325,6 +325,10 @@ pub(crate) struct Bridge {
     catalog_busy: bool,
     /// Set while this process holds the computer's catalog (its last upload went through).
     catalog: Option<CatalogHold>,
+    /// The relay's last inbox asked for the computer's sessions to be listed (`catalogWanted`): nobody holds the
+    /// catalog, or someone pressed Refresh since the last listing began. Offered again while it stays set, as an offer
+    /// made while a check was under way was skipped.
+    catalog_wanted: bool,
     /// Numbers permission requests, so an answer to an old one is told apart.
     interactions: u64,
     /// The models (with thinking levels) the relay has for this process.
@@ -864,6 +868,7 @@ impl Bridge {
             project_of: HashMap::new(),
             catalog_busy: false,
             catalog: None,
+            catalog_wanted: false,
             interactions: 0,
             sent_models: None,
         }
@@ -913,6 +918,10 @@ impl Bridge {
                     }
                     if ticks.is_multiple_of(RELEASE_CHECK_TICKS) {
                         self.release_idle();
+                        // Still wanted: the offer at the inbox was skipped (a check was under way) or came too soon.
+                        if self.catalog_wanted {
+                            self.offer_catalog();
+                        }
                     }
                     if ticks.is_multiple_of(MODELS_CHECK_TICKS) {
                         self.refresh_models();
@@ -1125,6 +1134,7 @@ impl Bridge {
         self.link = None;
         self.link_rx = None;
         self.catalog = None;
+        self.catalog_wanted = false;
         self.observer.set_live(false);
         self.observer.viewer().set_link(None, None);
         self.watched.clear();
@@ -1696,9 +1706,11 @@ impl Bridge {
                 if let Some(hosted) = inbox.hosted {
                     self.release_taken(&hosted.into_iter().collect());
                 }
-                // The crok that kept this computer's sessions listed is gone: take over at once rather than at the
-                // next regular offer.
-                if inbox.catalog_wanted && self.catalog.is_none() {
+                // The crok that kept this computer's sessions listed is gone, or someone pressed Refresh: list them at
+                // once rather than at the next regular offer. Refresh asks the holder too (the relay grants whichever
+                // crok here asks first).
+                self.catalog_wanted = inbox.catalog_wanted;
+                if self.catalog_wanted {
                     self.offer_catalog();
                 }
                 for command in inbox.commands {
