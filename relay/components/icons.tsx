@@ -225,6 +225,12 @@ export const SpinnerIcon = (p: IconProps) => (
     <path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5" />
   </Icon>
 );
+export const RefreshIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" />
+    <path d="M19.5 4.5v3.8h-3.8" />
+  </Icon>
+);
 export const PlanIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M9 6.5h11M9 12h11M9 17.5h11" />

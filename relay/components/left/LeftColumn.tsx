@@ -14,8 +14,10 @@ import { api } from "@/convex/_generated/api";
 import { computerList, groupUnread, resolveComputer } from "@/lib/computers";
 import { newSessionHref } from "@/lib/new-session";
 import { useConnection } from "../chrome";
-import { useOrderActions, useSessionActions } from "../SessionList";
+import { useI18n } from "../I18nProvider";
+import { useErrorText, useOrderActions, useSessionActions } from "../SessionList";
 import { useSettings } from "../Settings";
+import { useToast } from "../Toast";
 import { useNow } from "../ui";
 import { AppearancePage, DevicesPage, LanguagePage, ProfilePage } from "./ProfilePages";
 import { ArchivedPage, ProjectPage, SessionsRootPage } from "./SessionsPages";
@@ -217,6 +219,59 @@ function useUnreadTitle(total: number) {
   }, [total]);
 }
 
+/** How long Refresh waits for the computers to list their sessions (a crok that predates Refresh lists them later). */
+const REFRESH_WAIT_MS = 15_000;
+/** Long enough to see that something happened. */
+const REFRESH_MIN_MS = 600;
+
+type RefreshRun = { id: number; startedAt: number; since: number | null; settled: boolean };
+
+/**
+ * Refresh: every online computer lists all its sessions again (`sessions:refresh`); the button spins until each has
+ * (`sessions:refreshState`), or for REFRESH_WAIT_MS at most. The list itself updates as usual, live.
+ */
+function useRefresh(): { refreshing: boolean; refresh: () => void } {
+  const { t } = useI18n();
+  const toast = useToast();
+  const errorText = useErrorText();
+  const ask = useMutation(api.sessions.refresh);
+  const [run, setRun] = useState<RefreshRun | null>(null);
+  const lastId = useRef(0);
+  const state = useQuery(api.sessions.refreshState, run?.since != null ? { since: run.since } : "skip");
+  const done = run !== null && (run.settled || (run.since !== null && state !== undefined && state.pending.length === 0));
+
+  useEffect(() => {
+    if (!run) return;
+    const end = run.startedAt + (done ? REFRESH_MIN_MS : REFRESH_WAIT_MS);
+    const id = window.setTimeout(() => setRun(null), Math.max(0, end - Date.now()));
+    return () => window.clearTimeout(id);
+  }, [run, done]);
+
+  const busy = run !== null;
+  const refresh = useCallback(() => {
+    if (busy) return;
+    const id = ++lastId.current;
+    const startedAt = Date.now();
+    setRun({ id, startedAt, since: null, settled: false });
+    // An answer after this run timed out (or a newer one began) changes nothing.
+    const current = (update: (run: RefreshRun) => RefreshRun | null) => setRun((r) => (r?.id === id ? update(r) : r));
+    ask({}).then(
+      ({ asked, at }) => {
+        if (asked === 0) toast.show(t("refresh_none_online"));
+        current((r) => ({ ...r, since: asked > 0 ? at : null, settled: asked === 0 }));
+      },
+      (error: unknown) => {
+        toast.show(errorText(error), "error");
+        current(() => null);
+      },
+    );
+    // errorText and toast are stable enough; the mutation is memoized by Convex.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, ask, t]);
+
+  return { refreshing: busy, refresh };
+}
+
 /** The live left column for the signed-in person. */
 export function LiveLeftColumn({ activeId, version }: { activeId?: string; version: string }) {
   const router = useRouter();
@@ -233,6 +288,7 @@ export function LiveLeftColumn({ activeId, version }: { activeId?: string; versi
   const rename = useMutation(api.devices.rename);
   const revoke = useMutation(api.devices.revoke);
   const revokeOthers = useMutation(api.devices.revokeOthers);
+  const { refreshing, refresh } = useRefresh();
 
   const total = useMemo(() => (groups ?? []).reduce((sum, g) => sum + groupUnread(g), 0), [groups]);
   useUnreadTitle(total);
@@ -256,12 +312,13 @@ export function LiveLeftColumn({ activeId, version }: { activeId?: string; versi
       },
       revokeOthers: async () => (await revokeOthers({})).count,
     },
+    refresh,
     signOut: () => void clerk.signOut({ redirectUrl: "/" }),
   };
 
   return (
     <LeftColumnView
-      data={{ groups, archived, devices, account, connection, now, version }}
+      data={{ groups, archived, devices, account, connection, now, version, refreshing }}
       actions={actions}
       activeId={activeId}
     />

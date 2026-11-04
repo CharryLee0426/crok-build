@@ -147,6 +147,7 @@ function FakeLeft({ empty = false, activeId, initial }: { empty?: boolean; activ
   const [now] = useState(() => Date.now());
   const [groups, setGroups] = useState<ProjectGroup[]>(() => (empty ? [] : fakeGroups(now)));
   const [archived, setArchived] = useState<SessionRow[]>(() => (empty ? [] : fakeArchived(now)));
+  const [refreshing, setRefreshing] = useState(false);
   const actions: LeftActions = {
     sessions: {
       setPinned: (id, pinned) => {
@@ -171,6 +172,10 @@ function FakeLeft({ empty = false, activeId, initial }: { empty?: boolean; activ
     newSession: ({ deviceId, path }) =>
       router.push(`/preview/new-session?device=${encodeURIComponent(deviceId)}&path=${encodeURIComponent(path)}`),
     devices: { rename: async () => {}, revoke: async () => {}, revokeOthers: async () => 4 },
+    refresh: () => {
+      setRefreshing(true);
+      window.setTimeout(() => setRefreshing(false), 1200);
+    },
     signOut: noop,
   };
   return (
@@ -183,6 +188,7 @@ function FakeLeft({ empty = false, activeId, initial }: { empty?: boolean; activ
         connection: "live",
         now,
         version: "2.0.1 (preview)",
+        refreshing,
       }}
       actions={actions}
       activeId={activeId}

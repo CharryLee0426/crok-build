@@ -30,6 +30,8 @@ export type LeftData = {
   now: number;
   /** The web app's version (Profile › Version). */
   version: string;
+  /** Refresh is under way: the computers are listing their sessions again. */
+  refreshing: boolean;
 };
 
 export type LeftActions = {
@@ -38,5 +40,7 @@ export type LeftActions = {
   /** Opens the new-session screen for a project. */
   newSession: (target: NewSessionTarget) => void;
   devices: DevicesActions;
+  /** Refresh: every online computer lists all its sessions again (`sessions:refresh`). */
+  refresh: () => void;
   signOut: () => void;
 };
