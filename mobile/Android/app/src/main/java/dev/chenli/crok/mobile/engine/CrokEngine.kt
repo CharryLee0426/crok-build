@@ -19,6 +19,8 @@ import dev.chenli.crok.mobile.data.O11yPageState
 import dev.chenli.crok.mobile.data.O11yRefreshResult
 import dev.chenli.crok.mobile.data.PendingLogin
 import dev.chenli.crok.mobile.data.PromptCommand
+import dev.chenli.crok.mobile.data.ListRefreshResult
+import dev.chenli.crok.mobile.data.ListRefreshState
 import dev.chenli.crok.mobile.data.RelayErrorCode
 import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
@@ -34,6 +36,7 @@ import dev.chenli.crok.mobile.logic.OrderChange
 import dev.chenli.crok.mobile.logic.SessionOrder
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
@@ -55,6 +58,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.nullable
@@ -73,6 +77,15 @@ data class SessionListState(
 ) {
     /** Every session of the list, in list order. */
     val rows: List<SessionRow> by lazy { groups.flatMap { it.sessions } }
+}
+
+/**
+ * What a Refresh did: [asked] online computers listed every session again, [offline] ones could not; [pending]: those
+ * that had not finished when the wait ended (a crok from before Refresh answers only at its next regular listing).
+ */
+data class RefreshOutcome(val asked: Int, val offline: Int, val pending: List<String> = emptyList()) {
+    /** No computer is online: the list keeps what they listed last. */
+    val noneOnline: Boolean get() = asked == 0
 }
 
 /**
@@ -188,6 +201,12 @@ class CrokEngine(
         /** The live list (not archived), grouped by project and cached on disk for an instant start. */
         val active: StateFlow<SessionListState> = _active.asStateFlow()
 
+        private val _isRefreshing = MutableStateFlow(false)
+
+        /** A Refresh is running: the Sessions tab's button and pull to refresh show it. */
+        val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+        private var refreshJob: Deferred<RefreshOutcome>? = null
+
         private fun publishLocked() {
             val ordered = if (pending.isEmpty()) base.groups else SessionOrder.applyAll(base.groups, pending.map { it.change })
             val groups = if (markedRead.isEmpty()) {
@@ -293,6 +312,46 @@ class CrokEngine(
                     if (pending.remove(entry)) publishLocked()
                 }
             }
+        }
+
+        /**
+         * Refresh (the Sessions tab's button, pull to refresh): every online computer lists all its sessions again now
+         * (`sessions:refresh`), and this waits until each has (`sessions:refreshState`), for [REFRESH_WAIT_MS] at most;
+         * the list itself updates through `sessions:groups` meanwhile. A connection that is not live is checked at once
+         * too. A call while one runs joins it. Throws RelayException / RelayNetworkException.
+         */
+        suspend fun refresh(): RefreshOutcome {
+            val job = synchronized(lock) {
+                refreshJob?.takeIf { it.isActive } ?: run {
+                    // Before the job starts: one that fails at once clears it in its `finally`, never before it is set.
+                    _isRefreshing.value = true
+                    scope.async { runRefresh() }.also { refreshJob = it }
+                }
+            }
+            return job.await()
+        }
+
+        private suspend fun runRefresh(): RefreshOutcome = try {
+            coroutineScope {
+                // The spinner stays long enough to be seen, even when the relay answers at once.
+                val shown = launch { delay(REFRESH_MIN_MS) }
+                if (relay.state.value != ConnectionState.Connected) relay.recover(RecoveryReason.Manual)
+                val answer = call("sessions:refresh", emptyMap(), ListRefreshResult.serializer())
+                var pending = emptyList<String>()
+                if (answer.asked > 0) {
+                    withTimeoutOrNull(REFRESH_WAIT_MS) {
+                        live("sessions:refreshState", mapOf("since" to answer.at.toDouble()), ListRefreshState.serializer()).first { result ->
+                            // A relay that cannot say is not waited for.
+                            pending = result.getOrNull()?.pending.orEmpty()
+                            pending.isEmpty()
+                        }
+                    }
+                }
+                shown.join()
+                RefreshOutcome(answer.asked, answer.offline, pending)
+            }
+        } finally {
+            _isRefreshing.value = false
         }
 
         /** `sessions:reorderProjects`: [keys] are the projects of the current tab (all, or one computer's) in their new order. */
@@ -549,6 +608,12 @@ class CrokEngine(
     companion object {
         /** A confirmed reorder the list does not show yet is dropped after this long (someone else reordered). */
         const val SETTLE_TIMEOUT_MS = 5_000L
+
+        /** How long a Refresh waits for the computers to list their sessions. */
+        const val REFRESH_WAIT_MS = 15_000L
+
+        /** A Refresh shows for at least this long. */
+        const val REFRESH_MIN_MS = 600L
     }
 }
 

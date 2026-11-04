@@ -332,6 +332,17 @@ data class SessionCommands(
 data class CreateResult(val sessionDocId: String, val commandId: String = "")
 
 /**
+ * `sessions:refresh` (Refresh): [asked] online computers list every session again now, [offline] ones cannot until crok
+ * runs there; [at] follows this refresh in `sessions:refreshState`.
+ */
+@Serializable
+data class ListRefreshResult(val asked: WireInt = 0, val offline: WireInt = 0, val at: WireLong = 0)
+
+/** `sessions:refreshState({since})`: the computers still listing their sessions for that refresh; empty once all did. */
+@Serializable
+data class ListRefreshState(val pending: List<String> = emptyList())
+
+/**
  * A photo or file sent with a prompt (relay/DESIGN.md §2 "Photos and files"), on a transcript item or a pending prompt.
  * [url] / [thumbUrl] are the relay's download links, null once the upload is gone; no [storageId] means a file that
  * exists only on the computer (attached there). [kind] is `image` only for PNG, JPEG, GIF and WebP.

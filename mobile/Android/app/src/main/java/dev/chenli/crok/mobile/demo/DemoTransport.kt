@@ -20,6 +20,8 @@ import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.PendingLogin
 import dev.chenli.crok.mobile.data.PendingOption
 import dev.chenli.crok.mobile.data.RelayErrorCode
+import dev.chenli.crok.mobile.data.ListRefreshResult
+import dev.chenli.crok.mobile.data.ListRefreshState
 import dev.chenli.crok.mobile.data.RelayEvent
 import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
@@ -139,6 +141,8 @@ class DemoTransport(
                 RelayJson.encodeToJsonElement(ListSerializer(dev.chenli.crok.mobile.data.SessionRow.serializer()), rows)
             }
             "sessions:groups" -> RelayJson.encodeToJsonElement(ListSerializer(SessionGroup.serializer()), DemoData.groups(s))
+            // The demo's computers list their sessions at once.
+            "sessions:refreshState" -> RelayJson.encodeToJsonElement(ListRefreshState.serializer(), ListRefreshState())
             "sessions:get" -> {
                 val session = s.sessions.firstOrNull { it.id == args["sessionDocId"] }
                     ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such session.")
@@ -201,6 +205,11 @@ class DemoTransport(
         val sessionDocId = args["sessionDocId"] as? String
         when (name) {
             "sessions:markRead" -> updateSession(sessionDocId) { it.copy(unread = 0) }
+            "sessions:refresh" -> {
+                val computers = state.value.devices.filter { it.isComputer }
+                val online = computers.count { it.online }
+                return RelayJson.encodeToJsonElement(ListRefreshResult.serializer(), ListRefreshResult(online, computers.size - online, clock()))
+            }
             "sessions:watch" -> requestHistory(session(sessionDocId))
             "sessions:reorderProjects" -> {
                 val keys = strings(args["keys"])

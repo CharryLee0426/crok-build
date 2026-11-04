@@ -61,6 +61,8 @@
     <string name="sessions_no_results">No matching sessions.</string>
     <string name="sessions_archived_snackbar">Session archived</string>
     <string name="sessions_action_failed">Couldn’t update the session: %1$s</string>
+    <string name="sessions_refresh">Refresh</string>
+    <string name="sessions_refresh_none_online">No computer is online. The list shows what they listed last.</string>
     <plurals name="sessions_unread">
         <item quantity="one">%d unread reply</item>
         <item quantity="other">%d unread replies</item>

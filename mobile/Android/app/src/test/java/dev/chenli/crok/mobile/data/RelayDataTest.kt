@@ -115,6 +115,16 @@ class ConvexHttpApiTest {
 
 class WireModelsTest {
     @Test
+    fun readsTheRefreshAnswers() {
+        // `sessions:refresh` and `sessions:refreshState` as relay/convex/sessions.ts returns them.
+        val refresh = RelayJson.decodeFromString(ListRefreshResult.serializer(), """{"asked":2.0,"offline":1.0,"at":1760500000123.0}""")
+        assertEquals(ListRefreshResult(asked = 2, offline = 1, at = 1_760_500_000_123), refresh)
+        val state = RelayJson.decodeFromString(ListRefreshState.serializer(), """{"pending":["k57abc","k57def"]}""")
+        assertEquals(listOf("k57abc", "k57def"), state.pending)
+        assertTrue(RelayJson.decodeFromString(ListRefreshState.serializer(), """{"pending":[]}""").pending.isEmpty())
+    }
+
+    @Test
     fun readsFloatNumbersIntoIntegers() {
         val rows = RelayJson.decodeFromString(
             ListSerializer(SessionRow.serializer()),

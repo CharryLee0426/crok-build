@@ -59,6 +59,8 @@
     <string name="sessions_no_results">一致するセッションはありません。</string>
     <string name="sessions_archived_snackbar">セッションをアーカイブしました</string>
     <string name="sessions_action_failed">セッションを更新できませんでした：%1$s</string>
+    <string name="sessions_refresh">更新</string>
+    <string name="sessions_refresh_none_online">オンラインのコンピューターがありません。前回の一覧を表示しています。</string>
     <plurals name="sessions_unread">
         <item quantity="other">未読の返信 %d 件</item>
     </plurals>

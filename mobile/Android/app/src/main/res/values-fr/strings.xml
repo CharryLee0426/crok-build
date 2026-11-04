@@ -59,6 +59,8 @@
     <string name="sessions_no_results">Aucune session correspondante.</string>
     <string name="sessions_archived_snackbar">Session archivée</string>
     <string name="sessions_action_failed">Impossible de mettre à jour la session : %1$s</string>
+    <string name="sessions_refresh">Actualiser</string>
+    <string name="sessions_refresh_none_online">Aucun ordinateur n’est en ligne. La liste montre ce qu’ils ont listé la dernière fois.</string>
     <plurals name="sessions_unread">
         <item quantity="one">%d réponse non lue</item>
         <item quantity="many">%d réponses non lues</item>

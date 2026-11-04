@@ -59,6 +59,8 @@
     <string name="sessions_no_results">没有匹配的会话。</string>
     <string name="sessions_archived_snackbar">会话已归档</string>
     <string name="sessions_action_failed">无法更新会话：%1$s</string>
+    <string name="sessions_refresh">刷新</string>
+    <string name="sessions_refresh_none_online">没有在线的电脑。列表显示的是它们上次列出的会话。</string>
     <plurals name="sessions_unread">
         <item quantity="other">%d 条未读回复</item>
     </plurals>

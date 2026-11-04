@@ -59,6 +59,8 @@
     <string name="sessions_no_results">Keine passenden Sitzungen.</string>
     <string name="sessions_archived_snackbar">Sitzung archiviert</string>
     <string name="sessions_action_failed">Sitzung konnte nicht aktualisiert werden: %1$s</string>
+    <string name="sessions_refresh">Aktualisieren</string>
+    <string name="sessions_refresh_none_online">Kein Computer ist online. Die Liste zeigt, was sie zuletzt aufgelistet haben.</string>
     <plurals name="sessions_unread">
         <item quantity="one">%d ungelesene Antwort</item>
         <item quantity="other">%d ungelesene Antworten</item>

@@ -117,6 +117,17 @@ class EngineOverDemoTest {
     }
 
     @Test
+    fun refreshAsksTheOnlineComputersAndEndsWhenTheyListed() = await {
+        engine.sessions.active.first { it.live }
+        val computers = DemoData.state(0).devices.filter { it.isComputer }
+        val outcome = engine.sessions.refresh()
+        assertEquals(computers.count { it.online }, outcome.asked)
+        assertEquals(computers.count { !it.online }, outcome.offline)
+        assertTrue(outcome.pending.isEmpty() && !outcome.noneOnline)
+        assertTrue(!engine.sessions.isRefreshing.value)
+    }
+
+    @Test
     fun markAllAsReadClearsEveryUnreadSessionOfTheComputer() = await {
         val state = engine.sessions.active.first { it.live }
         val macbook = state.groups.filter { it.deviceId == DemoData.MACBOOK_ID }

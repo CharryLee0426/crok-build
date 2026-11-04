@@ -44,8 +44,8 @@ data class ConnectionTiming(
     val maxBackoffMs: Long = 120_000,
 )
 
-/** Why the connection is being checked. */
-enum class RecoveryReason { Foreground, Network, Stale, Unauthenticated }
+/** Why the connection is being checked; [Manual]: the person pressed Refresh while the connection was not live. */
+enum class RecoveryReason { Foreground, Network, Stale, Unauthenticated, Manual }
 
 /**
  * One relay transport and what the engine knows about it: signed in yet, replaced yet, mutations still running on it.
@@ -66,9 +66,9 @@ internal class Link(val transport: RelayTransport, val number: Int) {
  * last (re)connected, and the recovery that keeps it alive without the person killing the app (relay/DESIGN.md §5,
  * "Staying connected"):
  *
- * - on returning to the foreground, on the network coming back or changing, and when nothing has synced for
- *   [ConnectionTiming.staleAfterMs] while the network is up, it refreshes the token on the current socket; if no fresh
- *   result arrives within [ConnectionTiming.syncTimeoutMs], it replaces the transport;
+ * - on returning to the foreground, on the network coming back or changing, on Refresh while it is not live, and when
+ *   nothing has synced for [ConnectionTiming.staleAfterMs] while the network is up, it refreshes the token on the
+ *   current socket; if no fresh result arrives within [ConnectionTiming.syncTimeoutMs], it replaces the transport;
  * - `UNAUTHENTICATED` from any query or mutation refreshes the token and replaces the transport at once;
  * - `REVOKED` anywhere calls [onRevoked] (the phone signs out) and stops all of it.
  *
