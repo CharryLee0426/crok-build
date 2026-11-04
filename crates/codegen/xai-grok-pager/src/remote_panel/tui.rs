@@ -217,6 +217,8 @@ pub struct RemotePanel {
     error: Option<String>,
     /// A one-off line ("… is offline"), gone with the next key.
     notice: Option<String>,
+    /// `r` asked every online computer to list its sessions again and the answer is not in yet.
+    refreshing: bool,
     new: Option<NewSession>,
 }
 
@@ -238,6 +240,7 @@ impl RemotePanel {
             at_projects,
             error: None,
             notice: None,
+            refreshing: false,
             new: None,
         };
         (panel, Request::Sessions { generation })
@@ -351,6 +354,12 @@ impl RemotePanel {
                     }
                 }
                 new.refilter_models();
+                Applied::Nothing
+            }
+            Response::Refreshed { generation, result } if generation == self.generation => {
+                self.refreshing = false;
+                self.notice = Some(refresh_notice(result));
+                // The list itself arrives as it changes (`x.ai/remote/sessions_changed`).
                 Applied::Nothing
             }
             Response::Created { generation, result } if generation == self.generation => {
@@ -477,7 +486,7 @@ impl RemotePanel {
             filter_key_hint: None,
             filter_active: false,
             header_note: None,
-            action_keys: &[('n', "new")],
+            action_keys: &[('n', "new"), ('r', "refresh")],
             disable_search: false,
             compact_bottom_bar: false,
             search_only_on_slash: false,
@@ -513,6 +522,7 @@ impl RemotePanel {
             PickerOutcome::Expand(at) => self.expand(at),
             PickerOutcome::Collapse(at) => self.collapse(at),
             PickerOutcome::Action('n') => self.start_new(),
+            PickerOutcome::Action('r') => self.refresh(),
             PickerOutcome::QueryChanged => {
                 if self.filtering() {
                     self.rebuild(None);
@@ -620,6 +630,18 @@ impl RemotePanel {
     }
 
     /// `n`: a new session in the selected project (or the selected session's).
+    /// `r`: every online computer lists all its sessions again now, rather than at its next check. A second `r` while
+    /// one runs does nothing.
+    fn refresh(&mut self) -> Outcome {
+        if self.refreshing {
+            return Outcome::Unchanged;
+        }
+        self.refreshing = true;
+        Outcome::Request(Request::Refresh {
+            generation: self.generation,
+        })
+    }
+
     fn start_new(&mut self) -> Outcome {
         let Some((c, p)) = self.selected_row().and_then(|row| row.kind.project()) else {
             self.notice =
@@ -796,6 +818,7 @@ impl RemotePanel {
                 hint(tl("←→ fold")),
                 hint(tl("Enter open")),
                 hint(tl("n new")),
+                hint(tl("r refresh")),
                 hint(tl("type to filter")),
                 hint(esc),
             ],
@@ -925,6 +948,11 @@ impl RemotePanel {
             warn(notice.clone())
         } else if let Some(error) = &self.error {
             warn(error.clone())
+        } else if self.refreshing {
+            Line::from(Span::styled(
+                tl("Refreshing: every online computer lists its sessions again…").to_string(),
+                dim,
+            ))
         } else if self.loaded && !self.signed_in {
             Line::from(Span::styled(
                 tl("Connecting to the relay…").to_string(),
@@ -1085,6 +1113,28 @@ impl Cells {
             expanded: false,
             dimmed: false,
         }
+    }
+}
+
+/// The line `r` leaves once its answer is in.
+fn refresh_notice(result: Result<serde_json::Value, String>) -> String {
+    let count =
+        |value: &serde_json::Value, key: &str| value.get(key).and_then(serde_json::Value::as_f64);
+    match result {
+        Err(error) => tlf("Could not refresh: {error}", &[("error", &error)]),
+        Ok(answer) if count(&answer, "asked").unwrap_or(0.0) < 1.0 => {
+            tl("No computer is online. The list shows what they listed last.").to_string()
+        }
+        Ok(answer)
+            if answer
+                .get("pending")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|pending| !pending.is_empty()) =>
+        {
+            tl("Some computers did not answer in time; their sessions show at their next check.")
+                .to_string()
+        }
+        Ok(_) => tl("Every online computer listed its sessions again.").to_string(),
     }
 }
 
@@ -1303,6 +1353,10 @@ impl RemotePanel {
 
     pub(crate) fn notice_for_test(&self) -> Option<&str> {
         self.notice.as_deref()
+    }
+
+    pub(crate) fn refreshing_for_test(&self) -> bool {
+        self.refreshing
     }
 
     /// `tree`, `model`, `thinking` or `creating`.

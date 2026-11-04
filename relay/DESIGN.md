@@ -738,7 +738,9 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   kept current with `x.ai/remote/sessions {watch: true}`. Online computers start expanded, offline ones folded.
   Keys: ↑/↓ move, → or Enter on a computer or project expands it, ← folds it (or moves to the parent), Enter on a
   session opens it here (as picking a `relay:` row in `/resume` does), `n` starts a new session in the selected
-  project (or the selected session's project), typing filters (title, project, folder, computer), Esc clears the filter
+  project (or the selected session's project), `r` refreshes (every online computer lists its sessions again,
+  `x.ai/remote/refresh`; the line under the header says so while it runs, then how it went: done, no computer online,
+  some did not answer in time, or the error), typing filters (title, project, folder, computer), Esc clears the filter
   or closes. A new session asks, in the same panel, for the model (that computer's list from `x.ai/remote/models`:
   "Default" first, then each model with its description, filtered by typing) and then for the thinking level when the
   chosen model has levels ("Default" first); it then calls `x.ai/remote/new_session {deviceId, path, model?, effort?}`

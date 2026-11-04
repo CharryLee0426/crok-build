@@ -663,3 +663,84 @@ fn the_panel_draws_the_tree_and_the_new_session_steps() {
         "{text}"
     );
 }
+
+/// `r`: one Refresh at a time; its answer leaves a line saying how it went (the list itself arrives as it changes).
+#[test]
+fn r_refreshes_every_computer_and_says_how_it_went() {
+    use xai_grok_i18n::{tl, tlf};
+    let mut panel = panel(false);
+    let generation = panel.generation();
+    assert_eq!(
+        press(&mut panel, KeyCode::Char('r')),
+        Outcome::Request(Request::Refresh { generation })
+    );
+    assert!(panel.refreshing_for_test());
+    // A second `r` while it runs asks nothing more.
+    assert_eq!(press(&mut panel, KeyCode::Char('r')), Outcome::Unchanged);
+    let text = rendered(&mut panel, 120, 30);
+    assert!(
+        text.contains(tl(
+            "Refreshing: every online computer lists its sessions again…"
+        )),
+        "{text}"
+    );
+    // An answer meant for another panel changes nothing.
+    assert_eq!(
+        panel.apply(Response::Refreshed {
+            generation: generation + 1_000,
+            result: Ok(json!({ "asked": 1, "offline": 0, "pending": [] })),
+        }),
+        Applied::Nothing
+    );
+    assert!(panel.refreshing_for_test());
+
+    let answers = [
+        (
+            Ok(json!({ "asked": 1, "offline": 1, "pending": [] })),
+            tl("Every online computer listed its sessions again.").to_string(),
+        ),
+        (
+            Ok(json!({ "asked": 0, "offline": 2, "pending": [] })),
+            tl("No computer is online. The list shows what they listed last.").to_string(),
+        ),
+        (
+            Ok(json!({ "asked": 2, "offline": 0, "pending": ["d1"] })),
+            tl("Some computers did not answer in time; their sessions show at their next check.")
+                .to_string(),
+        ),
+        (
+            Err("The relay did not answer in time.".to_string()),
+            tlf(
+                "Could not refresh: {error}",
+                &[("error", &"The relay did not answer in time.")],
+            ),
+        ),
+    ];
+    for (result, said) in answers {
+        if !panel.refreshing_for_test() {
+            assert_eq!(
+                press(&mut panel, KeyCode::Char('r')),
+                Outcome::Request(Request::Refresh { generation })
+            );
+        }
+        assert_eq!(
+            panel.apply(Response::Refreshed { generation, result }),
+            Applied::Nothing
+        );
+        assert!(!panel.refreshing_for_test());
+        assert_eq!(panel.notice_for_test(), Some(said.as_str()));
+    }
+    // The tree is still there; the next key clears the line.
+    assert_eq!(panel.selected_key_for_test(), Some(computer("d1")));
+    press(&mut panel, KeyCode::Down);
+    assert_eq!(panel.notice_for_test(), None);
+}
+
+/// While a new session's model is being picked, `r` is typed into the filter, not a Refresh.
+#[test]
+fn r_in_the_model_filter_is_just_a_letter() {
+    let mut panel = at_model_step(0);
+    assert_eq!(press(&mut panel, KeyCode::Char('r')), Outcome::Changed);
+    assert!(!panel.refreshing_for_test());
+    assert_eq!(panel.step_for_test(), "model");
+}
