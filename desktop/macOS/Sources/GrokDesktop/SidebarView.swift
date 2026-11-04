@@ -133,7 +133,16 @@ struct SidebarView: View {
     /// session makes a task here that the other computer runs; a folder's New task starts one there.
     @ViewBuilder
     private func otherComputers(now: Date) -> some View {
-        SidebarSectionHeader(title: L10n.t("remote_other_computers", "Other computers"))
+        SidebarSectionHeader(title: L10n.t("remote_other_computers", "Other computers")) {
+            if store.remoteRefreshing {
+                ProgressView().controlSize(.mini).frame(width: 24, height: 24)
+                    .help(L10n.t("remote_refreshing", "Listing every computer's sessions again…"))
+            } else {
+                IconButton(icon: "arrow.clockwise", help: L10n.t("remote_refresh_help", "Refresh: list every computer's sessions again"), size: 24) {
+                    store.refreshRemoteSessions()
+                }
+            }
+        }
         ForEach(store.remoteComputers) { computer in
             let key = "computer:\(computer.deviceID)"
             let expanded = Binding(get: { !collapsedComputers.contains(key) },

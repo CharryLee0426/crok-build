@@ -59,6 +59,8 @@ final class AppStore: ObservableObject {
     var remoteTurns: [UUID: String] = [:]
     /// The person's other computers and their sessions, from the remote host (see `RemoteSessions.swift`).
     @Published var remoteComputers: [RemoteComputer] = []
+    /// Sidebar › Other computers › Refresh is under way (`refreshRemoteSessions`).
+    @Published var remoteRefreshing = false
     /// This Mac's sessions that another device started and that are working there now (crok session ids): their
     /// tasks show as working while no harness of this app runs them.
     @Published var workingElsewhere: Set<String> = []
