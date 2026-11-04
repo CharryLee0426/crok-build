@@ -174,6 +174,20 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         observe { world in try world.slashCommands(for: sessionDocId) }
     }
 
+    /// The online computers answer at once: the demo's lists are always current.
+    func refresh() async throws -> RefreshAnswer {
+        try await mutate(.milliseconds(300)) { world in
+            let computers = world.devices.filter { $0.kind == .computer }
+            let online = computers.filter(\.online).count
+            return RefreshAnswer(
+                asked: Double(online), offline: Double(computers.count - online), at: Date().timeIntervalSince1970 * 1000)
+        }
+    }
+
+    func refreshState(since: Double) -> RelayStream<RefreshState> {
+        observe { _ in RefreshState(pending: []) }
+    }
+
     // MARK: CommandsAPI
 
     func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String, attachments: [AttachmentInput])

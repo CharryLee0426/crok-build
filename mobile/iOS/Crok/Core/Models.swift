@@ -615,6 +615,31 @@ struct CreatedSession: Decodable, Sendable, Equatable {
     var commandId: DocID
 }
 
+/// `sessions:refresh`: how many online computers list every session again now (`asked`), how many cannot until crok
+/// runs there (`offline`), and the relay's time of the request, which `sessions:refreshState` follows.
+struct RefreshAnswer: Decodable, Sendable, Equatable {
+    var asked: Double
+    var offline: Double
+    var at: Double
+}
+
+/// `sessions:refreshState`: the online computers still listing their sessions for a refresh; empty once each is done.
+struct RefreshState: Decodable, Sendable, Equatable {
+    var pending: [DocID]
+}
+
+/// How a Refresh of the session list ended.
+enum SessionsRefreshOutcome: Equatable, Sendable {
+    /// Every computer asked listed its sessions again.
+    case done
+    /// Not every computer finished within the wait (an older crok answers at its next regular listing); the list
+    /// updates by itself when they do.
+    case timedOut
+    /// No computer was online: the list shows what they listed last.
+    case noneOnline
+    case failed(RelayError)
+}
+
 /// A row of `devices:list`.
 struct DeviceRow: Codable, Identifiable, Hashable, Sendable {
     var id: DocID

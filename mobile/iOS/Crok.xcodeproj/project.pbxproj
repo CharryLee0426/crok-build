@@ -16,6 +16,7 @@
 		13D86926F993A965D0FB1231 /* LinkComputerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2060727D6EA5E0E31525C6 /* LinkComputerView.swift */; };
 		161D03BA3330E6D6504C7DDE /* ProjectSessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33321DBDCE147480FB1FA3B8 /* ProjectSessionsView.swift */; };
 		18327BEBB14F14C4962240A0 /* SessionTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37493FCD7C9719F46E33364 /* SessionTheme.swift */; };
+		1CFD338D879E8625D3CE5AEA /* RefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40AD153880737CF9B8B7F318 /* RefreshTests.swift */; };
 		1D7E3E542CA9EE9A5A7CD96C /* TabBarMenus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9337329A10937F84DECCDB4D /* TabBarMenus.swift */; };
 		1DE75E40A3F21934BA19C712 /* BotCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51082517C551FF37F83E6EFB /* BotCard.swift */; };
 		1F96AFCE9B91AC7DE166D76C /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FDABAC8CADA01C707C9853E /* MarkdownDocument.swift */; };
@@ -165,6 +166,7 @@
 		372D738CBD3D77E5C4F6015D /* AttachmentComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentComposer.swift; sourceTree = "<group>"; };
 		3CE756A21324334DBC7A6F7C /* LocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationTests.swift; sourceTree = "<group>"; };
 		3FE0696993188B4A1986965C /* MathExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathExtractor.swift; sourceTree = "<group>"; };
+		40AD153880737CF9B8B7F318 /* RefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshTests.swift; sourceTree = "<group>"; };
 		467FABAD48264D1623365A0E /* SessionInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionInfoView.swift; sourceTree = "<group>"; };
 		4A97C5389CA312DA8728D63E /* RelayDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayDecodingTests.swift; sourceTree = "<group>"; };
 		4AF527A06A5580BE7CB9BE96 /* AttachmentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentsTests.swift; sourceTree = "<group>"; };
@@ -285,6 +287,7 @@
 				20BD45FF0D8C253C67A750D8 /* O11yTests.swift */,
 				4E3BA4E75727F42E8DA61ECB /* ProjectGroupsTests.swift */,
 				6A91FB48FEFC747B83C052EC /* QueryHubTests.swift */,
+				40AD153880737CF9B8B7F318 /* RefreshTests.swift */,
 				4A97C5389CA312DA8728D63E /* RelayDecodingTests.swift */,
 				63AA939AF8973229B03943FA /* TranscriptBuilderTests.swift */,
 				908A7A0EDD095083A496E3BF /* TranscriptWindowTests.swift */,
@@ -759,6 +762,7 @@
 				27067CA75C5B4C52A27FA2D5 /* O11yTests.swift in Sources */,
 				9AC34D52DBAC81CDD13EF40A /* ProjectGroupsTests.swift in Sources */,
 				B3E9DEBD9F9596630709840F /* QueryHubTests.swift in Sources */,
+				1CFD338D879E8625D3CE5AEA /* RefreshTests.swift in Sources */,
 				20406EE9CE921D29B8B52E2D /* RelayDecodingTests.swift in Sources */,
 				0235E0E3C2B09BCAE865F855 /* TranscriptBuilderTests.swift in Sources */,
 				BB002A25BA56250B3577C40C /* TranscriptWindowTests.swift in Sources */,

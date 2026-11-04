@@ -19,7 +19,7 @@ struct ConnectionKeeper: Equatable, Sendable {
     }
 
     /// Why a recovery started.
-    enum Trigger: Equatable, Sendable { case foreground, network, stalled, unauthenticated }
+    enum Trigger: Equatable, Sendable { case foreground, network, stalled, unauthenticated, manual }
 
     /// Not synced for this long while the network is up: start a recovery.
     static let stallAfter: TimeInterval = 20
@@ -100,6 +100,20 @@ struct ConnectionKeeper: Equatable, Sendable {
 
     mutating func enteredBackground() {
         isActive = false
+    }
+
+    /// The person asked for a fresh list (Refresh, pull to refresh). A connection that is not live recovers now rather
+    /// than when the watchdog would (`stallAfter`); a live one has nothing to do.
+    mutating func refreshRequested(now: Date) -> [Action] {
+        guard !synced else { return [] }
+        return recover(.manual, now: now)
+    }
+
+    /// A Refresh got no answer in time although the socket looked live: it is not. Recover as on returning to the
+    /// foreground (say "Updating…" until the socket proves itself).
+    mutating func refreshUnanswered(now: Date) -> [Action] {
+        markUnsynced(now)
+        return recover(.manual, now: now)
     }
 
     mutating func unauthenticated(now: Date) -> [Action] {

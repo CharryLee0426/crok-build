@@ -538,6 +538,14 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         observe("sessions:commands", ["sessionDocId": .string(sessionDocId)])
     }
 
+    func refresh() async throws -> RefreshAnswer {
+        try await call("sessions:refresh")
+    }
+
+    func refreshState(since: Double) -> RelayStream<RefreshState> {
+        observe("sessions:refreshState", ["since": .number(since)])
+    }
+
     // MARK: CommandsAPI
 
     func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String, attachments: [AttachmentInput])

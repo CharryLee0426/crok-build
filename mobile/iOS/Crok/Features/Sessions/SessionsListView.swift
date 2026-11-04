@@ -13,6 +13,9 @@ struct SessionsListView: View {
     @State private var pickedTarget: NewSessionTarget?
     @State private var actionError: RelayError?
     @State private var editMode: EditMode = .inactive
+    /// The Refresh under way came from pulling the list: its own spinner shows, not the toolbar's.
+    @State private var pulling = false
+    @State private var showsNoneOnline = false
 
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
     private var isEditing: Bool { editMode.isEditing }
@@ -32,6 +35,9 @@ struct SessionsListView: View {
                     ComputerTitleMenu()
                 }
                 if !isEditing {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        refreshButton
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             showsNewSession = true
@@ -60,6 +66,11 @@ struct SessionsListView: View {
                 }
             }
             .toolbar(isEditing ? .hidden : .automatic, for: .tabBar)
+            .refreshable {
+                pulling = true
+                await refresh()
+                pulling = false
+            }
             .environment(\.editMode, $editMode)
             .onAppear { engine.archivedList.start() }
             .onChange(of: isSearching) { _, searching in
@@ -82,6 +93,36 @@ struct SessionsListView: View {
                 NewSessionPicker(groups: groups) { target in pickedTarget = target }
             }
             .relayErrorAlert($actionError)
+            .noComputerOnlineAlert($showsNoneOnline)
+    }
+
+    // MARK: Refresh
+
+    /// Every computer lists its sessions again (`CrokEngine.refreshSessions`); a spinner while it runs.
+    @ViewBuilder
+    private var refreshButton: some View {
+        if engine.isRefreshing && !pulling {
+            ProgressView()
+                .accessibilityLabel(Text("Refresh"))
+                .accessibilityIdentifier("refreshProgress")
+        } else {
+            Button {
+                Task { await refresh() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .disabled(engine.isRefreshing || engine.computers.isEmpty)
+            .accessibilityLabel(Text("Refresh"))
+            .accessibilityIdentifier("refreshButton")
+        }
+    }
+
+    private func refresh() async {
+        switch await engine.refreshSessions() {
+        case .failed(let error): actionError = error
+        case .noneOnline: showsNoneOnline = true
+        case .done, .timedOut: break
+        }
     }
 
     // MARK: List
@@ -423,6 +464,13 @@ struct SessionLink: View {
 
 extension View {
     /// "Couldn't do that" with the relay's message.
+    /// A Refresh found no computer online to list its sessions.
+    func noComputerOnlineAlert(_ isPresented: Binding<Bool>) -> some View {
+        alert("No computer is online. The list shows what they listed last.", isPresented: isPresented) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
     func relayErrorAlert(_ error: Binding<RelayError?>) -> some View {
         alert(
             "Couldn't do that", isPresented: Binding(get: { error.wrappedValue != nil }, set: { if !$0 { error.wrappedValue = nil } }),

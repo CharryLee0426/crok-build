@@ -36,6 +36,11 @@ protocol SessionsAPI: Sendable {
     ) async throws -> CreatedSession
     /// The session's slash commands as its computer advertises them (`sessions:commands`).
     func slashCommands(_ sessionDocId: DocID) -> RelayStream<SlashCommandList>
+    /// Refresh (`sessions:refresh`): every online computer lists all its sessions again now, so the list catches up on
+    /// sessions made, renamed or deleted there that the relay missed.
+    func refresh() async throws -> RefreshAnswer
+    /// The computers still listing for the refresh asked for at `since` (`sessions:refreshState`, `RefreshAnswer.at`).
+    func refreshState(since: Double) -> RelayStream<RefreshState>
 }
 
 extension SessionsAPI {

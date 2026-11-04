@@ -177,6 +177,8 @@ private final class FailingReorderRelay: RelayBackend, SessionsAPI, @unchecked S
             attachments: attachments)
     }
     func slashCommands(_ sessionDocId: DocID) -> RelayStream<SlashCommandList> { demo.slashCommands(sessionDocId) }
+    func refresh() async throws -> RefreshAnswer { try await demo.refresh() }
+    func refreshState(since: Double) -> RelayStream<RefreshState> { demo.refreshState(since: since) }
 
     func reorderProjects(_ keys: [String]) async throws {
         try await Task.sleep(for: .milliseconds(100))
