@@ -97,7 +97,7 @@ the same tiny auth surface, and lets the person see and revoke every linked devi
 | `modelLists` | the models a computer's crok can run, with their thinking levels | `bridge.setModels` | one per computer, the latest from any of its processes (§2, "Model and thinking level") |
 | `sessions` | a crok session on a computer: mirrored live, or listed from disk | `bridge.upsertSession`, `bridge.catalogBatch`, `bridge.catalogUpdate`, `bridge.setPending` | title, cwd, `projectPath`, model, status, `online`, preview, plan, usage, unread counters, `position`, `historyState`, `pending` (a permission request), `startedFrom` (the device that started it, `sessions:create`) |
 | `projects` | a folder sessions are grouped under, per computer | `bridge`, `sessions.reorderProjects` | `path`, `position` (hand-placed order) |
-| `catalogSyncs` | the last "list every session on disk" per computer | `bridge.beginCatalog/finishCatalog`, `bridge.connect/heartbeat`, the cron | one crok process per computer holds it (`hostId`) and keeps it current; `released` once that process is gone |
+| `catalogSyncs` | the last "list every session on disk" per computer | `bridge.beginCatalog/finishCatalog`, `bridge.connect/heartbeat`, the cron, `sessions.refresh` | one crok process per computer holds it (`hostId`) and keeps it current; `released` once that process is gone; `refreshAt` when someone last pressed Refresh |
 | `events` | one transcript item | `bridge.pushEvents` | `seq` order, `key` for in-place updates (streaming text, tool status); a prompt's `attachments` |
 | `commands` | a prompt / stop / info / answer / history / create / config request | viewers; `bridge.claim/complete` | `pending → delivered → done/failed`, `clientId` for idempotency; `interactionId` for an answer; `configId` for a config change; a prompt's `attachments` |
 | `files` | an upload in the relay's file storage that a prompt or transcript item carries | `commands.sendPrompt`, `sessions.create`, `bridge.pushEvents` | owner, the session it belongs to, the storage's `sha256`; deleted with the session or its transcript (§2, "Photos and files") |
@@ -151,6 +151,15 @@ computer lists the sessions; when it is gone (it quit, or stopped heartbeating),
 the catalog and holds it from then on. A computer whose crok starts again therefore lists its sessions at once. An
 older crok (without `catalog` in its `features`) uploads every 10 minutes and sends nothing in between; a current one
 takes its catalog over after those 10 minutes.
+
+**Refresh.** The web, the phones and Crok Desktop have a Refresh button for when a list looks stale.
+`sessions:refresh` stamps `refreshAt` on the catalog of every online computer of the person; while `refreshAt` is
+later than the last upload's start, every crok there sees `catalogWanted`, the holder too, and the first to ask
+(`bridge:beginCatalog`, granted at once, however recently it listed, once an upload under way is done) lists every
+session again: a full upload, which also drops sessions deleted there and corrects anything the relay missed. It
+becomes the holder. `sessions:refreshState({since})` names the computers still listing; the button spins until none
+is (at most 15 s: a crok that predates Refresh, alone on its computer, holds the catalog without answering it and lists
+again only at its next check). Offline computers cannot list; the list keeps what they listed last.
 
 ### Prompts for sessions nobody runs
 
@@ -330,6 +339,8 @@ callback.
 | `sessions:reorderProjects` (mutation) | `keys: string[]` | `null` — some project keys in their new order (all, or one computer's) |
 | `sessions:reorderSessions` (mutation) | `projectKey, sessionDocIds: string[]` | `null` — some of the project's sessions in their new order |
 | `sessions:resetOrder` (mutation) | `projectKey?` | `null` — with a key: that project's sessions back to newest first; without: the projects |
+| `sessions:refresh` (mutation) | — | `{asked, offline, at}` — Refresh (§2, "Every session, not only running ones"): every online computer lists all its sessions again now; `asked` = those computers, `offline` = the ones that cannot (their sessions stay as last listed), `at` for `refreshState` |
+| `sessions:refreshState` (query) | `since` (`refresh`'s `at`) | `{pending: [deviceId]}` — the online computers still listing for that refresh; empty = done. Clients stop waiting after 15 s |
 
 A **row** is `{_id, sessionId, title, cwd, model, gitBranch, usage, status, online, app, deviceId, deviceName,
 deviceOnline, preview, previewKind, lastActivityAt, pinned, archived, unread, plan: null|{done,total}, projectKey,
@@ -516,9 +527,9 @@ A block whose queries fail becomes an `error` block; the page still builds. Pane
 | `bridge:setBranch` | `hostId, sessionId, branch` | `null` — the branch a git command on that computer checked out, for a session another process may run (it does not mark the session open) |
 | `bridge:closeSession` | `hostId, sessionId` | `null` |
 | `bridge:pushEvents` | `hostId, sessionDocId, replace?, onlyExisting?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, attachments?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history); `attachments` as stored (`{storageId?, thumbId?, name, mimeType, size, kind, width?, height?}`, no URLs): uploads are claimed for the session, files without `storageId` kept by name; `onlyExisting` updates items already there and adds none |
-| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, attachments, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `attachments`: a prompt's or `create`'s photos and files with their download `url`/`thumbUrl` (`[]` when none; only hosts listing `attachments` get commands with some); `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt` (one with a choice only to hosts that apply it: `setup` or `git` in `features`); `hosted` = the sessions the relay has this host running; `catalogWanted`: no crok keeps this computer's catalog (the holder is gone, or there never was one), so ask `beginCatalog` now |
+| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, attachments, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `attachments`: a prompt's or `create`'s photos and files with their download `url`/`thumbUrl` (`[]` when none; only hosts listing `attachments` get commands with some); `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt` (one with a choice only to hosts that apply it: `setup` or `git` in `features`); `hosted` = the sessions the relay has this host running; `catalogWanted`: no crok keeps this computer's catalog (the holder is gone, or there never was one), or someone pressed Refresh since the last listing began, so ask `beginCatalog` now (the holder too) |
 | `bridge:setPending` | `hostId, sessionId, pending?` | `null` — the session's permission request, or none (absent) once answered or gone |
-| `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another running host holds the catalog and keeps it current, did it lately, or is doing it; the holder itself again after 30 min, an older one after 10) — a grant makes this host the holder |
+| `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another running host holds the catalog and keeps it current, did it lately, or is doing it; the holder itself again after 30 min, an older one after 10; after a Refresh, any host at once unless an upload is under way) — a grant makes this host the holder |
 | `bridge:catalogBatch` | `hostId, syncId, sessions:[{sessionId, title, cwd, projectPath, createdAt, lastActivityAt, model?, effort?, gitBranch?, preview?}]` (≤100) | `{added}` |
 | `bridge:finishCatalog` | `hostId, syncId, sessionIds: string[]` (all listed) | `{removed}` — offline sessions of this computer not listed are dropped |
 | `bridge:catalogUpdate` | `hostId, syncId, sessions:[catalog entry]` (≤100), `removed: string[]` (≤500) | `{added, removed}` — what changed on disk since the holder's last upload or update; `EXPIRED` once another host holds the catalog |
@@ -746,7 +757,10 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   opens it as a task (`relay:` session id, kept under a hidden project whose folder is the app's own) that the other
   computer runs. An approval answered on another device leaves the task. The remote host asks for the list as soon as
   it is up, again whenever its relay link (re)connects, and every few seconds while the answer is still empty (not
-  signed in yet), then renews the watch every 4 minutes.
+  signed in yet), then renews the watch every 4 minutes. The section header's **Refresh** button (↻, a spinner while
+  it runs) asks every online computer to list its sessions again (`x.ai/remote/refresh` through the remote host:
+  `sessions:refresh`, then `sessions:refreshState` until none is pending or 15 s), then asks for the list anew; with
+  no remote host running, it starts one now instead of at its next retry.
 - A session another device started on this Mac (`here`) is one of the Mac's own tasks: it appears in its project as
   soon as the relay lists it (the project is added when the app has none for that folder), unread, titled as the relay
   has it until it is opened, working while a turn runs there (and unread when that turn ends), and opens like any task

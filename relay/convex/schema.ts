@@ -321,6 +321,11 @@ export default defineSchema({
     finishedAt: v.optional(v.number()),
     /** The holder is gone (it quit or lost its connection): the computer's other crok processes list them now. */
     released: v.optional(v.boolean()),
+    /**
+     * When someone last pressed Refresh (`sessions:refresh`): the computer lists every session again at once, and the
+     * refresh is done once an upload that started at or after this time has finished.
+     */
+    refreshAt: v.optional(v.number()),
   }).index("by_device", ["deviceId"]),
 
   /** One transcript item. Streaming text updates the same row (same `key`). */

@@ -7,6 +7,7 @@ import { mutation, query } from "./_generated/server";
 import type { Viewer } from "./lib/auth";
 import { claimAttachments, withUrls } from "./files";
 import { fail, requireSession, requireViewer, viewerLabel } from "./lib/auth";
+import { refreshPending } from "./lib/catalog";
 import {
   MAX_LIST,
   buildGroups,
@@ -585,6 +586,67 @@ export const resetOrder = mutation({
       if (project.position !== undefined) await ctx.db.patch(project._id, { position: undefined });
     }
     return null;
+  },
+});
+
+/**
+ * Refresh: every online computer of the person lists all its sessions again now (a full catalog upload, not the 30 s
+ * check for changes), so sessions made, renamed or deleted there that the relay missed show up. `asked`: the computers
+ * that will; `offline`: the ones that cannot until crok runs there again (the list keeps what they listed last); `at`:
+ * pass it to `refreshState` to follow this refresh.
+ */
+export const refresh = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const viewer = await requireViewer(ctx);
+    const now = Date.now();
+    const devices = await ctx.db
+      .query("devices")
+      .withIndex("by_user", (q) => q.eq("userId", viewer.user._id))
+      .collect();
+    let asked = 0;
+    let offline = 0;
+    for (const device of devices) {
+      if (device.kind !== "computer" || device.revokedAt !== undefined) continue;
+      if (!device.online) {
+        offline += 1;
+        continue;
+      }
+      asked += 1;
+      const sync = await ctx.db
+        .query("catalogSyncs")
+        .withIndex("by_device", (q) => q.eq("deviceId", device._id))
+        .unique();
+      // No row: nobody listed this computer yet, and its crok processes are asked to already (`catalogWanted`).
+      if (sync) await ctx.db.patch(sync._id, { refreshAt: now });
+    }
+    return { asked, offline, at: now };
+  },
+});
+
+/**
+ * The person's online computers still listing their sessions for a refresh asked for at or after `since` (`refresh`'s
+ * `at`): `pending` is empty once each has finished. A computer whose crok predates refresh may not answer until its
+ * next regular listing, so clients stop waiting after a while.
+ */
+export const refreshState = query({
+  args: { since: v.number() },
+  handler: async (ctx, { since }) => {
+    const viewer = await requireViewer(ctx);
+    const devices = await ctx.db
+      .query("devices")
+      .withIndex("by_user", (q) => q.eq("userId", viewer.user._id))
+      .collect();
+    const pending: Id<"devices">[] = [];
+    for (const device of devices) {
+      if (device.kind !== "computer" || device.revokedAt !== undefined || !device.online) continue;
+      const sync = await ctx.db
+        .query("catalogSyncs")
+        .withIndex("by_device", (q) => q.eq("deviceId", device._id))
+        .unique();
+      if (sync && refreshPending(sync, since)) pending.push(device._id);
+    }
+    return { pending };
   },
 });
 

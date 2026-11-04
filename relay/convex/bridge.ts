@@ -4,6 +4,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { fail, requireHost, requireViewer } from "./lib/auth";
+import { refreshWanted } from "./lib/catalog";
 import { ensureProject, inferProjectPath } from "./lib/projects";
 import { claimEventAttachments, withUrls } from "./files";
 import { appendNotice, isStarting, opensWithSetup, supports, takesAttachments } from "./lib/starting";
@@ -567,12 +568,13 @@ export const inbox = query({
     )
       .filter((s) => s.online)
       .map((s) => s.sessionId);
-    // Nobody keeps this computer's list of sessions current: the first crok here to ask does (`beginCatalog`).
+    // Nobody keeps this computer's list of sessions current, or someone pressed Refresh since the last listing began:
+    // the first crok here to ask lists the sessions now (`beginCatalog`).
     const catalog = await ctx.db
       .query("catalogSyncs")
       .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))
       .unique();
-    const catalogWanted = !catalog || catalog.released === true;
+    const catalogWanted = !catalog || catalog.released === true || refreshWanted(catalog);
     return { commands, views, hosted, catalogWanted, serverTime: now };
   },
 });
@@ -784,8 +786,9 @@ function keepsCatalogCurrent(host: Doc<"hosts"> | null): boolean {
  * Starts listing this computer's sessions. The process that last listed them (the holder) lists them again every
  * CATALOG_RESYNC_MS when it sends what changes in between, else every CATALOG_INTERVAL_MS. Another process takes over
  * at once when the holder is gone (so a computer whose crok starts again lists its sessions right away), or after
- * CATALOG_INTERVAL_MS when the holder is an older crok that sends nothing in between. Returns the upload's id, or null
- * when there is nothing to do.
+ * CATALOG_INTERVAL_MS when the holder is an older crok that sends nothing in between. After a Refresh
+ * (`sessions:refresh`), the first process to ask lists them at once, holder or not, once an upload under way is done.
+ * Returns the upload's id, or null when there is nothing to do.
  */
 export const beginCatalog = mutation({
   args: { hostId: v.id("hosts") },
@@ -800,7 +803,7 @@ export const beginCatalog = mutation({
       const holder = last.hostId === hostId ? null : await ctx.db.get(last.hostId);
       const holderRunning = last.hostId === hostId || Boolean(holder?.online);
       if (last.finishedAt === undefined && holderRunning && now - last.startedAt < CATALOG_STALE_MS) return null;
-      if (last.finishedAt !== undefined && holderRunning) {
+      if (last.finishedAt !== undefined && holderRunning && !refreshWanted(last)) {
         if (last.hostId !== hostId && keepsCatalogCurrent(holder)) return null;
         const interval = last.hostId === hostId && keepsCatalogCurrent(host) ? CATALOG_RESYNC_MS : CATALOG_INTERVAL_MS;
         if (now - last.finishedAt < interval - CATALOG_SLACK_MS) return null;
