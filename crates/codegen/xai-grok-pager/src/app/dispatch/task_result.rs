@@ -1858,6 +1858,33 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             tlf("Couldn't load session usage: {error}", &[("error", &error)]),
             nonce,
         ),
+        TaskResult::FeedbackRatingComplete {
+            agent_id,
+            turn_number,
+            rating,
+            error,
+        } => {
+            if let Some(error) = error {
+                tracing::warn!(
+                    agent = ?agent_id,
+                    turn_number,
+                    rating,
+                    %error,
+                    "per-turn feedback rating failed"
+                );
+                if let Some(agent) = app.agents.get_mut(&agent_id) {
+                    agent
+                        .scrollback
+                        .push_block(crate::scrollback::block::RenderBlock::system(
+                            tlf(
+                                "Couldn't send your feedback: {error}",
+                                &[("error", &error)],
+                            ),
+                        ));
+                }
+            }
+            vec![]
+        }
         TaskResult::FeedbackComplete {
             agent_id,
             origin,

@@ -1,6 +1,7 @@
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { AttachmentView, OutgoingAttachment } from "./attachments";
 
 /** Row shapes straight from the relay's API (relay/convex), so the UI follows the contract when it changes. */
 export type SessionRow = FunctionReturnType<typeof api.sessions.list>[number];
@@ -51,6 +52,8 @@ export type OutboxItem = {
   createdAt: number;
   /** Set when `commands:sendPrompt` itself failed (network, offline); the relay never saw it. */
   error?: string;
+  /** The photos and files it carries (uploaded already), with the local copies the bubble shows. */
+  attachments?: OutgoingAttachment[];
 };
 
 /** What the transcript shows below the loaded events for a prompt that has no user event yet. */
@@ -63,4 +66,8 @@ export type PendingPrompt = {
   /** Relay command id once there is one (Retry/Delete go through `commands:retry` / `discard`). */
   commandId?: CommandId;
   clientId?: string | null;
+  /** Its photos and files, as the bubble shows them. */
+  attachments?: AttachmentView[];
+  /** For a prompt the relay never took (no `commandId`): the uploads Retry sends again. */
+  outgoing?: OutgoingAttachment[];
 };

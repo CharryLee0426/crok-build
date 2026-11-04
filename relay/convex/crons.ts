@@ -6,4 +6,6 @@ const crons = cronJobs();
 crons.interval("mark offline hosts, fail unanswered commands", { minutes: 1 }, internal.maintenance.sweep, {});
 crons.daily("prune sessions idle for 30 days", { hourUTC: 4, minuteUTC: 20 }, internal.maintenance.pruneOldSessions, {});
 
+crons.hourly("delete uploads no prompt claimed", { minuteUTC: 40 }, internal.files.sweep, {});
+
 export default crons;

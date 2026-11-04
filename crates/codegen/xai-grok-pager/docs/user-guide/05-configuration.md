@@ -97,6 +97,7 @@ ui_language = "auto"                   # interface language: "auto" | "en" | "zh
 [features]
 telemetry = false                      # anonymous usage telemetry
 feedback = true                        # feedback system (default: true)
+feedback_prompt = true                 # ask /good, /not-so-well or /dont-show-again after a turn (default: true)
 lsp_tools = false                      # expose the lsp tool
 codebase_indexing = true               # code graph indexing (default: true)
 two_pass_compaction = true             # prefire two-pass compaction (default: true)

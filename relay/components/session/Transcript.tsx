@@ -2,11 +2,15 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import type { AttachmentView } from "@/lib/attachments";
+import { attachmentViews, withLocalCopies } from "@/lib/attachments";
 import { daysApart, formatClock, formatDayHeader } from "@/lib/format";
 import type { MessageKey } from "@/lib/i18n";
 import { renderMarkdown } from "@/lib/markdown";
 import type { PendingPrompt, PromptCommand, TranscriptEvent } from "@/lib/types";
+import { sentCopies } from "@/lib/upload";
 import { useI18n } from "../I18nProvider";
+import { MediaViewer, MessageMedia } from "./Attachments";
 import type { BotCard } from "./BotCommands";
 import {
   AlertIcon,
@@ -110,7 +114,12 @@ export type TranscriptProps = {
   renderCard?: (card: BotCard) => ReactNode;
   /** Shown in the middle while there is nothing at all (the new-session screen's "Starts in …"). */
   emptyNotice?: ReactNode;
+  /** The session's computer, for attachments that exist only there ("On MacBook Pro"). */
+  computer?: string;
 };
+
+/** Opens the media viewer on one prompt's images. */
+type OpenImage = (images: AttachmentView[], index: number) => void;
 
 /** In place of an empty transcript whose history the relay doesn't have yet. */
 function HistoryNotice({ computer, online }: { computer: string; online: boolean }) {
@@ -149,6 +158,10 @@ export function Transcript(props: TranscriptProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
+  const [viewer, setViewer] = useState<{ images: AttachmentView[]; index: number } | null>(null);
+  const openImage = useCallback<OpenImage>((images, index) => {
+    if (images.length) setViewer({ images, index });
+  }, []);
   const atBottomRef = useRef(true);
   const seenSeqRef = useRef<number>(events[0]?.seq ?? 0);
 
@@ -267,6 +280,8 @@ export function Transcript(props: TranscriptProps) {
                     onRetry={props.onRetry}
                     onDiscard={props.onDiscard}
                     renderCard={props.renderCard}
+                    computer={props.computer ?? ""}
+                    onOpenImage={openImage}
                   />
                 ))}
               </div>
@@ -298,6 +313,7 @@ export function Transcript(props: TranscriptProps) {
           ) : null}
         </button>
       ) : null}
+      {viewer ? <MediaViewer images={viewer.images} index={viewer.index} onClose={() => setViewer(null)} /> : null}
     </div>
   );
 }
@@ -308,12 +324,16 @@ function GroupView({
   onRetry,
   onDiscard,
   renderCard,
+  computer,
+  onOpenImage,
 }: {
   group: Group;
   commandsById: Map<string, PromptCommand>;
   onRetry: (p: PendingPrompt) => void;
   onDiscard: (p: PendingPrompt) => void;
   renderCard?: (card: BotCard) => ReactNode;
+  computer: string;
+  onOpenImage: OpenImage;
 }) {
   if (group.side === "bot") {
     return (
@@ -343,9 +363,22 @@ function GroupView({
       <div className="flex flex-col items-end gap-1">
         {group.items.map((item) =>
           item.type === "event" ? (
-            <UserBubble key={item.event._id} event={item.event} command={commandsById.get(item.event.commandId ?? "")} />
+            <UserBubble
+              key={item.event._id}
+              event={item.event}
+              command={commandsById.get(item.event.commandId ?? "")}
+              computer={computer}
+              onOpenImage={onOpenImage}
+            />
           ) : item.type === "pending" ? (
-            <PendingBubble key={item.prompt.key} prompt={item.prompt} onRetry={onRetry} onDiscard={onDiscard} />
+            <PendingBubble
+              key={item.prompt.key}
+              prompt={item.prompt}
+              onRetry={onRetry}
+              onDiscard={onDiscard}
+              computer={computer}
+              onOpenImage={onOpenImage}
+            />
           ) : null,
         )}
       </div>
@@ -577,23 +610,88 @@ function Ticks({ tick }: { tick: PendingPrompt["tick"] | "done" }) {
   }
 }
 
-function UserBubble({ event, command }: { event: TranscriptEvent; command?: PromptCommand }) {
-  const { t, lang } = useI18n();
+/**
+ * The person's bubble: the prompt's photos and files on top (media edge to edge, Telegram's media with a caption),
+ * then the text with the time and ticks; a bubble of images alone carries them on a pill over the last image.
+ */
+function PromptBubble({
+  text,
+  at,
+  tick,
+  attachments,
+  computer,
+  dimmed = false,
+  onOpenImage,
+}: {
+  text: string;
+  at: number;
+  tick: PendingPrompt["tick"] | "done" | null;
+  attachments: AttachmentView[];
+  computer: string;
+  dimmed?: boolean;
+  onOpenImage: OpenImage;
+}) {
+  const { lang } = useI18n();
+  const meta = (
+    <>
+      {formatClock(at, lang)}
+      {tick ? <Ticks tick={tick} /> : null}
+    </>
+  );
+  const media = attachments.length > 0;
+  const imagesOnly = media && !text.trim() && attachments.every((a) => a.kind === "image");
+  return (
+    <div
+      className={`overflow-hidden rounded-2xl rounded-tr-md bg-bubble-user text-[15px] leading-relaxed text-bubble-user-fg ${
+        media ? "inline-flex max-w-full flex-col" : "px-3.5 py-2"
+      } ${dimmed ? "opacity-80" : ""}`}
+    >
+      {media ? <MessageMedia attachments={attachments} computer={computer} overlay={imagesOnly ? meta : undefined} onOpenImage={onOpenImage} /> : null}
+      {imagesOnly ? null : (
+        // Under media the caption takes the media's width instead of widening the bubble.
+        <div className={media ? "w-0 min-w-full px-3.5 pb-2 pt-1" : ""}>
+          <span className="whitespace-pre-wrap break-words">{text}</span>
+          <span className="float-right ml-3 mt-1.5 flex translate-y-0.5 items-center gap-1 text-[11px] text-bubble-user-meta tabular-nums">
+            {meta}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UserBubble({
+  event,
+  command,
+  computer,
+  onOpenImage,
+}: {
+  event: TranscriptEvent;
+  command?: PromptCommand;
+  computer: string;
+  onOpenImage: OpenImage;
+}) {
+  const { t } = useI18n();
   const remote = event.origin === "remote";
   const label = event.fromLabel ?? command?.fromLabel;
   const tick: "delivered" | "done" | null = remote ? (command?.status === "delivered" ? "delivered" : "done") : null;
+  const attachments = useMemo(
+    () => withLocalCopies(attachmentViews(event.attachments), sentCopies(command?.clientId)),
+    [event.attachments, command?.clientId],
+  );
   return (
     <div className="flex max-w-[88%] flex-col items-end sm:max-w-[78%]">
       {remote && label && label !== "Web" ? (
         <span className="loose mb-0.5 px-2 text-[11px] text-faint">{t("from_label", { label })}</span>
       ) : null}
-      <div className="rounded-2xl rounded-tr-md bg-bubble-user px-3.5 py-2 text-[15px] leading-relaxed text-bubble-user-fg">
-        <span className="whitespace-pre-wrap break-words">{event.text}</span>
-        <span className="float-right ml-3 mt-1.5 flex translate-y-0.5 items-center gap-1 text-[11px] text-bubble-user-meta tabular-nums">
-          {formatClock(event.at, lang)}
-          {tick ? <Ticks tick={tick} /> : null}
-        </span>
-      </div>
+      <PromptBubble
+        text={event.text}
+        at={event.at}
+        tick={tick}
+        attachments={attachments}
+        computer={computer}
+        onOpenImage={onOpenImage}
+      />
     </div>
   );
 }
@@ -602,28 +700,30 @@ function PendingBubble({
   prompt,
   onRetry,
   onDiscard,
+  computer,
+  onOpenImage,
 }: {
   prompt: PendingPrompt;
   onRetry: (p: PendingPrompt) => void;
   onDiscard: (p: PendingPrompt) => void;
+  computer: string;
+  onOpenImage: OpenImage;
 }) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const failed = prompt.tick === "failed";
   return (
     <div className="flex max-w-[88%] flex-col items-end sm:max-w-[78%]">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 max-w-full items-center gap-2">
         {failed ? <AlertIcon size={20} className="shrink-0 text-danger" aria-label={t("tick_failed")} /> : null}
-        <div
-          className={`rounded-2xl rounded-tr-md bg-bubble-user px-3.5 py-2 text-[15px] leading-relaxed text-bubble-user-fg ${
-            failed ? "opacity-80" : ""
-          }`}
-        >
-          <span className="whitespace-pre-wrap break-words">{prompt.text}</span>
-          <span className="float-right ml-3 mt-1.5 flex translate-y-0.5 items-center gap-1 text-[11px] text-bubble-user-meta tabular-nums">
-            {formatClock(prompt.createdAt, lang)}
-            <Ticks tick={prompt.tick} />
-          </span>
-        </div>
+        <PromptBubble
+          text={prompt.text}
+          at={prompt.createdAt}
+          tick={prompt.tick}
+          attachments={prompt.attachments ?? []}
+          computer={computer}
+          dimmed={failed}
+          onOpenImage={onOpenImage}
+        />
       </div>
       {failed ? (
         <div className="loose mt-1 flex flex-wrap items-center justify-end gap-x-3 gap-y-1 px-1 text-xs">

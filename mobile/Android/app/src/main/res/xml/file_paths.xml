@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the FileProvider hands out: camera captures, and copies of photos and files for Share and Open. -->
+<paths>
+    <cache-path name="camera" path="camera/" />
+    <cache-path name="shared" path="shared/" />
+</paths>

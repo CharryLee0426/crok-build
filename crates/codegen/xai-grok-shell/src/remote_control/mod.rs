@@ -25,6 +25,7 @@
 //! - sessions of the person's other computers (`relay:<id>`), which [`viewer`] serves to the front end in place of the
 //!   agent.
 
+mod attachments;
 mod bridge;
 mod catalog;
 mod git;
@@ -43,7 +44,7 @@ use xai_acp_lib::{AcpArgs, AcpClientMessage, AcpResult};
 pub use crok_remote::HostApp;
 pub use viewer::{
     PERMISSION_RESOLVED_METHOD, RELAY_PREFIX, REMOTE_MODELS_METHOD, REMOTE_NEW_SESSION_METHOD,
-    REMOTE_SESSIONS_CHANGED_METHOD, REMOTE_SESSIONS_METHOD,
+    REMOTE_REFRESH_METHOD, REMOTE_SESSIONS_CHANGED_METHOD, REMOTE_SESSIONS_METHOD,
 };
 
 use crate::agent::MvpAgent;
@@ -78,11 +79,12 @@ pub(crate) enum Observed {
         cwd: String,
         loaded: bool,
     },
-    /// The front end sent a prompt (typed on the computer).
+    /// The front end sent a prompt (typed on the computer): its text and its photos and files.
     PromptSent {
         session_id: String,
         prompt_id: Option<String>,
         text: String,
+        attachments: Vec<transcript::NewAttachment>,
     },
     /// That prompt's call is over: its turn ended or failed, it left the queue unrun, or the front end gave up on it.
     PromptReturned {
@@ -366,19 +368,41 @@ fn route(observer: &Observer, message: AcpClientMessage) -> Option<AcpClientMess
     }
 }
 
-/// The text of a prompt, for the transcript: text blocks joined, other blocks named.
-fn prompt_text(blocks: &[acp::ContentBlock]) -> String {
+/// A prompt as the relay's transcript shows it: what was typed (its text blocks), and its photos and files.
+fn prompt_parts(
+    blocks: &[acp::ContentBlock],
+    with_images: bool,
+) -> (String, Vec<transcript::NewAttachment>) {
     let mut parts: Vec<String> = Vec::new();
+    let mut attachments = Vec::new();
     for block in blocks {
         match block {
             acp::ContentBlock::Text(text) => parts.push(text.text.clone()),
-            acp::ContentBlock::Image(_) => parts.push("[image]".into()),
-            acp::ContentBlock::ResourceLink(link) => parts.push(format!("@{}", link.name)),
-            acp::ContentBlock::Resource(_) => parts.push("[file]".into()),
+            acp::ContentBlock::Image(image) if with_images => {
+                attachments.push(transcript::NewAttachment::Image {
+                    data: image.data.clone(),
+                    mime_type: image.mime_type.clone(),
+                    name: image
+                        .uri
+                        .as_deref()
+                        .and_then(|uri| uri.rsplit('/').next())
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_owned),
+                });
+            }
+            acp::ContentBlock::ResourceLink(_) | acp::ContentBlock::Resource(_) => {
+                if let Some(attachment) = serde_json::to_value(block)
+                    .ok()
+                    .as_ref()
+                    .and_then(transcript::attachment_of)
+                {
+                    attachments.push(attachment);
+                }
+            }
             _ => {}
         }
     }
-    parts.join("\n")
+    (parts.join("\n"), attachments)
 }
 
 fn ext_response(value: &Value) -> acp::Result<acp::ExtResponse> {
@@ -543,13 +567,19 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
             .map(str::to_owned);
         let session_id = args.session_id.to_string();
         if viewer::is_relay_session(&session_id) {
-            let text = prompt_text(&args.prompt);
-            return self.viewer()?.prompt(&session_id, prompt_id, text).await;
+            return self
+                .viewer()?
+                .prompt(&session_id, prompt_id, &args.prompt)
+                .await;
         }
+        // The images' bytes are copied only while signed in (they go to the relay then).
+        let live = self.observer.as_ref().is_some_and(Observer::live);
+        let (text, attachments) = prompt_parts(&args.prompt, live);
         self.tell(Observed::PromptSent {
             session_id: session_id.clone(),
             prompt_id,
-            text: prompt_text(&args.prompt),
+            text,
+            attachments,
         });
         let _call = self.observer.clone().map(|observer| PromptCall {
             observer,
@@ -680,6 +710,9 @@ impl<A: acp::Agent> acp::Agent for ObservedAgent<A> {
         if method == REMOTE_MODELS_METHOD {
             let params: Value = serde_json::from_str(args.params.get()).unwrap_or(Value::Null);
             return ext_response(&self.viewer()?.models(&params).await?);
+        }
+        if method == REMOTE_REFRESH_METHOD {
+            return ext_response(&self.viewer()?.refresh().await?);
         }
         let session = params_session(&args.params);
         if let Some(session_id) = session.as_deref().filter(|s| viewer::is_relay_session(s)) {

@@ -59,6 +59,8 @@ final class AppStore: ObservableObject {
     var remoteTurns: [UUID: String] = [:]
     /// The person's other computers and their sessions, from the remote host (see `RemoteSessions.swift`).
     @Published var remoteComputers: [RemoteComputer] = []
+    /// Sidebar › Other computers › Refresh is under way (`refreshRemoteSessions`).
+    @Published var remoteRefreshing = false
     /// This Mac's sessions that another device started and that are working there now (crok session ids): their
     /// tasks show as working while no harness of this app runs them.
     @Published var workingElsewhere: Set<String> = []
@@ -1685,6 +1687,49 @@ final class AppStore: ObservableObject {
     /// Looks a task up by index: `first(where:)` would copy every task it passes, and this runs
     /// for each streamed update.
     func task(_ id: UUID) -> Conversation? { state.conversations.firstIndex { $0.id == id }.map { state.conversations[$0] } }
+    /// Copies a reply's Markdown exactly as the model wrote it, with no rendering applied.
+    func copyReplyMarkdown(_ message: Message) {
+        guard !message.text.isEmpty else { return }
+        let copied = TranscriptClipboard.setClipboard(message.text, pasteboard: .general)
+        let stats = TranscriptClipboard.statsSuffix(message.text)
+        banner = copied ? "Copied Markdown to clipboard\(stats)" : "Copy failed\(stats)"
+    }
+
+    /// Sets a reply's thumbs verdict and sends it to the shell. The row updates at once; a failed
+    /// send puts the previous verdict back. `rating` nil takes the verdict back.
+    func rateReply(_ message: Message, rating: Int?) {
+        guard let id = state.selectedConversationID,
+              let index = state.conversations.firstIndex(where: { $0.id == id }),
+              let messageIndex = state.conversations[index].messages.firstIndex(where: { $0.id == message.id }),
+              state.conversations[index].messages[messageIndex].kind == .assistant else { return }
+        let previous = state.conversations[index].messages[messageIndex].rating
+        guard previous != rating else { return }
+        state.conversations[index].messages[messageIndex].rating = rating
+        transcriptChanged(id, from: messageIndex)
+        save()
+        let messages = state.conversations[index].messages
+        let turnNumber = Message.turnNumber(ofReplyAt: messageIndex, in: messages)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let (client, _, session) = try await self.featureSession()
+                let params: [String: Any] = [
+                    "session_id": session,
+                    "turn_number": turnNumber,
+                    "rating": rating ?? 0,
+                ]
+                _ = try await client.request("_x.ai/feedback/rating", params: params, timeout: 15)
+            } catch {
+                guard let current = self.state.conversations.firstIndex(where: { $0.id == id }),
+                      let currentMessage = self.state.conversations[current].messages.firstIndex(where: { $0.id == message.id }) else { return }
+                self.state.conversations[current].messages[currentMessage].rating = previous
+                self.transcriptChanged(id, from: currentMessage)
+                self.save()
+                self.banner = "Couldn't save your feedback: \(AccountErrorText.describe(error))"
+            }
+        }
+    }
+
     func append(_ message: Message, to id: UUID) {
         flushTranscript(id)
         guard let i = state.conversations.firstIndex(where: { $0.id == id }) else { return }

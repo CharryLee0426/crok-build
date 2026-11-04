@@ -135,6 +135,18 @@ pub struct ClientFeedbackInput {
     pub request_trace_upload_token: bool,
 }
 
+/// `x.ai/feedback/rating` params: the user's per-turn thumbs verdict, sent as the thumb changes.
+/// `rating` is `1` for thumbs up, `-1` for thumbs down, and `0` when the user takes the verdict back.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ClientRatingInput {
+    pub session_id: String,
+    /// The session's turn number, as crok counts them (0-based).
+    #[serde(alias = "turnNumber")]
+    pub turn_number: u64,
+    pub rating: i8,
+}
+
 impl ClientFeedbackInput {
     fn clamp_rating_value(
         rating_type: Option<prod_mc_cli_chat_proxy_types::feedback_types::RatingType>,
@@ -675,6 +687,23 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(subagent.take_mcp_reroot_traceparent(), None);
+    }
+
+    #[test]
+    fn per_turn_rating_accepts_snake_and_camel_turn_numbers() {
+        let snake: ClientRatingInput = serde_json::from_str(
+            r#"{"session_id":"sess-1","turn_number":4,"rating":-1}"#,
+        )
+        .expect("snake_case rating");
+        assert_eq!(snake.turn_number, 4);
+        assert_eq!(snake.rating, -1);
+
+        let camel: ClientRatingInput = serde_json::from_str(
+            r#"{"session_id":"sess-1","turnNumber":4,"rating":0}"#,
+        )
+        .expect("camelCase rating");
+        assert_eq!(camel.turn_number, 4);
+        assert_eq!(camel.rating, 0);
     }
 
     #[test]

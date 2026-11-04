@@ -7,6 +7,8 @@ import android.provider.Settings
 import androidx.lifecycle.ProcessLifecycleOwner
 import dev.chenli.crok.mobile.auth.AuthStore
 import dev.chenli.crok.mobile.auth.DeviceInfo
+import dev.chenli.crok.mobile.data.AttachmentDrafts
+import dev.chenli.crok.mobile.data.AttachmentPreparer
 import dev.chenli.crok.mobile.data.ComputerSelectionStore
 import dev.chenli.crok.mobile.data.DeviceAuthApiFactory
 import dev.chenli.crok.mobile.data.DraftStore
@@ -14,6 +16,7 @@ import dev.chenli.crok.mobile.data.HttpDeviceAuthApi
 import dev.chenli.crok.mobile.data.KeystoreSecretBox
 import dev.chenli.crok.mobile.data.O11yRangeStore
 import dev.chenli.crok.mobile.data.PrefsKeyValueStore
+import dev.chenli.crok.mobile.data.RelayFiles
 import dev.chenli.crok.mobile.data.SessionListCache
 import dev.chenli.crok.mobile.data.SettingsStore
 import dev.chenli.crok.mobile.engine.AppForeground
@@ -22,6 +25,7 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class CrokApplication : Application() {
     val graph: AppGraph by lazy { AppGraph(this) }
@@ -41,6 +45,15 @@ class AppGraph(val context: Context) {
     val sessionCache = SessionListCache(File(context.filesDir, "session-cache"))
     val computerSelection = ComputerSelectionStore(PrefsKeyValueStore(context, "crok_selection"))
     val o11yRanges = O11yRangeStore(PrefsKeyValueStore(context, "crok_o11y"))
+
+    /**
+     * The composer's photos and files per draft, prepared and uploaded while the app runs (relay/DESIGN.md §5); what
+     * was uploaded goes into the phone's file cache, so the sent bubble shows the relay's copy at once.
+     */
+    val attachments: AttachmentDrafts by lazy {
+        val preparer = AttachmentPreparer(context).also { appScope.launch(Dispatchers.IO) { it.clearOld() } }
+        AttachmentDrafts(appScope, preparer::prepare, keep = { id, file -> RelayFiles.store(context, id, file) })
+    }
 
     /** The Photo session theme's picture (Profile › Appearance › Choose a Photo), downscaled; kept across sign-ins. */
     val sessionBackgroundFile = File(context.filesDir, "session-background.jpg")
@@ -81,6 +94,7 @@ class AppGraph(val context: Context) {
     /** Forgets everything that belongs to the signed-out account. */
     fun clearAccountData() {
         drafts.clear()
+        attachments.clear()
         sessionCache.clear()
         computerSelection.clear()
     }

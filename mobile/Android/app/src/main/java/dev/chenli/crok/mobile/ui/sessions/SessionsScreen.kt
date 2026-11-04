@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.KeyboardOptions
@@ -32,6 +35,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,12 +51,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -68,6 +76,8 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -101,7 +111,9 @@ import dev.chenli.crok.mobile.ui.common.glassBarColors
 import dev.chenli.crok.mobile.ui.common.rememberFormatter
 import dev.chenli.crok.mobile.ui.session.NewSessionTarget
 import dev.chenli.crok.mobile.ui.theme.CrokTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** What the Sessions tab can ask its host to do. */
 data class SessionsActions(
@@ -123,6 +135,8 @@ data class SessionsActions(
     val onNewSession: (SessionGroup) -> Unit = {},
     val onLinkComputer: () -> Unit = {},
     val onSelectComputer: (deviceId: String) -> Unit = {},
+    /** Refresh: every online computer lists all its sessions again (the top bar's button, pull to refresh). */
+    val onRefresh: () -> Unit = {},
     /** Search results' own swipes and menu. */
     val topics: TopicActions = TopicActions(),
 )
@@ -154,6 +168,8 @@ fun SessionsScreen(
                     if (result == SnackbarResult.ActionPerformed) viewModel.unarchive(event.sessionDocId)
                 }
                 is SessionsEvent.Failed -> snackbar.showSnackbar(resources.getString(R.string.sessions_action_failed, event.message))
+                SessionsEvent.NoneOnline -> snackbar.showSnackbar(resources.getString(R.string.sessions_refresh_none_online))
+                is SessionsEvent.RefreshFailed -> snackbar.showSnackbar(resources.getString(R.string.error_generic, event.message))
             }
         }
     }
@@ -177,6 +193,7 @@ fun SessionsScreen(
             onNewSession = { group -> onNewSession(group.newSessionTarget()) },
             onLinkComputer = onLinkComputer,
             onSelectComputer = onSelectComputer,
+            onRefresh = viewModel::refresh,
             topics = TopicActions(
                 onOpen = onOpen,
                 onTogglePin = viewModel::togglePin,
@@ -267,8 +284,10 @@ fun SessionsContent(
                 onDragging = actions.onDragging,
                 contentPadding = listPadding,
             )
-            state.projects.isEmpty() && state.archived.isEmpty() -> Box(inner) { NoSessions(state, onCompose = { picking = true }) }
-            else -> ProjectList(state, actions, listPadding)
+            state.projects.isEmpty() && state.archived.isEmpty() -> PullToRefresh(state.refreshing, actions.onRefresh, padding) {
+                ScrollableEmpty(inner) { NoSessions(state, onCompose = { picking = true }) }
+            }
+            else -> PullToRefresh(state.refreshing, actions.onRefresh, padding) { ProjectList(state, actions, listPadding) }
         }
     }
     if (picking) {
@@ -346,6 +365,7 @@ private fun ComputerTopBar(state: SessionsUiState, onTitle: () -> Unit, onSearch
                 IconButton(onClick = onSearch) {
                     Icon(CrokIcons.Search, contentDescription = stringResource(R.string.sessions_search))
                 }
+                RefreshButton(state.refreshing, actions.onRefresh)
                 // Telegram's compose button: a new session, after picking which of this computer's projects.
                 IconButton(onClick = onCompose, enabled = state.canCompose, modifier = Modifier.testTag("compose")) {
                     Icon(
@@ -358,6 +378,75 @@ private fun ComputerTopBar(state: SessionsUiState, onTitle: () -> Unit, onSearch
         },
         colors = glassBarColors(),
     )
+}
+
+/**
+ * Refresh: every online computer lists all its sessions again. While it runs, a small spinner takes the button's place
+ * (same size, so the bar does not move) and nothing can be pressed.
+ */
+@Composable
+internal fun RefreshButton(refreshing: Boolean, onRefresh: () -> Unit) {
+    val colors = CrokTheme.colors
+    val label = stringResource(R.string.sessions_refresh)
+    if (refreshing) {
+        Box(
+            Modifier.size(48.dp).semantics { contentDescription = label }.testTag("refreshProgress"),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = colors.textSecondary)
+        }
+    } else {
+        IconButton(onClick = onRefresh, modifier = Modifier.testTag("refreshButton")) {
+            Icon(CrokIcons.Refresh, contentDescription = label)
+        }
+    }
+}
+
+/** An empty state that keeps its centred place yet scrolls, so pull to refresh works on it too. */
+@Composable
+internal fun ScrollableEmpty(modifier: Modifier, content: @Composable () -> Unit) {
+    BoxWithConstraints(modifier) {
+        val height = maxHeight
+        Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            Box(Modifier.fillMaxWidth().height(height)) { content() }
+        }
+    }
+}
+
+/**
+ * Pull to refresh over a list under the glass top bar: the indicator comes down below the bar. It spins only for a pull
+ * (the top bar's button has its own spinner), until the refresh it started is over.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PullToRefresh(refreshing: Boolean, onRefresh: () -> Unit, padding: PaddingValues, content: @Composable () -> Unit) {
+    var pulled by remember { mutableStateOf(false) }
+    val current by rememberUpdatedState(refreshing)
+    LaunchedEffect(pulled) {
+        if (!pulled) return@LaunchedEffect
+        // A moment for the refresh to show as running (one that fails at once may never), then until it is over.
+        withTimeoutOrNull(1_000) { snapshotFlow { current }.first { it } }
+        snapshotFlow { current }.first { !it }
+        pulled = false
+    }
+    val pull = rememberPullToRefreshState()
+    val spinning = pulled && refreshing
+    PullToRefreshBox(
+        isRefreshing = spinning,
+        onRefresh = {
+            pulled = true
+            onRefresh()
+        },
+        state = pull,
+        modifier = Modifier.fillMaxSize().testTag("pull-to-refresh"),
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = pull,
+                isRefreshing = spinning,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding()),
+            )
+        },
+    ) { content() }
 }
 
 /** Edit mode's bottom toolbar, in the tab bar's place: Read All and Sort by recent activity (Telegram's edit toolbar). */

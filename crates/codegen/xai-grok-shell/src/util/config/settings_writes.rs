@@ -287,6 +287,14 @@ pub async fn set_feedback_trace_card(value: bool) -> Result<()> {
     .await
 }
 
+/// Persist `[features].feedback_prompt`.
+pub async fn set_feedback_prompt(value: bool) -> Result<()> {
+    update_config(|cfg| {
+        cfg.features.feedback_prompt = Some(value);
+    })
+    .await
+}
+
 /// Persist or remove a registry `[features]` key in the user `config.toml`.
 /// `None` deletes the key so the remote and default tiers apply again.
 pub async fn set_feature_override(feature: Feature, value: Option<bool>) -> Result<()> {

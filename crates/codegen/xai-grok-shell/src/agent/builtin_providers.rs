@@ -309,6 +309,46 @@ pub(crate) fn tool_support(backend: &ApiBackend, model: &str) -> Option<bool> {
         .flatten()
 }
 
+/// Whether `model` on `backend` reasons and the least effort it takes, where the provider's catalog
+/// says. Only OpenRouter's is read: there the sampler gives a reasoning model's short calls room to
+/// reason, at that effort.
+pub(crate) fn reasoning_support(
+    backend: &ApiBackend,
+    model: &str,
+) -> (Option<bool>, Option<ReasoningEffort>) {
+    if *backend != ApiBackend::OpenRouter {
+        return (None, None);
+    }
+    cached_models()
+        .iter()
+        .find(|entry| entry.id == model)
+        .map_or((None, None), |entry| {
+            (Some(entry.supports_reasoning()), lightest_effort(entry))
+        })
+}
+
+/// The least of the efforts `model` lists that crok knows.
+fn lightest_effort(model: &OpenRouterModel) -> Option<ReasoningEffort> {
+    const LEAST_FIRST: [ReasoningEffort; 7] = [
+        ReasoningEffort::None,
+        ReasoningEffort::Minimal,
+        ReasoningEffort::Low,
+        ReasoningEffort::Medium,
+        ReasoningEffort::High,
+        ReasoningEffort::Xhigh,
+        ReasoningEffort::Max,
+    ];
+    let offered: Vec<ReasoningEffort> = model
+        .reasoning
+        .supported_efforts
+        .iter()
+        .filter_map(|effort| effort.parse().ok())
+        .collect();
+    LEAST_FIRST
+        .into_iter()
+        .find(|effort| offered.contains(effort))
+}
+
 /// Whether `model` on `backend` reads images, where the provider's catalog says.
 /// The sampler leaves images out of requests to a model that does not.
 pub(crate) fn image_support(backend: &ApiBackend, model: &str) -> Option<bool> {
@@ -981,6 +1021,29 @@ mod tests {
         assert_eq!(unknown.info.context_window.get(), 200_000);
         assert!(!unknown.info.supports_reasoning_effort);
         assert_eq!(unknown.info.reasoning_effort, None);
+    }
+
+    #[test]
+    fn lightest_effort_is_the_least_the_catalog_lists() {
+        let model = |efforts: serde_json::Value| -> OpenRouterModel {
+            serde_json::from_value(serde_json::json!({
+                "id": "fixture/reasoner", "supported_parameters": ["reasoning"],
+                "reasoning": {"supported_efforts": efforts, "default_effort": "medium"}
+            }))
+            .unwrap()
+        };
+        // Muse Spark 1.3 cannot stop reasoning: `minimal` is as little as it takes.
+        let muse = model(serde_json::json!([
+            "max", "xhigh", "high", "medium", "low", "minimal"
+        ]));
+        assert_eq!(lightest_effort(&muse), Some(ReasoningEffort::Minimal));
+        let can_stop = model(serde_json::json!(["high", "none", "future-effort"]));
+        assert_eq!(lightest_effort(&can_stop), Some(ReasoningEffort::None));
+        assert_eq!(lightest_effort(&model(serde_json::json!([]))), None);
+        assert_eq!(
+            lightest_effort(&model(serde_json::json!(["future-effort"]))),
+            None
+        );
     }
 
     #[test]

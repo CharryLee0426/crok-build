@@ -59,6 +59,8 @@
     <string name="sessions_no_results">没有匹配的会话。</string>
     <string name="sessions_archived_snackbar">会话已归档</string>
     <string name="sessions_action_failed">无法更新会话：%1$s</string>
+    <string name="sessions_refresh">刷新</string>
+    <string name="sessions_refresh_none_online">没有在线的电脑。列表显示的是它们上次列出的会话。</string>
     <plurals name="sessions_unread">
         <item quantity="other">%d 条未读回复</item>
     </plurals>
@@ -334,4 +336,27 @@
     <string name="o11y_spoken_down">%1$s，下降 %2$s</string>
     <string name="o11y_status_ok">好</string>
     <string name="o11y_status_warning">警告</string>
+
+    <!-- Photos and files in prompts (relay/DESIGN.md §5) -->
+    <string name="attach">附件</string>
+    <string name="attach_photos">照片</string>
+    <string name="attach_camera">相机</string>
+    <string name="attach_files">文件</string>
+    <string name="attach_too_many">每条消息最多 10 张照片和文件</string>
+    <string name="attach_too_big">文件不能超过 20 MB</string>
+    <string name="attach_uploading">正在上传…</string>
+    <string name="attach_failed">上传失败 — 点按重试</string>
+    <string name="attach_remove">移除</string>
+    <string name="attach_photo">照片</string>
+    <string name="attach_file">文件</string>
+    <string name="media_share">分享</string>
+    <string name="media_save">保存</string>
+    <string name="media_saved">已保存</string>
+    <string name="media_save_failed">无法保存照片</string>
+    <string name="media_on_computer">在 %1$s 上</string>
+    <string name="media_unavailable">已不可用</string>
+    <string name="media_open_failed">没有可以打开此文件的应用</string>
+    <string name="media_download_failed">无法下载文件</string>
+    <string name="media_count">%1$d / %2$d</string>
+    <string name="media_close">关闭</string>
 </resources>

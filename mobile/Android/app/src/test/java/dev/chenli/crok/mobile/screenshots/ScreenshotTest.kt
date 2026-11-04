@@ -240,6 +240,12 @@ class ScreenshotTest {
         Home { SessionsContent(sessionsState(), SessionsActions()) }
     }
 
+    /** Refresh running: a small spinner in the Refresh button's place, the rest of the bar as it was. */
+    @Test
+    fun sessionsRefreshing() = shoot("03b-sessions-refreshing", dark = true) {
+        Home { SessionsContent(sessionsState().copy(refreshing = true), SessionsActions()) }
+    }
+
     @Test
     fun sessionsDarkUpdating() = shoot("04-sessions-dark", dark = true) {
         Home { SessionsContent(sessionsState(ConnectionState.Updating), SessionsActions()) }

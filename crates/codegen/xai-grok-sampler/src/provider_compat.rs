@@ -6,7 +6,8 @@ use std::sync::{LazyLock, Mutex, PoisonError};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 use xai_grok_sampling_types::{
-    AnthropicOptions, ApiBackend, PromptCacheTtl, Result, SamplingError, messages, rs,
+    AnthropicOptions, ApiBackend, PromptCacheTtl, ReasoningEffort, Result, SamplingError, messages,
+    rs,
 };
 
 /// Codex's sticky-routing token. The first response of a turn carries it; every later request of
@@ -174,6 +175,20 @@ pub(crate) fn prepare_codex_request(body: &mut Value) {
 /// OpenRouter's documented limit for `session_id`.
 const OPENROUTER_SESSION_ID_MAX_CHARS: usize = 256;
 
+/// How an OpenRouter model reasons, from the catalog.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct OpenRouterReasoning {
+    /// Whether the model reasons; `None` when the catalog doesn't say, which is taken to mean it may.
+    pub(crate) supported: Option<bool>,
+    /// The least effort the model takes.
+    pub(crate) lightest_effort: Option<ReasoningEffort>,
+}
+
+/// The least output a request to a model that reasons is given on OpenRouter. The reasoning is
+/// spent from the same budget, and some models (Muse Spark) cannot be told not to reason, so a call
+/// sized for its answer alone (a session title asks for 100 tokens) ends before it answers.
+const OPENROUTER_REASONING_MIN_TOKENS: u64 = 4096;
+
 /// `cache_key` names the conversation whose prompt cache this request should reuse.
 /// `context_window` is the model's, from the catalog; `0` (unknown) leaves `max_tokens` as it is.
 pub(crate) fn prepare_openrouter_request(
@@ -181,6 +196,7 @@ pub(crate) fn prepare_openrouter_request(
     supports_tools: Option<bool>,
     cache_key: Option<&str>,
     context_window: u64,
+    reasoning: OpenRouterReasoning,
 ) {
     let Some(body) = body.as_object_mut() else {
         return;
@@ -194,6 +210,8 @@ pub(crate) fn prepare_openrouter_request(
             body.remove(key);
         }
     }
+    ask_for_forced_tool_in_words(body);
+    leave_room_to_reason(body, reasoning);
     // Without a session OpenRouter pins a provider only after it has seen a cache hit, so the first
     // requests of a conversation can land on providers that each keep their own cache.
     // OpenAI and Meta route on `prompt_cache_key` themselves.
@@ -226,6 +244,67 @@ pub(crate) fn prepare_openrouter_request(
         }
     }
     fit_output_to_context(body, context_window);
+}
+
+/// Turn a forced tool call into `auto` and ask for the call in words.
+///
+/// Which tool choices a model takes depends on the provider OpenRouter routes it to, and the
+/// catalog lists `tool_choice` either way: Meta's endpoints refuse anything but `auto` with a 400,
+/// and models refuse a forced call while they reason. The caller already copes with no call.
+fn ask_for_forced_tool_in_words(body: &mut serde_json::Map<String, Value>) {
+    let instruction = match body.get("tool_choice") {
+        Some(Value::String(choice)) if choice == "required" => tool_call_instruction(None),
+        Some(choice @ Value::Object(_)) => {
+            tool_call_instruction(choice.pointer("/function/name").and_then(Value::as_str))
+        }
+        _ => return,
+    };
+    body.insert("tool_choice".into(), json!("auto"));
+    if let Some(content) = body
+        .get_mut("messages")
+        .and_then(Value::as_array_mut)
+        .and_then(|messages| messages.last_mut())
+        .filter(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+        .and_then(|message| message.get_mut("content"))
+    {
+        match content {
+            Value::String(text) => {
+                text.push_str("\n\n");
+                text.push_str(&instruction);
+            }
+            Value::Array(parts) => parts.push(json!({"type": "text", "text": instruction})),
+            other => *other = Value::String(instruction),
+        }
+    }
+}
+
+/// What a request that was meant to force a tool call asks for in words; `None` is any tool.
+fn tool_call_instruction(name: Option<&str>) -> String {
+    match name {
+        Some(name) => format!("Answer by calling the `{name}` tool."),
+        None => "Answer by calling one of the tools.".to_owned(),
+    }
+}
+
+/// Give a model that reasons room to answer a call with a small output budget.
+///
+/// Such a call is sized for its answer alone, so it is given [`OPENROUTER_REASONING_MIN_TOKENS`],
+/// and unless it names an effort it asks for the least the model takes: left to the model's
+/// default, Muse Spark spent over 1,000 tokens reasoning about a session title.
+fn leave_room_to_reason(body: &mut serde_json::Map<String, Value>, reasoning: OpenRouterReasoning) {
+    let short = body
+        .get("max_tokens")
+        .and_then(Value::as_u64)
+        .is_some_and(|limit| limit < OPENROUTER_REASONING_MIN_TOKENS);
+    if !short || reasoning.supported == Some(false) {
+        return;
+    }
+    body.insert("max_tokens".into(), json!(OPENROUTER_REASONING_MIN_TOKENS));
+    if !body.contains_key("reasoning")
+        && let Some(effort) = reasoning.lightest_effort
+    {
+        body.insert("reasoning".into(), json!({"effort": effort}));
+    }
 }
 
 /// What an inline attachment (a `data:` URL) counts for in [`estimated_prompt_tokens`]: a large
@@ -536,10 +615,8 @@ pub(crate) fn prepare_anthropic_request(
     // A forced tool call is refused by Opus 5.5, Sonnet 5.5 and Fable 5.1, and by every model while it thinks.
     // Ask for the call in words and leave room to think before it; the caller already copes with no call.
     let forced = match request.tool_choice.take() {
-        Some(ToolChoiceParam::Tool { name }) => {
-            Some(format!("Answer by calling the `{name}` tool."))
-        }
-        Some(ToolChoiceParam::Any) => Some("Answer by calling one of the tools.".to_owned()),
+        Some(ToolChoiceParam::Tool { name }) => Some(tool_call_instruction(Some(&name))),
+        Some(ToolChoiceParam::Any) => Some(tool_call_instruction(None)),
         other => {
             request.tool_choice = other;
             None
@@ -1133,10 +1210,134 @@ mod tests {
     #[test]
     fn openrouter_omits_tools_for_models_without_tool_support() {
         let mut body = json!({"messages":[],"tools":[{"type":"function"}],"tool_choice":"auto","parallel_tool_calls":true});
-        prepare_openrouter_request(&mut body, Some(false), None, 0);
+        prepare_openrouter_request(
+            &mut body,
+            Some(false),
+            None,
+            0,
+            OpenRouterReasoning::default(),
+        );
         assert!(body.get("tools").is_none());
         assert!(body.get("tool_choice").is_none());
         assert!(body.get("parallel_tool_calls").is_none());
+    }
+
+    /// The session-title request: a forced `session_title` call with a 100-token budget.
+    fn title_request() -> Value {
+        json!({
+            "model": "meta/muse-spark-1.3-contributor",
+            "messages": [
+                {"role": "system", "content": "Generate the session title."},
+                {"role": "user", "content": "<user_query>\nfix the release signing\n</user_query>"}
+            ],
+            "tools": [{"type": "function", "function": {"name": "session_title", "parameters": {}}}],
+            "tool_choice": {"type": "function", "function": {"name": "session_title"}},
+            "max_tokens": 100,
+            "temperature": 1.0,
+            "stream": true
+        })
+    }
+
+    const MUSE_SPARK: OpenRouterReasoning = OpenRouterReasoning {
+        supported: Some(true),
+        lightest_effort: Some(ReasoningEffort::Minimal),
+    };
+
+    #[test]
+    fn openrouter_asks_for_a_forced_tool_call_in_words() {
+        // Meta's endpoints answer anything but `auto` with a 400.
+        let mut body = title_request();
+        prepare_openrouter_request(&mut body, Some(true), None, 0, MUSE_SPARK);
+        assert_eq!(body.get("tool_choice"), Some(&json!("auto")));
+        assert_eq!(
+            body.pointer("/messages/1/content").and_then(Value::as_str),
+            Some(
+                "<user_query>\nfix the release signing\n</user_query>\n\n\
+                 Answer by calling the `session_title` tool."
+            )
+        );
+        assert_eq!(
+            body.pointer("/messages/0/content"),
+            Some(&json!("Generate the session title.")),
+            "only the last user message asks"
+        );
+
+        let mut any = title_request();
+        any["tool_choice"] = json!("required");
+        any["messages"][1]["content"] = json!([{"type": "text", "text": "fix it"}]);
+        prepare_openrouter_request(&mut any, None, None, 0, MUSE_SPARK);
+        assert_eq!(any.get("tool_choice"), Some(&json!("auto")));
+        assert_eq!(
+            any.pointer("/messages/1/content/1"),
+            Some(&json!({"type": "text", "text": "Answer by calling one of the tools."}))
+        );
+
+        for choice in ["auto", "none"] {
+            let mut free = title_request();
+            free["tool_choice"] = json!(choice);
+            prepare_openrouter_request(&mut free, None, None, 0, MUSE_SPARK);
+            assert_eq!(free.get("tool_choice"), Some(&json!(choice)));
+            assert_eq!(
+                free.pointer("/messages/1/content"),
+                title_request().pointer("/messages/1/content"),
+                "{choice} is sent as it is"
+            );
+        }
+    }
+
+    #[test]
+    fn openrouter_gives_a_reasoning_model_room_to_answer_a_short_call() {
+        // Muse Spark cannot stop reasoning: 100 tokens ended in reasoning with no title.
+        let mut body = title_request();
+        prepare_openrouter_request(&mut body, None, None, MILLION_TOKEN_WINDOW, MUSE_SPARK);
+        assert_eq!(
+            body.get("max_tokens"),
+            Some(&json!(OPENROUTER_REASONING_MIN_TOKENS))
+        );
+        assert_eq!(body.get("reasoning"), Some(&json!({"effort": "minimal"})));
+
+        // An effort the caller chose is kept.
+        let mut chosen = title_request();
+        chosen["reasoning_effort"] = json!("high");
+        prepare_openrouter_request(&mut chosen, None, None, 0, MUSE_SPARK);
+        assert_eq!(
+            chosen.get("max_tokens"),
+            Some(&json!(OPENROUTER_REASONING_MIN_TOKENS))
+        );
+        assert_eq!(chosen.get("reasoning"), Some(&json!({"effort": "high"})));
+
+        // A model the catalog doesn't know may reason: it gets the room but no effort.
+        let mut unknown = title_request();
+        prepare_openrouter_request(&mut unknown, None, None, 0, OpenRouterReasoning::default());
+        assert_eq!(
+            unknown.get("max_tokens"),
+            Some(&json!(OPENROUTER_REASONING_MIN_TOKENS))
+        );
+        assert!(unknown.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn openrouter_leaves_the_budget_of_a_long_call_or_a_model_that_does_not_reason() {
+        let mut long = title_request();
+        long["max_tokens"] = json!(8_192);
+        prepare_openrouter_request(&mut long, None, None, 0, MUSE_SPARK);
+        assert_eq!(long.get("max_tokens"), Some(&json!(8_192)));
+        assert!(long.get("reasoning").is_none());
+
+        let mut plain = title_request();
+        let no_reasoning = OpenRouterReasoning {
+            supported: Some(false),
+            lightest_effort: None,
+        };
+        prepare_openrouter_request(&mut plain, None, None, 0, no_reasoning);
+        assert_eq!(plain.get("max_tokens"), Some(&json!(100)));
+        assert!(plain.get("reasoning").is_none());
+
+        let mut unlimited = title_request();
+        unlimited.as_object_mut().unwrap().remove("max_tokens");
+        prepare_openrouter_request(&mut unlimited, None, None, 0, MUSE_SPARK);
+        assert!(unlimited.get("max_tokens").is_none());
+        assert!(unlimited.get("reasoning").is_none());
     }
 
     fn cache_markers(body: &Value) -> Vec<String> {
@@ -1193,7 +1394,13 @@ mod tests {
             "~anthropic/claude-haiku-latest",
         ] {
             let mut body = claude_tool_loop(model);
-            prepare_openrouter_request(&mut body, None, Some("session-1"), 0);
+            prepare_openrouter_request(
+                &mut body,
+                None,
+                Some("session-1"),
+                0,
+                OpenRouterReasoning::default(),
+            );
             assert_eq!(
                 cache_markers(&body),
                 [
@@ -1220,7 +1427,7 @@ mod tests {
         let mut first = json!({"model": "anthropic/claude-sonnet-5.5", "messages": [
             {"role": "system", "content": "Be precise."},
             {"role": "user", "content": "Read hello.txt"}]});
-        prepare_openrouter_request(&mut first, None, None, 0);
+        prepare_openrouter_request(&mut first, None, None, 0, OpenRouterReasoning::default());
         assert_eq!(
             cache_markers(&first),
             ["/messages/0/content/0", "/messages/1/content/0"]
@@ -1233,7 +1440,7 @@ mod tests {
             {"role": "assistant", "content": "", "tool_calls": [
                 {"id": "call-1", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "call-1", "content": "hello"}]});
-        prepare_openrouter_request(&mut tool_tip, None, None, 0);
+        prepare_openrouter_request(&mut tool_tip, None, None, 0, OpenRouterReasoning::default());
         assert_eq!(
             cache_markers(&tool_tip),
             ["/messages/1/content/0", "/messages/3"]
@@ -1250,7 +1457,13 @@ mod tests {
             "openrouter/auto",
         ] {
             let mut body = claude_tool_loop(model);
-            prepare_openrouter_request(&mut body, None, Some("session-1"), 0);
+            prepare_openrouter_request(
+                &mut body,
+                None,
+                Some("session-1"),
+                0,
+                OpenRouterReasoning::default(),
+            );
             assert!(cache_markers(&body).is_empty(), "{model}");
             assert_eq!(
                 body.pointer("/messages/0/content"),
@@ -1263,7 +1476,13 @@ mod tests {
         // OpenRouter rejects a session id over 256 characters, and an empty one routes nowhere.
         for key in ["", &"k".repeat(257)] {
             let mut body = claude_tool_loop("openai/gpt-5.6-sol");
-            prepare_openrouter_request(&mut body, None, Some(key), 0);
+            prepare_openrouter_request(
+                &mut body,
+                None,
+                Some(key),
+                0,
+                OpenRouterReasoning::default(),
+            );
             assert!(body.get("session_id").is_none());
             assert!(body.get("prompt_cache_key").is_none());
         }
@@ -1289,7 +1508,13 @@ mod tests {
 
     /// The `max_tokens` OpenRouter receives for `body` on a model with `context_window`.
     fn sent_max_tokens(mut body: Value, context_window: u64) -> Option<u64> {
-        prepare_openrouter_request(&mut body, None, Some("session-1"), context_window);
+        prepare_openrouter_request(
+            &mut body,
+            None,
+            Some("session-1"),
+            context_window,
+            OpenRouterReasoning::default(),
+        );
         body.get("max_tokens").and_then(Value::as_u64)
     }
 

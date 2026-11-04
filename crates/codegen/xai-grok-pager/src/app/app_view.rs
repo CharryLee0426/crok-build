@@ -669,6 +669,10 @@ pub struct AppView {
     pub shell_feedback_trace_offer: bool,
     /// A persisted card answer was made this session; keeps auth-meta refreshes from re-offering before the async config write lands.
     pub feedback_trace_choice_latched: bool,
+    /// Shell-advertised eligibility for the quick feedback question (`[features] feedback_prompt`), from ACP initialize.
+    pub shell_quick_feedback_offer: bool,
+    /// "Don't show again" was picked this session, before the async config write lands.
+    pub quick_feedback_choice_latched: bool,
     /// Stateful prompt widget rendered on the welcome screen (persists input across frames).
     pub welcome_prompt: PromptWidget,
     /// The single slash-command MRU/recency store.
@@ -1173,6 +1177,11 @@ impl AppView {
     pub fn feedback_trace_offer(&self) -> bool {
         self.shell_feedback_trace_offer && !self.feedback_trace_choice_latched
     }
+    /// Whether the quick feedback question may be shown: the shell allows it and this session
+    /// has not chosen "don't show again".
+    pub fn quick_feedback_offer(&self) -> bool {
+        self.shell_quick_feedback_offer && !self.quick_feedback_choice_latched
+    }
     /// A cached team credential from before `canAdministerTeam` reads unknown and nothing refetches `/user` at startup; a personal account (which also carries a `team_id`) reads unknown on every call and is not asked.
     pub fn needs_team_capability_hydration(&self) -> bool {
         self.is_team_principal
@@ -1611,6 +1620,8 @@ impl AppView {
             session_recap_available: false,
             shell_feedback_trace_offer: false,
             feedback_trace_choice_latched: false,
+            shell_quick_feedback_offer: true,
+            quick_feedback_choice_latched: false,
             tutorial: None,
             dashboard: None,
             dashboard_return: None,

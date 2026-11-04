@@ -35,6 +35,11 @@ export function supports(host: Pick<Doc<"hosts">, "features">, type: Doc<"comman
   return host.features?.includes(type) ?? false;
 }
 
+/** Whether a crok process passes the photos and files of a prompt on to the model (`attachments` in its features). */
+export function takesAttachments(host: Pick<Doc<"hosts">, "features">): boolean {
+  return host.features?.includes("attachments") ?? false;
+}
+
 /**
  * Whether a crok process applies the model and thinking level a `create` command carries before its first prompt. It
  * says so with `setup`; crok 2.0.1 and 2.0.2 do it without saying, and are the first to announce `git`. An older crok

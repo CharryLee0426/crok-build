@@ -117,6 +117,17 @@ class EngineOverDemoTest {
     }
 
     @Test
+    fun refreshAsksTheOnlineComputersAndEndsWhenTheyListed() = await {
+        engine.sessions.active.first { it.live }
+        val computers = DemoData.state(0).devices.filter { it.isComputer }
+        val outcome = engine.sessions.refresh()
+        assertEquals(computers.count { it.online }, outcome.asked)
+        assertEquals(computers.count { !it.online }, outcome.offline)
+        assertTrue(outcome.pending.isEmpty() && !outcome.noneOnline)
+        assertTrue(!engine.sessions.isRefreshing.value)
+    }
+
+    @Test
     fun markAllAsReadClearsEveryUnreadSessionOfTheComputer() = await {
         val state = engine.sessions.active.first { it.live }
         val macbook = state.groups.filter { it.deviceId == DemoData.MACBOOK_ID }
@@ -152,7 +163,7 @@ class EngineOverDemoTest {
         // Sessions: a pinned one stays first whatever is asked.
         engine.sessions.reorderSessions(DemoData.MACBOOK_CROK_SITE, listOf("demo-s12", DemoData.WAITING_SESSION))
         assertEquals(listOf(DemoData.WAITING_SESSION, "demo-s12"), engine.sessions.active.value.ids(DemoData.MACBOOK_CROK_SITE))
-        val build = listOf("demo-s9", DemoData.RUNNING_SESSION, "demo-s7", DemoData.CATALOG_SESSION, "demo-s10", "demo-s11")
+        val build = listOf("demo-s9", DemoData.RUNNING_SESSION, "demo-s7", DemoData.ATTACHMENTS_SESSION, DemoData.CATALOG_SESSION, "demo-s10", "demo-s11")
         engine.sessions.reorderSessions(DemoData.MACBOOK_CROK_BUILD, build)
         assertEquals(build, engine.sessions.active.first { it.ids(DemoData.MACBOOK_CROK_BUILD) == build }.ids(DemoData.MACBOOK_CROK_BUILD))
 

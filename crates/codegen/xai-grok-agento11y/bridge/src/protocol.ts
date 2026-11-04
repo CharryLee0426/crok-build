@@ -104,12 +104,19 @@ export interface ScoreLine {
   spanId?: string | null;
 }
 
-/** The user's rating of a conversation. */
+/** The user's rating of a conversation, or of one turn with a thumb. */
 export interface RatingLine {
   type: "rating";
   conversationId: string;
   ratingId: string;
-  rating: "CONVERSATION_RATING_VALUE_GOOD" | "CONVERSATION_RATING_VALUE_BAD";
+  rating:
+    | "CONVERSATION_RATING_VALUE_GOOD"
+    | "CONVERSATION_RATING_VALUE_BAD"
+    | "CONVERSATION_RATING_VALUE_NEUTRAL";
+  /** `1` thumbs up, `-1` thumbs down, `0` the thumb taken back. Older lines derive it from `rating`. */
+  value?: number;
+  /** The session's turn number for a per-turn thumb. */
+  turnNumber?: number;
   comment?: string | null;
   generationId?: string | null;
   category?: string | null;

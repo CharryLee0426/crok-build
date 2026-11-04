@@ -82,8 +82,9 @@ the same tiny auth surface, and lets the person see and revoke every linked devi
   also in a session nobody has open there (crok opens it). Permission requests are offered on the relay to every device
   of the person and, for a session the computer shows, on the computer too; the first answer counts. A computer can
   turn control off (`[remote] enabled = false`) or sign out.
-- **Data at rest on the relay**: transcripts are stored in the person's own Convex deployment. End-to-end encryption is
-  listed under future work.
+- **Data at rest on the relay**: transcripts, and the photos and files sent with prompts, are stored in the person's
+  own Convex deployment. End-to-end encryption is listed under future work. A storage URL is a capability (anyone
+  holding it can read the file); the relay hands them only to the session's owner and its computer.
 
 ## 2. Data model (`relay/convex/schema.ts`)
 
@@ -96,9 +97,11 @@ the same tiny auth surface, and lets the person see and revoke every linked devi
 | `modelLists` | the models a computer's crok can run, with their thinking levels | `bridge.setModels` | one per computer, the latest from any of its processes (§2, "Model and thinking level") |
 | `sessions` | a crok session on a computer: mirrored live, or listed from disk | `bridge.upsertSession`, `bridge.catalogBatch`, `bridge.catalogUpdate`, `bridge.setPending` | title, cwd, `projectPath`, model, status, `online`, preview, plan, usage, unread counters, `position`, `historyState`, `pending` (a permission request), `startedFrom` (the device that started it, `sessions:create`) |
 | `projects` | a folder sessions are grouped under, per computer | `bridge`, `sessions.reorderProjects` | `path`, `position` (hand-placed order) |
-| `catalogSyncs` | the last "list every session on disk" per computer | `bridge.beginCatalog/finishCatalog`, `bridge.connect/heartbeat`, the cron | one crok process per computer holds it (`hostId`) and keeps it current; `released` once that process is gone |
-| `events` | one transcript item | `bridge.pushEvents` | `seq` order, `key` for in-place updates (streaming text, tool status) |
-| `commands` | a prompt / stop / info / answer / history / create / config request | viewers; `bridge.claim/complete` | `pending → delivered → done/failed`, `clientId` for idempotency; `interactionId` for an answer; `configId` for a config change |
+| `catalogSyncs` | the last "list every session on disk" per computer | `bridge.beginCatalog/finishCatalog`, `bridge.connect/heartbeat`, the cron, `sessions.refresh` | one crok process per computer holds it (`hostId`) and keeps it current; `released` once that process is gone; `refreshAt` when someone last pressed Refresh |
+| `events` | one transcript item | `bridge.pushEvents` | `seq` order, `key` for in-place updates (streaming text, tool status); a prompt's `attachments` |
+| `commands` | a prompt / stop / info / answer / history / create / config request | viewers; `bridge.claim/complete` | `pending → delivered → done/failed`, `clientId` for idempotency; `interactionId` for an answer; `configId` for a config change; a prompt's `attachments` |
+| `files` | an upload in the relay's file storage that a prompt or transcript item carries | `commands.sendPrompt`, `sessions.create`, `bridge.pushEvents` | owner, the session it belongs to, the storage's `sha256`; deleted with the session or its transcript (§2, "Photos and files") |
+| `fileSweeps` | how far the hourly sweep of unclaimed uploads got | `files.sweep` | one row |
 | `commandLists` | the slash commands a session (or, as a fallback, its computer) offers | `bridge.setCommands` | kept out of `sessions` so the list query does not re-send them |
 | `sessionViews` | "someone has this session open" | `sessions.watch` | the bridge streams finely only while one is live |
 
@@ -148,6 +151,15 @@ computer lists the sessions; when it is gone (it quit, or stopped heartbeating),
 the catalog and holds it from then on. A computer whose crok starts again therefore lists its sessions at once. An
 older crok (without `catalog` in its `features`) uploads every 10 minutes and sends nothing in between; a current one
 takes its catalog over after those 10 minutes.
+
+**Refresh.** The web, the phones and Crok Desktop have a Refresh button for when a list looks stale.
+`sessions:refresh` stamps `refreshAt` on the catalog of every online computer of the person; while `refreshAt` is
+later than the last upload's start, every crok there sees `catalogWanted`, the holder too, and the first to ask
+(`bridge:beginCatalog`, granted at once, however recently it listed, once an upload under way is done) lists every
+session again: a full upload, which also drops sessions deleted there and corrects anything the relay missed. It
+becomes the holder. `sessions:refreshState({since})` names the computers still listing; the button spins until none
+is (at most 15 s: a crok that predates Refresh, alone on its computer, holds the catalog without answering it and lists
+again only at its next check). Offline computers cannot list; the list keeps what they listed last.
 
 ### Prompts for sessions nobody runs
 
@@ -233,6 +245,42 @@ it, so with an old and a new crok on one computer the new one starts it. With on
 `OFFLINE` ("Update crok on … to start a session there with a chosen model or thinking level"), rather than starting
 the session on the default; one on Default still starts on any crok that handles `create`.
 
+### Photos and files
+
+A prompt from any device can carry photos and files (at most 10, each at most 20 MB), and they show in every
+device's transcript. They travel through Convex file storage:
+
+1. The device asks `files:uploadUrl` for an upload URL and `POST`s the file's bytes there with its `Content-Type`
+   (Convex answers `{storageId}`). An image also gets a small thumbnail upload (`thumbId`, §5 "Photos and files in
+   prompts").
+2. It names the uploads in `commands:sendPrompt` / `sessions:create` (`attachments: [{storageId, thumbId?, name,
+   width?, height?}]`, in order; the text may then be empty). The relay **claims** each one for the session: it must
+   exist, fit the limit and not belong to another person; its type and size are read from the stored file, not from
+   the client. Each is recorded in `files` (owner, session, the storage's SHA-256) and the command carries the
+   attachments: `{storageId?, thumbId?, name, mimeType, size, kind: "image" | "file", width?, height?}`. `kind` is
+   `image` only for PNG, JPEG, GIF and WebP (what models read); anything else is a `file`.
+3. The computer's inbox gives each attachment a download `url` (and `thumbUrl`). Its crok downloads them and passes
+   images to the model as image content and files as files on its disk (§4, "Photos and files").
+4. The prompt's transcript item (`kind: "user"`) carries the same `attachments`; every query that returns items
+   (`sessions:transcript`, `sessions:events`) and `commands:forSession` adds `url` and `thumbUrl` (null once the
+   upload is gone). A prompt typed on the computer with images (TUI, Crok Desktop) is mirrored the same way: its crok
+   uploads the images and sends the item with them; a file attached there (a path on the computer) is listed by name
+   without an upload (no `storageId`).
+
+Only crok that passes them on gets such a prompt: hosts list `attachments` in `bridge:connect`'s `features`, the
+inbox offers a prompt or `create` with attachments only to those, and with only older crok on the computer the call
+fails `INVALID` ("Update crok on … to send photos and files there"). Text-only prompts are unchanged, and clients send
+`attachments` only when there are some (an older relay refuses the unknown argument).
+
+Lifetime: an upload no prompt claims within a day is deleted (`files:sweep`, hourly). A session's files are deleted
+with the session (`sessions:remove`, a session deleted on its computer) and with its transcript after 30 idle days;
+an item whose upload is gone keeps its name, with `url: null`. A crok re-reading a transcript from disk (history,
+backfill) finds the images it uploaded before by SHA-256 (`files:known`) and links them again instead of uploading
+them twice.
+
+Storage URLs are unguessable capabilities: anyone holding one can read the file, so they are handed only to the
+session's owner (viewers) and its computer (inbox). They are stable, so clients cache by `storageId`.
+
 ### Slash commands
 
 A session's slash commands — crok's own (`compact`, `context`, `memory`, …), skills and workflows, as the agent
@@ -286,11 +334,13 @@ callback.
 | `sessions:groups` (query) | — | `[{key, deviceId, deviceName, deviceOnline, deviceLastSeenAt, path, name, placed, lastActivityAt, sessions: [row]}]` (`deviceLastSeenAt` only while offline) — the main list: non-archived sessions grouped by project, both levels in list order (above) |
 | `sessions:list` (query) | `archived?: boolean` | `[row]` flat, pinned first, then newest (the Archived tab) |
 | `sessions:get` (query) | `sessionDocId` | `{…row fields, effort, gitBranch, devicePlatform, createdAt, plan:[{content,status}], usage: null\|{inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, contextTokens, contextWindow, outputTokensPerSecond}, eventSeq, pending: null\|{id, kind, title, detail?, toolKind?, options:[{optionId, name, kind}], at}, models: null\|[{id, name, description?, efforts:[{id, name, value?, description?}], defaultEffort?}]}` — `models` only for lists of at most 200 (older clients); current clients read `devices:models` |
-| `sessions:create` (mutation) | `deviceId, path, text?, model?, effort?, clientId` (UUID) | `{sessionDocId, commandId}` — a new session in `path` on that computer, with its model/thinking level from `devices:models` (§2, "New sessions from any device"); same `clientId` → same session; `OFFLINE`, `INVALID`, `NOT_FOUND` (not one of your computers), `FORBIDDEN` (a phone) |
+| `sessions:create` (mutation) | `deviceId, path, text?, model?, effort?, clientId` (UUID), `attachments?` | `{sessionDocId, commandId}` — a new session in `path` on that computer, with its model/thinking level from `devices:models` (§2, "New sessions from any device"); same `clientId` → same session; `attachments` as for `commands:sendPrompt` (the first prompt may be photos and files alone); `OFFLINE`, `INVALID`, `NOT_FOUND` (not one of your computers), `FORBIDDEN` (a phone) |
 | `sessions:commands` (query) | `sessionDocId` | `{commands:[{name, description, hint?}], source: "session"\|"computer"\|"none"}` — the agent's slash commands, without the leading `/` |
 | `sessions:reorderProjects` (mutation) | `keys: string[]` | `null` — some project keys in their new order (all, or one computer's) |
 | `sessions:reorderSessions` (mutation) | `projectKey, sessionDocIds: string[]` | `null` — some of the project's sessions in their new order |
 | `sessions:resetOrder` (mutation) | `projectKey?` | `null` — with a key: that project's sessions back to newest first; without: the projects |
+| `sessions:refresh` (mutation) | — | `{asked, offline, at}` — Refresh (§2, "Every session, not only running ones"): every online computer lists all its sessions again now; `asked` = those computers, `offline` = the ones that cannot (their sessions stay as last listed), `at` for `refreshState` |
+| `sessions:refreshState` (query) | `since` (`refresh`'s `at`) | `{pending: [deviceId]}` — the online computers still listing for that refresh; empty = done. Clients stop waiting after 15 s |
 
 A **row** is `{_id, sessionId, title, cwd, model, gitBranch, usage, status, online, app, deviceId, deviceName,
 deviceOnline, preview, previewKind, lastActivityAt, pinned, archived, unread, plan: null|{done,total}, projectKey,
@@ -306,10 +356,13 @@ session's history shows once crok runs there".
 | `sessions:setPinned` / `setArchived` (mutation) | `sessionDocId, pinned\|archived` | `null` |
 | `sessions:remove` (mutation) | `sessionDocId` | `null` (offline sessions only) |
 
-An **event** is `{_id, seq, key, kind, text, title?, toolKind?, status?, origin?, commandId?, fromLabel?, at}`:
+An **event** is `{_id, seq, key, kind, text, title?, toolKind?, status?, origin?, commandId?, fromLabel?, attachments?,
+at}`:
 
 - `kind: "user"` — a prompt; `origin: "remote"`, `commandId` and `fromLabel` (the sender: a device name or "Web")
-  when it came from a phone or the web.
+  when it came from a phone or the web. `attachments` (absent when none): the photos and files sent with it, in
+  order, each `{storageId?, thumbId?, name, mimeType, size, kind: "image"|"file", width?, height?, url: string|null,
+  thumbUrl: string|null}` (§2, "Photos and files"); `text` may be empty when there are attachments.
 - `kind: "assistant"` — Markdown reply text (may still be streaming: same `key`, growing `text`).
 - `kind: "thought"` — reasoning summary; show collapsed.
 - `kind: "tool"` — `title` (e.g. `Run cargo test`), `toolKind` (`read`, `edit`, `delete`, `move`, `search`,
@@ -352,14 +405,14 @@ runs it now; it still takes prompts while `deviceOnline` (its computer opens it)
 
 | function | args | returns |
 |---|---|---|
-| `commands:sendPrompt` (mutation) | `sessionDocId, text, clientId` (UUID) | `{commandId}`; same `clientId` → same command; throws `OFFLINE` only when no crok on its computer can take it |
+| `commands:sendPrompt` (mutation) | `sessionDocId, text, clientId` (UUID), `attachments?: [{storageId, thumbId?, name, width?, height?}]` (≤ 10, from `files:uploadUrl`) | `{commandId}`; same `clientId` → same command; `text` may be empty with attachments; throws `OFFLINE` only when no crok on its computer can take it, `INVALID` for an upload that is gone or too big, or a computer whose crok cannot take attachments yet, `FORBIDDEN` for someone else's upload |
 | `commands:stop` (mutation) | `sessionDocId` | `{commandId}` (done at once for a session nobody runs) |
 | `commands:requestInfo` (mutation) | `sessionDocId` | `{commandId}`; the answer arrives in `commands:get(...).result` (at once, `stored: true`, for a session nobody runs) |
 | `commands:git` (mutation) | `sessionDocId, request` (JSON) | `{commandId}`; any crok on the computer that knows `git` runs `{op: "graph"\|"branches"\|"files"\|"diff"\|"workspace"\|"workspace_diff"\|"signature"\|"switch"\|"create", …}` in the session's folder and puts its answer in `result` (`INVALID` until crok there is updated; `OFFLINE`) |
 | `commands:answer` (mutation) | `sessionDocId, interactionId, optionId` | `{commandId}`; throws `EXPIRED` when that request is no longer pending |
 | `commands:setConfig` (mutation) | `sessionDocId, configId: "model"\|"reasoning_effort", value` | `{commandId}`; `result` = `{model, effort}` once done; `INVALID` for a value not in `models`; `OFFLINE` |
 | `commands:get` (query) | `commandId` | the command row or `null` |
-| `commands:forSession` (query) | `sessionDocId` | recent prompts `[{_id, type, clientId, text, status, error, fromLabel, fromDeviceId, mine, createdAt, updatedAt}]` (`type` `prompt`, or `create` for the first prompt of a new session); `mine` = sent by this caller |
+| `commands:forSession` (query) | `sessionDocId` | recent prompts `[{_id, type, clientId, text, status, error, fromLabel, fromDeviceId, mine, attachments, createdAt, updatedAt}]` (`type` `prompt`, or `create` for the first prompt of a new session); `mine` = sent by this caller; `attachments` as on an event (with `url`/`thumbUrl`), `[]` when none |
 | `commands:retry` / `discard` (mutation) | `commandId` | `null` |
 
 An info `result` is `{ model, effort, cwd, gitBranch, title, createdAt, outputTokensPerSecond, usage: {inputTokens,
@@ -370,6 +423,13 @@ Prompt status ticks (Telegram's clock → ✓ → ✓✓ → red "!"): `pending`
 computer accepted it (it is in the transcript or queued behind the running turn); `done` = its turn finished;
 `failed` = `error` says why (offline, busy, rejected). A viewer shows its own prompt optimistically from the moment
 of sending (keyed by `clientId`) until the transcript holds the user event whose `commandId` matches.
+
+### Files (signed in: web user or device)
+
+| function | args | returns |
+|---|---|---|
+| `files:uploadUrl` (mutation) | — | `{url}` — `POST` one file's bytes there (header `Content-Type`, body the bytes); the answer is `{storageId}`. Valid for an hour; one URL per file |
+| `files:known` (query, computers) | `sessionId` (crok's own id, a session of this computer), `sha256: string[]` (≤ 100, base64 SHA-256 as Convex stores it) | `{[sha256]: {storageId, thumbId: string\|null}}` — the session's uploads the relay still holds, so a transcript re-read from disk links its images (and their thumbnails) again |
 
 ### o11y (allowlisted viewers; the phones' o11y tab)
 
@@ -460,16 +520,16 @@ A block whose queries fail becomes an `error` block; the page still builds. Pane
 
 | function | args | returns |
 |---|---|---|
-| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?, canAdopt?, features?` | `{hostId, deviceId, serverTime}` — `features`: command types beyond the first relay's it handles (`create`, `config`, `git`), `setup` when it applies a `create` command's model and thinking level (§2, "Model and thinking level"), and `catalog` when, holding its computer's catalog, it sends what changes (`catalogUpdate`) |
+| `bridge:connect` | `instanceId, app: tui\|desktop\|cli, appVersion, pid?, canAdopt?, features?` | `{hostId, deviceId, serverTime, features}` — the answer's `features`: what this relay takes beyond the first one's (`attachments` on transcript items; crok sends none to a relay without it); the argument's `features`: command types beyond the first relay's it handles (`create`, `config`, `git`), `setup` when it applies a `create` command's model and thinking level (§2, "Model and thinking level"), `catalog` when, holding its computer's catalog, it sends what changes (`catalogUpdate`), and `attachments` when it passes a prompt's photos and files on (§2, "Photos and files") |
 | `bridge:heartbeat` | `hostId` | `{serverTime}` (every 30 s) |
 | `bridge:disconnect` | `hostId` | `null` |
 | `bridge:upsertSession` | `hostId, sessionId, fields:{title?, cwd?, model?, effort?, gitBranch?, status?, preview?, previewKind?, plan?, usage?, createdAt?, lastActivityAt?, projectPath?}` | `{sessionDocId, eventSeq, created}` |
 | `bridge:setBranch` | `hostId, sessionId, branch` | `null` — the branch a git command on that computer checked out, for a session another process may run (it does not mark the session open) |
 | `bridge:closeSession` | `hostId, sessionId` | `null` |
-| `bridge:pushEvents` | `hostId, sessionDocId, replace?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history) |
-| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt` (one with a choice only to hosts that apply it: `setup` or `git` in `features`); `hosted` = the sessions the relay has this host running; `catalogWanted`: no crok keeps this computer's catalog (the holder is gone, or there never was one), so ask `beginCatalog` now |
+| `bridge:pushEvents` | `hostId, sessionDocId, replace?, onlyExisting?, events:[{key, kind, text, title?, toolKind?, status?, origin?, commandId?, attachments?, at}]` (≤100), `preview?, previewKind?` | `{eventSeq}` — also for an offline session of this computer (history); `attachments` as stored (`{storageId?, thumbId?, name, mimeType, size, kind, width?, height?}`, no URLs): uploads are claimed for the session, files without `storageId` kept by name; `onlyExisting` updates items already there and adds none |
+| `bridge:inbox` (query) | `hostId` | `{commands:[{_id, sessionDocId, sessionId, cwd, type, text, interactionId, configId, model, effort, adopt, fromLabel, fromKind, attachments, createdAt}], views:[{sessionDocId, sessionId, until}], hosted:[sessionId], serverTime}` — `attachments`: a prompt's or `create`'s photos and files with their download `url`/`thumbUrl` (`[]` when none; only hosts listing `attachments` get commands with some); `type: "history"` for offline sessions goes to every host of the computer; a prompt or config change for one (`adopt: true`) and every `create` (`cwd` = the folder, `text` the prompt or null, `model`/`effort` the chosen options or null) to every host with `canAdopt` (one with a choice only to hosts that apply it: `setup` or `git` in `features`); `hosted` = the sessions the relay has this host running; `catalogWanted`: no crok keeps this computer's catalog (the holder is gone, or there never was one), or someone pressed Refresh since the last listing began, so ask `beginCatalog` now (the holder too) |
 | `bridge:setPending` | `hostId, sessionId, pending?` | `null` — the session's permission request, or none (absent) once answered or gone |
-| `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another running host holds the catalog and keeps it current, did it lately, or is doing it; the holder itself again after 30 min, an older one after 10) — a grant makes this host the holder |
+| `bridge:beginCatalog` | `hostId` | `{syncId}` or `null` (another running host holds the catalog and keeps it current, did it lately, or is doing it; the holder itself again after 30 min, an older one after 10; after a Refresh, any host at once unless an upload is under way) — a grant makes this host the holder |
 | `bridge:catalogBatch` | `hostId, syncId, sessions:[{sessionId, title, cwd, projectPath, createdAt, lastActivityAt, model?, effort?, gitBranch?, preview?}]` (≤100) | `{added}` |
 | `bridge:finishCatalog` | `hostId, syncId, sessionIds: string[]` (all listed) | `{removed}` — offline sessions of this computer not listed are dropped |
 | `bridge:catalogUpdate` | `hostId, syncId, sessions:[catalog entry]` (≤100), `removed: string[]` (≤500) | `{added, removed}` — what changed on disk since the holder's last upload or update; `EXPIRED` once another host holds the catalog |
@@ -549,6 +609,31 @@ runs.
   thinking levels (`acp_config_options` for that model) and sends `bridge:setModels` when it differs from the last.
 - Slash commands: the tee copies `available_commands_update`; the bridge keeps each mirrored session's list (name,
   description, input hint) and sends `bridge:setCommands` when it changed.
+
+### Photos and files
+
+- A prompt or `create` with `attachments` (only hosts listing `attachments` get one): before the prompt runs, the
+  bridge downloads each from its `url` (at most 20 MB). An image becomes ACP image content (base64, its type); any
+  other file is saved as `$CROK_HOME/remote/attachments/<session id>/<command id>/<name>` (the name without folders,
+  whitespace as `_`; `-2`, `-3` for repeats) and passed as a `resource_link` to that file, the way Crok Desktop
+  attaches files (crok lists it for the model and inlines a small text file). Text first, then the attachments in
+  order. A download that fails fails the prompt ("Could not download … from the relay"). The transcript item carries
+  the command's attachments as they are; `x.ai/remote/prompt` gains `attachments: [{name, kind, mimeType, url}]`.
+  Saved folders older than 30 days are deleted when a bridge starts.
+- A prompt typed on the computer: its text blocks are the item's text (no more `[image]` / `@name` placeholders); its
+  image blocks are listed at once by name (`photo-YYYYMMDD-HHMMSS.png` when they have none), then uploaded (with a
+  480 px JPEG thumbnail the bridge makes) and the item goes out again with `storageId`, `thumbId` and the pixel size;
+  its `resource_link`s (files and folders of the computer) are listed by name without an upload.
+- A transcript read from disk (history, backfill): a prompt's image chunks and `resource_link`s join its item the same
+  way. The transcript goes out first; its images follow: each is looked up by SHA-256 (`files:known`), linked again
+  when the relay still has it and uploaded otherwise, then the items are sent again with `pushEvents`'
+  `onlyExisting` (so a transcript replaced meanwhile is not added to).
+- A relay whose `bridge:connect` answer does not list `attachments` (an older one) gets no `attachments` at all.
+- A prompt from this computer into another computer's session (`relay:` ids, §4 "Sessions on other computers"): its
+  images and files (not folders) are uploaded first and go as `commands:sendPrompt`'s `attachments`; the front end's
+  echo carries the images. Items from the relay show their attachments as lines under the text (`🖼 photo.jpg`,
+  `📎 notes.md`).
+- A prompt of photos and files only has `🖼 name` / `📎 name` (`+N` for more) as the session list's preview.
 
 ### Adopted sessions
 
@@ -653,7 +738,9 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   kept current with `x.ai/remote/sessions {watch: true}`. Online computers start expanded, offline ones folded.
   Keys: ↑/↓ move, → or Enter on a computer or project expands it, ← folds it (or moves to the parent), Enter on a
   session opens it here (as picking a `relay:` row in `/resume` does), `n` starts a new session in the selected
-  project (or the selected session's project), typing filters (title, project, folder, computer), Esc clears the filter
+  project (or the selected session's project), `r` refreshes (every online computer lists its sessions again,
+  `x.ai/remote/refresh`; the line under the header says so while it runs, then how it went: done, no computer online,
+  some did not answer in time, or the error), typing filters (title, project, folder, computer), Esc clears the filter
   or closes. A new session asks, in the same panel, for the model (that computer's list from `x.ai/remote/models`:
   "Default" first, then each model with its description, filtered by typing) and then for the thinking level when the
   chosen model has levels ("Default" first); it then calls `x.ai/remote/new_session {deviceId, path, model?, effort?}`
@@ -672,7 +759,10 @@ phones forget it and show "This build uses a different relay. Sign in again.").
   opens it as a task (`relay:` session id, kept under a hidden project whose folder is the app's own) that the other
   computer runs. An approval answered on another device leaves the task. The remote host asks for the list as soon as
   it is up, again whenever its relay link (re)connects, and every few seconds while the answer is still empty (not
-  signed in yet), then renews the watch every 4 minutes.
+  signed in yet), then renews the watch every 4 minutes. The section header's **Refresh** button (↻, a spinner while
+  it runs) asks every online computer to list its sessions again (`x.ai/remote/refresh` through the remote host:
+  `sessions:refresh`, then `sessions:refreshState` until none is pending or 15 s), then asks for the list anew; with
+  no remote host running, it starts one now instead of at its next retry.
 - A session another device started on this Mac (`here`) is one of the Mac's own tasks: it appears in its project as
   soon as the relay lists it (the project is added when the app has none for that folder), unread, titled as the relay
   has it until it is opened, working while a turn runs there (and unread when that turn ends), and opens like any task
@@ -756,6 +846,84 @@ keyboards** under a bot message (iOS `ChatMessageInlineKeyboard…`; And `BotBut
   (computer offline) the card says the computer is offline.
 - Any other `/text` goes to the computer as a prompt: the session's commands (`/compact`) and unknown ones alike
   (crok answers "unknown command" there).
+
+### Photos and files in prompts (web, iOS, Android alike; Telegram's attachment menu and media messages)
+
+Relay side in §2, "Photos and files". Built from Telegram's attach button and media bubbles (iOS
+`ChatTextInputAttachmentButton`, `AttachmentController`, `ChatMessageMediaBubbleContentNode`,
+`ChatMessageFileBubbleContentNode`, `GalleryController`; And `ChatAttachAlert`, `ChatMessageCell` photo/document
+layouts, `PhotoViewer`).
+
+**The attach button.** A paperclip button sits in the composer row right after the Menu pill and before the text
+field (Telegram's order: Menu, paperclip, field, Send). It is there in sessions and on the new-session screen, and
+disabled with the rest of the composer while the computer is offline.
+
+- iOS and Android: a tap opens a menu with **Photos** (the system photo picker, several at once, images only),
+  **Camera** (take one photo; only where the device has a camera) and **Files** (the system document picker, several
+  at once, any type).
+- Web: a tap opens the browser's file dialog (several at once, any type). Pasting images or files into the
+  composer (⌘V / Ctrl+V) and dropping files anywhere on the session screen attach them too; while dragging over it a
+  drop overlay says "Drop to attach".
+
+**The attachment strip.** What is attached shows in a row above the field, in order, scrolling sideways: images as
+64 pt/dp/px square thumbnails with rounded corners, files as chips (a document icon, the name middle-truncated, the
+size). Each has a small ✕ to remove it. An upload starts as soon as something is attached: a progress ring (or a
+spinner) covers it until the upload is done; a failed one shows a red "!" and retries on tap. More than 10 attached:
+the extra ones are not added and a short notice says "Up to 10 photos and files per message". A file over 20 MB is
+not added ("Files are limited to 20 MB"). The strip belongs to the session's draft while the app runs (switching
+sessions keeps it); it is not kept across a restart.
+
+**Preparing an upload.**
+- Every image except a GIF is re-encoded before upload: upright (EXIF orientation applied), at most 2048 px on its
+  longer side, without metadata (no location), as JPEG quality 0.85 — or as PNG when the source is a PNG or has
+  transparency. HEIC/HEIF, TIFF, BMP and other formats become JPEG. A GIF goes as it is when it is at most 10 MB
+  (larger: its first frame, re-encoded as above). `width` and `height` are the uploaded pixels.
+- Each image also uploads a **thumbnail**: at most 480 px on its longer side, JPEG quality 0.7, transparency on white
+  (`thumbId`). If the thumbnail fails, the image still goes without one.
+- Name: the picked file's own name, with its extension changed to the uploaded type; a photo without a name (photo
+  library, camera, a pasted image) is `photo-YYYYMMDD-HHMMSS.jpg` (`-2`, `-3`, … for several in one pick), local time.
+- Files go as they are, with the system's type for them (else by extension, else `application/octet-stream`).
+  Images picked through **Files** are treated as images (prepared as above).
+- Upload: `files:uploadUrl` → `POST url` with `Content-Type: <type>` and the bytes as the body → `{storageId}`; a
+  fresh URL for each file and each thumbnail.
+
+**Sending.** Send is enabled when there is text or at least one attachment, and no attachment is still uploading or
+failed. It calls `commands:sendPrompt` (in a new session `sessions:create`) with the text and `attachments: [{storageId,
+thumbId?, name, width?, height?}]` in the strip's order — the key only when there are attachments — and clears the
+field and the strip. With attachments in the strip, the text always goes as a prompt as it is (the device's own
+commands, `/new`, `/model` …, work only without attachments). Errors show as for any prompt (red "!" with the relay's
+message, e.g. "Update crok on … to send photos and files there"); Retry sends the same uploads again.
+
+**In the transcript.** A user item's `attachments` (and the sender's own optimistic bubble, from the prepared local
+data, until the item arrives) show inside its bubble above the text, like Telegram's media with a caption:
+- Images: one image shows whole (aspect-fit from `width`/`height`, else square), as wide as the bubble allows (phones
+  up to 260 pt/dp, web up to 320 px) and at most 320 tall; two or more form a grid of square crops, two per row (the
+  last one full width when the count is odd), 2 pt/dp/px gaps, the bubble's corner radius on the outer corners. They
+  load `thumbUrl ?? url`, with a tinted placeholder of the right shape while loading. A bubble with only images has no
+  text line; its time and ticks sit on a dark pill over the last image's bottom-right corner.
+- Files: one row each — a round accent-coloured icon (document glyph; a photo glyph for images without a preview),
+  the name (middle-truncated) and "1.2 MB · PDF" (size, then the extension in capitals) under it.
+- Tap an image: a full-screen viewer on black with the item's images (swipe between them, pinch and double-tap zoom,
+  swipe down or ✕ to close), loading `url` (the thumbnail first). Its actions: iOS Share (the system share sheet) and
+  Save to Photos; Android Share and Save (to Pictures/Crok); web Open original (a new tab) and Download.
+- Tap a file: iOS downloads it to a temporary file and opens Quick Look (with Share); Android downloads it into the
+  app's cache and opens it with the system (`ACTION_VIEW` through a FileProvider; Share when no app opens it); web
+  opens `url` in a new tab. A progress indicator shows on the row while it downloads.
+- `url: null`: the upload is gone (the transcript expired) or the file exists only on the computer (no `storageId`,
+  attached there): the row or a placeholder tile shows the name, dimmed, not tappable, with "On <computer>" (no
+  `storageId`) or "No longer available" under it.
+- Images are fetched only from the relay's own `url`/`thumbUrl` (the Markdown rule that never fetches images is
+  about what the agent writes). Clients cache them on disk keyed by `storageId` (`thumbId` for thumbnails).
+- Pending prompts from `commands:forSession` (sent from another device, or before a restart) show their
+  `attachments` the same way.
+
+**Demo and previews.** Each client's demo data has a session whose prompt carries two photos and a PDF, and one with a
+single photo and no text, so screenshots and UI tests cover the layouts without a relay.
+
+**Words** (in all six languages, with the platform's own words where it has them): Attach, Photos, Camera, Files,
+Drop to attach, Up to 10 photos and files per message, Files are limited to 20 MB, Uploading…, Upload failed — tap to
+retry, Remove, Share, Save to Photos / Save, Saved, Open original, Download, On <computer>, No longer available,
+Photo, File.
 
 ### Replies in Markdown (web, iOS, Android alike)
 
@@ -929,7 +1097,9 @@ through a String Catalog, Android through `values-*/strings.xml`, the web app th
 
 ## 7. Limits and cost
 
-Convex free tier: 1 GB/month database bandwidth, 0.5 GB storage. Events are capped at 32 000 characters (the computer
+Convex free tier: 1 GB/month database bandwidth, 0.5 GB storage; file storage and file bandwidth have limits of their
+own (check the plan). Photos are re-encoded to at most 2048 px before upload (typically 0.2–1 MB) and transcripts show 480 px thumbnails
+(about 30 kB), so a session's photos cost little until one is opened full size; files cost what they weigh. Events are capped at 32 000 characters (the computer
 keeps the full text), 100 per call; sessions keep their relay copy 30 days after their last activity. A busy streaming
 session watched from a phone costs about one small mutation per 0.75 s; unwatched, one per message. The phones'
 transcript window re-reads only its live end (at most 80 items) as a reply streams, and never a thought's or tool's
@@ -949,4 +1119,3 @@ command `npx convex deploy --cmd 'npm run build'`, then point crok and the apps 
 - Push notifications for "turn finished" and "needs approval" (APNs / FCM via a Convex action; per-session threads and
   Approve / Deny actions, as Telegram's notification service does).
 - End-to-end encryption of transcripts with a key shared between the user's devices.
-- Attachments (images) in remote prompts.

@@ -27,6 +27,62 @@ fn next_rewrite_nonce() -> u64 {
 pub(crate) const FEEDBACK_THANKS_NOTICE: &str =
     tlm("Thanks for the feedback! The Crok Build team is on it.");
 
+/// Answer the quick feedback question: send the thumbs verdict, or stop showing the question.
+pub(super) fn dispatch_quick_feedback(
+    app: &mut AppView,
+    choice: crate::app::agent_view::QuickFeedbackChoice,
+) -> Vec<Effect> {
+    let ActiveView::Agent(agent_id) = app.active_view else {
+        return vec![];
+    };
+    let mut send = None;
+    let mut dismissed = false;
+    let mut had_prompt = false;
+    with_active_agent(app, |agent| {
+        let Some(prompt) = agent.quick_feedback.take() else {
+            return;
+        };
+        had_prompt = true;
+        agent.quick_feedback_chips.clear();
+        agent.hovered_quick_feedback_chip = None;
+        if let Some(rating) = choice.rating() {
+            agent.scrollback.push_block(RenderBlock::system(
+                tl("Thanks for the feedback!").to_string(),
+            ));
+            if let Some(session_id) = agent.session.session_id.clone() {
+                send = Some((session_id, prompt.turn_index, rating));
+            }
+        } else {
+            dismissed = true;
+            agent.scrollback.push_block(RenderBlock::system(
+                tl("The feedback question won't be shown again. Set [features] feedback_prompt = true to bring it back.")
+                    .to_string(),
+            ));
+        }
+    });
+    if dismissed {
+        app.quick_feedback_choice_latched = true;
+        return vec![Effect::PersistSetting {
+            key: "feedback_prompt",
+            value: crate::settings::SettingValue::Bool(false),
+            rollback_value: crate::settings::SettingValue::Bool(true),
+        }];
+    }
+    if !had_prompt {
+        app.show_toast(tl("There is no feedback question to answer right now."));
+        return vec![];
+    }
+    let Some((session_id, turn_number, rating)) = send else {
+        return vec![];
+    };
+    vec![Effect::SendFeedbackRating {
+        agent_id,
+        session_id,
+        turn_number,
+        rating,
+    }]
+}
+
 /// Minimal mode cannot show a toast, so the notice goes to the transcript instead.
 fn feedback_notice(app: &mut AppView, message: &str) {
     if app.screen_mode.is_minimal() {

@@ -569,12 +569,25 @@ extension AppStore {
         if let first = remoteFirstPrompts[id], RemoteSessions.samePrompt(first, text) {
             remoteFirstPrompts.removeValue(forKey: id)
         } else {
-            append(Message(kind: .user, text: text, createdAt: Date(), remoteFrom: from), to: id)
+            var message = Message(kind: .user, text: text, createdAt: Date(), remoteFrom: from)
+            // Its photos and files stay on the relay and the computer that runs it; the transcript names them.
+            let carried = Self.remoteAttachments(params["attachments"])
+            if !carried.isEmpty { message.attachments = carried }
+            append(message, to: id)
         }
         remoteTurns[id] = promptID
         cancellationRequested.remove(id)
         runs[id, default: RunState()].isRunning = true
         runs[id]?.phase = "Working"
+    }
+
+    /// The photos and files a remote prompt carried (`attachments`: `{name, kind, mimeType, url}`), by name.
+    nonisolated static func remoteAttachments(_ value: Any?) -> [MessageAttachment] {
+        (value as? [[String: Any]] ?? []).compactMap { item in
+            guard let name = RemoteAccount.text(item["name"]) else { return nil }
+            return MessageAttachment(kind: item["kind"] as? String == "image" ? .image : .file, name: name,
+                                     mimeType: item["mimeType"] as? String)
+        }
     }
 
     /// The turn a remote prompt started ended: the task is ready again, unless something the app

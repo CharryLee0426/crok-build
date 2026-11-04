@@ -94,7 +94,7 @@ class ReorderDragTest {
     fun draggingASessionUpTradesPlacesWithinItsProject() {
         showProject(DemoData.MACBOOK_CROK_BUILD)
         compose.onNodeWithTag(ReorderDragState.rowKey("demo-s7")).drag(-dp(80f))
-        val expected = listOf("demo-s7", DemoData.RUNNING_SESSION, DemoData.CATALOG_SESSION, "demo-s9", "demo-s10", "demo-s11")
+        val expected = listOf("demo-s7", DemoData.RUNNING_SESSION, DemoData.ATTACHMENTS_SESSION, DemoData.CATALOG_SESSION, "demo-s9", "demo-s10", "demo-s11")
         assertEquals(expected, sessions)
     }
 

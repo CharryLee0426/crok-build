@@ -27,6 +27,7 @@ import {
   PlusIcon,
   ReadIcon,
   RecentIcon,
+  RefreshIcon,
   ReorderIcon,
   StopIcon,
   UnarchiveIcon,
@@ -480,6 +481,17 @@ export function SessionsRootPage({
                   {t("edit")}
                 </HeaderTextButton>
               )
+            ) : null}
+            {!editing && computers.length ? (
+              <IconButton
+                label={data.refreshing ? t("refreshing") : t("refresh")}
+                onClick={actions.refresh}
+                aria-busy={data.refreshing || undefined}
+                title={data.refreshing ? t("refreshing") : t("refresh_hint")}
+                className="h-10 w-10"
+              >
+                <RefreshIcon size={20} className={data.refreshing ? "spin" : undefined} />
+              </IconButton>
             ) : null}
             {!editing && selected ? (
               <IconButton

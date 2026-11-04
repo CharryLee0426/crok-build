@@ -12,6 +12,7 @@ import dev.chenli.crok.mobile.logic.Forum
 import dev.chenli.crok.mobile.logic.SessionList
 import dev.chenli.crok.mobile.logic.SessionOrder
 import dev.chenli.crok.mobile.ui.ComputerState
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -44,6 +45,8 @@ data class SessionsUiState(
     /** Nothing to show yet: no cache and the relay has not answered. */
     val loading: Boolean = true,
     val now: Long = 0,
+    /** A Refresh is running (the top bar's spinner, pull to refresh). */
+    val refreshing: Boolean = false,
 ) {
     val searching: Boolean get() = query.isNotBlank()
 
@@ -87,6 +90,23 @@ data class SessionsUiState(
 sealed interface SessionsEvent {
     data class Archived(val sessionDocId: String) : SessionsEvent
     data class Failed(val message: String) : SessionsEvent
+
+    /** Refresh found no computer online: the list keeps what they listed last. */
+    data object NoneOnline : SessionsEvent
+    data class RefreshFailed(val message: String) : SessionsEvent
+}
+
+/** Refresh, shared by the Sessions tab and a project's screen: the notice or error it ends with goes to [events]. */
+internal fun CoroutineScope.refreshSessions(engine: CrokEngine, events: Channel<SessionsEvent>) {
+    launch {
+        try {
+            if (engine.sessions.refresh().noneOnline) events.trySend(SessionsEvent.NoneOnline)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            events.trySend(SessionsEvent.RefreshFailed(e.message ?: e.javaClass.simpleName))
+        }
+    }
 }
 
 class SessionsViewModel(private val engine: CrokEngine, computers: StateFlow<ComputerState>) : ViewModel() {
@@ -109,9 +129,11 @@ class SessionsViewModel(private val engine: CrokEngine, computers: StateFlow<Com
         }
     }
 
-    private data class Inputs(val query: String, val editing: Boolean, val frozen: Boolean)
+    private data class Inputs(val query: String, val editing: Boolean, val frozen: Boolean, val refreshing: Boolean)
 
-    private val inputs = combine(query, editing, swiping, dragging) { q, e, s, d -> Inputs(q, e, s || d) }
+    private val inputs = combine(query, editing, swiping, dragging, engine.sessions.isRefreshing) { q, e, s, d, r ->
+        Inputs(q, e, s || d, r)
+    }
 
     val state: StateFlow<SessionsUiState> = combine(
         computers,
@@ -124,7 +146,7 @@ class SessionsViewModel(private val engine: CrokEngine, computers: StateFlow<Com
         // Telegram freezes the list while a row is swiped, so it never re-sorts under the finger; so does a drag.
         val projects = if (input.frozen) SessionList.freeze(lastOrder, built.projects) { it.key } else built.projects
         lastOrder = projects.map { it.key }
-        built.copy(projects = projects)
+        built.copy(projects = projects, refreshing = input.refreshing)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionsUiState())
 
     fun setQuery(value: String) {
@@ -135,6 +157,9 @@ class SessionsViewModel(private val engine: CrokEngine, computers: StateFlow<Com
     fun setEditing(value: Boolean) {
         editing.value = value
     }
+
+    /** Refresh: every online computer lists all its sessions again. */
+    fun refresh() = viewModelScope.refreshSessions(engine, _events)
 
     fun setSwiping(value: Boolean) {
         swiping.value = value

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crok_remote::types::{EventInput, EventKind, PlanEntry};
+use crok_remote::types::{Attachment, AttachmentKind, EventInput, EventKind, PlanEntry};
 use serde_json::Value;
 
 /// Detail kept for a tool call (command plus the tail of its output).
@@ -14,6 +14,142 @@ const TOOL_DETAIL_MAX: usize = 4_000;
 const TOOL_OUTPUT_TAIL: usize = 1_500;
 /// The list preview of a session: the start of its last message.
 pub(crate) const PREVIEW_MAX: usize = 200;
+/// What the relay takes per prompt.
+const MAX_ATTACHMENTS: usize = 10;
+
+/// A photo or file a prompt carries, as the transcript learns of it.
+#[derive(Clone, Debug)]
+pub(crate) enum NewAttachment {
+    /// On the relay already (a prompt from another device), or only on this computer, shown by name.
+    Stored(Attachment),
+    /// An image whose bytes are here (typed on this computer, or read from disk): it goes to the relay's storage.
+    Image {
+        data: String,
+        mime_type: String,
+        name: Option<String>,
+    },
+}
+
+/// An item's image waiting to go to the relay's storage.
+#[derive(Clone, Debug)]
+pub(crate) struct PendingImage {
+    pub(crate) key: String,
+    pub(crate) index: usize,
+    pub(crate) data: String,
+    pub(crate) mime_type: String,
+}
+
+/// Where an item's image landed in the relay's storage.
+#[derive(Clone, Debug)]
+pub(crate) struct Uploaded {
+    pub(crate) key: String,
+    pub(crate) index: usize,
+    pub(crate) storage_id: String,
+    pub(crate) thumb_id: Option<String>,
+    pub(crate) size: f64,
+    pub(crate) width: Option<f64>,
+    pub(crate) height: Option<f64>,
+}
+
+/// The types models read as images; other images go as files.
+fn attachment_kind(mime_type: &str) -> AttachmentKind {
+    match mime_type {
+        "image/png" | "image/jpeg" | "image/jpg" | "image/gif" | "image/webp" => {
+            AttachmentKind::Image
+        }
+        _ => AttachmentKind::File,
+    }
+}
+
+/// A prompt of photos and files only, in the session list: `🖼 photo.jpg +2`, `📎 notes.md`.
+pub(crate) fn attachments_label(attachments: &[Attachment]) -> Option<String> {
+    let first = attachments.first()?;
+    let glyph = match first.kind {
+        AttachmentKind::Image => "🖼",
+        AttachmentKind::File => "📎",
+    };
+    Some(match attachments.len() {
+        1 => format!("{glyph} {}", first.name),
+        n => format!("{glyph} {} +{}", first.name, n - 1),
+    })
+}
+
+/// A name for an image that has none: `photo-YYYYMMDD-HHMMSS.png` at the item's time (`-2`, … for the next ones).
+pub(crate) fn photo_name(at: f64, index: usize, mime_type: &str) -> String {
+    let ext = match mime_type {
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        _ => "jpg",
+    };
+    let time = chrono::DateTime::from_timestamp_millis(at as i64)
+        .map(|t| {
+            t.with_timezone(&chrono::Local)
+                .format("%Y%m%d-%H%M%S")
+                .to_string()
+        })
+        .unwrap_or_else(|| "image".into());
+    match index {
+        0 => format!("photo-{time}.{ext}"),
+        n => format!("photo-{time}-{}.{ext}", n + 1),
+    }
+}
+
+/// The file name in a `file://` URI or a path.
+fn uri_name(uri: &str) -> Option<String> {
+    let name = uri.trim_end_matches('/').rsplit(['/', '\\']).next()?;
+    (!name.is_empty() && !name.contains(':')).then(|| name.to_string())
+}
+
+/// A prompt's other blocks (ACP JSON, as the front end sent them or the transcript stored them) as attachments.
+pub(crate) fn attachment_of(block: &Value) -> Option<NewAttachment> {
+    let string = |name: &str| block.get(name).and_then(Value::as_str).map(str::to_owned);
+    match block.get("type").and_then(Value::as_str)? {
+        "image" => Some(NewAttachment::Image {
+            data: string("data")?,
+            mime_type: string("mimeType").unwrap_or_else(|| "image/png".into()),
+            name: string("uri").and_then(|uri| uri_name(&uri)),
+        }),
+        "resource_link" => Some(NewAttachment::Stored(Attachment {
+            storage_id: None,
+            thumb_id: None,
+            name: string("name")
+                .filter(|n| !n.is_empty())
+                .or_else(|| string("uri").and_then(|uri| uri_name(&uri)))?,
+            mime_type: string("mimeType").unwrap_or_else(|| "application/octet-stream".into()),
+            size: block.get("size").and_then(Value::as_f64).unwrap_or(0.0),
+            kind: AttachmentKind::File,
+            width: None,
+            height: None,
+            url: None,
+            thumb_url: None,
+        })),
+        "resource" => {
+            let resource = block.get("resource")?;
+            let uri = resource.get("uri").and_then(Value::as_str)?;
+            Some(NewAttachment::Stored(Attachment {
+                storage_id: None,
+                thumb_id: None,
+                name: uri_name(uri)?,
+                mime_type: resource
+                    .get("mimeType")
+                    .and_then(Value::as_str)
+                    .unwrap_or("text/plain")
+                    .to_string(),
+                size: resource
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map_or(0.0, |text| text.len() as f64),
+                kind: AttachmentKind::File,
+                width: None,
+                height: None,
+                url: None,
+                thumb_url: None,
+            }))
+        }
+        _ => None,
+    }
+}
 
 /// What an update means for the session beyond its transcript.
 #[derive(Clone, Debug, PartialEq)]
@@ -87,6 +223,12 @@ pub(crate) struct Transcript {
     /// Whether to turn `user_message_chunk`s into items. Live, prompts are recorded where they are sent instead.
     record_user_chunks: bool,
     last_message: Option<(EventKind, String)>,
+    /// Each prompt item's photos and files, in order.
+    attachments: HashMap<String, Vec<Attachment>>,
+    /// Images not yet handed out for upload ([`Transcript::take_pending_images`]).
+    pending_images: Vec<PendingImage>,
+    /// Items with images still uploading, and how many: kept through [`Transcript::compact`].
+    uploading: HashMap<String, usize>,
 }
 
 impl Transcript {
@@ -100,6 +242,9 @@ impl Transcript {
             events: HashMap::new(),
             record_user_chunks,
             last_message: None,
+            attachments: HashMap::new(),
+            pending_images: Vec::new(),
+            uploading: HashMap::new(),
         }
     }
 
@@ -108,11 +253,96 @@ impl Transcript {
         format!("{}{letter}{}", self.prefix, self.counter)
     }
 
-    fn mark(&mut self, event: EventInput) {
+    fn mark(&mut self, mut event: EventInput) {
+        if let Some(attachments) = self.attachments.get(&event.key) {
+            event.attachments = Some(attachments.clone());
+        }
         if !self.dirty.contains(&event.key) {
             self.dirty.push(event.key.clone());
         }
         self.events.insert(event.key.clone(), event);
+    }
+
+    /// Adds a photo or file to the prompt item `key`; an image with its bytes waits for upload.
+    fn attach(&mut self, key: &str, attachment: NewAttachment, at: f64) {
+        let list = self.attachments.entry(key.to_string()).or_default();
+        if list.len() >= MAX_ATTACHMENTS {
+            return;
+        }
+        let index = list.len();
+        match attachment {
+            NewAttachment::Stored(stored) => list.push(Attachment {
+                url: None,
+                thumb_url: None,
+                ..stored
+            }),
+            NewAttachment::Image {
+                data,
+                mime_type,
+                name,
+            } => {
+                let images_before = list
+                    .iter()
+                    .filter(|a| a.kind == AttachmentKind::Image)
+                    .count();
+                list.push(Attachment {
+                    storage_id: None,
+                    thumb_id: None,
+                    name: name.unwrap_or_else(|| photo_name(at, images_before, &mime_type)),
+                    mime_type: mime_type.clone(),
+                    size: (data.len() / 4 * 3) as f64,
+                    kind: attachment_kind(&mime_type),
+                    width: None,
+                    height: None,
+                    url: None,
+                    thumb_url: None,
+                });
+                *self.uploading.entry(key.to_string()).or_default() += 1;
+                self.pending_images.push(PendingImage {
+                    key: key.to_string(),
+                    index,
+                    data,
+                    mime_type,
+                });
+            }
+        }
+        if let Some(event) = self.events.get(key).cloned() {
+            self.mark(event);
+        }
+    }
+
+    /// The images to upload since the last call.
+    pub(crate) fn take_pending_images(&mut self) -> Vec<PendingImage> {
+        std::mem::take(&mut self.pending_images)
+    }
+
+    /// An image is in the relay's storage now: its item goes out again with it.
+    pub(crate) fn set_upload(&mut self, uploaded: &Uploaded) {
+        if let Some(item) = self
+            .attachments
+            .get_mut(&uploaded.key)
+            .and_then(|list| list.get_mut(uploaded.index))
+        {
+            item.storage_id = Some(uploaded.storage_id.clone());
+            item.thumb_id = uploaded.thumb_id.clone();
+            item.size = uploaded.size;
+            item.width = uploaded.width;
+            item.height = uploaded.height;
+        }
+        self.upload_done(&uploaded.key);
+        if let Some(event) = self.events.get(&uploaded.key).cloned() {
+            self.mark(event);
+        }
+    }
+
+    /// One of the item's images is settled (uploaded, or given up on).
+    pub(crate) fn upload_done(&mut self, key: &str) {
+        if let Some(left) = self.uploading.get_mut(key) {
+            *left = left.saturating_sub(1);
+            if *left == 0 {
+                self.uploading.remove(key);
+            }
+        }
     }
 
     /// Ends the open text block; returns true when there was one (a boundary worth flushing at).
@@ -123,6 +353,13 @@ impl Transcript {
                     && !open.text.trim().is_empty()
                 {
                     self.last_message = Some((open.kind.event_kind(), open.text));
+                } else if open.kind == TextKind::User
+                    && let Some(label) = self
+                        .attachments
+                        .get(&open.key)
+                        .and_then(|list| attachments_label(list))
+                {
+                    self.last_message = Some((EventKind::User, label));
                 }
                 true
             }
@@ -158,13 +395,15 @@ impl Transcript {
             origin: None,
             command_id: None,
             from_label: None,
+            attachments: None,
             at: open.at,
         };
         self.mark(event);
         boundary
     }
 
-    /// A prompt sent into the session, recorded where it was sent (typed on the computer, or a remote command).
+    /// A prompt sent into the session, recorded where it was sent (typed on the computer, or a remote command), with
+    /// its photos and files. Returns the item's key.
     pub(crate) fn user_prompt(
         &mut self,
         text: &str,
@@ -172,14 +411,18 @@ impl Transcript {
         command_id: Option<&str>,
         from_label: Option<&str>,
         at: f64,
-    ) {
+        attachments: Vec<NewAttachment>,
+    ) -> String {
         self.close_text();
         let key = match command_id {
             Some(id) => format!("{}c{id}", self.prefix),
             None => self.next_key('p'),
         };
+        for attachment in attachments {
+            self.attach(&key, attachment, at);
+        }
         let event = EventInput {
-            key,
+            key: key.clone(),
             kind: EventKind::User,
             text: text.to_string(),
             title: None,
@@ -188,10 +431,19 @@ impl Transcript {
             origin: Some(origin.to_string()),
             command_id: command_id.map(str::to_owned),
             from_label: from_label.map(str::to_owned),
+            attachments: None,
             at,
         };
-        self.last_message = Some((EventKind::User, text.to_string()));
+        let label = match text.trim() {
+            "" => self
+                .attachments
+                .get(&key)
+                .and_then(|list| attachments_label(list)),
+            _ => None,
+        };
+        self.last_message = Some((EventKind::User, label.unwrap_or_else(|| text.to_string())));
         self.mark(event);
+        key
     }
 
     /// A line of its own: a turn that stopped early, a failure.
@@ -208,6 +460,7 @@ impl Transcript {
             origin: None,
             command_id: None,
             from_label: None,
+            attachments: None,
             at,
         });
     }
@@ -248,7 +501,25 @@ impl Transcript {
             ),
             "agent_thought_chunk" => (Vec::new(), self.append_text(TextKind::Thought, text(), at)),
             "user_message_chunk" if self.record_user_chunks => {
-                (Vec::new(), self.append_text(TextKind::User, text(), at))
+                let content = update.get("content");
+                match content.and_then(attachment_of) {
+                    // A photo or file of the prompt: it joins the prompt's item (one opens for a prompt of only those).
+                    Some(attachment) => {
+                        let mut boundary = false;
+                        if self
+                            .open
+                            .as_ref()
+                            .is_none_or(|open| open.kind != TextKind::User)
+                        {
+                            boundary = self.append_text(TextKind::User, "", at);
+                        }
+                        if let Some(key) = self.open.as_ref().map(|open| open.key.clone()) {
+                            self.attach(&key, attachment, at);
+                        }
+                        (Vec::new(), boundary)
+                    }
+                    None => (Vec::new(), self.append_text(TextKind::User, text(), at)),
+                }
             }
             "tool_call" | "tool_call_update" => {
                 let boundary = self.close_text();
@@ -428,6 +699,7 @@ impl Transcript {
             origin: None,
             command_id: None,
             from_label: None,
+            attachments: None,
             at: tool.at,
         };
         let changed = old_status != tool.status;
@@ -465,8 +737,13 @@ impl Transcript {
             .filter(|(_, t)| matches!(t.status.as_deref(), Some("pending" | "in_progress")))
             .map(|(id, _)| format!("t:{id}"))
             .collect();
-        self.events
-            .retain(|key, _| Some(key) == open_key.as_ref() || tool_keys.contains(key));
+        // An item whose images are still uploading goes out again once they are in.
+        let uploading = &self.uploading;
+        self.events.retain(|key, _| {
+            Some(key) == open_key.as_ref() || tool_keys.contains(key) || uploading.contains_key(key)
+        });
+        let events = &self.events;
+        self.attachments.retain(|key, _| events.contains_key(key));
         self.tools
             .retain(|_, t| matches!(t.status.as_deref(), Some("pending" | "in_progress")));
     }
@@ -697,13 +974,170 @@ mod tests {
     fn prompts_close_the_open_reply_and_set_the_preview() {
         let mut t = Transcript::new("x", false);
         t.apply("session/update", &acp(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Done."}})), 1.0);
-        t.user_prompt("Now run it", "remote", Some("cmd1"), Some("iPhone"), 2.0);
+        t.user_prompt(
+            "Now run it",
+            "remote",
+            Some("cmd1"),
+            Some("iPhone"),
+            2.0,
+            Vec::new(),
+        );
         let events = t.take_dirty();
         assert_eq!(events[1].key, "xccmd1");
         assert_eq!(events[1].command_id.as_deref(), Some("cmd1"));
         assert_eq!(events[1].origin.as_deref(), Some("remote"));
         assert_eq!(events[1].from_label.as_deref(), Some("iPhone"));
         assert_eq!(t.preview(), Some((EventKind::User, "Now run it".into())));
+    }
+
+    fn stored(name: &str, kind: AttachmentKind) -> Attachment {
+        Attachment {
+            storage_id: Some(format!("kg{name}")),
+            thumb_id: None,
+            name: name.into(),
+            mime_type: "image/png".into(),
+            size: 10.0,
+            kind,
+            width: None,
+            height: None,
+            url: Some("https://relay/x".into()),
+            thumb_url: None,
+        }
+    }
+
+    #[test]
+    fn a_remote_prompt_keeps_its_attachments_without_urls_and_a_photo_alone_names_the_preview() {
+        let mut t = Transcript::new("x", false);
+        let key = t.user_prompt(
+            "",
+            "remote",
+            Some("cmd1"),
+            Some("iPhone"),
+            2.0,
+            vec![
+                NewAttachment::Stored(stored("a.png", AttachmentKind::Image)),
+                NewAttachment::Stored(stored("b.png", AttachmentKind::Image)),
+            ],
+        );
+        let events = t.take_dirty();
+        let attachments = events[0].attachments.clone().expect("attachments");
+        assert_eq!(key, "xccmd1");
+        assert_eq!(attachments.len(), 2);
+        assert_eq!(attachments[0].storage_id.as_deref(), Some("kga.png"));
+        assert!(attachments.iter().all(|a| a.url.is_none()));
+        assert_eq!(t.preview(), Some((EventKind::User, "🖼 a.png +1".into())));
+        assert!(t.take_pending_images().is_empty());
+    }
+
+    #[test]
+    fn a_local_image_goes_out_first_by_name_then_again_once_uploaded() {
+        let mut t = Transcript::new("x", false);
+        let key = t.user_prompt(
+            "Look",
+            "local",
+            None,
+            None,
+            1_761_566_400_000.0,
+            vec![NewAttachment::Image {
+                data: "aGVsbG8gd29ybGQh".into(),
+                mime_type: "image/png".into(),
+                name: None,
+            }],
+        );
+        let first = t.take_dirty();
+        let attachment = &first[0].attachments.as_ref().expect("attachments")[0];
+        assert!(attachment.storage_id.is_none());
+        assert!(
+            attachment.name.starts_with("photo-2025") && attachment.name.ends_with(".png"),
+            "{}",
+            attachment.name
+        );
+        assert_eq!(attachment.kind, AttachmentKind::Image);
+        assert_eq!(t.preview(), Some((EventKind::User, "Look".into())));
+        let pending = t.take_pending_images();
+        assert_eq!(
+            (pending.len(), pending[0].key.as_str(), pending[0].index),
+            (1, key.as_str(), 0)
+        );
+        // Pushed and compacted while the upload runs: the item stays to go out again.
+        t.compact();
+        t.set_upload(&Uploaded {
+            key: key.clone(),
+            index: 0,
+            storage_id: "kg1".into(),
+            thumb_id: Some("kg2".into()),
+            size: 12.0,
+            width: Some(4.0),
+            height: Some(3.0),
+        });
+        let again = t.take_dirty();
+        assert_eq!(again.len(), 1);
+        assert_eq!(again[0].text, "Look");
+        let uploaded = &again[0].attachments.as_ref().expect("attachments")[0];
+        assert_eq!(uploaded.storage_id.as_deref(), Some("kg1"));
+        assert_eq!(uploaded.thumb_id.as_deref(), Some("kg2"));
+        assert_eq!((uploaded.width, uploaded.size), (Some(4.0), 12.0));
+        t.compact();
+        assert!(t.events.is_empty() && t.attachments.is_empty());
+    }
+
+    #[test]
+    fn history_puts_a_prompts_images_and_files_on_its_item() {
+        let mut t = Transcript::new("h", true);
+        let chunk = |content: Value| {
+            acp(json!({"sessionUpdate": "user_message_chunk", "content": content}))
+        };
+        t.apply(
+            "session/update",
+            &chunk(json!({"type": "image", "data": "aGk=", "mimeType": "image/jpeg"})),
+            1.0,
+        );
+        t.apply(
+            "session/update",
+            &chunk(json!({"type": "text", "text": "What is this?"})),
+            1.0,
+        );
+        t.apply("session/update", &chunk(json!({"type": "resource_link", "name": "notes.md", "uri": "file:///tmp/notes.md", "size": 7})), 1.0);
+        t.apply("session/update", &acp(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "A cat."}})), 2.0);
+        t.close_text();
+        let events = t.take_dirty();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, EventKind::User);
+        assert_eq!(events[0].text, "What is this?");
+        let attachments = events[0].attachments.as_ref().expect("attachments");
+        assert_eq!(attachments.len(), 2);
+        assert_eq!(
+            (attachments[0].kind, attachments[0].mime_type.as_str()),
+            (AttachmentKind::Image, "image/jpeg")
+        );
+        assert_eq!(
+            (
+                attachments[1].kind,
+                attachments[1].name.as_str(),
+                attachments[1].size
+            ),
+            (AttachmentKind::File, "notes.md", 7.0)
+        );
+        assert_eq!(t.take_pending_images().len(), 1);
+    }
+
+    #[test]
+    fn an_image_only_prompt_from_disk_has_a_preview_and_odd_blocks_are_files() {
+        let mut t = Transcript::new("h", true);
+        t.apply(
+            "session/update",
+            &acp(json!({"sessionUpdate": "user_message_chunk", "content": {"type": "image", "data": "aGk=", "mimeType": "image/heic", "uri": "file:///x/IMG_1.HEIC"}})),
+            1.0,
+        );
+        t.close_text();
+        let events = t.take_dirty();
+        let attachment = &events[0].attachments.as_ref().expect("attachments")[0];
+        assert_eq!(
+            (attachment.name.as_str(), attachment.kind),
+            ("IMG_1.HEIC", AttachmentKind::File)
+        );
+        assert_eq!(t.preview(), Some((EventKind::User, "📎 IMG_1.HEIC".into())));
+        assert_eq!(attachments_label(&[]), None);
     }
 
     #[test]

@@ -179,6 +179,38 @@ pub struct CatalogEntry {
     pub preview: Option<String>,
 }
 
+/// Whether an attachment is an image models read (PNG, JPEG, GIF, WebP) or any other file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AttachmentKind {
+    Image,
+    File,
+}
+
+/// A photo or file sent with a prompt (relay/DESIGN.md §2, "Photos and files"). `storage_id` names the upload in the
+/// relay's file storage; a file only on this computer (attached here) has none and is shown by name. The inbox adds
+/// the download `url` (and `thumb_url`), which never go back to the relay.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb_id: Option<String>,
+    pub name: String,
+    pub mime_type: String,
+    pub size: f64,
+    pub kind: AttachmentKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f64>,
+    #[serde(default, skip_serializing)]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub thumb_url: Option<String>,
+}
+
 /// One transcript item. The relay updates an existing item with the same `key` in place.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -198,6 +230,9 @@ pub struct EventInput {
     pub command_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_label: Option<String>,
+    /// A prompt's photos and files, in order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<Vec<Attachment>>,
     /// Unix milliseconds.
     pub at: f64,
 }
@@ -258,6 +293,9 @@ pub struct InboxCommand {
     /// `web` for a browser, `phone` (or `computer`) for a linked device.
     #[serde(default)]
     pub from_kind: Option<String>,
+    /// For a prompt or `create`: its photos and files, with their download URLs.
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
     pub created_at: f64,
 }
 

@@ -17,6 +17,19 @@ final class TranscriptReducerTests: XCTestCase {
         XCTAssertEqual(messages.map(\.text), ["Inspect this project.", "Checking the files.", "Hello 世界 🦊", "Continue.", "Done."])
     }
 
+    func testReplyTurnNumberCountsThePromptThatAskedForIt() {
+        let messages = [
+            Message(kind: .user, text: "First"),
+            Message(kind: .assistant, text: "First answer"),
+            Message(kind: .user, text: "Second"),
+            Message(kind: .tool, text: "Read", toolID: "t1"),
+            Message(kind: .assistant, text: "Second answer"),
+        ]
+        XCTAssertEqual(Message.turnNumber(ofReplyAt: 1, in: messages), 0)
+        XCTAssertEqual(Message.turnNumber(ofReplyAt: 4, in: messages), 1)
+        XCTAssertEqual(Message.turnNumber(ofReplyAt: 0, in: messages), 0, "a prompt before any reply still names turn 0")
+    }
+
     func testToolPartialUpdatesMergeByIdentityWithoutErasingExistingDetails() {
         var messages: [Message] = []
         TranscriptReducer.apply(["sessionUpdate": "tool_call", "toolCallId": "read-1", "title": "Read README", "status": "in_progress"], to: &messages)

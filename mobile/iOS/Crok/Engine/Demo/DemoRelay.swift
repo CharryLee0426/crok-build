@@ -1,18 +1,20 @@
 import Foundation
 
 /// The relay facades over `DemoWorld`, for `-CrokDemo YES` and the UI tests. No network.
-final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, AccountAPI, @unchecked Sendable {
+final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, AccountAPI, FilesAPI, @unchecked Sendable {
     let world: DemoWorld
 
     @MainActor
     init(world: DemoWorld = DemoWorld()) {
         self.world = world
+        DemoMedia.seed()
     }
 
     var sessions: any SessionsAPI { self }
     var commands: any CommandsAPI { self }
     var devices: any DevicesAPI { self }
     var account: any AccountAPI { self }
+    var files: any FilesAPI { self }
     let o11y: any O11yAPI = DemoO11y()
 
     private let lock = NSLock()
@@ -157,11 +159,14 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         }
     }
 
-    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
-        async throws -> CreatedSession
-    {
+    func create(
+        deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String,
+        attachments: [AttachmentInput]
+    ) async throws -> CreatedSession {
         try await mutate(.milliseconds(350)) { world in
-            try world.createSession(deviceId: deviceId, path: path, text: text, model: model, effort: effort, clientId: clientId)
+            try world.createSession(
+                deviceId: deviceId, path: path, text: text, model: model, effort: effort, clientId: clientId,
+                attachments: attachments)
         }
     }
 
@@ -169,9 +174,25 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
         observe { world in try world.slashCommands(for: sessionDocId) }
     }
 
+    /// The online computers answer at once: the demo's lists are always current.
+    func refresh() async throws -> RefreshAnswer {
+        try await mutate(.milliseconds(300)) { world in
+            let computers = world.devices.filter { $0.kind == .computer }
+            let online = computers.filter(\.online).count
+            return RefreshAnswer(
+                asked: Double(online), offline: Double(computers.count - online), at: Date().timeIntervalSince1970 * 1000)
+        }
+    }
+
+    func refreshState(since: Double) -> RelayStream<RefreshState> {
+        observe { _ in RefreshState(pending: []) }
+    }
+
     // MARK: CommandsAPI
 
-    func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String) async throws -> DocID {
+    func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String, attachments: [AttachmentInput])
+        async throws -> DocID
+    {
         try await mutate(.milliseconds(350)) { world in
             let i = try world.index(of: sessionDocId)
             if let existing = world.sessions[i].commands.first(where: { $0.clientId == clientId }) { return existing.id }
@@ -181,11 +202,13 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
             }
             let id = world.newId("command")
             let now = Date().milliseconds
+            let files = world.attachments(from: attachments)
             world.sessions[i].commands.insert(
                 PromptCommand(
                     id: id, clientId: clientId, text: text, status: .pending, error: nil, fromLabel: "Charlie's iPhone",
-                    fromDeviceId: world.currentDeviceId, mine: true, createdAt: now, updatedAt: now), at: 0)
-            world.runPrompt(sessionId: sessionDocId, commandId: id, text: text)
+                    fromDeviceId: world.currentDeviceId, mine: true, attachments: files, createdAt: now, updatedAt: now),
+                at: 0)
+            world.runPrompt(sessionId: sessionDocId, commandId: id, text: text, attachments: files)
             return id
         }
     }
@@ -239,13 +262,31 @@ final class DemoRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Accou
                 let command = world.sessions[i].commands.first(where: { $0.id == commandId })
             else { throw RelayError(.notFound, "No such prompt.") }
             world.setCommand(i, commandId, status: .pending)
-            world.runPrompt(sessionId: world.sessions[i].detail.id, commandId: commandId, text: command.text)
+            world.runPrompt(
+                sessionId: world.sessions[i].detail.id, commandId: commandId, text: command.text,
+                attachments: command.attachments)
         }
     }
 
     func discard(_ commandId: DocID) async throws {
         try await mutate { world in
             for i in world.sessions.indices { world.sessions[i].commands.removeAll(where: { $0.id == commandId && $0.status == .failed }) }
+        }
+    }
+
+    // MARK: FilesAPI
+
+    /// An upload that takes a moment and reports its progress, as over a network; the bytes stay on the phone.
+    func upload(_ data: Data, contentType: String, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
+        let steps = 5
+        for step in 1...steps {
+            try await Task.sleep(for: .milliseconds(120))
+            progress(Double(step) / Double(steps))
+        }
+        return try await mutate(.zero) { world in
+            let id = world.newId("upload")
+            world.uploads[id] = (contentType, Double(data.count))
+            return id
         }
     }
 

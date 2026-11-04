@@ -3,6 +3,7 @@
  * Shapes are the real API types, so the preview breaks at compile time when the contract changes.
  */
 import type { BotCard } from "@/components/session/BotCommands";
+import type { AttachmentView } from "@/lib/attachments";
 import type {
   CommandId,
   DeviceRow,
@@ -17,6 +18,7 @@ import type {
   SlashCommand,
   TranscriptEvent,
 } from "@/lib/types";
+import type { DraftAttachment } from "@/lib/upload";
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -459,6 +461,7 @@ export function fakeStartingCommands(now: number): PromptCommand[] {
       fromLabel: "Web",
       fromDeviceId: null,
       mine: true,
+      attachments: [],
       createdAt: now - 0.2 * MIN,
       updatedAt: now - 0.1 * MIN,
     },
@@ -580,6 +583,7 @@ export function fakeCommands(now: number): PromptCommand[] {
       fromLabel: "Web",
       fromDeviceId: null,
       mine: true,
+      attachments: [],
       createdAt: now - 2 * MIN,
       updatedAt: now - 2 * MIN,
     },
@@ -593,6 +597,7 @@ export function fakeCommands(now: number): PromptCommand[] {
       fromLabel: "Web",
       fromDeviceId: null,
       mine: true,
+      attachments: [],
       createdAt: now - 1 * MIN,
       updatedAt: now - 1 * MIN,
     },
@@ -606,6 +611,7 @@ export function fakeCommands(now: number): PromptCommand[] {
       fromLabel: "iPhone 17",
       fromDeviceId: "dev_iphone" as never,
       mine: false,
+      attachments: [],
       createdAt: now - 22 * MIN,
       updatedAt: now - 10 * MIN,
     },
@@ -747,4 +753,218 @@ export function fakePhotoUrl(): string {
   ctx.lineTo(640, 480);
   ctx.fill();
   return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+// ---- Photos and files in prompts (relay/DESIGN.md §5 "Photos and files in prompts") ----
+
+/** A small picture drawn on a canvas (no network): `kind` picks the subject, `width`×`height` its shape. */
+export function fakeImageUrl(kind: "screen" | "desk" | "plant" | "chart", width: number, height: number): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+  if (kind === "screen") {
+    // A phone screenshot of an app's crash dialog.
+    ctx.fillStyle = "#f2f2f7";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height * 0.09);
+    ctx.fillStyle = "#1c1c1e";
+    ctx.font = `600 ${Math.round(width * 0.055)}px system-ui, sans-serif`;
+    ctx.fillText("Checkout", width * 0.06, height * 0.065);
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(width * 0.05, height * (0.13 + i * 0.1), width * 0.9, height * 0.08);
+      ctx.fillStyle = "#c7c7cc";
+      ctx.fillRect(width * 0.1, height * (0.155 + i * 0.1), width * (0.35 + (i % 3) * 0.12), height * 0.012);
+    }
+    ctx.fillStyle = "rgb(0 0 0 / 0.35)";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#ffffff";
+    const w = width * 0.78;
+    const x = (width - w) / 2;
+    ctx.beginPath();
+    ctx.roundRect(x, height * 0.38, w, height * 0.2, width * 0.04);
+    ctx.fill();
+    ctx.fillStyle = "#1c1c1e";
+    ctx.font = `600 ${Math.round(width * 0.045)}px system-ui, sans-serif`;
+    ctx.fillText("Something went wrong", x + width * 0.06, height * 0.43);
+    ctx.fillStyle = "#8e8e93";
+    ctx.font = `${Math.round(width * 0.035)}px system-ui, sans-serif`;
+    ctx.fillText("TypeError: cart.items is undefined", x + width * 0.06, height * 0.47);
+    ctx.fillStyle = "#3390ec";
+    ctx.font = `600 ${Math.round(width * 0.042)}px system-ui, sans-serif`;
+    ctx.fillText("Try Again", x + w / 2 - width * 0.09, height * 0.55);
+    return canvas.toDataURL("image/png");
+  }
+  if (kind === "chart") {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = "#e5e5ea";
+    for (let i = 1; i < 5; i++) {
+      ctx.beginPath();
+      ctx.moveTo(0, (height * i) / 5);
+      ctx.lineTo(width, (height * i) / 5);
+      ctx.stroke();
+    }
+    const bars = [0.42, 0.55, 0.38, 0.71, 0.64, 0.88, 0.8];
+    bars.forEach((v, i) => {
+      ctx.fillStyle = i === 5 ? "#e06666" : "#3390ec";
+      const bw = width / (bars.length * 1.6);
+      ctx.fillRect(bw * 0.6 + i * bw * 1.6, height * (1 - v), bw, height * v);
+    });
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+  const sky = ctx.createLinearGradient(0, 0, 0, height);
+  if (kind === "desk") {
+    sky.addColorStop(0, "#8fb3d9");
+    sky.addColorStop(1, "#d9e6f2");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#6b4f3a";
+    ctx.fillRect(0, height * 0.72, width, height * 0.28);
+    ctx.fillStyle = "#2b2b2b";
+    ctx.beginPath();
+    ctx.roundRect(width * 0.22, height * 0.2, width * 0.56, height * 0.42, 10);
+    ctx.fill();
+    ctx.fillStyle = "#3e88f7";
+    ctx.fillRect(width * 0.25, height * 0.24, width * 0.5, height * 0.34);
+    ctx.fillStyle = "#2b2b2b";
+    ctx.fillRect(width * 0.47, height * 0.62, width * 0.06, height * 0.1);
+    ctx.fillStyle = "#e8d5b5";
+    ctx.beginPath();
+    ctx.arc(width * 0.84, height * 0.66, width * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+  sky.addColorStop(0, "#f6efe3");
+  sky.addColorStop(1, "#e7d8c3");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#b5651d";
+  ctx.beginPath();
+  ctx.moveTo(width * 0.35, height * 0.62);
+  ctx.lineTo(width * 0.65, height * 0.62);
+  ctx.lineTo(width * 0.6, height * 0.92);
+  ctx.lineTo(width * 0.4, height * 0.92);
+  ctx.fill();
+  ctx.fillStyle = "#3a7d44";
+  for (let i = 0; i < 7; i++) {
+    ctx.beginPath();
+    const angle = -Math.PI / 2 + (i - 3) * 0.38;
+    ctx.ellipse(
+      width * 0.5 + Math.cos(angle) * width * 0.13,
+      height * 0.44 + Math.sin(angle) * height * 0.16,
+      width * 0.06,
+      height * 0.14,
+      angle + Math.PI / 2,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+  }
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+type Picture = Parameters<typeof fakeImageUrl>[0];
+
+function image(name: string, kind: Picture, width: number, height: number, id: string): AttachmentView {
+  // Drawn small; the sizes say what the upload was.
+  const scale = 600 / Math.max(width, height);
+  const url = fakeImageUrl(kind, Math.round(width * scale), Math.round(height * scale));
+  return { storageId: id, thumbId: `${id}_t`, name, mimeType: "image/jpeg", size: 380_000, kind: "image", width, height, url, thumbUrl: url };
+}
+
+function file(name: string, mimeType: string, size: number, id?: string): AttachmentView {
+  return { storageId: id, name, mimeType, size, kind: "file", url: id ? `data:${mimeType},crok` : null, thumbUrl: null };
+}
+
+/** Fixture attachments as transcript items carry them (fake storage ids). */
+function stored(list: AttachmentView[]): TranscriptEvent["attachments"] {
+  return list as unknown as TranscriptEvent["attachments"];
+}
+
+/** A session whose prompts carry photos and files: two photos and a PDF, a photo alone, three photos, and some that are gone. */
+export function attachmentEvents(now: number): TranscriptEvent[] {
+  return [
+    ev(1, now - 40 * MIN, {
+      kind: "user",
+      text: "The checkout screen crashes on my phone when the cart is empty. Here are a screenshot, my desk setup and the crash report.",
+      origin: "remote",
+      fromLabel: "iPhone 17",
+      commandId: "cmd_a1" as CommandId,
+      attachments: stored([
+        image("photo-20261027-091512.png", "screen", 1179, 2556, "st_1"),
+        image("photo-20261027-091530.jpg", "desk", 4032, 3024, "st_2"),
+        file("crash-report-2026-10-27.pdf", "application/pdf", 1_258_291, "st_3"),
+      ]),
+    }),
+    ev(2, now - 38 * MIN, {
+      kind: "assistant",
+      text: "Thanks — the screenshot shows `TypeError: cart.items is undefined`. The empty cart comes back as `{}` from `/api/cart`, and `CheckoutView` maps over `cart.items` without a default. I'll default it to `[]` and add a test.",
+    }),
+    ev(3, now - 30 * MIN, {
+      kind: "user",
+      text: "",
+      origin: "remote",
+      fromLabel: "iPhone 17",
+      commandId: "cmd_a2" as CommandId,
+      attachments: stored([image("photo-20261027-093002.jpg", "chart", 1600, 1000, "st_4")]),
+    }),
+    ev(4, now - 29 * MIN, {
+      kind: "assistant",
+      text: "That's the error rate per day — the spike on Saturday lines up with the release that changed `/api/cart`.",
+    }),
+    ev(5, now - 20 * MIN, {
+      kind: "user",
+      text: "Which of these pots should the new illustration use?",
+      origin: "remote",
+      fromLabel: "Web",
+      commandId: "cmd_a3" as CommandId,
+      attachments: stored([
+        image("pot-a.jpg", "plant", 1200, 1500, "st_5"),
+        image("pot-b.jpg", "plant", 1500, 1200, "st_6"),
+        image("pot-c.jpg", "desk", 1600, 900, "st_7"),
+      ]),
+    }),
+    ev(6, now - 12 * MIN, {
+      kind: "user",
+      text: "And the notes from last week.",
+      attachments: stored([
+        { name: "Screenshot 2026-10-20 at 18.04.11.png", mimeType: "image/png", size: 812_000, kind: "image", url: null, thumbUrl: null },
+        file("meeting-notes.md", "text/markdown", 4_210),
+        { ...file("old-export.zip", "application/zip", 9_400_000), storageId: "st_gone" },
+      ]),
+    }),
+  ].reverse();
+}
+
+/** The composer's strip in every state: uploaded, uploading, being prepared, failed. */
+export function fakeDraftAttachments(): DraftAttachment[] {
+  const done = fakeImageUrl("plant", 480, 600);
+  const going = fakeImageUrl("desk", 600, 450);
+  return [
+    { id: "d1", kind: "image", name: "photo-20261027-101500.jpg", type: "image/jpeg", size: 412_000, width: 1638, height: 2048, fullUrl: done, thumbUrl: done, state: "done", progress: 1, storageId: "st_d1" },
+    { id: "d2", kind: "image", name: "photo-20261027-101500-2.jpg", type: "image/jpeg", size: 530_000, width: 2048, height: 1536, fullUrl: going, thumbUrl: going, state: "uploading", progress: 0.45 },
+    { id: "d3", kind: "file", name: "quarterly-numbers-final-v3.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: 2_600_000, fullUrl: null, thumbUrl: null, state: "done", progress: 1, storageId: "st_d3" },
+    { id: "d4", kind: "file", name: "server.log", type: "text/plain", size: 18_200_000, fullUrl: null, thumbUrl: null, state: "failed", progress: 0, error: "Upload failed (network)" },
+  ];
+}
+
+/** A prompt with photos on its way (the optimistic bubble, from the local copies). */
+export function fakeAttachmentPending(now: number): PendingPrompt[] {
+  const picture = fakeImageUrl("plant", 480, 600);
+  return [
+    {
+      key: "c_att",
+      text: "One more, from the balcony.",
+      createdAt: now - 0.2 * MIN,
+      tick: "sending",
+      clientId: "c_att",
+      attachments: [
+        { storageId: "st_p1", name: "photo-20261027-101800.jpg", mimeType: "image/jpeg", size: 401_000, kind: "image", width: 1638, height: 2048, url: picture, thumbUrl: picture },
+      ],
+    },
+  ];
 }

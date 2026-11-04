@@ -12,6 +12,7 @@
 pub mod api;
 pub mod cli;
 pub mod credentials;
+pub mod files;
 pub mod link;
 pub mod login;
 pub mod qr;
@@ -19,4 +20,7 @@ pub mod settings;
 pub mod types;
 
 pub use credentials::Credentials;
-pub use types::{EventInput, EventKind, HostApp, InboxCommand, SessionFields, SessionStatus};
+pub use types::{
+    Attachment, AttachmentKind, EventInput, EventKind, HostApp, InboxCommand, SessionFields,
+    SessionStatus,
+};

@@ -47,6 +47,27 @@
       }
     },
     {
+      "uid": "crok-feedback-good-rate-low",
+      "title": "crok: feedback good rate is below 80%",
+      "condition": "C",
+      "needs_metric": "crok_feedback_rating",
+      "data": [
+        {"refId": "A", "relativeTimeRange": {"from": 86400, "to": 0}, "datasourceUid": "${prom}",
+         "model": {"refId": "A", "instant": true, "range": false,
+                   "expr": "(sum(last_over_time(crok_feedback_rating[24h]) > 0) / count(last_over_time(crok_feedback_rating[24h]) != 0)) and on() (count(last_over_time(crok_feedback_rating[24h]) != 0) >= 20)"}},
+        {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "expression": "A", "reducer": "last", "settings": {"mode": "dropNN"}}},
+        {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "expression": "B", "conditions": [{"evaluator": {"type": "lt", "params": [0.8]}}]}}
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "labels": {"source": "crok", "severity": "warning"},
+      "annotations": {
+        "summary": "Only {{ humanizePercentage $values.B.Value }} of the last 24 hours' feedback was positive",
+        "description": "The good rate is thumbs up divided by every turn with a thumb up or down. The 80% threshold applies only when 20 or more feedbacks arrived in the window, so this alert stays silent below that. The crok Feedback dashboard splits the verdicts by surface; a drop concentrated in one surface usually follows a release."
+      }
+    },
+    {
       "uid": "crok-mcp-start-failures",
       "title": "crok: MCP servers fail to start",
       "condition": "C",

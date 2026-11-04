@@ -67,7 +67,8 @@ targets:
         LSRequiresIPhoneOS: true
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-        NSCameraUsageDescription: Crok uses the camera to scan the QR code that crok remote login shows on your computer.
+        NSCameraUsageDescription: Crok uses the camera to scan the QR code that crok remote login shows on your computer, and to take photos you send to crok.
+        NSPhotoLibraryAddUsageDescription: Crok saves a photo from a session to your library when you tap Save to Photos.
         NSLocalNetworkUsageDescription: Crok uses your local network only when a development build points it at a relay there.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

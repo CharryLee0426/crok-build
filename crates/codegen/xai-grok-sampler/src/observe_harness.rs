@@ -556,6 +556,47 @@ pub struct Rating<'a> {
     pub category: Option<&'a str>,
 }
 
+/// A user's per-message verdict on one turn: `1` thumbs up, `-1` thumbs down, `0` the verdict taken back.
+/// The value is a gauge for the stack's feedback evaluation: a later value replaces the earlier one, so
+/// changing a thumb or clearing it updates the good rate without leaving a superseded record behind.
+pub struct TurnRating<'a> {
+    pub session_id: &'a str,
+    /// The session's turn number, as crok counts them (0-based).
+    pub turn_index: u64,
+    /// `1`, `-1`, or `0` for a rating the user took back.
+    pub rating: i8,
+}
+
+/// Records the user's per-turn thumbs verdict for the feedback evaluation.
+pub fn record_turn_rating(rating: TurnRating<'_>) {
+    if !super::is_enabled() {
+        return;
+    }
+    let value = rating.rating.clamp(-1, 1);
+    let generation = with_registry(|r| {
+        r.sessions
+            .get(rating.session_id)
+            .and_then(|e| e.last_generation_id.clone())
+    });
+    emit(
+        "rating",
+        json!({
+            "conversationId": rating.session_id,
+            "ratingId": format!("crok_{}", uuid::Uuid::new_v4().simple()),
+            "rating": match value {
+                1 => "CONVERSATION_RATING_VALUE_GOOD",
+                -1 => "CONVERSATION_RATING_VALUE_BAD",
+                _ => "CONVERSATION_RATING_VALUE_NEUTRAL",
+            },
+            "value": value,
+            "turnNumber": rating.turn_index,
+            "comment": null,
+            "generationId": generation,
+            "category": null,
+        }),
+    );
+}
+
 /// Records the user's thumbs up or down (or star rating, folded to good or bad) on the conversation.
 pub fn record_rating(rating: Rating<'_>) {
     if !super::is_enabled() {

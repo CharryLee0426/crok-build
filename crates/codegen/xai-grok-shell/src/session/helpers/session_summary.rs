@@ -272,7 +272,8 @@ fn with_title_ids(mut request: ConversationRequest, session_id: &str) -> Convers
     request
 }
 
-/// Plain-text retry for providers that refuse a forced tool call (some OpenRouter models answer 400).
+/// Plain-text retry for providers that refuse a forced tool call with a 400, or reply without the call.
+/// (OpenRouter is asked for the call in words, since Meta's endpoints refuse any forced choice.)
 async fn generate_session_summary_plain(
     clean_message: &str,
     client: &OaiCompatClient,

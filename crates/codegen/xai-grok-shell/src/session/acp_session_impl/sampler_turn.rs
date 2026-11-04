@@ -802,6 +802,8 @@ impl SessionActor {
         let request_compression = crate::util::config::request_compression_for_url(&cfg.base_url);
         let supports_tools =
             crate::agent::builtin_providers::tool_support(&cfg.api_backend, &cfg.model);
+        let (supports_reasoning, lightest_reasoning_effort) =
+            crate::agent::builtin_providers::reasoning_support(&cfg.api_backend, &cfg.model);
         let supports_images =
             crate::agent::builtin_providers::image_support(&cfg.api_backend, &cfg.model);
         let anthropic =
@@ -857,6 +859,8 @@ impl SessionActor {
             },
             supports_backend_search: self.supports_backend_search.get(),
             supports_tools,
+            supports_reasoning,
+            lightest_reasoning_effort,
             supports_images,
             anthropic,
             compactions_remaining: self.compactions_remaining.get(),

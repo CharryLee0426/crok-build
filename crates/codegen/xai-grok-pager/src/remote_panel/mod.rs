@@ -2,7 +2,8 @@
 //! the TUI. A full-screen picker over the person's other computers, their projects and sessions, kept current by
 //! `x.ai/remote/sessions {watch: true}` and `x.ai/remote/sessions_changed`; a session opens here as picking its
 //! `relay:` row in `/resume` does, and `n` starts one in a project after asking for the model and thinking level
-//! (`x.ai/remote/models`, then `x.ai/remote/new_session`). relay/DESIGN.md §5, "the Remote panel".
+//! (`x.ai/remote/models`, then `x.ai/remote/new_session`); `r` asks every online computer to list its sessions again
+//! (`x.ai/remote/refresh`). relay/DESIGN.md §5, "the Remote panel".
 //!
 //! The panel asks for work through [`Request`]s; the app runs each off the UI thread with [`run`] and hands the
 //! [`Response`] back to the panel, which drops any it no longer wants.
@@ -17,7 +18,7 @@ mod tests;
 use std::time::Duration;
 
 use xai_grok_shell::remote_control::{
-    REMOTE_MODELS_METHOD, REMOTE_NEW_SESSION_METHOD, REMOTE_SESSIONS_METHOD,
+    REMOTE_MODELS_METHOD, REMOTE_NEW_SESSION_METHOD, REMOTE_REFRESH_METHOD, REMOTE_SESSIONS_METHOD,
 };
 
 pub use tui::{Outcome, RemotePanel};
@@ -45,6 +46,8 @@ pub enum Request {
         model: Option<String>,
         effort: Option<String>,
     },
+    /// `x.ai/remote/refresh`: every online computer lists all its sessions again; answers once each has (≤ 15 s).
+    Refresh { generation: u64 },
 }
 
 #[derive(Debug)]
@@ -65,6 +68,11 @@ pub enum Response {
         generation: u64,
         result: Result<String, String>,
     },
+    /// `{asked, offline, pending}`: how many computers listed again, could not (offline), or had not finished yet.
+    Refreshed {
+        generation: u64,
+        result: Result<serde_json::Value, String>,
+    },
 }
 
 /// Runs a request against the agent (whose remote-control viewer answers these methods).
@@ -82,6 +90,12 @@ pub async fn run(request: Request, tx: xai_acp_lib::AcpAgentTx) -> Response {
             )
             .await;
             Response::Sessions { generation, result }
+        }
+        Request::Refresh { generation } => {
+            let result =
+                crate::remote_cmd::ext_call(&tx, REMOTE_REFRESH_METHOD, serde_json::json!({}))
+                    .await;
+            Response::Refreshed { generation, result }
         }
         Request::Models {
             generation,

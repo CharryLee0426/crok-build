@@ -21,12 +21,72 @@ enum DeliveryTick: Equatable, Sendable {
     }
 }
 
+/// A photo or file as a bubble shows it: from the relay (with its URLs), or this phone's own upload before the
+/// transcript has it (its bytes are in the attachment image store under `storageId`).
+struct MessageAttachment: Equatable, Sendable, Identifiable {
+    var id: String
+    var kind: AttachmentKind
+    var name: String
+    var mimeType: String
+    var size: Double
+    var width: Double?
+    var height: Double?
+    var storageId: String?
+    var thumbId: String?
+    var url: URL?
+    var thumbURL: URL?
+    /// Uploaded from this phone: its bytes are on the phone, whatever the relay's URL says.
+    var isLocal = false
+
+    init(
+        id: String, kind: AttachmentKind, name: String, mimeType: String, size: Double, width: Double? = nil,
+        height: Double? = nil, storageId: String? = nil, thumbId: String? = nil, url: URL? = nil, thumbURL: URL? = nil,
+        isLocal: Bool = false
+    ) {
+        self.id = id
+        self.kind = kind
+        self.name = name
+        self.mimeType = mimeType
+        self.size = size
+        self.width = width
+        self.height = height
+        self.storageId = storageId
+        self.thumbId = thumbId
+        self.url = url
+        self.thumbURL = thumbURL
+        self.isLocal = isLocal
+    }
+
+    /// The relay's attachment; `index` keeps ids unique when one upload shows twice in a prompt.
+    init(_ attachment: Attachment, index: Int) {
+        self.init(
+            id: "\(attachment.storageId ?? attachment.name)#\(index)", kind: attachment.kind, name: attachment.name,
+            mimeType: attachment.mimeType, size: attachment.size, width: attachment.width, height: attachment.height,
+            storageId: attachment.storageId, thumbId: attachment.thumbId, url: attachment.url.flatMap(URL.init(string:)),
+            thumbURL: attachment.thumbUrl.flatMap(URL.init(string:)))
+    }
+
+    static func list(_ attachments: [Attachment]?) -> [MessageAttachment] {
+        (attachments ?? []).enumerated().map { MessageAttachment($1, index: $0) }
+    }
+
+    /// There is something to show or open: the relay still has it, or this phone does.
+    var isAvailable: Bool { storageId != nil && (url != nil || isLocal) }
+    /// A file attached on the computer (no upload): shown by name only.
+    var isOnComputerOnly: Bool { storageId == nil }
+    /// Shown as a tile in the bubble's media grid (else as a file row).
+    var showsAsImage: Bool { kind == .image && isAvailable }
+}
+
 /// A prompt shown from the moment Send is tapped, before the relay has answered (Telegram's optimistic send, keyed by
 /// a client id so a resend is the same command).
 struct LocalPrompt: Equatable, Sendable, Identifiable {
     var clientId: String
     var text: String
     var createdAt: Double
+    /// The photos and files sent with it, as the bubble shows them, and as the relay takes them.
+    var attachments: [MessageAttachment] = []
+    var inputs: [AttachmentInput] = []
     /// Set once `commands:sendPrompt` answered.
     var commandId: DocID?
     /// Set when `commands:sendPrompt` failed; the bubble shows a red "!" with Retry / Delete.
@@ -53,6 +113,7 @@ enum ToolStatus: Equatable, Sendable {
 
 struct UserMessage: Equatable, Sendable {
     var text: String
+    var attachments: [MessageAttachment] = []
     var isRemote: Bool
     var fromLabel: String?
     var tick: DeliveryTick?
@@ -169,7 +230,8 @@ enum TranscriptBuilder {
             }
             commandIdsShown.insert(command.id)
             let message = UserMessage(
-                text: command.text, isRemote: true, fromLabel: command.fromLabel, tick: DeliveryTick(command.status),
+                text: command.text, attachments: MessageAttachment.list(command.attachments), isRemote: true,
+                fromLabel: command.fromLabel, tick: DeliveryTick(command.status),
                 error: command.status == .failed ? command.error : nil, commandId: command.id,
                 clientId: command.clientId, isPending: true)
             pending.append(
@@ -185,7 +247,7 @@ enum TranscriptBuilder {
                 continue
             }
             let message = UserMessage(
-                text: prompt.text, isRemote: true, fromLabel: nil,
+                text: prompt.text, attachments: prompt.attachments, isRemote: true, fromLabel: nil,
                 tick: prompt.failure == nil ? .sending : .failed, error: prompt.failure,
                 commandId: prompt.commandId, clientId: prompt.clientId, isPending: true)
             pending.append(
@@ -232,7 +294,8 @@ enum TranscriptBuilder {
             // Ticks only on this device's own prompts (Telegram marks outgoing messages only).
             let own = command?.isMine == true ? command : nil
             let message = UserMessage(
-                text: event.text, isRemote: event.isRemote, fromLabel: event.fromLabel ?? command?.fromLabel,
+                text: event.text, attachments: MessageAttachment.list(event.attachments), isRemote: event.isRemote,
+                fromLabel: event.fromLabel ?? command?.fromLabel,
                 tick: own.map { DeliveryTick($0.status) }, error: own?.status == .failed ? own?.error : nil,
                 commandId: event.commandId, clientId: own?.clientId, isPending: false)
             return TranscriptItem(id: event.id, kind: .user(message), date: date, seq: event.seq)

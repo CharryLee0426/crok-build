@@ -61,6 +61,8 @@
     <string name="sessions_no_results">No matching sessions.</string>
     <string name="sessions_archived_snackbar">Session archived</string>
     <string name="sessions_action_failed">Couldn’t update the session: %1$s</string>
+    <string name="sessions_refresh">Refresh</string>
+    <string name="sessions_refresh_none_online">No computer is online. The list shows what they listed last.</string>
     <plurals name="sessions_unread">
         <item quantity="one">%d unread reply</item>
         <item quantity="other">%d unread replies</item>
@@ -349,4 +351,27 @@
     <string name="o11y_spoken_down">%1$s, down %2$s</string>
     <string name="o11y_status_ok">OK</string>
     <string name="o11y_status_warning">Warning</string>
+
+    <!-- Photos and files in prompts (relay/DESIGN.md §5) -->
+    <string name="attach">Attach</string>
+    <string name="attach_photos">Photos</string>
+    <string name="attach_camera">Camera</string>
+    <string name="attach_files">Files</string>
+    <string name="attach_too_many">Up to 10 photos and files per message</string>
+    <string name="attach_too_big">Files are limited to 20 MB</string>
+    <string name="attach_uploading">Uploading…</string>
+    <string name="attach_failed">Upload failed — tap to retry</string>
+    <string name="attach_remove">Remove</string>
+    <string name="attach_photo">Photo</string>
+    <string name="attach_file">File</string>
+    <string name="media_share">Share</string>
+    <string name="media_save">Save</string>
+    <string name="media_saved">Saved</string>
+    <string name="media_save_failed">Couldn’t save the photo</string>
+    <string name="media_on_computer">On %1$s</string>
+    <string name="media_unavailable">No longer available</string>
+    <string name="media_open_failed">No app here opens this file</string>
+    <string name="media_download_failed">Couldn’t download the file</string>
+    <string name="media_count">%1$d of %2$d</string>
+    <string name="media_close">Close</string>
 </resources>

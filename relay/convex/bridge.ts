@@ -4,9 +4,12 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { fail, requireHost, requireViewer } from "./lib/auth";
+import { refreshWanted } from "./lib/catalog";
 import { ensureProject, inferProjectPath } from "./lib/projects";
-import { appendNotice, isStarting, opensWithSetup, supports } from "./lib/starting";
+import { claimEventAttachments, withUrls } from "./files";
+import { appendNotice, isStarting, opensWithSetup, supports, takesAttachments } from "./lib/starting";
 import {
+  attachment,
   eventKind,
   hostApp,
   modelOption,
@@ -23,6 +26,8 @@ import {
  * commands from phones and the web, which it `claimCommand`s and `completeCommand`s.
  */
 
+/** What `connect` tells crok this relay takes beyond the first relay's (an older relay refuses the fields). */
+const RELAY_FEATURES = ["attachments"];
 const MAX_EVENT_TEXT = 32_000;
 const MAX_EVENTS_PER_CALL = 100;
 const DEVICE_SEEN_GRANULARITY_MS = 5 * 60 * 1000;
@@ -125,7 +130,8 @@ export const connect = mutation({
       });
     }
     await markDeviceOnline(ctx, device, now);
-    return { hostId, deviceId: device._id, serverTime: now };
+    // What this relay takes beyond the first one's: `attachments` on transcript items (§2, "Photos and files").
+    return { hostId, deviceId: device._id, serverTime: now, features: RELAY_FEATURES };
   },
 });
 
@@ -346,6 +352,8 @@ const eventInput = v.object({
   origin: v.optional(v.union(v.literal("local"), v.literal("remote"))),
   commandId: v.optional(v.id("commands")),
   fromLabel: v.optional(v.string()),
+  /** A user prompt's photos and files: uploads (claimed for the session here), or files only on the computer. */
+  attachments: v.optional(v.array(attachment)),
   at: v.number(),
 });
 
@@ -362,18 +370,20 @@ function writable(session: Doc<"sessions"> | null, host: Doc<"hosts">): session 
  * Writes transcript items. An item with a `key` already present is updated in place (streamed text, a tool call's
  * status); a new one gets the next `seq`. `replace` first drops the session's old items (a resync after the session
  * ran while this computer was not mirroring it, or a transcript read from disk). `preview` updates the list's
- * preview line along with it.
+ * preview line along with it. `onlyExisting` updates items already there and adds none (images uploaded after the
+ * transcript that holds them went out, which a newer one may have replaced since).
  */
 export const pushEvents = mutation({
   args: {
     hostId: v.id("hosts"),
     sessionDocId: v.id("sessions"),
     replace: v.optional(v.boolean()),
+    onlyExisting: v.optional(v.boolean()),
     events: v.array(eventInput),
     preview: v.optional(v.string()),
     previewKind: v.optional(eventKind),
   },
-  handler: async (ctx, { hostId, sessionDocId, replace, events, preview, previewKind }) => {
+  handler: async (ctx, { hostId, sessionDocId, replace, onlyExisting, events, preview, previewKind }) => {
     const { host } = await requireHost(ctx, hostId);
     if (events.length > MAX_EVENTS_PER_CALL) fail("INVALID", `At most ${MAX_EVENTS_PER_CALL} events per call.`);
     const session = await ctx.db.get(sessionDocId);
@@ -414,10 +424,19 @@ export const pushEvents = mutation({
             .query("events")
             .withIndex("by_session_key", (q) => q.eq("sessionDocId", sessionDocId).eq("key", event.key))
             .unique();
+      if (onlyExisting && !existing) continue;
+      // Attachments change rarely (an image the computer finished uploading): claimed only when they do.
+      const attachments =
+        event.attachments === undefined || JSON.stringify(event.attachments) === JSON.stringify(existing?.attachments)
+          ? undefined
+          : await claimEventAttachments(ctx, session.userId, sessionDocId, event.attachments);
       if (existing) {
         const patch: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(fields)) {
           if (value !== undefined && (existing as Record<string, unknown>)[key] !== value) patch[key] = value;
+        }
+        if (attachments !== undefined && JSON.stringify(attachments) !== JSON.stringify(existing.attachments)) {
+          patch.attachments = attachments;
         }
         if (Object.keys(patch).length > 0) await ctx.db.patch(existing._id, patch);
       } else {
@@ -431,6 +450,7 @@ export const pushEvents = mutation({
           key: event.key,
           at: event.at,
           ...fields,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         });
       }
     }
@@ -463,6 +483,8 @@ export const pushEvents = mutation({
 function forHost(command: Doc<"commands">, session: Doc<"sessions"> | null, host: Doc<"hosts">): boolean {
   if (!session) return false;
   if (!supports(host, command.type)) return false;
+  // An older crok would run the prompt without its photos and files.
+  if ((command.attachments?.length ?? 0) > 0 && !takesAttachments(host)) return false;
   // An older crok would open it on its own default model.
   if (command.type === "create" && !opensWithSetup(host, command)) return false;
   if (command.type === "history") return session.deviceId === host.deviceId && !session.online;
@@ -520,6 +542,8 @@ export const inbox = query({
         fromLabel: command.fromLabel,
         /** `web` for a browser, else the sending device's kind (`phone`, or `computer`). */
         fromKind: command.fromDeviceId ? (sender?.kind ?? "phone") : "web",
+        /** For `prompt` and `create`: the photos and files to download (`url`) and pass on with the prompt. */
+        attachments: (await withUrls(ctx, command.attachments)) ?? [],
         createdAt: command.createdAt,
       });
     }
@@ -544,12 +568,13 @@ export const inbox = query({
     )
       .filter((s) => s.online)
       .map((s) => s.sessionId);
-    // Nobody keeps this computer's list of sessions current: the first crok here to ask does (`beginCatalog`).
+    // Nobody keeps this computer's list of sessions current, or someone pressed Refresh since the last listing began:
+    // the first crok here to ask lists the sessions now (`beginCatalog`).
     const catalog = await ctx.db
       .query("catalogSyncs")
       .withIndex("by_device", (q) => q.eq("deviceId", viewer.device._id))
       .unique();
-    const catalogWanted = !catalog || catalog.released === true;
+    const catalogWanted = !catalog || catalog.released === true || refreshWanted(catalog);
     return { commands, views, hosted, catalogWanted, serverTime: now };
   },
 });
@@ -761,8 +786,9 @@ function keepsCatalogCurrent(host: Doc<"hosts"> | null): boolean {
  * Starts listing this computer's sessions. The process that last listed them (the holder) lists them again every
  * CATALOG_RESYNC_MS when it sends what changes in between, else every CATALOG_INTERVAL_MS. Another process takes over
  * at once when the holder is gone (so a computer whose crok starts again lists its sessions right away), or after
- * CATALOG_INTERVAL_MS when the holder is an older crok that sends nothing in between. Returns the upload's id, or null
- * when there is nothing to do.
+ * CATALOG_INTERVAL_MS when the holder is an older crok that sends nothing in between. After a Refresh
+ * (`sessions:refresh`), the first process to ask lists them at once, holder or not, once an upload under way is done.
+ * Returns the upload's id, or null when there is nothing to do.
  */
 export const beginCatalog = mutation({
   args: { hostId: v.id("hosts") },
@@ -777,7 +803,7 @@ export const beginCatalog = mutation({
       const holder = last.hostId === hostId ? null : await ctx.db.get(last.hostId);
       const holderRunning = last.hostId === hostId || Boolean(holder?.online);
       if (last.finishedAt === undefined && holderRunning && now - last.startedAt < CATALOG_STALE_MS) return null;
-      if (last.finishedAt !== undefined && holderRunning) {
+      if (last.finishedAt !== undefined && holderRunning && !refreshWanted(last)) {
         if (last.hostId !== hostId && keepsCatalogCurrent(holder)) return null;
         const interval = last.hostId === hostId && keepsCatalogCurrent(host) ? CATALOG_RESYNC_MS : CATALOG_INTERVAL_MS;
         if (now - last.finishedAt < interval - CATALOG_SLACK_MS) return null;

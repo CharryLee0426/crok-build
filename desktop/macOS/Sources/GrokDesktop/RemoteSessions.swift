@@ -548,6 +548,34 @@ extension AppStore {
         noteRemoteComputers(payload)
     }
 
+    /// Sidebar › Other computers › Refresh: every online computer lists all its sessions again
+    /// (`x.ai/remote/refresh`, which answers once each has, or after 15 s), then the list is asked for anew.
+    /// A host that is down starts again now rather than at its next retry.
+    func refreshRemoteSessions() {
+        guard !remoteRefreshing else { return }
+        remoteRefreshing = true
+        let started = Date()
+        Task { [weak self] in
+            guard let self else { return }
+            if let client = self.remoteHost, self.remoteHostReady {
+                // An older crok has no Refresh, and an older relay refuses it: the list is asked for again all the same.
+                do {
+                    _ = try await client.request("_x.ai/remote/refresh", timeout: 30)
+                } catch {
+                    DesktopLog.info("remote.refresh_failed", ["error": error.localizedDescription])
+                }
+                await self.askRemoteSessions()
+            } else {
+                self.remoteHostRetryAt = nil
+                self.tendRemoteHost()
+            }
+            // Long enough to see that something happened.
+            let shown = Date().timeIntervalSince(started)
+            if shown < 0.6 { try? await Task.sleep(nanoseconds: UInt64((0.6 - shown) * 1_000_000_000)) }
+            self.remoteRefreshing = false
+        }
+    }
+
     func noteRemoteComputers(_ payload: [String: Any]) {
         let computers = RemoteComputer.list(payload)
         if computers != remoteComputers { remoteComputers = computers }

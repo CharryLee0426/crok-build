@@ -92,34 +92,15 @@ private struct UserBubble: View {
                 .accessibilityLabel(Text("Not sent. Retry or delete."))
                 .accessibilityIdentifier("failedPromptMenu")
             }
-            VStack(alignment: .trailing, spacing: 3) {
-                if message.isRemote && position.startsGroup {
-                    HStack(spacing: 3) {
-                        Image(systemName: "iphone")
-                        if let label = message.fromLabel {
-                            Text("from \(label)")
-                        } else {
-                            Text("from a phone or the web")
-                        }
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(palette.userBubbleText.opacity(0.65))
+            Group {
+                if message.attachments.isEmpty {
+                    textContent
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                } else {
+                    mediaContent
                 }
-                Text(message.text)
-                    .foregroundStyle(palette.userBubbleText)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 4) {
-                    Text(date, format: .dateTime.hour().minute())
-                    if let tick = message.tick, tick != .failed {
-                        DeliveryTickView(tick: tick, color: palette.userBubbleMeta)
-                    }
-                }
-                .font(.caption2)
-                .foregroundStyle(palette.userBubbleMeta)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
             .background(palette.userBubble, in: BubbleShape(outgoing: true, position: position))
             .opacity(message.isPending && message.tick == .sending ? 0.85 : 1)
             .contextMenu {
@@ -132,6 +113,113 @@ private struct UserBubble: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("userBubble")
+    }
+}
+
+extension UserBubble {
+    private var images: [MessageAttachment] { message.attachments.filter(\.showsAsImage) }
+    private var files: [MessageAttachment] { message.attachments.filter { !$0.showsAsImage } }
+    private var hasText: Bool { !message.text.isEmpty }
+
+    private var showsSender: Bool { message.isRemote && position.startsGroup }
+
+    fileprivate var senderLabel: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "iphone")
+            if let label = message.fromLabel {
+                Text("from \(label)")
+            } else {
+                Text("from a phone or the web")
+            }
+        }
+        .font(.caption2)
+        .foregroundStyle(palette.userBubbleText.opacity(0.65))
+    }
+
+    fileprivate var meta: some View {
+        HStack(spacing: 4) {
+            Text(date, format: .dateTime.hour().minute())
+            if let tick = message.tick, tick != .failed {
+                DeliveryTickView(tick: tick, color: palette.userBubbleMeta)
+            }
+        }
+        .font(.caption2)
+        .foregroundStyle(palette.userBubbleMeta)
+    }
+
+    fileprivate var textContent: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            if showsSender { senderLabel }
+            Text(message.text)
+                .foregroundStyle(palette.userBubbleText)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            meta
+        }
+    }
+
+    /// Photos and files above the text, like Telegram's media with a caption; a bubble of images alone carries its
+    /// time on a dark pill over the last image.
+    fileprivate var mediaContent: some View {
+        let imageOnly = !images.isEmpty && files.isEmpty && !hasText
+        // As wide as the images (plus their inset), or as the file rows.
+        let width: CGFloat = images.isEmpty ? 270 : MediaGrid.width(for: images) + 6
+        return VStack(alignment: .leading, spacing: 0) {
+            if showsSender {
+                senderLabel
+                    .padding(.horizontal, 9)
+                    .padding(.top, 6)
+                    .padding(.bottom, 4)
+            }
+            if !images.isEmpty {
+                MediaGrid(images: images) { model.openImage($0, in: message) }
+                    .overlay(alignment: .bottomTrailing) {
+                        if imageOnly {
+                            HStack(spacing: 4) {
+                                Text(date, format: .dateTime.hour().minute())
+                                if let tick = message.tick, tick != .failed {
+                                    DeliveryTickView(tick: tick, color: .white)
+                                }
+                            }
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.black.opacity(0.45), in: Capsule())
+                            .padding(7)
+                            .allowsHitTesting(false)
+                        }
+                    }
+                    .padding(3)
+            }
+            if !files.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(files) { file in
+                        MessageFileRow(
+                            attachment: file, computerName: model.computerName, textColor: palette.userBubbleText,
+                            metaColor: palette.userBubbleMeta)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, images.isEmpty ? 7 : 6)
+            }
+            if hasText {
+                Text(message.text)
+                    .foregroundStyle(palette.userBubbleText)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 9)
+                    .padding(.top, 5)
+            }
+            if !imageOnly {
+                meta
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 3)
+                    .padding(.bottom, 7)
+            }
+        }
+        .frame(width: width, alignment: .leading)
     }
 }
 

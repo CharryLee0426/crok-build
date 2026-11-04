@@ -314,11 +314,13 @@ struct TranscriptEvent: Codable, Identifiable, Hashable, Sendable {
     var commandId: DocID?
     /// For a remote prompt: who sent it (a device name, or "Web").
     var fromLabel: String?
+    /// For a prompt: the photos and files sent with it, in order (relay/DESIGN.md §2 "Photos and files").
+    var attachments: [Attachment]? = nil
     var at: Double
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case seq, key, kind, text, title, toolKind, status, origin, commandId, fromLabel, at
+        case seq, key, kind, text, title, toolKind, status, origin, commandId, fromLabel, attachments, at
     }
 
     var date: Date { Date(milliseconds: at) }
@@ -354,17 +356,20 @@ struct PromptCommand: Codable, Identifiable, Hashable, Sendable {
     var fromDeviceId: DocID?
     /// Sent by this device. Missing from older relays, where every listed prompt counts as this device's own.
     var mine: Bool?
+    /// The photos and files sent with it; missing from older relays.
+    var attachments: [Attachment]?
     var createdAt: Double
     var updatedAt: Double
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case type, clientId, text, status, error, fromLabel, fromDeviceId, mine, createdAt, updatedAt
+        case type, clientId, text, status, error, fromLabel, fromDeviceId, mine, attachments, createdAt, updatedAt
     }
 
     init(
         id: DocID, type: String? = nil, clientId: String?, text: String, status: CommandStatus, error: String?,
-        fromLabel: String, fromDeviceId: DocID? = nil, mine: Bool? = nil, createdAt: Double, updatedAt: Double
+        fromLabel: String, fromDeviceId: DocID? = nil, mine: Bool? = nil, attachments: [Attachment]? = nil,
+        createdAt: Double, updatedAt: Double
     ) {
         self.id = id
         self.type = type
@@ -375,6 +380,7 @@ struct PromptCommand: Codable, Identifiable, Hashable, Sendable {
         self.fromLabel = fromLabel
         self.fromDeviceId = fromDeviceId
         self.mine = mine
+        self.attachments = attachments
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -607,6 +613,31 @@ struct SlashCommandList: Decodable, Sendable, Equatable {
 struct CreatedSession: Decodable, Sendable, Equatable {
     var sessionDocId: DocID
     var commandId: DocID
+}
+
+/// `sessions:refresh`: how many online computers list every session again now (`asked`), how many cannot until crok
+/// runs there (`offline`), and the relay's time of the request, which `sessions:refreshState` follows.
+struct RefreshAnswer: Decodable, Sendable, Equatable {
+    var asked: Double
+    var offline: Double
+    var at: Double
+}
+
+/// `sessions:refreshState`: the online computers still listing their sessions for a refresh; empty once each is done.
+struct RefreshState: Decodable, Sendable, Equatable {
+    var pending: [DocID]
+}
+
+/// How a Refresh of the session list ended.
+enum SessionsRefreshOutcome: Equatable, Sendable {
+    /// Every computer asked listed its sessions again.
+    case done
+    /// Not every computer finished within the wait (an older crok answers at its next regular listing); the list
+    /// updates by itself when they do.
+    case timedOut
+    /// No computer was online: the list shows what they listed last.
+    case noneOnline
+    case failed(RelayError)
 }
 
 /// A row of `devices:list`.

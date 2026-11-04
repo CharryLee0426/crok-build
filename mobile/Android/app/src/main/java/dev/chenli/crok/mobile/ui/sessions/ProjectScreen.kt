@@ -87,6 +87,8 @@ data class ProjectUiState(
     val reordering: Boolean = false,
     val loaded: Boolean = false,
     val now: Long = 0,
+    /** A Refresh is running (pull to refresh). */
+    val refreshing: Boolean = false,
 ) {
     val searching: Boolean get() = query.isNotBlank()
     val canReorder: Boolean get() = !searching && (group?.sessions?.size ?: 0) > 1
@@ -109,6 +111,8 @@ class ProjectViewModel(private val engine: CrokEngine, private val projectKey: S
     private val frozen = MutableStateFlow(false)
     private var lastOrder: List<String> = emptyList()
 
+    private data class Inputs(val query: String, val reordering: Boolean, val frozen: Boolean, val refreshing: Boolean)
+
     private val _events = Channel<SessionsEvent>(Channel.BUFFERED)
     val events: Flow<SessionsEvent> = _events.receiveAsFlow()
 
@@ -121,14 +125,14 @@ class ProjectViewModel(private val engine: CrokEngine, private val projectKey: S
 
     val state: StateFlow<ProjectUiState> = combine(
         engine.sessions.active,
-        combine(query, reordering, frozen) { q, r, f -> Triple(q, r, f) },
+        combine(query, reordering, frozen, engine.sessions.isRefreshing, ::Inputs),
         engine.connection.delayedForDisplay(),
         ticker,
-    ) { list, (q, r, f), connection, now ->
-        val built = ProjectUiState.build(list.groups, list.live, projectKey, q, r, connection, now)
-        val rows = if (f) SessionList.freezeOrder(lastOrder, built.rows) else built.rows
+    ) { list, input, connection, now ->
+        val built = ProjectUiState.build(list.groups, list.live, projectKey, input.query, input.reordering, connection, now)
+        val rows = if (input.frozen) SessionList.freezeOrder(lastOrder, built.rows) else built.rows
         lastOrder = rows.map { it.id }
-        built.copy(rows = rows)
+        built.copy(rows = rows, refreshing = input.refreshing)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProjectUiState())
 
     fun setQuery(value: String) {
@@ -143,6 +147,9 @@ class ProjectViewModel(private val engine: CrokEngine, private val projectKey: S
     fun setFrozen(value: Boolean) {
         frozen.value = value
     }
+
+    /** Pull to refresh: every online computer lists all its sessions again (as the Sessions tab's Refresh). */
+    fun refresh() = viewModelScope.refreshSessions(engine, _events)
 
     fun togglePin(row: SessionRow) = act { engine.sessions.setPinned(row.id, !row.pinned) }
 
@@ -190,6 +197,8 @@ data class ProjectActions(
     val onSortByRecent: () -> Unit = {},
     val onMarkAllRead: () -> Unit = {},
     val onNewSession: () -> Unit = {},
+    /** Pull to refresh. */
+    val onRefresh: () -> Unit = {},
     val topics: TopicActions = TopicActions(),
 )
 
@@ -216,6 +225,8 @@ fun ProjectScreen(
                     if (result == SnackbarResult.ActionPerformed) viewModel.unarchive(event.sessionDocId)
                 }
                 is SessionsEvent.Failed -> snackbar.showSnackbar(resources.getString(R.string.sessions_action_failed, event.message))
+                SessionsEvent.NoneOnline -> snackbar.showSnackbar(resources.getString(R.string.sessions_refresh_none_online))
+                is SessionsEvent.RefreshFailed -> snackbar.showSnackbar(resources.getString(R.string.error_generic, event.message))
             }
         }
     }
@@ -231,6 +242,7 @@ fun ProjectScreen(
             onSortByRecent = viewModel::sortByRecent,
             onMarkAllRead = onMarkAllRead,
             onNewSession = { state.group?.let { onNewSession(it.newSessionTarget()) } },
+            onRefresh = viewModel::refresh,
             topics = TopicActions(
                 onOpen = onOpen,
                 onTogglePin = viewModel::togglePin,
@@ -277,27 +289,38 @@ fun ProjectContent(state: ProjectUiState, actions: ProjectActions, snackbar: Sna
                 onDragging = actions.onDragging,
                 contentPadding = listPadding,
             )
-            state.rows.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding).padding(32.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    stringResource(if (state.searching) R.string.sessions_no_results else R.string.sessions_empty_title),
-                    color = colors.textSecondary,
-                    textAlign = TextAlign.Center,
-                )
+            state.rows.isEmpty() && state.searching -> NoTopics(state, Modifier.fillMaxSize().padding(padding))
+            state.rows.isEmpty() -> PullToRefresh(state.refreshing, actions.onRefresh, padding) {
+                ScrollableEmpty(Modifier.fillMaxSize().padding(padding)) { NoTopics(state, Modifier.fillMaxSize()) }
             }
-            else -> LazyColumn(Modifier.fillMaxSize().testTag("project-list"), contentPadding = listPadding) {
-                val group = state.group
-                items(state.rows, key = { it.id }, contentType = { "topic" }) { row ->
-                    SwipeableTopicRow(
-                        row = row,
-                        now = state.now,
-                        actions = actions.topics,
-                        projectName = group?.name?.ifBlank { null },
-                        moves = if (state.searching || group == null) RowMoves.None else RowMoves.of(group.sessions, row),
-                        modifier = Modifier.animateItem(),
-                    )
+            else -> PullToRefresh(state.refreshing, actions.onRefresh, padding) {
+                LazyColumn(Modifier.fillMaxSize().testTag("project-list"), contentPadding = listPadding) {
+                    val group = state.group
+                    items(state.rows, key = { it.id }, contentType = { "topic" }) { row ->
+                        SwipeableTopicRow(
+                            row = row,
+                            now = state.now,
+                            actions = actions.topics,
+                            projectName = group?.name?.ifBlank { null },
+                            moves = if (state.searching || group == null) RowMoves.None else RowMoves.of(group.sessions, row),
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+/** No sessions (left) in the project, or none matching the search. */
+@Composable
+private fun NoTopics(state: ProjectUiState, modifier: Modifier) {
+    Box(modifier.padding(32.dp), contentAlignment = Alignment.Center) {
+        Text(
+            stringResource(if (state.searching) R.string.sessions_no_results else R.string.sessions_empty_title),
+            color = CrokTheme.colors.textSecondary,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

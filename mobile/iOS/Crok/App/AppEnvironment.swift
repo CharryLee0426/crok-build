@@ -8,6 +8,7 @@ import Foundation
 /// - `-CrokAppearance light|dark`: force the appearance (screenshots).
 /// - `-CrokResetState YES`: forget the Keychain credentials, drafts and caches at launch (tests).
 /// - `-CrokNoBrowser YES`: do not open the browser sheet by itself when a sign-in starts (tests).
+/// - `-CrokSampleAttachments YES`: the paperclip's menu also offers sample photos (UI tests against a real relay).
 /// - `-CrokServer http://127.0.0.1:3210` (or the `CROK_RELAY_URL` environment variable): sign in to another relay than
 ///   the built-in one, e.g. a local `npx convex dev` (development only; there is no setting for it in the app).
 struct LaunchOptions {

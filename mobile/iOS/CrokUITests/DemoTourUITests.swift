@@ -86,6 +86,40 @@ final class DemoTourUITests: XCTestCase {
         XCTAssertTrue(element(app, "projectRow-crok-build").waitForExistence(timeout: 15))
     }
 
+    /// Refresh in the Sessions toolbar: a spinner while the computers list their sessions again, then the button back.
+    /// Pulling the list down refreshes too.
+    func testRefresh() {
+        // Every first answer takes 4 s, `sessions:refreshState`'s too: long enough to see the spinner after the tap.
+        let app = launch(["-CrokDemoLatency", "4000"])
+        waitForList(app)
+        XCTAssertTrue(element(app, "projectRow-crok-build").waitForExistence(timeout: 10))
+        let refresh = element(app, "refreshButton")
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "composeButton").exists, "Refresh sits beside compose")
+        snap("30-refresh-button")
+        refresh.tap()
+        // The spinner replaces the button while the computers list their sessions (at least 0.6 s).
+        let running = app.waitFor(3) { !refresh.exists }
+        snap("31-refresh-running")
+        XCTAssertTrue(running, "a spinner in its place while it runs")
+        XCTAssertTrue(refresh.waitForExistence(timeout: 10), "the button comes back once the computers listed")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "MacBook Pro is online: no notice")
+
+        // Pull to refresh (twice: the first pull opens the search field).
+        let list = app.collectionViews.firstMatch
+        for _ in 0..<2 {
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+                .press(forDuration: 0.05, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        }
+        XCTAssertTrue(element(app, "projectRow-crok-build").waitForExistence(timeout: 10))
+        XCTAssertTrue(refresh.waitForExistence(timeout: 10))
+        snap("32-refresh-after-pull")
+
+        // Edit mode hides it, like compose.
+        element(app, "editButton").tap()
+        XCTAssertTrue(refresh.waitForNonExistence(timeout: 5))
+    }
+
     func testMainScreens() {
         let app = launch()
         waitForList(app)

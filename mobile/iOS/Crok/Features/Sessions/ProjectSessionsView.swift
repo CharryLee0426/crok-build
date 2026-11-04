@@ -9,6 +9,7 @@ struct ProjectSessionsView: View {
     @State private var query = ""
     @State private var actionError: RelayError?
     @State private var editMode: EditMode = .inactive
+    @State private var showsNoneOnline = false
 
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
     private var isEditing: Bool { editMode.isEditing }
@@ -96,11 +97,20 @@ struct ProjectSessionsView: View {
                 }
             }
         }
+        .refreshable {
+            // Pull to refresh: every computer lists its sessions again, as from the Sessions tab.
+            switch await engine.refreshSessions() {
+            case .failed(let error): actionError = error
+            case .noneOnline: showsNoneOnline = true
+            case .done, .timedOut: break
+            }
+        }
         .environment(\.editMode, $editMode)
         .onChange(of: isSearching) { _, searching in
             if searching { editMode = .inactive }
         }
         .relayErrorAlert($actionError)
+        .noComputerOnlineAlert($showsNoneOnline)
     }
 
     private func run(_ change: ListReorder) {

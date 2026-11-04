@@ -120,6 +120,31 @@ export const pendingInteraction = v.object({
   at: v.number(),
 });
 
+/**
+ * A photo or file sent with a prompt (relay/DESIGN.md §2, "Photos and files"). `storageId` is the upload in the relay's
+ * file storage (`files`); unset for a file that exists only on the computer (attached there, shown by name). `thumbId`
+ * is a small JPEG of an image, for previews. `kind: "image"` only for PNG, JPEG, GIF and WebP, which models read.
+ */
+export const attachment = v.object({
+  storageId: v.optional(v.id("_storage")),
+  thumbId: v.optional(v.id("_storage")),
+  name: v.string(),
+  mimeType: v.string(),
+  size: v.number(),
+  kind: v.union(v.literal("image"), v.literal("file")),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+});
+
+/** What a client sends for each upload with a prompt: the relay reads its type and size from the stored file. */
+export const attachmentInput = v.object({
+  storageId: v.string(),
+  thumbId: v.optional(v.string()),
+  name: v.string(),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+});
+
 export const sessionUsage = v.object({
   inputTokens: v.optional(v.number()),
   outputTokens: v.optional(v.number()),
@@ -296,6 +321,11 @@ export default defineSchema({
     finishedAt: v.optional(v.number()),
     /** The holder is gone (it quit or lost its connection): the computer's other crok processes list them now. */
     released: v.optional(v.boolean()),
+    /**
+     * When someone last pressed Refresh (`sessions:refresh`): the computer lists every session again at once, and the
+     * refresh is done once an upload that started at or after this time has finished.
+     */
+    refreshAt: v.optional(v.number()),
   }).index("by_device", ["deviceId"]),
 
   /** One transcript item. Streaming text updates the same row (same `key`). */
@@ -318,6 +348,8 @@ export default defineSchema({
     commandId: v.optional(v.id("commands")),
     /** Who sent a remote prompt ("Ada's iPhone", "Web"). */
     fromLabel: v.optional(v.string()),
+    /** For a user prompt: the photos and files sent with it, in order. */
+    attachments: v.optional(v.array(attachment)),
     at: v.number(),
   })
     .index("by_session_seq", ["sessionDocId", "seq"])
@@ -340,6 +372,8 @@ export default defineSchema({
      */
     model: v.optional(v.string()),
     effort: v.optional(v.string()),
+    /** For `prompt` and `create`: the photos and files sent with the prompt (already in `files`), in order. */
+    attachments: v.optional(v.array(attachment)),
     /** Client-made id: makes a resend idempotent and lets the sender match its optimistic bubble. */
     clientId: v.optional(v.string()),
     status: commandStatus,
@@ -393,6 +427,32 @@ export default defineSchema({
     error: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+
+  /**
+   * An upload in the relay's file storage that a prompt or transcript item carries, owned by one person and kept with
+   * the session it was sent into (deleted with it, or with its transcript after 30 idle days). `sha256` is the
+   * storage's own (base64), so a computer re-reading a transcript from disk finds an image it uploaded before.
+   * Uploads nothing claims within a day are deleted (`files:sweep`).
+   */
+  files: defineTable({
+    userId: v.id("users"),
+    storageId: v.id("_storage"),
+    sessionDocId: v.id("sessions"),
+    sha256: v.string(),
+    size: v.number(),
+    contentType: v.optional(v.string()),
+    /** An image's thumbnail upload (itself a row here too). */
+    thumbId: v.optional(v.id("_storage")),
+    createdAt: v.number(),
+  })
+    .index("by_storage", ["storageId"])
+    .index("by_session", ["sessionDocId"])
+    .index("by_session_sha", ["sessionDocId", "sha256"]),
+
+  /** How far `files:sweep` has looked through the storage for uploads nothing claimed (one row). */
+  fileSweeps: defineTable({
+    scannedThrough: v.number(),
+  }),
 
   /** A viewer has this session open; while `until` is ahead the bridge streams text at a fine grain. */
   sessionViews: defineTable({

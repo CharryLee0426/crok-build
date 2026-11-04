@@ -37,6 +37,21 @@
       "destinationDatasource": {"uid": "${prom}"}
     },
     {
+      "uuid": "crok-feedback-good-rate",
+      "name": "crok feedback is mostly positive",
+      "description": "Share of per-turn thumbs feedback that is positive (thumbs up / every turn with a thumb up or down), over 30 days against 80%. The target applies only once 20 feedbacks were received in the window: below that the query returns no data rather than a noisy rate.",
+      "needs_metric": "crok_feedback_rating",
+      "query": {
+        "type": "freeform",
+        "freeform": {
+          "query": "(sum(last_over_time(crok_feedback_rating[30d]) > 0) / count(last_over_time(crok_feedback_rating[30d]) != 0)) and on() (count(last_over_time(crok_feedback_rating[30d]) != 0) >= 20)"
+        }
+      },
+      "objectives": [{"value": 0.8, "window": "30d"}],
+      "labels": [{"key": "service", "value": "crok"}],
+      "destinationDatasource": {"uid": "${prom}"}
+    },
+    {
       "uuid": "crok-turn-completion",
       "name": "crok turns complete",
       "description": "Share of crok turns that end with an answer rather than cancelled, cut off by --max-turns, stopped for repeating a call, or failed; experiment runs left out. Needs a crok release after 2.0.1 (crok_turns_total). 96.3% on one Mac in October.",

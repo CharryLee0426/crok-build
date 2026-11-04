@@ -242,6 +242,29 @@ class StayingConnectedTest {
     }
 
     @Test
+    fun refreshChecksTheSocketAtOnce() = runTest {
+        val relay = connection()
+        val seen = watch(relay)
+        runCurrent()
+        // The socket died without noticing; the watchdog would wait 20 s.
+        made[0].alive.value = false
+        server.version.value = 1
+        relay.recover(RecoveryReason.Manual)
+        runCurrent()
+        assertEquals(1, made[0].refreshes)
+        advanceTimeBy(10_100)
+        assertEquals(2, made.size)
+        runCurrent()
+        assertEquals("devices:list v1 from #2", seen.value.text())
+        // In the background (nobody pressed anything) or without a network, it does nothing.
+        foreground.value = false
+        assertEquals(null, relay.recover(RecoveryReason.Manual))
+        foreground.value = true
+        network.value = false
+        assertEquals(null, relay.recover(RecoveryReason.Manual))
+    }
+
+    @Test
     fun aNewNetworkChecksTheSocket() = runTest {
         val relay = connection()
         watch(relay)

@@ -22,6 +22,8 @@ final class CrokEngine {
     private(set) var rememberedComputer: DocID?
     /// Sessions this phone started (`sessions:create`), by client id.
     private(set) var startedSessions: [String: DocID] = [:]
+    /// A Refresh of the session list is under way (`refreshSessions`).
+    private(set) var isRefreshing = false
 
     /// The main list as the relay sends it (`sessions:groups`); screens read `groups`.
     let groupList: LiveQuery<[ProjectGroup]>
@@ -30,6 +32,8 @@ final class CrokEngine {
     let account: LiveQuery<AccountInfo?>
 
     @ObservationIgnored let drafts: DraftStore
+    /// Photos and files waiting in each composer (a session's id, or a new session's client id), while the app runs.
+    @ObservationIgnored private var attachmentDrafts: [String: AttachmentDraft] = [:]
     @ObservationIgnored private let selectedStore: SelectedComputerStore
     @ObservationIgnored private let cache: SessionListCache?
     /// Network, sync and the recovery steps (relay/DESIGN.md §5 "Staying connected").
@@ -46,6 +50,12 @@ final class CrokEngine {
     @ObservationIgnored private let tickInterval: Duration?
     /// Live queries to wake when the connection comes back, so none sits out a long backoff.
     @ObservationIgnored private var liveQueries: [ObjectIdentifier: WeakQuery] = [:]
+    /// The Refresh under way; a second call joins it.
+    @ObservationIgnored private var refreshTask: Task<SessionsRefreshOutcome, Never>?
+    /// How long a Refresh waits for the computers to list their sessions again (tests shorten it).
+    @ObservationIgnored var refreshTimeout: Duration = .seconds(15)
+    /// The least time a Refresh shows as running, so a quick one still reads as done (tests shorten it).
+    @ObservationIgnored var refreshMinimum: Duration = .milliseconds(600)
     /// Called once when the relay says this device was signed out.
     @ObservationIgnored var onRevoked: (@MainActor () -> Void)?
 
@@ -53,6 +63,15 @@ final class CrokEngine {
     var commands: any CommandsAPI { backend.commands }
     var devices: any DevicesAPI { backend.devices }
     var accountAPI: any AccountAPI { backend.account }
+    var files: any FilesAPI { backend.files }
+
+    /// The attachment strip of one composer: a session's (`sessionDocId`) or a new session's (its client id).
+    func attachments(for key: String) -> AttachmentDraft {
+        if let draft = attachmentDrafts[key] { return draft }
+        let draft = AttachmentDraft(files: files)
+        attachmentDrafts[key] = draft
+        return draft
+    }
 
     /// - Parameters:
     ///   - now: the clock the connection keeper runs on (tests pass their own).
@@ -309,6 +328,92 @@ final class CrokEngine {
         max(0, unreadTotal - selectedUnread)
     }
 
+    // MARK: Refresh
+
+    /// Refresh (Sessions toolbar, pull to refresh): asks every online computer to list all its sessions again now
+    /// (`sessions:refresh`) and waits until each has (`sessions:refreshState`), at most `refreshTimeout`; the list
+    /// itself updates through `sessions:groups` as they do. A connection that is not live recovers at once. A call
+    /// while one runs joins it.
+    func refreshSessions() async -> SessionsRefreshOutcome {
+        if let running = refreshTask { return await running.value }
+        isRefreshing = true
+        let task = Task { await self.runRefresh() }
+        refreshTask = task
+        let outcome = await task.value
+        refreshTask = nil
+        isRefreshing = false
+        return outcome
+    }
+
+    private func runRefresh() async -> SessionsRefreshOutcome {
+        let clock = ContinuousClock()
+        let started = clock.now
+        let deadline = started.advanced(by: refreshTimeout)
+        run(keeper.refreshRequested(now: now()))
+        recomputeConnection()
+        let sessions = self.sessions
+        let outcome: SessionsRefreshOutcome
+        switch await Self.first(within: refreshTimeout, { try await sessions.refresh() }) {
+        case nil:
+            // No answer although the socket looked live: it is not.
+            run(keeper.refreshUnanswered(now: now()))
+            recomputeConnection()
+            outcome = .timedOut
+        case .failure(let error)?:
+            let relayError = (error as? RelayError) ?? RelayError(.server, error.localizedDescription)
+            if relayError.isRevoked { handleRevoked() }
+            if relayError.code == .unauthenticated { handleUnauthenticated() }
+            outcome = .failed(relayError)
+        case .success(let answer)?:
+            if answer.asked < 1 {
+                outcome = .noneOnline
+            } else {
+                let stream = sessions.refreshState(since: answer.at)
+                let left = deadline - clock.now
+                let finished = left > .zero
+                    ? await Self.first(within: left, {
+                        for try await state in stream where state.pending.isEmpty { return true }
+                        return false
+                    })
+                    : nil
+                if case .success(true)? = finished {
+                    outcome = .done
+                } else {
+                    outcome = .timedOut
+                }
+            }
+        }
+        let shown = clock.now - started
+        if shown < refreshMinimum { try? await Task.sleep(for: refreshMinimum - shown) }
+        return outcome
+    }
+
+    /// `work`'s result, or nil when `timeout` passes first; `work` is then cancelled (a relay call already sent still
+    /// completes, harmlessly; a subscription ends).
+    private static func first<T: Sendable>(
+        within timeout: Duration, _ work: @escaping @Sendable () async throws -> T
+    ) async -> Result<T, Error>? {
+        let race = FirstResult<T>()
+        return await withCheckedContinuation { continuation in
+            race.start(continuation)
+            let worker = Task {
+                do {
+                    race.finish(.success(try await work()))
+                } catch {
+                    race.finish(.failure(error))
+                }
+            }
+            let timer = Task {
+                try? await Task.sleep(for: timeout)
+                race.finish(nil)
+            }
+            race.onFinish {
+                worker.cancel()
+                timer.cancel()
+            }
+        }
+    }
+
     // MARK: Order
 
     struct PendingReorder: Equatable, Sendable {
@@ -406,7 +511,8 @@ final class CrokEngine {
     /// session, under the same client id as the relay's `create` command, so its ticks follow `commands:forSession`. The
     /// same client id never makes two sessions.
     func startSession(
-        in target: NewSessionTarget, text: String?, model: String? = nil, effort: String? = nil, clientId: String
+        in target: NewSessionTarget, text: String?, model: String? = nil, effort: String? = nil, clientId: String,
+        attachments: [MessageAttachment] = [], inputs: [AttachmentInput] = []
     ) async -> Result<DocID, RelayError> {
         if let started = startedSessions[clientId] { return .success(started) }
         let prompt = text?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -415,11 +521,13 @@ final class CrokEngine {
         do {
             let created = try await sessions.create(
                 deviceId: target.deviceId, path: target.path, text: prompt?.isEmpty == false ? prompt : nil, model: model,
-                effort: effort, clientId: clientId)
+                effort: effort, clientId: clientId, attachments: inputs)
             startedSessions[clientId] = created.sessionDocId
-            if let prompt, !prompt.isEmpty {
+            if prompt?.isEmpty == false || !inputs.isEmpty {
                 localPrompts[created.sessionDocId, default: []].append(
-                    LocalPrompt(clientId: clientId, text: prompt, createdAt: sentAt, commandId: created.commandId))
+                    LocalPrompt(
+                        clientId: clientId, text: prompt ?? "", createdAt: sentAt, attachments: attachments, inputs: inputs,
+                        commandId: created.commandId))
             }
             return .success(created.sessionDocId)
         } catch {
@@ -432,12 +540,16 @@ final class CrokEngine {
 
     // MARK: Prompts
 
-    /// Shows the prompt at once and sends it; the bubble's ticks follow `commands:forSession`.
-    func sendPrompt(_ text: String, to sessionDocId: DocID) {
+    /// Shows the prompt at once and sends it; the bubble's ticks follow `commands:forSession`. With uploads (`inputs`,
+    /// shown as `attachments`) the text may be empty.
+    func sendPrompt(
+        _ text: String, to sessionDocId: DocID, attachments: [MessageAttachment] = [], inputs: [AttachmentInput] = []
+    ) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty || !inputs.isEmpty else { return }
         let prompt = LocalPrompt(
-            clientId: UUID().uuidString.lowercased(), text: trimmed, createdAt: Date().milliseconds)
+            clientId: UUID().uuidString.lowercased(), text: trimmed, createdAt: Date().milliseconds,
+            attachments: attachments, inputs: inputs)
         localPrompts[sessionDocId, default: []].append(prompt)
         deliver(prompt.clientId, in: sessionDocId)
     }
@@ -447,7 +559,8 @@ final class CrokEngine {
         let commands = self.commands
         Task { [weak self] in
             do {
-                let commandId = try await commands.sendPrompt(sessionDocId, text: prompt.text, clientId: clientId)
+                let commandId = try await commands.sendPrompt(
+                    sessionDocId, text: prompt.text, clientId: clientId, attachments: prompt.inputs)
                 self?.updatePrompt(clientId, in: sessionDocId) {
                     $0.commandId = commandId
                     $0.failure = nil
@@ -504,6 +617,41 @@ final class CrokEngine {
             return !deliveredCommandIds.contains(commandId)
         }
         if kept.count != prompts.count { localPrompts[sessionDocId] = kept }
+    }
+}
+
+/// Resumes a continuation with whichever result comes first (`CrokEngine.first(within:_:)`).
+private final class FirstResult<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Result<T, Error>?, Never>?
+    private var finished = false
+    private var cleanup: (@Sendable () -> Void)?
+
+    func start(_ continuation: CheckedContinuation<Result<T, Error>?, Never>) {
+        lock.withLock { self.continuation = continuation }
+    }
+
+    func finish(_ result: Result<T, Error>?) {
+        let (continuation, cleanup) = lock.withLock { () -> (CheckedContinuation<Result<T, Error>?, Never>?, (@Sendable () -> Void)?) in
+            guard !finished else { return (nil, nil) }
+            finished = true
+            let pending = (self.continuation, self.cleanup)
+            self.continuation = nil
+            self.cleanup = nil
+            return pending
+        }
+        continuation?.resume(returning: result)
+        cleanup?()
+    }
+
+    /// Runs `cleanup` once a result is in (at once if it already is).
+    func onFinish(_ cleanup: @escaping @Sendable () -> Void) {
+        let runNow = lock.withLock { () -> Bool in
+            if finished { return true }
+            self.cleanup = cleanup
+            return false
+        }
+        if runNow { cleanup() }
     }
 }
 

@@ -1,6 +1,8 @@
 package dev.chenli.crok.mobile.demo
 
 import dev.chenli.crok.mobile.data.ApproveResult
+import dev.chenli.crok.mobile.data.Attachment
+import dev.chenli.crok.mobile.data.UploadUrl
 import dev.chenli.crok.mobile.data.CommandDoc
 import dev.chenli.crok.mobile.data.CommandRef
 import dev.chenli.crok.mobile.data.CommandStatus
@@ -18,6 +20,8 @@ import dev.chenli.crok.mobile.data.SessionGroup
 import dev.chenli.crok.mobile.data.PendingLogin
 import dev.chenli.crok.mobile.data.PendingOption
 import dev.chenli.crok.mobile.data.RelayErrorCode
+import dev.chenli.crok.mobile.data.ListRefreshResult
+import dev.chenli.crok.mobile.data.ListRefreshState
 import dev.chenli.crok.mobile.data.RelayEvent
 import dev.chenli.crok.mobile.data.RelayException
 import dev.chenli.crok.mobile.data.RelayJson
@@ -137,6 +141,8 @@ class DemoTransport(
                 RelayJson.encodeToJsonElement(ListSerializer(dev.chenli.crok.mobile.data.SessionRow.serializer()), rows)
             }
             "sessions:groups" -> RelayJson.encodeToJsonElement(ListSerializer(SessionGroup.serializer()), DemoData.groups(s))
+            // The demo's computers list their sessions at once.
+            "sessions:refreshState" -> RelayJson.encodeToJsonElement(ListRefreshState.serializer(), ListRefreshState())
             "sessions:get" -> {
                 val session = s.sessions.firstOrNull { it.id == args["sessionDocId"] }
                     ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such session.")
@@ -199,6 +205,11 @@ class DemoTransport(
         val sessionDocId = args["sessionDocId"] as? String
         when (name) {
             "sessions:markRead" -> updateSession(sessionDocId) { it.copy(unread = 0) }
+            "sessions:refresh" -> {
+                val computers = state.value.devices.filter { it.isComputer }
+                val online = computers.count { it.online }
+                return RelayJson.encodeToJsonElement(ListRefreshResult.serializer(), ListRefreshResult(online, computers.size - online, clock()))
+            }
             "sessions:watch" -> requestHistory(session(sessionDocId))
             "sessions:reorderProjects" -> {
                 val keys = strings(args["keys"])
@@ -238,7 +249,13 @@ class DemoTransport(
                 if (session.detail.online) throw RelayException(RelayErrorCode.INVALID, "Close the session on the computer first, or archive it.")
                 state.update { s -> s.copy(sessions = s.sessions.filterNot { it.id == sessionDocId }) }
             }
-            "commands:sendPrompt" -> return sendPrompt(sessionDocId, args["text"] as? String ?: "", args["clientId"] as? String)
+            "files:uploadUrl" -> return RelayJson.encodeToJsonElement(UploadUrl.serializer(), UploadUrl(DemoMedia.UPLOAD_URL))
+            "commands:sendPrompt" -> return sendPrompt(
+                sessionDocId,
+                args["text"] as? String ?: "",
+                args["clientId"] as? String,
+                attachmentsOf(args["attachments"]),
+            )
             "sessions:create" -> return create(
                 args["deviceId"] as? String,
                 args["path"] as? String,
@@ -246,6 +263,7 @@ class DemoTransport(
                 args["clientId"] as? String,
                 args["model"] as? String,
                 args["effort"] as? String,
+                attachmentsOf(args["attachments"]),
             )
             "commands:setConfig" -> return setConfig(sessionDocId, args["configId"] as? String, args["value"] as? String)
             "commands:stop" -> {
@@ -299,7 +317,7 @@ class DemoTransport(
                     ?: throw RelayException(RelayErrorCode.NOT_FOUND, "No such prompt.")
                 requireReachable(command.sessionDocId)
                 updateCommand(command.id) { it.copy(status = CommandStatus.PENDING, error = null, updatedAt = clock()) }
-                runPrompt(command.sessionDocId, command.id, command.text)
+                runPrompt(command.sessionDocId, command.id, command.text, command.attachments)
             }
             "commands:answer" -> return answer(sessionDocId, args["interactionId"] as? String, args["optionId"] as? String)
             "commands:discard" -> {
@@ -457,22 +475,56 @@ class DemoTransport(
         return id
     }
 
-    private fun sendPrompt(sessionDocId: String?, text: String, clientId: String?): JsonElement {
+    private fun sendPrompt(sessionDocId: String?, text: String, clientId: String?, attachments: List<Attachment>): JsonElement {
         state.value.commands.firstOrNull { clientId != null && it.clientId == clientId }?.let { return ref(it.id) }
         requireReachable(sessionDocId)
         val trimmed = text.trim()
-        if (trimmed.isEmpty()) throw RelayException(RelayErrorCode.INVALID, "The prompt is empty.")
+        if (trimmed.isEmpty() && attachments.isEmpty()) throw RelayException(RelayErrorCode.INVALID, "The prompt is empty.")
         val id = newCommand(sessionDocId!!, "prompt", trimmed, clientId)
-        runPrompt(sessionDocId, id, trimmed)
+        updateCommand(id) { it.copy(attachments = attachments) }
+        runPrompt(sessionDocId, id, trimmed, attachments)
         return ref(id)
     }
+
+    /**
+     * A prompt's `attachments` argument as the relay stores them: the demo's uploads (`demo://blob/…`), with the type
+     * and size the upload had, an image only for the types models read.
+     */
+    private fun attachmentsOf(value: Any?): List<Attachment> =
+        (value as? List<*>).orEmpty().mapNotNull { entry ->
+            val map = entry as? Map<*, *> ?: return@mapNotNull null
+            val storageId = map["storageId"] as? String ?: return@mapNotNull null
+            val thumbId = map["thumbId"] as? String
+            val mime = DemoMedia.blobType(storageId) ?: "application/octet-stream"
+            val image = mime in setOf("image/png", "image/jpeg", "image/gif", "image/webp")
+            Attachment(
+                storageId = storageId,
+                thumbId = thumbId?.takeIf { image },
+                name = (map["name"] as? String).orEmpty().substringAfterLast('/').ifBlank { "file" },
+                mimeType = mime,
+                size = DemoMedia.blobSize(storageId),
+                kind = if (image) Attachment.KIND_IMAGE else Attachment.KIND_FILE,
+                width = (map["width"] as? Number)?.toInt()?.takeIf { image },
+                height = (map["height"] as? Number)?.toInt()?.takeIf { image },
+                url = DemoMedia.blobUrl(storageId),
+                thumbUrl = thumbId?.takeIf { image }?.let(DemoMedia::blobUrl),
+            )
+        }
 
     /**
      * `sessions:create`: the session is listed at once (`starting`, its title from the prompt), on the [model] and
      * thinking level [effort] picked from `devices:models` (else the computer's default), with a `create` command;
      * "the computer" opens it a moment later and runs the prompt like any other.
      */
-    private fun create(deviceId: String?, path: String?, text: String?, clientId: String?, model: String?, effort: String?): JsonElement {
+    private fun create(
+        deviceId: String?,
+        path: String?,
+        text: String?,
+        clientId: String?,
+        model: String?,
+        effort: String?,
+        attachments: List<Attachment> = emptyList(),
+    ): JsonElement {
         val s = state.value
         s.commands.firstOrNull { clientId != null && it.clientId == clientId && it.type == CommandType.CREATE }?.let {
             return RelayJson.encodeToJsonElement(CreateResult.serializer(), CreateResult(it.sessionDocId, it.id))
@@ -484,7 +536,8 @@ class DemoTransport(
         if (!DemoData.canCreate(device.id)) {
             throw RelayException(RelayErrorCode.OFFLINE, "${device.name} runs an older crok that cannot start sessions from other devices: update crok there.")
         }
-        val prompt = text?.trim()?.takeIf { it.isNotEmpty() }
+        // Photos and files alone make a prompt too.
+        val prompt = text?.trim()?.takeIf { it.isNotEmpty() } ?: if (attachments.isNotEmpty()) "" else null
         // Checked against the computer's list, as the relay does; `effort` is an option id or the level it stands for.
         val models = DemoData.modelsFor(device.id)
         val chosen = model?.takeIf { it.isNotBlank() }?.let { wanted ->
@@ -501,7 +554,7 @@ class DemoTransport(
             SessionDetail(
                 id = id,
                 sessionId = "pending:$clientId",
-                title = prompt?.lineSequence()?.firstOrNull()?.take(80) ?: "New session",
+                title = prompt?.lineSequence()?.firstOrNull()?.take(80)?.ifBlank { null } ?: "New session",
                 cwd = path,
                 model = chosen?.id,
                 effort = level,
@@ -528,7 +581,9 @@ class DemoTransport(
         state.update { st ->
             st.copy(
                 sessions = st.sessions + session,
-                commands = st.commands + DemoCommand(commandId, id, CommandType.CREATE, prompt.orEmpty(), clientId, createdAt = now),
+                commands = st.commands + DemoCommand(
+                    commandId, id, CommandType.CREATE, prompt.orEmpty(), clientId, createdAt = now, attachments = attachments,
+                ),
             )
         }
         val open = suspend {
@@ -543,7 +598,7 @@ class DemoTransport(
             scope.launch {
                 delay(1_200)
                 open()
-                if (prompt != null) runPrompt(id, commandId, prompt)
+                if (prompt != null) runPrompt(id, commandId, prompt, attachments)
             }
         }
         return RelayJson.encodeToJsonElement(CreateResult.serializer(), CreateResult(id, commandId))
@@ -610,7 +665,7 @@ class DemoTransport(
      * What a computer does with a prompt: open the session if nobody runs it, accept the prompt, show it, run a tool,
      * stream a reply, finish the turn. One sent while the session waits on a permission request runs after that.
      */
-    private fun runPrompt(sessionDocId: String, commandId: String, text: String) {
+    private fun runPrompt(sessionDocId: String, commandId: String, text: String, attachments: List<Attachment> = emptyList()) {
         if (!animate) return
         turns[sessionDocId]?.cancel()
         turns[sessionDocId] = scope.launch {
@@ -623,12 +678,13 @@ class DemoTransport(
                 RelayEvent(
                     "$sessionDocId-e$seq", seq, "k$seq", EventKind.USER, text,
                     origin = "remote", commandId = commandId, fromLabel = DemoData.PHONE_NAME, at = clock(),
+                    attachments = attachments,
                 )
             }
             updateSession(sessionDocId) {
                 it.copy(
                     detail = it.detail.copy(status = SessionStatus.RUNNING, lastActivityAt = clock()),
-                    preview = text,
+                    preview = text.ifBlank { DemoData.attachmentPreview(attachments) },
                     previewKind = EventKind.USER,
                 )
             }

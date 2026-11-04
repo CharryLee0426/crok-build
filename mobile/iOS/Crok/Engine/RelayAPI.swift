@@ -29,15 +29,34 @@ protocol SessionsAPI: Sendable {
     /// Starts a session in `path` on a computer (`sessions:create`); the relay lists it at once (`starting`) and a crok
     /// there opens it, applies `model` and `effort` (a model id and a level's option id from `devices:models`; nil for
     /// the computer's default) and runs `text` as its first prompt. The same `clientId` returns the same session.
-    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
-        async throws -> CreatedSession
+    /// `attachments`: uploads for the first prompt (sent only when there are some; the text may then be empty).
+    func create(
+        deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String,
+        attachments: [AttachmentInput]
+    ) async throws -> CreatedSession
     /// The session's slash commands as its computer advertises them (`sessions:commands`).
     func slashCommands(_ sessionDocId: DocID) -> RelayStream<SlashCommandList>
+    /// Refresh (`sessions:refresh`): every online computer lists all its sessions again now, so the list catches up on
+    /// sessions made, renamed or deleted there that the relay missed.
+    func refresh() async throws -> RefreshAnswer
+    /// The computers still listing for the refresh asked for at `since` (`sessions:refreshState`, `RefreshAnswer.at`).
+    func refreshState(since: Double) -> RelayStream<RefreshState>
+}
+
+extension SessionsAPI {
+    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
+        async throws -> CreatedSession
+    {
+        try await create(
+            deviceId: deviceId, path: path, text: text, model: model, effort: effort, clientId: clientId, attachments: [])
+    }
 }
 
 protocol CommandsAPI: Sendable {
     /// Throws `OFFLINE` only when the session's computer is offline: a session nobody runs is opened there.
-    func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String) async throws -> DocID
+    /// `attachments`: uploads from `FilesAPI`, in order (sent only when there are some; the text may then be empty).
+    func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String, attachments: [AttachmentInput])
+        async throws -> DocID
     func stop(_ sessionDocId: DocID) async throws -> DocID
     func requestInfo(_ sessionDocId: DocID) async throws -> DocID
     /// Answers the session's pending permission request; `EXPIRED` once it is no longer pending (another device or the
@@ -50,6 +69,25 @@ protocol CommandsAPI: Sendable {
     func forSession(_ sessionDocId: DocID) -> RelayStream<[PromptCommand]>
     func retry(_ commandId: DocID) async throws
     func discard(_ commandId: DocID) async throws
+}
+
+extension CommandsAPI {
+    func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String) async throws -> DocID {
+        try await sendPrompt(sessionDocId, text: text, clientId: clientId, attachments: [])
+    }
+}
+
+/// Uploads for photos and files (relay/DESIGN.md §3 "Files"): `files:uploadUrl`, then a `POST` of the bytes.
+protocol FilesAPI: Sendable {
+    /// Uploads one file and returns its storage id; `progress` gets the share sent (0…1) as it goes.
+    func upload(_ data: Data, contentType: String, progress: @escaping @Sendable (Double) -> Void) async throws -> String
+}
+
+/// A relay that takes no uploads (test doubles).
+struct NoFiles: FilesAPI {
+    func upload(_ data: Data, contentType: String, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
+        throw RelayError(.invalid, String(localized: "Upload failed"))
+    }
 }
 
 protocol DevicesAPI: Sendable {
@@ -96,6 +134,7 @@ protocol RelayBackend: AnyObject, Sendable {
     var devices: any DevicesAPI { get }
     var account: any AccountAPI { get }
     var o11y: any O11yAPI { get }
+    var files: any FilesAPI { get }
 
     /// Network and socket changes, starting with the current state.
     func connectionSignals() -> AsyncStream<ConnectionSignal>
@@ -116,6 +155,8 @@ extension RelayBackend {
     func replaceClient() async {}
     /// Test doubles serve no o11y: the tab says it is not set up.
     var o11y: any O11yAPI { UnconfiguredO11y() }
+    /// Test doubles take no uploads.
+    var files: any FilesAPI { NoFiles() }
 }
 
 /// A relay with no o11y for this account.

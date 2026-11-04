@@ -1094,6 +1094,7 @@ impl AgentView {
             _ => 1,
         };
         let follow_ups_height = u16::from(self.follow_ups.is_some());
+        let quick_feedback_height = u16::from(self.quick_feedback.is_some());
         let mut dock_data = (dock_on && !self.dock_hidden).then(|| self.dock_snapshot());
         let dock_height = dock_data
             .as_ref()
@@ -1123,6 +1124,7 @@ impl AgentView {
             banner_height,
             cta_height,
             follow_ups_height,
+            quick_feedback_height,
             dock_height,
             prompt_gap,
             model_notice_height,
@@ -2304,6 +2306,17 @@ impl AgentView {
                 self.hovered_follow_up_chip = None;
                 Vec::new()
             }
+        };
+        self.quick_feedback_chips = if self.quick_feedback.is_some() {
+            agent::render_quick_feedback(
+                layout.quick_feedback,
+                buf,
+                &theme,
+                self.hovered_quick_feedback_chip,
+            )
+        } else {
+            self.hovered_quick_feedback_chip = None;
+            Vec::new()
         };
         let editing_label;
         let commenting_label;

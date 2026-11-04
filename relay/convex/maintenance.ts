@@ -79,6 +79,8 @@ export const pruneOldSessions = internalMutation({
           sessionDocId: session._id,
           throughSeq: session.eventSeq,
         });
+        // Its photos and files go with the transcript (a computer re-reading it uploads its images again).
+        await ctx.scheduler.runAfter(0, internal.files.deleteSessionFiles, { sessionDocId: session._id });
         pruned += 1;
       }
     }
@@ -108,6 +110,7 @@ export const deleteSessionEvents = internalMutation({
         .withIndex("by_session", (q) => q.eq("sessionDocId", sessionDocId))
         .collect();
       for (const list of lists) await ctx.db.delete(list._id);
+      await ctx.scheduler.runAfter(0, internal.files.deleteSessionFiles, { sessionDocId });
     }
     return null;
   },

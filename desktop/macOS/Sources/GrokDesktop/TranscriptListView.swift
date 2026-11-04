@@ -52,6 +52,10 @@ final class TranscriptListView: NSView {
     weak var tools: TranscriptToolsModel?
     weak var follow: TranscriptFollowState? { didSet { follow?.list = self } }
     var openImage: OpenImageAction?
+    /// Copies a reply's Markdown exactly as the model wrote it.
+    var copyReply: ((Message) -> Void)?
+    /// Sets a reply's thumbs verdict: `1`, `-1`, or `nil` to take it back.
+    var rateReply: ((Message, Int?) -> Void)?
     /// How much of the list's top is covered by something over it, below the window's title bar: the find bar.
     var coveredTop: CGFloat = 0
 
@@ -334,7 +338,8 @@ final class TranscriptListView: NSView {
     private static func same(_ a: Message, _ b: Message) -> Bool {
         guard a.kind == b.kind, a.status == b.status, a.toolID == b.toolID, a.createdAt == b.createdAt,
               a.text.utf8.count == b.text.utf8.count, (a.detail?.utf8.count ?? -1) == (b.detail?.utf8.count ?? -1),
-              (a.attachments?.count ?? -1) == (b.attachments?.count ?? -1), a.remoteFrom == b.remoteFrom else { return false }
+              (a.attachments?.count ?? -1) == (b.attachments?.count ?? -1), a.remoteFrom == b.remoteFrom,
+              a.rating == b.rating else { return false }
         guard a.text == b.text, a.detail == b.detail else { return false }
         if let left = a.attachments, let right = b.attachments {
             for index in left.indices where left[index].id != right[index].id { return false }
@@ -346,15 +351,21 @@ final class TranscriptListView: NSView {
         let message = messages[index]
         let foldable = message.kind == .thought || message.kind == .tool
         let stamped = display.showTimestamps && (message.kind == .user || message.kind == .assistant)
+        let next = index + 1 < messages.count ? messages[index + 1] : nil
+        let isTurnEnd = next == nil || next?.kind == .user || next?.kind == .system
         return TranscriptRowModel(message: message, isStreaming: message.id == display.streamingID, timestamp: stamped ? message.createdAt : nil,
                                   highlight: message.id == display.matchID ? .match : message.id == display.focusID ? .focus : .none,
                                   isExpanded: foldable && display.expanded.contains(message.id),
-                                  isTurnRunning: message.kind == .tool && display.isTurnRunning)
+                                  isTurnRunning: message.kind == .tool && display.isTurnRunning,
+                                  isTurnEnd: isTurnEnd)
     }
 
     private static func isFinished(_ message: Message) -> Bool { message.status == "completed" || message.status == "failed" }
 
     private func append(_ message: Message) {
+        // A reply that was the end of its turn stops being it when what follows (a tool call, a
+        // newer reply) arrives, so its controls come down.
+        if let last = messages.last, last.kind == .assistant { invalidate(messages.count - 1) }
         let index = messages.count
         messages.append(message)
         indexByID[message.id] = index
@@ -801,6 +812,8 @@ struct TranscriptList: NSViewRepresentable {
         view.tools = tools
         view.follow = follow
         view.openImage = store.openImageAction
+        view.copyReply = { [weak store] message in store?.copyReplyMarkdown(message) }
+        view.rateReply = { [weak store] message, rating in store?.rateReply(message, rating: rating) }
         view.coveredTop = coveredTop
         // What the store knows to be unchanged since the list last looked is not compared again.
         let shown = context.coordinator.shown

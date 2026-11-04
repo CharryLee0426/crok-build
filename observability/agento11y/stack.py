@@ -9,6 +9,7 @@ weeks of traffic collected before the rules existed get quality scores too.
     stack.py report                    # the backfilled scores by model and version
     stack.py alerts [--dry-run]        # the crok-alerts rule group (alerts.json)
     stack.py slos [--dry-run]          # the SLOs (slos.json)
+    stack.py dashboards                # the feedback dashboard (dashboards/)
     stack.py duplicates [--label]      # Claude Platform's stored copies of crok's calls, labelled
 
 Evaluators fork the stack's own templates (`gcx agento11y templates get`) where one fits, with the
@@ -723,6 +724,23 @@ def cmd_slos(args) -> int:
     return 0
 
 
+def cmd_dashboards(args) -> int:
+    """Push the dashboard manifests (the feedback evaluation) with gcx resources push."""
+    folder = HERE / "dashboards"
+    manifests = sorted(folder.glob("*.json"))
+    if not manifests:
+        raise SystemExit(f"no dashboard manifests in {folder}")
+    cmd = ["gcx", "resources", "push", "-p", str(folder)]
+    if args.dry_run:
+        cmd.append("--dry-run")
+    log(f"dashboards: {' '.join(cmd)}")
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout).strip()[:1_000])
+    print(proc.stdout.strip())
+    return 0
+
+
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="command", required=True)
@@ -740,12 +758,15 @@ def main(argv: list[str]) -> int:
     al.add_argument("--dry-run", action="store_true")
     sl = sub.add_parser("slos", help="create or update the SLOs (slos.json)")
     sl.add_argument("--dry-run", action="store_true")
+    db = sub.add_parser("dashboards", help="push the dashboards/ manifests with gcx")
+    db.add_argument("--dry-run", action="store_true")
     d = sub.add_parser("duplicates", help="count Claude Platform's copies of crok's calls; --label marks them")
     d.add_argument("--label", action="store_true")
     d.add_argument("--workers", type=int, default=8)
     args = p.parse_args(argv)
     commands = {"inventory": cmd_inventory, "apply": cmd_apply, "backfill": cmd_backfill, "report": cmd_report,
-                "alerts": cmd_alerts, "slos": cmd_slos, "duplicates": cmd_duplicates}
+                "alerts": cmd_alerts, "slos": cmd_slos, "dashboards": cmd_dashboards,
+                "duplicates": cmd_duplicates}
     return commands[args.command](args)
 
 

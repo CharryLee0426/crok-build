@@ -3,11 +3,12 @@
 // (permission and hook decisions, compaction), crok's own verdicts as scores, the user's ratings,
 // and guard checks against the stack's hook rules.
 
-import type { Agento11yClient, WorkflowStep } from "@grafana/agento11y-core";
+import type { Agento11yClient, ConversationRatingValue, WorkflowStep } from "@grafana/agento11y-core";
 import {
   type Attributes,
   type Counter,
   context,
+  type Gauge,
   type Histogram,
   type Meter,
   metrics,
@@ -61,6 +62,12 @@ export function recordHarness(deps: HarnessDeps, line: HarnessLine): Error | und
       deps.scores.add(line);
       return undefined;
     case "rating":
+      // The gauge is the evaluation's record of the user's current verdict: a changed thumb or a
+      // retraction overwrites the same series instead of adding another rating to the count.
+      deps.metrics.feedback(line, deps.client.internalTags());
+      if (ratingValue(line) === 0) {
+        return undefined;
+      }
       track(deps, submitRating(deps, line));
       return undefined;
     case "guard":
@@ -180,17 +187,30 @@ export function toWorkflowStep(line: StepLine, agentVersion: string | undefined)
   };
 }
 
+/** The thumb's value: explicit when crok sends one, else derived from the rating enum. */
+function ratingValue(line: RatingLine): number {
+  if (typeof line.value === "number") {
+    return Math.max(-1, Math.min(1, Math.sign(line.value)));
+  }
+  return line.rating === "CONVERSATION_RATING_VALUE_GOOD" ? 1 : line.rating === "CONVERSATION_RATING_VALUE_BAD" ? -1 : 0;
+}
+
 async function submitRating(deps: HarnessDeps, line: RatingLine): Promise<void> {
+  const value = ratingValue(line);
+  if (value === 0) {
+    return;
+  }
+  const rating: ConversationRatingValue = value > 0 ? "CONVERSATION_RATING_VALUE_GOOD" : "CONVERSATION_RATING_VALUE_BAD";
   const response = await deps.client.submitConversationRating(line.conversationId, {
     ratingId: line.ratingId,
-    rating: line.rating,
+    rating,
     comment: line.comment ?? undefined,
     generationId: line.generationId ?? undefined,
     source: "crok",
     metadata: typeof line.category === "string" ? { category: line.category } : undefined,
   });
   deps.log.info(
-    `rating ${line.rating === "CONVERSATION_RATING_VALUE_GOOD" ? "good" : "bad"} on ${line.conversationId}: ` +
+    `rating ${value > 0 ? "good" : "bad"} on ${line.conversationId}: ` +
       `${response.summary.goodCount} good, ${response.summary.badCount} bad`,
   );
 }
@@ -239,6 +259,7 @@ export class HarnessMetrics {
   private readonly toolDuration: Histogram;
   private readonly steps: Counter;
   private readonly guards: Counter;
+  private readonly feedbackRating: Gauge;
 
   constructor(meter: Meter = metrics.getMeter("crok-harness")) {
     this.turns = meter.createCounter("crok.turns", { description: "Turns crok ran, by how they ended" });
@@ -247,6 +268,9 @@ export class HarnessMetrics {
     this.toolDuration = meter.createHistogram("crok.tool.duration", { unit: "s", description: "Tool run time" });
     this.steps = meter.createCounter("crok.workflow.steps", { description: "Permission, hook, compaction and MCP steps" });
     this.guards = meter.createCounter("crok.guard.checks", { description: "Guard (hook rule) checks, by phase and verdict" });
+    this.feedbackRating = meter.createGauge("crok.feedback.rating", {
+      description: "The user's current thumbs verdict on a turn: 1 up, -1 down, 0 taken back",
+    });
   }
 
   turn(line: TurnLine, clientTags: Record<string, string> | undefined): void {
@@ -286,6 +310,19 @@ export class HarnessMetrics {
 
   guard(phase: string, action: string, flagged: boolean): void {
     this.guards.add(1, { phase, action, flagged: String(flagged) });
+  }
+
+  /**
+   * The feedback good rate's inputs: one series per conversation turn, whose value is the user's
+   * current verdict. `conversation_id` and `turn` keep the series stable across a change, and
+   * `surface` lets the dashboard split the terminal from the desktop.
+   */
+  feedback(line: RatingLine, clientTags: Record<string, string> | undefined): void {
+    this.feedbackRating.record(ratingValue(line), {
+      conversation_id: line.conversationId,
+      turn: String(line.turnNumber ?? "unknown"),
+      surface: clientTags?.surface ?? "unknown",
+    });
   }
 }
 

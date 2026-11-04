@@ -47,7 +47,9 @@ final class CancelBox: @unchecked Sendable {
 /// JWT. The client is replaceable (`replaceClient`): ConvexMobile's own reconnect can hang for good (its connect has no
 /// timeout, and every query and mutation then waits behind it), so the engine's `ConnectionKeeper` swaps in a new one;
 /// subscriptions move over through the `QueryHub`, and calls waiting on the old client are sent again on the new one.
-final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, AccountAPI, O11yAPI, @unchecked Sendable {
+final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, AccountAPI, O11yAPI, FilesAPI,
+    @unchecked Sendable
+{
     /// One ConvexMobile client and its auth provider.
     private final class Generation: @unchecked Sendable {
         let number: Int
@@ -518,14 +520,17 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         try await run("sessions:remove", ["sessionDocId": .string(sessionDocId)])
     }
 
-    func create(deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String)
-        async throws -> CreatedSession
-    {
+    func create(
+        deviceId: DocID, path: String, text: String?, model: String?, effort: String?, clientId: String,
+        attachments: [AttachmentInput]
+    ) async throws -> CreatedSession {
         var args: [String: JSONValue] = ["deviceId": .string(deviceId), "path": .string(path), "clientId": .string(clientId)]
-        // Optional arguments are left out, not sent as null.
+        // Optional arguments are left out, not sent as null; an older relay refuses `attachments`, so it goes only
+        // with some.
         if let text, !text.isEmpty { args["text"] = .string(text) }
         if let model, !model.isEmpty { args["model"] = .string(model) }
         if let effort, !effort.isEmpty { args["effort"] = .string(effort) }
+        if !attachments.isEmpty { args["attachments"] = .array(attachments.map(\.json)) }
         return try await call("sessions:create", args)
     }
 
@@ -533,12 +538,24 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         observe("sessions:commands", ["sessionDocId": .string(sessionDocId)])
     }
 
+    func refresh() async throws -> RefreshAnswer {
+        try await call("sessions:refresh")
+    }
+
+    func refreshState(since: Double) -> RelayStream<RefreshState> {
+        observe("sessions:refreshState", ["since": .number(since)])
+    }
+
     // MARK: CommandsAPI
 
-    func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String) async throws -> DocID {
-        let ref: CommandRef = try await call(
-            "commands:sendPrompt",
-            ["sessionDocId": .string(sessionDocId), "text": .string(text), "clientId": .string(clientId)])
+    func sendPrompt(_ sessionDocId: DocID, text: String, clientId: String, attachments: [AttachmentInput])
+        async throws -> DocID
+    {
+        var args: [String: JSONValue] = [
+            "sessionDocId": .string(sessionDocId), "text": .string(text), "clientId": .string(clientId),
+        ]
+        if !attachments.isEmpty { args["attachments"] = .array(attachments.map(\.json)) }
+        let ref: CommandRef = try await call("commands:sendPrompt", args)
         return ref.commandId
     }
 
@@ -580,6 +597,38 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
 
     func discard(_ commandId: DocID) async throws {
         try await run("commands:discard", ["commandId": .string(commandId)])
+    }
+
+    // MARK: FilesAPI
+
+    var files: any FilesAPI { self }
+
+    private struct UploadURL: Decodable { var url: String }
+    private struct Uploaded: Decodable { var storageId: String }
+
+    /// `files:uploadUrl` (a fresh URL per file), then the bytes as the body of a `POST` with their type.
+    func upload(_ data: Data, contentType: String, progress: @escaping @Sendable (Double) -> Void) async throws -> String {
+        let target: UploadURL = try await call("files:uploadUrl")
+        guard let url = URL(string: target.url) else { throw RelayError(.server, String(localized: "Upload failed")) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        let delegate = UploadProgress(progress)
+        let body: Data
+        let response: URLResponse
+        do {
+            (body, response) = try await URLSession.shared.upload(for: request, from: data, delegate: delegate)
+        } catch {
+            throw RelayError(.network, error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+            let uploaded = try? JSONDecoder().decode(Uploaded.self, from: body)
+        else {
+            throw RelayError(.server, String(localized: "Upload failed"))
+        }
+        progress(1)
+        return uploaded.storageId
     }
 
     // MARK: DevicesAPI
@@ -639,6 +688,23 @@ final class ConvexRelay: RelayBackend, SessionsAPI, CommandsAPI, DevicesAPI, Acc
         var args = Self.o11yArgs(id, range: range, lang: lang)
         args["force"] = .bool(force)
         return try await call("o11y:refresh", args, action: true)
+    }
+}
+
+/// Reports how much of an upload's body went out.
+private final class UploadProgress: NSObject, URLSessionTaskDelegate, Sendable {
+    let report: @Sendable (Double) -> Void
+
+    init(_ report: @escaping @Sendable (Double) -> Void) {
+        self.report = report
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        report(min(1, Double(totalBytesSent) / Double(totalBytesExpectedToSend)))
     }
 }
 

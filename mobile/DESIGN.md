@@ -47,8 +47,14 @@ avatar palette keyed by the device id, with the green online dot while online.
 
 - **Top bar**: leading **Edit**; title = the computer's name with a small chevron (tap: the switcher); subtitle =
   "Online" in the accent colour, or "last seen …" (existing string), replaced by the connection state ("Connecting…",
-  "Updating…", "Waiting for network") while the relay is not live; trailing: compose (new session: pick one of this
-  computer's projects; nothing to pick while the computer is offline).
+  "Updating…", "Waiting for network") while the relay is not live; trailing: **Refresh** (↻) and compose (new
+  session: pick one of this computer's projects; nothing to pick while the computer is offline). Both hide in Edit.
+- **Refresh** (the ↻ button, or pulling the list down past the search field): every online computer lists all its
+  sessions again (`sessions:refresh`, relay/DESIGN.md §2), so sessions made, renamed or deleted on a computer show at
+  once rather than at its next check. The button turns into a small spinner until `sessions:refreshState` has none
+  pending, for 0.6 s at least and 15 s at most; a second press joins the running refresh. While the relay is not live,
+  it also starts reconnecting now. With no computer online: a short notice "No computer is online. The list shows what
+  they listed last." The project screen refreshes the same way when pulled down (no button there).
 - **Search** (pulled down, "Search sessions"): this computer's sessions whose title, folder, project, preview or model
   match, as flat topic rows with the project name on their second line.
 - **First row, Archived Sessions** (when the computer has archived sessions and no search is on): a grey circle with
@@ -108,6 +114,11 @@ The transcript loads as a window of live parts (relay/DESIGN.md §3 "Loading lon
 so a session with thousands of turns opens on its newest 40 items and a streamed reply re-sends only the live end.
 Sending a prompt (also a new session's first) keeps the transcript's end in sight whatever its length: a transcript
 shorter than the screen sits at the bottom above the composer, never scrolled away from it.
+
+Photos and files (added 2026-10-27): the composer's paperclip, the attachment strip, uploads, media bubbles, the
+image viewer and opening files follow relay/DESIGN.md §5 "Photos and files in prompts" on both phones and the web.
+Media bubbles take the session theme's outgoing bubble colour around file rows and the bubble's corner radius on
+images.
 
 ### Thinking and tool calls
 
@@ -306,7 +317,8 @@ has a back arrow):
   avatar (36 px, online dot), the computer's name (semibold) with a small chevron, and under it "Online" (accent),
   "last seen …" or the connection state ("Connecting…", "Updating…", "Waiting for network"); a click opens the
   switcher as a dropdown (the phone menu's items: every computer with avatar, name, "N unread" or its status, a check
-  on the selected one; then **Link a computer** → `/link`). On the right: **Edit**, compose (New Session: the
+  on the selected one; then **Link a computer** → `/link`). On the right: **Edit**, **Refresh** (↻, spinning while
+  it runs; the phones' Refresh, the notice as a toast), compose (New Session: the
   project picker for this computer; disabled while it is offline) and the **Profile** button (the account picture,
   32 px, with the other computers' unread badge). Under the header the search field "Search sessions".
   Rows as on the phones: Archived Sessions, then one forum row per project (rounded-square avatar 54 px, three lines,
@@ -490,6 +502,8 @@ Activity", "Search sessions", "Archived", "Archive", "Unarchive", "Pin", "Online
 | en | zh-Hans | ja | es | fr | de |
 |---|---|---|---|---|---|
 | Profile | 个人资料 | プロフィール | Perfil | Profil | Profil |
+| Refresh | 刷新 | 更新 | Actualizar | Actualiser | Aktualisieren |
+| No computer is online. The list shows what they listed last. | 没有在线的电脑。列表显示的是它们上次列出的会话。 | オンラインのコンピューターがありません。前回の一覧を表示しています。 | Ningún ordenador está en línea. La lista muestra lo que listaron la última vez. | Aucun ordinateur n’est en ligne. La liste montre ce qu’ils ont listé la dernière fois. | Kein Computer ist online. Die Liste zeigt, was sie zuletzt aufgelistet haben. |
 | Mark All as Read | 全部标为已读 | すべて既読にする | Marcar todo como leído | Tout marquer comme lu | Alle als gelesen markieren |
 | Mark as Read | 标为已读 | 既読にする | Marcar como leído | Marquer comme lu | Als gelesen markieren |
 | Read (swipe) | 已读 | 既読 | Leído | Lu | Gelesen |

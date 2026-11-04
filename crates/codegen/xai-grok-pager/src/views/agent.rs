@@ -119,6 +119,8 @@ pub struct AgentViewLayoutParams {
     pub cta_height: u16,
     /// Force-suppressed on short terminals on the same rule as `cta_height`.
     pub follow_ups_height: u16,
+    /// The feedback question under the latest reply, above the prompt.
+    pub quick_feedback_height: u16,
     /// Consolidated panel dock (Subagents/Tasks/Watchers/Queued) directly
     /// above the prompt. 0 = hidden (the default; remote `dock_enabled`).
     pub dock_height: u16,
@@ -150,6 +152,8 @@ pub struct AgentViewLayout {
     pub plugin_cta: Rect,
     /// Follow-up suggestion chips row (below the plugin CTA, above the prompt).
     pub follow_ups: Rect,
+    /// The feedback question row, above the prompt.
+    pub quick_feedback: Rect,
     /// Consolidated panel dock (Subagents/Tasks/Watchers/Queued) directly
     /// above the prompt; zero-area when hidden.
     pub dock: Rect,
@@ -191,6 +195,7 @@ impl AgentViewLayout {
             banner_height,
             cta_height,
             follow_ups_height,
+            quick_feedback_height,
             dock_height,
             prompt_gap,
             model_notice_height,
@@ -214,6 +219,11 @@ impl AgentViewLayout {
             0
         } else {
             follow_ups_height
+        };
+        let quick_feedback_height = if area.height <= SHORT_TERMINAL_ROWS {
+            0
+        } else {
+            quick_feedback_height
         };
         let top_vpad = outer_vpad;
         let outer_block = Block::default().padding(Padding::new(
@@ -261,6 +271,10 @@ impl AgentViewLayout {
         if follow_ups_height > 0 {
             constraints.push(Constraint::Length(1));
             constraints.push(Constraint::Length(follow_ups_height));
+        }
+        if quick_feedback_height > 0 {
+            constraints.push(Constraint::Length(1));
+            constraints.push(Constraint::Length(quick_feedback_height));
         }
         if dock_height > 0 {
             constraints.push(Constraint::Length(1));
@@ -346,6 +360,12 @@ impl AgentViewLayout {
         } else {
             Rect::default()
         };
+        let quick_feedback = if quick_feedback_height > 0 {
+            chunks.next();
+            chunks.next().unwrap_or_default()
+        } else {
+            Rect::default()
+        };
         let dock = if dock_height > 0 {
             chunks.next();
             chunks.next().unwrap_or_default()
@@ -407,6 +427,7 @@ impl AgentViewLayout {
             banner,
             plugin_cta,
             follow_ups,
+            quick_feedback,
             dock,
             model_notice,
             voice_recording,
@@ -517,6 +538,68 @@ pub(crate) fn render_follow_ups(
     }
     rects
 }
+/// The feedback question under the latest reply: the prompt, then the three choices as chips.
+/// The returned rects are index-aligned with [`QuickFeedbackChoice::ALL`].
+pub(crate) fn render_quick_feedback(
+    area: Rect,
+    buf: &mut Buffer,
+    theme: &Theme,
+    hovered: Option<usize>,
+) -> Vec<Rect> {
+    use crate::app::agent_view::QuickFeedbackChoice;
+    use crate::render::line_utils::truncate_str;
+    use unicode_width::UnicodeWidthStr;
+
+    let mut rects = Vec::new();
+    if area.height == 0 || area.width == 0 {
+        return rects;
+    }
+    for col in 0..area.width {
+        if let Some(cell) = buf.cell_mut((area.x + col, area.y)) {
+            cell.set_char(' ');
+            cell.fg = theme.text_secondary;
+            cell.bg = theme.bg_base;
+        }
+    }
+    let mut x = area.x;
+    let row_end = area.x + area.width;
+    let question = format!("  {} ", tl("How was this response?"));
+    let question = truncate_str(&question, area.width as usize);
+    let question_w = question.width() as u16;
+    if question_w < area.width {
+        buf.set_span_safe(
+            x,
+            area.y,
+            &Span::styled(question, Style::default().fg(theme.text_secondary)),
+            question_w,
+        );
+        x = x.saturating_add(question_w);
+    }
+    const MAX_CHIP_LABEL: usize = 24;
+    let chip_style = Style::default().fg(theme.link_fg);
+    let hover_style = theme.hover_overlay().fg(theme.text_primary);
+    for (index, choice) in QuickFeedbackChoice::ALL.iter().enumerate() {
+        if x >= row_end {
+            break;
+        }
+        let label = truncate_str(choice.command(), MAX_CHIP_LABEL);
+        let chip = format!("[ {label} ]");
+        let chip_w = chip.width() as u16;
+        if chip_w > row_end - x {
+            break;
+        }
+        let style = if hovered == Some(index) {
+            hover_style
+        } else {
+            chip_style
+        };
+        buf.set_span_safe(x, area.y, &Span::styled(chip, style), chip_w);
+        rects.push(Rect::new(x, area.y, chip_w, 1));
+        x = x.saturating_add(chip_w).saturating_add(1);
+    }
+    rects
+}
+
 /// Render hover box around a scrollback entry (dimmed selection border).
 ///
 /// Skipped if the hovered entry is also the selected entry (selection box wins).
@@ -2371,5 +2454,39 @@ mod tests {
         let layout = layout_with_rows(area, 0, 0, 1);
         assert_eq!(layout.follow_ups, Rect::default());
         assert!(layout.scrollback.height >= 5);
+    }
+    #[test]
+    fn quick_feedback_row_sits_above_the_prompt() {
+        let area = Rect::new(0, 0, 80, 40);
+        let layout = AgentViewLayout::compute(AgentViewLayoutParams {
+            quick_feedback_height: 1,
+            ..base_params(area)
+        });
+        assert_eq!(layout.quick_feedback.height, 1);
+        assert!(layout.quick_feedback.y < layout.prompt.y);
+        assert!(layout.quick_feedback.y > layout.scrollback.y);
+    }
+    #[test]
+    fn quick_feedback_row_suppressed_on_short_terminal() {
+        let area = Rect::new(0, 0, 80, 16);
+        let layout = AgentViewLayout::compute(AgentViewLayoutParams {
+            quick_feedback_height: 1,
+            ..base_params(area)
+        });
+        assert_eq!(layout.quick_feedback, Rect::default());
+        assert!(layout.scrollback.height >= 5);
+    }
+    #[test]
+    fn render_quick_feedback_emits_three_choices() {
+        let area = Rect::new(0, 0, 80, 1);
+        let mut buf = Buffer::empty(area);
+        let theme = Theme::current();
+        let rects = render_quick_feedback(area, &mut buf, &theme, None);
+        assert_eq!(rects.len(), 3, "all three choices fit a normal row");
+        let row = row_text(&buf, area);
+        assert!(row.contains("How was this response?"), "row = {row:?}");
+        assert!(row.contains("/good"), "row = {row:?}");
+        assert!(row.contains("/not-so-well"), "row = {row:?}");
+        assert!(row.contains("/dont-show-again"), "row = {row:?}");
     }
 }

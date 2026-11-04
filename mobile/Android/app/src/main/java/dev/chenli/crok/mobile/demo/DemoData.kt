@@ -1,6 +1,7 @@
 package dev.chenli.crok.mobile.demo
 
 import dev.chenli.crok.mobile.auth.StoredCredentials
+import dev.chenli.crok.mobile.data.Attachment
 import dev.chenli.crok.mobile.data.CommandStatus
 import dev.chenli.crok.mobile.data.Device
 import dev.chenli.crok.mobile.data.EffortChoice
@@ -76,11 +77,13 @@ data class DemoCommand(
     val createdAt: Long,
     val updatedAt: Long = createdAt,
     val result: kotlinx.serialization.json.JsonElement? = null,
+    val attachments: List<Attachment> = emptyList(),
 ) {
     fun prompt(): PromptCommand =
         PromptCommand(
             id, clientId, text, status, error, fromLabel, fromDeviceId,
             mine = fromDeviceId == DemoData.PHONE_ID, createdAt = createdAt, updatedAt = updatedAt, type = type,
+            attachments = attachments,
         )
 }
 
@@ -119,6 +122,9 @@ object DemoData {
     /** Listed from the MacBook's disk, never opened on the relay: opening it loads the history from the computer. */
     const val CATALOG_SESSION = "demo-s8"
 
+    /** Prompts with photos and files: two mock-ups and a PDF, then a photo alone (relay/DESIGN.md §5 "Demo and previews"). */
+    const val ATTACHMENTS_SESSION = "demo-s13"
+
     /** On the Linux box, which is offline: its history cannot load until crok runs there. */
     const val OFFLINE_SESSION = "demo-s5"
 
@@ -152,8 +158,9 @@ object DemoData {
             RUNNING_SESSION to runningEvents(now),
             WAITING_SESSION to waitingEvents(now),
             SHOWCASE_SESSION to showcaseEvents(now),
+            ATTACHMENTS_SESSION to attachmentEvents(now),
         ),
-        commands = listOf(
+        commands = attachmentCommands(now) + listOf(
             DemoCommand(
                 id = "demo-cmd-1",
                 sessionDocId = RUNNING_SESSION,
@@ -269,6 +276,11 @@ object DemoData {
                 SHOWCASE_SESSION, "Render every Markdown feature", macbook, crokBuild,
                 cwd = "$crokBuild/.claude/worktrees/mobile-markdown", lastActivityAt = now - 25 * MIN, gitBranch = "mobile-markdown",
                 eventSeq = 3, preview = "Markdown showcase: text, code, tables and math.", unread = 1,
+            ),
+            session(
+                ATTACHMENTS_SESSION, "Match the onboarding mock-ups", macbook, crokBuild,
+                lastActivityAt = now - 50 * MIN, model = "claude-sonnet-4-5", effort = "high", gitBranch = "onboarding",
+                eventSeq = 7, preview = "The whiteboard flow matches the mock-ups: welcome, sign-in, then the first session.",
             ),
             session(
                 CATALOG_SESSION, "Plan the 1.6 release", macbook, crokBuild,
@@ -421,6 +433,83 @@ object DemoData {
             event(s, 12, EventKind.ASSISTANT, STREAMING_TEXT, now - MIN),
         )
     }
+
+    /** The demo's attachment, as the relay lists it: drawn on the phone (`demo:` URLs), with a thumbnail for images. */
+    fun demoAttachment(name: String, image: Boolean): Attachment {
+        val size = DemoMedia.size(name)
+        return Attachment(
+            storageId = "demo-file-${name.substringBeforeLast('.')}",
+            thumbId = if (image) "demo-thumb-${name.substringBeforeLast('.')}" else null,
+            name = name,
+            mimeType = when {
+                !image -> "application/pdf"
+                name.endsWith(".png") -> "image/png"
+                else -> "image/jpeg"
+            },
+            size = if (image) (size?.let { it.first.toLong() * it.second / 6 } ?: 120_000) else DemoMedia.fileSize(name),
+            kind = if (image) Attachment.KIND_IMAGE else Attachment.KIND_FILE,
+            width = size?.first,
+            height = size?.second,
+            url = if (image) DemoMedia.imageUrl(name) else DemoMedia.fileUrl(name),
+            thumbUrl = if (image) DemoMedia.imageUrl(name) else null,
+        )
+    }
+
+    /** What the bridge puts in the list for a prompt of photos and files alone. */
+    fun attachmentPreview(attachments: List<Attachment>): String {
+        val first = attachments.firstOrNull() ?: return ""
+        val more = if (attachments.size > 1) " +${attachments.size - 1}" else ""
+        return (if (first.isImage) "🖼 " else "📎 ") + first.name + more
+    }
+
+    private val mockups get() = listOf(
+        demoAttachment("onboarding-1.png", image = true),
+        demoAttachment("onboarding-2.png", image = true),
+        demoAttachment("onboarding-spec.pdf", image = false),
+    )
+
+    fun attachmentEvents(now: Long): List<RelayEvent> {
+        val s = ATTACHMENTS_SESSION
+        val at = now - 70 * MIN
+        return listOf(
+            event(
+                s, 1, EventKind.USER, "Make the onboarding screens match these mock-ups. Spacing and copy are in the spec.",
+                at, origin = "remote", commandId = "demo-cmd-att-1", fromLabel = PHONE_NAME,
+            ).copy(attachments = mockups),
+            event(s, 2, EventKind.THOUGHT, "Compare the mock-ups with the current screens.", at + 15_000),
+            event(
+                s, 3, EventKind.TOOL, "src/onboarding/Welcome.tsx", at + 40_000,
+                title = "Edit src/onboarding/Welcome.tsx", toolKind = "edit", status = "completed",
+            ),
+            event(
+                s, 4, EventKind.ASSISTANT,
+                "Done: both screens use the mock-ups' **24 px** margins and the spec's copy. The illustration is now centred " +
+                    "above the title, and the button sits on the safe area's edge.",
+                at + 90_000,
+            ),
+            event(s, 5, EventKind.USER, "", now - 52 * MIN, origin = "remote", commandId = "demo-cmd-att-2", fromLabel = PHONE_NAME)
+                .copy(attachments = listOf(demoAttachment("whiteboard.jpg", image = true))),
+            event(
+                s, 6, EventKind.ASSISTANT,
+                "The whiteboard flow matches the mock-ups: welcome, sign-in, then the first session.",
+                now - 50 * MIN,
+            ),
+            event(s, 7, EventKind.SYSTEM, "", now - 50 * MIN + 1_000, status = "end_turn"),
+        )
+    }
+
+    private fun attachmentCommands(now: Long): List<DemoCommand> = listOf(
+        DemoCommand(
+            id = "demo-cmd-att-1", sessionDocId = ATTACHMENTS_SESSION, type = "prompt",
+            text = "Make the onboarding screens match these mock-ups. Spacing and copy are in the spec.",
+            clientId = "demo-client-att-1", status = CommandStatus.DONE, createdAt = now - 70 * MIN, attachments = mockups,
+        ),
+        DemoCommand(
+            id = "demo-cmd-att-2", sessionDocId = ATTACHMENTS_SESSION, type = "prompt", text = "",
+            clientId = "demo-client-att-2", status = CommandStatus.DONE, createdAt = now - 52 * MIN,
+            attachments = listOf(demoAttachment("whiteboard.jpg", image = true)),
+        ),
+    )
 
     /**
      * The shared Markdown showcase, verbatim: a copy of relay/scripts/markdown-showcase.md kept in the app's Java

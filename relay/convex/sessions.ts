@@ -5,7 +5,9 @@ import { internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import type { Viewer } from "./lib/auth";
+import { claimAttachments, withUrls } from "./files";
 import { fail, requireSession, requireViewer, viewerLabel } from "./lib/auth";
+import { refreshPending } from "./lib/catalog";
 import {
   MAX_LIST,
   buildGroups,
@@ -25,8 +27,10 @@ import {
   opensWithSetup,
   sessionSetup,
   supports,
+  takesAttachments,
   titleFromPrompt,
 } from "./lib/starting";
+import { attachmentInput } from "./schema";
 
 /** How long a viewer counts as "watching" after its last `watch` call; clients call it every 60 s. */
 const VIEW_TTL_MS = 2 * 60 * 1000;
@@ -199,8 +203,9 @@ export const create = mutation({
     model: v.optional(v.string()),
     effort: v.optional(v.string()),
     clientId: v.string(),
+    attachments: v.optional(v.array(attachmentInput)),
   },
-  handler: async (ctx, { deviceId, path, text, model, effort, clientId }) => {
+  handler: async (ctx, { deviceId, path, text, model, effort, clientId, attachments }) => {
     const viewer = await requireViewer(ctx);
     const duplicate = await ctx.db
       .query("commands")
@@ -215,7 +220,9 @@ export const create = mutation({
     if (device.kind !== "computer") fail("FORBIDDEN", "Sessions run on computers, not phones.");
     const folder = path.trim();
     if (!isAbsolutePath(folder)) fail("INVALID", "Choose a folder on the computer (a full path).");
-    const prompt = text?.trim() || undefined;
+    const withFiles = (attachments?.length ?? 0) > 0;
+    // Photos and files alone make a prompt too (with empty text).
+    const prompt = text?.trim() || (withFiles ? "" : undefined);
     if (prompt && prompt.length > MAX_PROMPT) fail("INVALID", `Prompts are limited to ${MAX_PROMPT} characters.`);
     const setup = sessionSetup(await modelsFor(ctx, device), model, effort);
     const hosts = await ctx.db
@@ -224,16 +231,18 @@ export const create = mutation({
       .take(50);
     const starters = hosts.filter((h) => h.canAdopt === true && supports(h, "create"));
     // Only a crok that applies the chosen model and thinking level gets the session: an older one would start it on
-    // its own default.
-    const host = starters.find((h) => opensWithSetup(h, setup));
+    // its own default. Photos and files need one that passes them on.
+    const host = starters.find((h) => opensWithSetup(h, setup) && (!withFiles || takesAttachments(h)));
     if (!host) {
       fail(
         "OFFLINE",
-        starters.length > 0
-          ? `Update crok on ${device.name} to start a session there with a chosen model or thinking level, or keep Default.`
-          : hosts.some((h) => h.canAdopt === true)
-            ? `Update crok on ${device.name} to start sessions there from another device.`
-            : `${device.name} is offline: start crok or Crok Desktop there.`,
+        withFiles && starters.some((h) => opensWithSetup(h, setup))
+          ? `Update crok on ${device.name} to send photos and files there.`
+          : starters.length > 0
+            ? `Update crok on ${device.name} to start a session there with a chosen model or thinking level, or keep Default.`
+            : hosts.some((h) => h.canAdopt === true)
+              ? `Update crok on ${device.name} to start sessions there from another device.`
+              : `${device.name} is offline: start crok or Crok Desktop there.`,
       );
     }
     await ensureProject(ctx, viewer.user._id, device._id, folder);
@@ -249,7 +258,7 @@ export const create = mutation({
       projectPath: folder,
       model: setup.model,
       effort: setup.effortValue,
-      status: prompt ? "running" : "idle",
+      status: prompt !== undefined ? "running" : "idle",
       online: false,
       createdAt: now,
       lastActivityAt: now,
@@ -262,6 +271,7 @@ export const create = mutation({
         at: now,
       },
     });
+    const files = await claimAttachments(ctx, viewer.user._id, sessionDocId, attachments ?? []);
     const commandId = await ctx.db.insert("commands", {
       userId: viewer.user._id,
       deviceId: device._id,
@@ -270,6 +280,7 @@ export const create = mutation({
       text: prompt,
       model: setup.model,
       effort: setup.effort,
+      attachments: files.length > 0 ? files : undefined,
       clientId,
       status: "pending",
       fromDeviceId: viewer.device?._id,
@@ -310,11 +321,17 @@ export const events = query({
   handler: async (ctx, { sessionDocId, paginationOpts }) => {
     const viewer = await requireViewer(ctx);
     const session = await requireSession(ctx, viewer, sessionDocId);
-    return await ctx.db
+    const result = await ctx.db
       .query("events")
       .withIndex("by_session_seq", (q) => q.eq("sessionDocId", session._id))
       .order("desc")
       .paginate(paginationOpts);
+    const page = await Promise.all(
+      result.page.map(async (event) =>
+        event.attachments ? { ...event, attachments: await withUrls(ctx, event.attachments) } : event,
+      ),
+    );
+    return { ...result, page };
   },
 });
 
@@ -347,6 +364,7 @@ function slimEvent(event: Doc<"events">) {
     origin: event.origin,
     commandId: event.commandId,
     fromLabel: event.fromLabel,
+    attachments: event.attachments,
     at: event.at,
   };
 }
@@ -395,7 +413,7 @@ export const transcript = query({
       const event = slimEvent(row);
       if (events.length > 0 && text + event.text.length > TRANSCRIPT_MAX_TEXT) break;
       text += event.text.length;
-      events.push(event);
+      events.push(event.attachments ? { ...event, attachments: await withUrls(ctx, event.attachments) } : event);
     }
     return { events, more: rows.length > events.length };
   },
@@ -568,6 +586,67 @@ export const resetOrder = mutation({
       if (project.position !== undefined) await ctx.db.patch(project._id, { position: undefined });
     }
     return null;
+  },
+});
+
+/**
+ * Refresh: every online computer of the person lists all its sessions again now (a full catalog upload, not the 30 s
+ * check for changes), so sessions made, renamed or deleted there that the relay missed show up. `asked`: the computers
+ * that will; `offline`: the ones that cannot until crok runs there again (the list keeps what they listed last); `at`:
+ * pass it to `refreshState` to follow this refresh.
+ */
+export const refresh = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const viewer = await requireViewer(ctx);
+    const now = Date.now();
+    const devices = await ctx.db
+      .query("devices")
+      .withIndex("by_user", (q) => q.eq("userId", viewer.user._id))
+      .collect();
+    let asked = 0;
+    let offline = 0;
+    for (const device of devices) {
+      if (device.kind !== "computer" || device.revokedAt !== undefined) continue;
+      if (!device.online) {
+        offline += 1;
+        continue;
+      }
+      asked += 1;
+      const sync = await ctx.db
+        .query("catalogSyncs")
+        .withIndex("by_device", (q) => q.eq("deviceId", device._id))
+        .unique();
+      // No row: nobody listed this computer yet, and its crok processes are asked to already (`catalogWanted`).
+      if (sync) await ctx.db.patch(sync._id, { refreshAt: now });
+    }
+    return { asked, offline, at: now };
+  },
+});
+
+/**
+ * The person's online computers still listing their sessions for a refresh asked for at or after `since` (`refresh`'s
+ * `at`): `pending` is empty once each has finished. A computer whose crok predates refresh may not answer until its
+ * next regular listing, so clients stop waiting after a while.
+ */
+export const refreshState = query({
+  args: { since: v.number() },
+  handler: async (ctx, { since }) => {
+    const viewer = await requireViewer(ctx);
+    const devices = await ctx.db
+      .query("devices")
+      .withIndex("by_user", (q) => q.eq("userId", viewer.user._id))
+      .collect();
+    const pending: Id<"devices">[] = [];
+    for (const device of devices) {
+      if (device.kind !== "computer" || device.revokedAt !== undefined || !device.online) continue;
+      const sync = await ctx.db
+        .query("catalogSyncs")
+        .withIndex("by_device", (q) => q.eq("deviceId", device._id))
+        .unique();
+      if (sync && refreshPending(sync, since)) pending.push(device._id);
+    }
+    return { pending };
   },
 });
 

@@ -225,6 +225,12 @@ export const SpinnerIcon = (p: IconProps) => (
     <path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5" />
   </Icon>
 );
+export const RefreshIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" />
+    <path d="M19.5 4.5v3.8h-3.8" />
+  </Icon>
+);
 export const PlanIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M9 6.5h11M9 12h11M9 17.5h11" />
@@ -346,6 +352,18 @@ export const PhotoIcon = (p: IconProps) => (
     <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
     <circle cx="9" cy="10" r="1.8" />
     <path d="m3.5 17.5 5-4.5 3.5 3 3-2.5 5.5 4.5" />
+  </Icon>
+);
+/** The composer's attach button (Telegram's paperclip). */
+export const PaperclipIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2a3.4 3.4 0 0 1 4.8 4.8l-8.2 8.2a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6" />
+  </Icon>
+);
+/** Opens something in a new tab (the image viewer's "Open original"). */
+export const ExternalIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M13.5 4.5h6v6M19.5 4.5 11 13M10 6H6a1.5 1.5 0 0 0-1.5 1.5v10.5A1.5 1.5 0 0 0 6 19.5h10.5A1.5 1.5 0 0 0 18 18v-4" />
   </Icon>
 );
 /** "Mark as Read": a bubble with a check. */

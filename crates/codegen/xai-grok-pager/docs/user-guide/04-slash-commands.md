@@ -365,6 +365,22 @@ Report an issue or send feedback. Bare `/feedback` opens the feedback form in ev
 /feedback Something isn't working correctly
 ```
 
+### `/good`, `/not-so-well`, `/dont-show-again`
+
+Answer the one-line feedback question that appears under a finished turn:
+
+```
+How was this response?  [ /good ]  [ /not-so-well ]  [ /dont-show-again ]
+```
+
+`/good` records a thumbs up for that turn, `/not-so-well` (aliases `/bad`, `/not_so_well`) a thumbs
+down, and `/dont-show-again` stops the question and writes `[features] feedback_prompt = false` to
+`config.toml`. Set it back to `true` to bring the question back. The question is skipped in minimal
+mode, on very short terminals, and when the turn was cancelled or failed.
+
+The verdict goes to Grafana Agent Observability and the `crok_feedback_rating` gauge behind the
+feedback evaluation.
+
 ### `/btw`
 
 Send an aside to the agent without interrupting the current task. In minimal mode (`--minimal`), the answer shows up in a dismissible panel above the prompt: `Esc` dismisses it, a finished answer is saved into native scrollback, and a late reply to an already-dismissed panel is dropped. The side question and its answer aren't part of the main turn.

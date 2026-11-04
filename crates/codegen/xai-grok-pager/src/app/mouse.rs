@@ -208,6 +208,11 @@ impl AgentView {
                     self.connect_matched_plugin();
                     return InputOutcome::Changed;
                 }
+                if let Some(idx) = self.quick_feedback_chip_at(mouse.column, mouse.row)
+                    && let Some(choice) = crate::app::agent_view::QuickFeedbackChoice::ALL.get(idx)
+                {
+                    return InputOutcome::Action(Action::QuickFeedback(*choice));
+                }
                 if let Some(idx) = self.follow_up_chip_at(mouse.column, mouse.row)
                     && let Some(text) = self
                         .follow_ups
@@ -1007,6 +1012,10 @@ impl AgentView {
                 } else if self.dock_hovered.take().is_some() {
                     changed = true;
                 }
+                changed |= self
+                    .set_hovered_quick_feedback_chip(
+                        self.quick_feedback_chip_at(mouse.column, mouse.row),
+                    );
                 changed |= self
                     .set_hovered_follow_up_chip(self.follow_up_chip_at(mouse.column, mouse.row));
                 changed |= self.hit_context.update_hover(mouse.column, mouse.row);

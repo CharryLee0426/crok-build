@@ -28,6 +28,8 @@ data class OptimisticPrompt(
     val commandId: String? = null,
     /** Set when the send itself failed (offline, rejected) before any command existed. */
     val localError: String? = null,
+    /** The photos and files sent with it (already uploaded), shown from the phone's own copies. */
+    val attachments: List<OutgoingAttachment> = emptyList(),
 )
 
 /** Whether a row continues the author's previous row (no gap, flatter corner) and is continued by the next. */
@@ -77,6 +79,8 @@ sealed interface TranscriptItem {
         /** Not yet in the transcript (optimistic, or queued behind a running turn). */
         val pending: Boolean,
         val grouping: Grouping = Grouping(),
+        /** The photos and files sent with it, in order. */
+        val attachments: List<ShownAttachment> = emptyList(),
     ) : TranscriptItem
 
     data class Assistant(
@@ -211,6 +215,7 @@ object Transcript {
                 commandId = commandId,
                 clientId = prompt.clientId,
                 pending = true,
+                attachments = prompt.attachments.map { it.shown() },
             )
         }
         for (command in prompts) {
@@ -232,6 +237,7 @@ object Transcript {
                 commandId = command.id,
                 clientId = command.clientId,
                 pending = true,
+                attachments = command.attachments.mapIndexed { index, attachment -> attachment.shown(index) },
             )
         }
         pending.sortBy { it.first }
@@ -269,6 +275,7 @@ object Transcript {
                     commandId = event.commandId,
                     clientId = command?.clientId,
                     pending = false,
+                    attachments = event.attachments.mapIndexed { index, attachment -> attachment.shown(index) },
                 )
             }
             EventKind.ASSISTANT -> {

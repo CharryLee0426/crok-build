@@ -590,6 +590,12 @@ pub(super) fn finalize_turn_from_terminal(
     push_turn_terminal_marker(agent, event);
 
     agent.mark_turn_finished(TurnEnd::Completed);
+    if matches!(TurnStopReason::from(stop_reason), TurnStopReason::EndTurn)
+        && agent.quick_feedback_offer
+        && !agent.bash_turn
+    {
+        agent.arm_quick_feedback();
+    }
 
     TerminalApply::ViewerFinalized
 }

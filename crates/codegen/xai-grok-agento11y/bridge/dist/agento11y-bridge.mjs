@@ -19868,6 +19868,10 @@ function recordHarness(deps, line) {
       deps.scores.add(line);
       return void 0;
     case "rating":
+      deps.metrics.feedback(line, deps.client.internalTags());
+      if (ratingValue(line) === 0) {
+        return void 0;
+      }
       track(deps, submitRating(deps, line));
       return void 0;
     case "guard":
@@ -19975,17 +19979,28 @@ function toWorkflowStep(line, agentVersion) {
     spanId: parent?.spanId
   };
 }
+function ratingValue(line) {
+  if (typeof line.value === "number") {
+    return Math.max(-1, Math.min(1, Math.sign(line.value)));
+  }
+  return line.rating === "CONVERSATION_RATING_VALUE_GOOD" ? 1 : line.rating === "CONVERSATION_RATING_VALUE_BAD" ? -1 : 0;
+}
 async function submitRating(deps, line) {
+  const value = ratingValue(line);
+  if (value === 0) {
+    return;
+  }
+  const rating = value > 0 ? "CONVERSATION_RATING_VALUE_GOOD" : "CONVERSATION_RATING_VALUE_BAD";
   const response = await deps.client.submitConversationRating(line.conversationId, {
     ratingId: line.ratingId,
-    rating: line.rating,
+    rating,
     comment: line.comment ?? void 0,
     generationId: line.generationId ?? void 0,
     source: "crok",
     metadata: typeof line.category === "string" ? { category: line.category } : void 0
   });
   deps.log.info(
-    `rating ${line.rating === "CONVERSATION_RATING_VALUE_GOOD" ? "good" : "bad"} on ${line.conversationId}: ${response.summary.goodCount} good, ${response.summary.badCount} bad`
+    `rating ${value > 0 ? "good" : "bad"} on ${line.conversationId}: ${response.summary.goodCount} good, ${response.summary.badCount} bad`
   );
 }
 async function evaluateGuard(deps, line) {
@@ -20021,6 +20036,7 @@ var HarnessMetrics = class {
   toolDuration;
   steps;
   guards;
+  feedbackRating;
   constructor(meter = metrics.getMeter("crok-harness")) {
     this.turns = meter.createCounter("crok.turns", { description: "Turns crok ran, by how they ended" });
     this.turnDuration = meter.createHistogram("crok.turn.duration", { unit: "s", description: "Turn time, prompt to answer" });
@@ -20028,6 +20044,9 @@ var HarnessMetrics = class {
     this.toolDuration = meter.createHistogram("crok.tool.duration", { unit: "s", description: "Tool run time" });
     this.steps = meter.createCounter("crok.workflow.steps", { description: "Permission, hook, compaction and MCP steps" });
     this.guards = meter.createCounter("crok.guard.checks", { description: "Guard (hook rule) checks, by phase and verdict" });
+    this.feedbackRating = meter.createGauge("crok.feedback.rating", {
+      description: "The user's current thumbs verdict on a turn: 1 up, -1 down, 0 taken back"
+    });
   }
   turn(line, clientTags) {
     const attrs = spanAttributesOf(line) ?? {};
@@ -20063,6 +20082,18 @@ var HarnessMetrics = class {
   }
   guard(phase, action, flagged) {
     this.guards.add(1, { phase, action, flagged: String(flagged) });
+  }
+  /**
+   * The feedback good rate's inputs: one series per conversation turn, whose value is the user's
+   * current verdict. `conversation_id` and `turn` keep the series stable across a change, and
+   * `surface` lets the dashboard split the terminal from the desktop.
+   */
+  feedback(line, clientTags) {
+    this.feedbackRating.record(ratingValue(line), {
+      conversation_id: line.conversationId,
+      turn: String(line.turnNumber ?? "unknown"),
+      surface: clientTags?.surface ?? "unknown"
+    });
   }
 };
 function tagAttributes(tags) {
