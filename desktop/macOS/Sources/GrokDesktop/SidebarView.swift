@@ -559,8 +559,14 @@ private struct RemoteComputerRow: View {
                 }
                 .foregroundStyle(Theme.muted).frame(width: 18)
                 Text(computer.name).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
-                Circle().fill(computer.online ? Theme.accent : Theme.muted.opacity(0.5)).frame(width: 6, height: 6)
-                    .help(computer.online ? L10n.t("remote_computer_online", "online") : L10n.t("remote_computer_offline", "offline"))
+                ZStack {
+                    if computer.online {
+                        Circle().fill(Theme.green.opacity(0.22)).frame(width: 15, height: 15)
+                    }
+                    Circle().fill(computer.online ? Theme.green : Theme.muted.opacity(0.5)).frame(width: 10, height: 10)
+                }
+                .frame(width: 16, height: 16)
+                .help(computer.online ? L10n.t("remote_computer_online", "online") : L10n.t("remote_computer_offline", "offline"))
                 Spacer(minLength: 4)
                 if !hovered && !isExpanded && runningCount > 0 { ProgressView().controlSize(.mini) }
             }
