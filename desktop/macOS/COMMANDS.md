@@ -156,7 +156,7 @@ there is no `/logout` or `/privacy`, and `/usage` has no billing.
 | [`/import-claude`](../../crates/codegen/xai-grok-pager/src/slash/commands/import_claude.rs) | — | `/import-claude` | Native: scans Claude settings, MCP servers, hooks, and skill/rule folders; the sheet merges selected items into Crok's configuration as the pager does, keeping comments |
 | [`/jump`](../../crates/codegen/xai-grok-pager/src/slash/commands/jump.rs) | — | `/jump` | Native turn picker with live scrolling; Escape restores the previous position |
 | `/browser` (desktop only) | `/web`, `/browse` | `/browser [address or search]` | Native: the side panel's Browser tab (also ⌥⌘B). An address loads (`localhost:3000` over HTTP, a path as a local file), anything else is searched for; bare `/browser` puts the keyboard in the address bar. Tabs, bookmarks, history suggestions, downloads, and Import from Chrome (sign-ins, history, bookmarks, after Touch ID or the login password) |
-| `/login` (desktop only) | — | `/login` | Native Accounts settings: sign in to OpenRouter or OpenAI Codex (browser sign-in through `crok login openrouter` or `crok login openai-codex`), or add a Claude API, DeepSeek or GLM Coding Plan API key (saved through `crok login <provider> --with-api-key`) |
+| `/login` (desktop only) | — | `/login` | Native Accounts settings: sign in to OpenRouter or OpenAI Codex (browser sign-in through `crok login openrouter` or `crok login openai-codex`), or add a Claude API, DeepSeek, Meta Model API or GLM Coding Plan API key (saved through `crok login <provider> --with-api-key`) |
 | [`/loop`](../../crates/codegen/xai-grok-pager/src/slash/commands/loop_cmd.rs) | — | `/loop [interval] <prompt>` | Harness: forwarded; scheduled runs appear in `/tasks` with Delete |
 | [`/mcps`](../../crates/codegen/xai-grok-pager/src/slash/commands/mcps.rs) | — | `/mcps` | Native servers panel: status, tools, add (one URL-or-command field), toggle, restart, authorize, remove |
 | [`/memory`](../../crates/codegen/xai-grok-pager/src/slash/commands/memory.rs) | `/mem` | `/memory` | Native Memory panel: grouped notes with preview, search, enable toggle with reasons, Delete via `memory/forget` (BLAKE3 hash), Flush and Dream |
@@ -371,7 +371,7 @@ terminal transport commands remain available in the side panel's **Terminal**.
 | `crok inspect` | Show discovered configuration; `--json` | `app/cli.rs` |
 | `crok doctor` | Report; `fix [id]` | `doctor_cmd/mod.rs` |
 | `crok leader` | `list`, `info`, `kill` | `app/cli.rs` |
-| `crok login`, `logout` | `login openrouter`, `login openai-codex`, `login anthropic`, `login deepseek`, `login glm` or `login glm-cn`; `logout [provider]` (all providers when omitted); xAI accounts are not supported | `app/cli.rs` |
+| `crok login`, `logout` | `login openrouter`, `login openai-codex`, `login anthropic`, `login deepseek`, `login meta`, `login glm` or `login glm-cn`; `logout [provider]` (all providers when omitted); xAI accounts are not supported | `app/cli.rs` |
 | `crok mcp` | `list`, `add`, `remove`, `enable`, `disable`, `doctor` | `mcp_cmd.rs` |
 | `crok plugin` | `list`, `install`, `uninstall` (`rm`/`remove`), `update`, `enable`, `disable`, `details`, `validate`, `tag` | `plugin_cmd.rs` |
 | `crok plugin marketplace` | `list`, `add`, `remove`, `update` | `plugin_cmd.rs` |

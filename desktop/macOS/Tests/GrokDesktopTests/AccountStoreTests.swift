@@ -20,7 +20,7 @@ final class AccountStoreTests: XCTestCase {
     private var reader: AccountStatusReader { AccountStatusReader(home: directory, environment: [:], now: { self.now }) }
 
     func testOnlyProviderAccountsAreOffered() throws {
-        XCTAssertEqual(AccountProvider.allCases, [.openrouter, .codex, .deepseek, .glm, .anthropic])
+        XCTAssertEqual(AccountProvider.allCases, [.openrouter, .codex, .deepseek, .glm, .anthropic, .meta])
         // xAI sign-ins and keys are not supported, so a saved xAI session or XAI_API_KEY is ignored.
         try write(["https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": ["key": "secret-xai-token", "email": "alice@example.invalid",
                    "user_id": "user-1", "auth_mode": "oidc", "create_time": "2026-01-01T00:00:00Z"]], to: "auth.json")
@@ -59,6 +59,7 @@ final class AccountStoreTests: XCTestCase {
         try write(["provider": "glm", "access_token": "secret-wrong-site"], to: "provider-auth/glm-cn.json")
         try write(["provider": "deepseek", "access_token": "  "], to: "provider-auth/deepseek.json")
         try write(["access_token": "secret-names-no-provider"], to: "provider-auth/anthropic.json")
+        try write(["access_token": "secret-meta-names-no-provider"], to: "provider-auth/meta.json")
         let statuses = reader.read()
         XCTAssertTrue(statuses.values.allSatisfy { $0.state == .unreadable && !$0.isConnected })
         XCTAssertFalse(String(describing: statuses).contains("secret"))
@@ -78,6 +79,13 @@ final class AccountStoreTests: XCTestCase {
         XCTAssertEqual(reader.read()[.anthropic], AccountStatus(state: .connected, detail: "API key connected", savedAs: "anthropic"))
         XCTAssertEqual(AccountStatusReader(home: directory, environment: ["ANTHROPIC_API_KEY": "sk-ant-secret-env"]).read()[.anthropic],
                        AccountStatus(state: .connected, detail: "API key from ANTHROPIC_API_KEY"))
+        // Muse Code's `META_API_KEY` and the Model API's own `MODEL_API_KEY` both sign Meta in.
+        XCTAssertEqual(AccountProvider.meta.keySources.map(\.id), ["meta"])
+        XCTAssertEqual(reader.read()[.meta]?.detail, "Add a Meta Model API key from dev.meta.ai")
+        XCTAssertEqual(AccountStatusReader(home: directory, environment: ["META_API_KEY": "LLM_1_secret"]).read()[.meta],
+                       AccountStatus(state: .connected, detail: "API key from META_API_KEY"))
+        XCTAssertEqual(AccountStatusReader(home: directory, environment: ["MODEL_API_KEY": "LLM_2_secret"]).read()[.meta],
+                       AccountStatus(state: .connected, detail: "API key from MODEL_API_KEY"))
 
         try write(["provider": "deepseek", "access_token": "sk-secret-deepseek", "issued_at": 1], to: "provider-auth/deepseek.json")
         try write(["provider": "glm-cn", "access_token": "secret.bigmodel"], to: "provider-auth/glm-cn.json")

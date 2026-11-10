@@ -6,6 +6,7 @@
 //! - Anthropic: <https://platform.claude.com/docs/en/about-claude/pricing>
 //! - OpenAI: <https://developers.openai.com/api/docs/pricing>
 //! - DeepSeek: <https://api-docs.deepseek.com/quick_start/pricing>
+//! - Meta: <https://dev.meta.ai/docs/pricing-rate-limits>
 //! - Z.ai: <https://docs.z.ai/guides/overview/pricing>
 //! - xAI: <https://docs.x.ai/docs/models>
 //!
@@ -171,6 +172,7 @@ pub enum PriceList {
     OpenAi,
     DeepSeek,
     Glm,
+    Meta,
     Xai,
     OpenRouter,
 }
@@ -199,6 +201,8 @@ impl PriceList {
             Some(Self::OpenAi)
         } else if is("deepseek.com") {
             Some(Self::DeepSeek)
+        } else if is("meta.ai") {
+            Some(Self::Meta)
         } else if is("z.ai") || is("bigmodel.cn") {
             Some(Self::Glm)
         } else if is("x.ai") {
@@ -224,6 +228,7 @@ pub fn listed_price(list: Option<PriceList>, model: &str, at: SystemTime) -> Opt
             PriceList::OpenAi,
             PriceList::DeepSeek,
             PriceList::Glm,
+            PriceList::Meta,
             PriceList::Xai,
         ],
     };
@@ -232,6 +237,7 @@ pub fn listed_price(list: Option<PriceList>, model: &str, at: SystemTime) -> Opt
         PriceList::OpenAi => openai(&id),
         PriceList::DeepSeek => deepseek(&id, at),
         PriceList::Glm => glm(&id),
+        PriceList::Meta => meta(&id),
         PriceList::Xai => xai(&id),
         PriceList::OpenRouter => None,
     })
@@ -400,6 +406,27 @@ fn deepseek_peak(at: SystemTime) -> bool {
     weekday < 5 && ((1..4).contains(&hour) || (6..10).contains(&hour))
 }
 
+/// Meta's USD prices. A cache write is billed as input. Muse Ember bills a request over
+/// 200K input tokens at the long rates in full.
+fn meta(id: &str) -> Option<ModelPrice> {
+    let price = match id {
+        "muse-wonder-1.0" => ModelPrice::flat(Rates::new(4.00, 0.20, 4.00, 20.00)),
+        "muse-spark-1.3" | "muse-spark-1.2" | "muse-spark-1.1" => {
+            ModelPrice::flat(Rates::new(1.25, 0.15, 1.25, 4.25))
+        }
+        "muse-spark-1.3-contributor" | "muse-spark-1.2-contributor" => {
+            ModelPrice::flat(Rates::new(0.10, 0.002, 0.10, 0.20))
+        }
+        "muse-ember-1.0" => ModelPrice::tiered(
+            Rates::new(0.10, 0.004, 0.10, 0.50),
+            200_001,
+            Rates::new(0.30, 0.012, 0.30, 1.50),
+        ),
+        _ => return None,
+    };
+    Some(price)
+}
+
 /// Z.ai's USD prices; bigmodel.cn bills the same models in CNY. Cache storage is free for now and
 /// writes are billed as input.
 fn glm(id: &str) -> Option<ModelPrice> {
@@ -460,6 +487,7 @@ mod tests {
             ),
             ("https://api.openai.com/v1", Some(PriceList::OpenAi)),
             ("https://api.deepseek.com", Some(PriceList::DeepSeek)),
+            ("https://api.meta.ai/v1", Some(PriceList::Meta)),
             ("https://api.z.ai/api/coding/paas/v4", Some(PriceList::Glm)),
             (
                 "https://open.bigmodel.cn/api/coding/paas/v4",
@@ -495,6 +523,31 @@ mod tests {
         assert!((price.cost_usd(&call, true) - 16.0).abs() < 1e-9);
         assert!((price.cost_usd(&call, false) - 13.0).abs() < 1e-9);
         assert_eq!(price.cost_usd_ticks(&call, true), 160_000_000_000);
+    }
+
+    #[test]
+    fn meta_prices_muse_models_and_their_contributor_variants() {
+        // 1M in, 1M out at Standard prices: Wonder $4 + $20, Spark $1.25 + $4.25,
+        // Contributor Spark $0.10 + $0.20.
+        for (id, expected) in [
+            ("muse-wonder-1.0", 24.0),
+            ("muse-spark-1.3", 5.5),
+            ("muse-spark-1.3-contributor", 0.3),
+        ] {
+            let price = listed_price(Some(PriceList::Meta), id, weekend()).unwrap();
+            let cost = price.cost_usd(&tokens(1_000_000, 0, 0, 1_000_000), false);
+            assert!((cost - expected).abs() < 1e-9, "{id}: {cost}");
+        }
+        // Muse Ember bills a request over 200K input tokens at the long rates in full.
+        let ember = listed_price(Some(PriceList::Meta), "muse-ember-1.0", weekend()).unwrap();
+        let short = ember.cost_usd(&tokens(200_000, 0, 0, 1_000_000), false);
+        let long = ember.cost_usd(&tokens(200_001, 0, 0, 1_000_000), false);
+        assert!((short - (0.02 + 0.5)).abs() < 1e-9);
+        assert!((long - (0.0600003 + 1.5)).abs() < 1e-9);
+        // A cache read is cheaper than input, and a write is billed as input.
+        let wonder = listed_price(Some(PriceList::Meta), "muse-wonder-1.0", weekend()).unwrap();
+        assert!((wonder.cost_usd(&tokens(0, 1_000_000, 0, 0), false) - 0.2).abs() < 1e-9);
+        assert!((wonder.cost_usd(&tokens(0, 0, 1_000_000, 0), false) - 4.0).abs() < 1e-9);
     }
 
     #[test]

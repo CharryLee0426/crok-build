@@ -15,6 +15,7 @@ const GLM_QUOTA_URL: &str = "https://api.z.ai/api/monitor/usage/quota/limit";
 const GLM_CN_QUOTA_URL: &str = "https://open.bigmodel.cn/api/monitor/usage/quota/limit";
 /// One model is enough to learn whether the key is accepted.
 const ANTHROPIC_MODELS_URL: &str = "https://api.anthropic.com/v1/models?limit=1";
+const META_MODELS_URL: &str = "https://api.meta.ai/v1/models";
 /// The API version every Anthropic request names. See https://platform.claude.com/docs/en/api/versioning.
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -40,6 +41,7 @@ pub async fn check_provider_api_key(provider: ModelProvider, key: &str) -> KeyCh
             }
             ANTHROPIC_MODELS_URL
         }
+        ModelProvider::Meta => META_MODELS_URL,
         ModelProvider::OpenRouter | ModelProvider::OpenAiCodex => return KeyCheck::Accepted,
     };
     check_at(provider, key, url).await
@@ -271,6 +273,35 @@ mod tests {
         };
         assert!(why.contains("subscription") && !why.contains("secret"));
         assert!(anthropic_wrong_kind_of_key("sk-ant-api03-anything").is_none());
+    }
+
+    #[tokio::test]
+    async fn meta_key_is_checked_as_a_bearer_and_judged_by_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .and(header("authorization", "Bearer LLM_1607358788850350_good"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": []})))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "error": {"code": "invalid_api_key", "message": "Unauthorized", "type": "authentication_error"}
+            })))
+            .mount(&server)
+            .await;
+        let url = format!("{}/v1/models", server.uri());
+        assert_eq!(
+            check_at(ModelProvider::Meta, "LLM_1607358788850350_good", &url).await,
+            KeyCheck::Accepted
+        );
+        let KeyCheck::Rejected(why) =
+            check_at(ModelProvider::Meta, "LLM_1607358788850350_bad", &url).await
+        else {
+            panic!("a 401 must refuse the key");
+        };
+        assert!(why.contains("Meta") && !why.contains("LLM_1607358788850350_bad"));
     }
 
     #[tokio::test]

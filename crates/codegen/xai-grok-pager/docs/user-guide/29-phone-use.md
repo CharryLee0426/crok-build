@@ -5,7 +5,7 @@ The **`phone`** tool lets Crok see and use your phone:
 - an **iPhone**, through the Mac's **iPhone Mirroring** app (macOS 15 Sequoia or later), and
 - an **Android** phone, over **USB or Wi‑Fi debugging** (adb), on macOS, Linux, or Windows.
 
-The model sees the screen, taps, swipes, types, opens apps, and reads the result. Nothing is installed on the phone. It is Crok's own tool, so it works with every model provider you can sign in to (OpenRouter, OpenAI Codex, the Claude API, DeepSeek, and the GLM Coding Plan). The text on the screen comes back with tap-ready positions, so even a model that cannot read images can use a phone.
+The model sees the screen, taps, swipes, types, opens apps, and reads the result. Nothing is installed on the phone. It is Crok's own tool, so it works with every model provider you can sign in to (OpenRouter, OpenAI Codex, the Claude API, DeepSeek, the Meta Model API, and the GLM Coding Plan). The text on the screen comes back with tap-ready positions, so even a model that cannot read images can use a phone.
 
 Phone use is **on by default**. Crok needs nothing installed or configured for it: when an Android phone is first used and this computer has no `adb`, Crok downloads Google's [Android SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools) once into `$CROK_HOME/phone` (their use is subject to Google's terms). Connecting the phone itself is always yours to do, once, as below.
 

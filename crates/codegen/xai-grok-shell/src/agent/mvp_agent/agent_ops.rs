@@ -23,6 +23,7 @@ pub(super) fn set_xai_baseline_key(config: &mut SamplingConfig, key: String) -> 
             | crate::sampling::ApiBackend::OpenAiCodex
             | crate::sampling::ApiBackend::DeepSeek
             | crate::sampling::ApiBackend::Glm
+            | crate::sampling::ApiBackend::Meta
     );
     let native_host = url::Url::parse(&config.base_url).is_ok_and(|url| {
         matches!(
@@ -31,6 +32,7 @@ pub(super) fn set_xai_baseline_key(config: &mut SamplingConfig, key: String) -> 
                 "openrouter.ai"
                     | "chatgpt.com"
                     | "api.deepseek.com"
+                    | "api.meta.ai"
                     | "api.z.ai"
                     | "open.bigmodel.cn"
                     // Anthropic shares the Messages backend with customer gateways, so only its host tells it apart.

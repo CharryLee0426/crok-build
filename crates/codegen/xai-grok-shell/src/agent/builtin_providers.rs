@@ -9,6 +9,7 @@ use xai_grok_login::provider_auth::{ModelProvider, has_provider_credential};
 use xai_grok_models::anthropic::{self, AnthropicModel};
 use xai_grok_models::deepseek::{self, DeepSeekModel};
 use xai_grok_models::glm;
+use xai_grok_models::meta::{self, MetaModel};
 use xai_grok_models::openrouter::{self, OpenRouterModel};
 use xai_grok_sampling_types::{
     AnthropicOptions, ApiBackend, PromptCacheTtl, ReasoningEffort, ReasoningEffortOption,
@@ -20,15 +21,16 @@ use super::model_providers::ModelProviderConfig;
 pub use xai_grok_models::anthropic::ANTHROPIC_BASE_URL;
 pub use xai_grok_models::deepseek::DEEPSEEK_BASE_URL;
 pub use xai_grok_models::glm::{GLM_BASE_URL, GLM_CN_BASE_URL};
+pub use xai_grok_models::meta::META_BASE_URL;
 pub use xai_grok_models::openrouter::OPENROUTER_BASE_URL;
 pub const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 
 /// Shown wherever a sign-in is needed. xAI account sign-in is not supported, so a provider
 /// sign-in (or a `[model.*]` entry with its own key, or `XAI_API_KEY`) is the only route.
 pub const PROVIDER_SIGN_IN_REQUIRED: &str = "No model provider is signed in. Quit and run \
-`crok login openai-codex`, `crok login openrouter`, `crok login anthropic`, `crok login deepseek` \
-or `crok login glm` (or set OPENROUTER_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY or \
-ZAI_API_KEY), then start Crok again.";
+`crok login openai-codex`, `crok login openrouter`, `crok login anthropic`, `crok login deepseek`, \
+`crok login glm` or `crok login meta` (or set OPENROUTER_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, \
+ZAI_API_KEY or META_API_KEY), then start Crok again.";
 
 /// `5m` or `1h`: how long Anthropic keeps this session's prompt cache between requests.
 /// Set as `CROK_ANTHROPIC_CACHE_TTL`; the binary copies every `CROK_*` variable onto its `GROK_*` name.
@@ -83,6 +85,10 @@ pub fn anthropic_cache_path() -> PathBuf {
     xai_grok_config::grok_home().join("anthropic-models.json")
 }
 
+pub fn meta_cache_path() -> PathBuf {
+    xai_grok_config::grok_home().join("meta-models.json")
+}
+
 pub(crate) fn provider_from_id(id: &str) -> Option<ModelProvider> {
     ModelProvider::from_id(id)
 }
@@ -96,6 +102,7 @@ fn route(provider: ModelProvider) -> (&'static str, ApiBackend) {
         ModelProvider::Glm => (GLM_BASE_URL, ApiBackend::Glm),
         ModelProvider::GlmCn => (GLM_CN_BASE_URL, ApiBackend::Glm),
         ModelProvider::Anthropic => (ANTHROPIC_BASE_URL, ApiBackend::Messages),
+        ModelProvider::Meta => (META_BASE_URL, ApiBackend::Meta),
     }
 }
 
@@ -236,14 +243,37 @@ pub async fn refresh_anthropic_models(cfg: &Config, force: bool) -> anyhow::Resu
     Ok(models.len())
 }
 
+/// Fetch Meta's model list with the signed-in key. Public for `crok login meta` and
+/// `crok models --refresh`; routine starts honor the TTL. Without a key there is nothing to ask with.
+pub async fn refresh_meta_models(cfg: &Config, force: bool) -> anyhow::Result<usize> {
+    if !enabled(cfg, ModelProvider::Meta) && !force {
+        return Ok(0);
+    }
+    let home = xai_grok_config::grok_home();
+    let Some(credential) =
+        xai_grok_login::provider_auth::read_provider_credential(&home, ModelProvider::Meta)?
+    else {
+        return Ok(0);
+    };
+    let models = meta::refresh_models(
+        &xai_grok_http::shared_client(),
+        &meta_cache_path(),
+        credential.access_token(),
+        force,
+    )
+    .await?;
+    Ok(models.len())
+}
+
 pub(crate) async fn warm_catalog(cfg: &Config) {
     if !crate::util::config::resolve_remote_fetch_enabled() {
         return;
     }
-    let (openrouter, deepseek, anthropic) = tokio::join!(
+    let (openrouter, deepseek, anthropic, meta) = tokio::join!(
         refresh_openrouter_models(cfg, false),
         refresh_deepseek_models(cfg, false),
-        refresh_anthropic_models(cfg, false)
+        refresh_anthropic_models(cfg, false),
+        refresh_meta_models(cfg, false)
     );
     if let Err(error) = openrouter {
         tracing::warn!(%error, "OpenRouter model discovery failed; using cached models");
@@ -254,12 +284,16 @@ pub(crate) async fn warm_catalog(cfg: &Config) {
     if let Err(error) = anthropic {
         tracing::warn!(%error, "Anthropic model discovery failed; using cached models");
     }
+    if let Err(error) = meta {
+        tracing::warn!(%error, "Meta model discovery failed; using cached models");
+    }
 }
 
 pub(crate) fn warm_catalog_blocking(cfg: &Config) {
     if !(enabled(cfg, ModelProvider::OpenRouter)
         || enabled(cfg, ModelProvider::DeepSeek)
-        || enabled(cfg, ModelProvider::Anthropic))
+        || enabled(cfg, ModelProvider::Anthropic)
+        || enabled(cfg, ModelProvider::Meta))
         || !crate::util::config::resolve_remote_fetch_enabled()
     {
         return;
@@ -294,6 +328,11 @@ pub(crate) fn deepseek_models() -> Vec<DeepSeekModel> {
 pub(crate) fn anthropic_models() -> Vec<AnthropicModel> {
     anthropic::read_cached_models(&anthropic_cache_path())
         .unwrap_or_else(|_| anthropic::builtin_models())
+}
+
+/// The account's own model list once fetched, and the built-in one until then.
+pub(crate) fn meta_models() -> Vec<MetaModel> {
+    meta::read_cached_models(&meta_cache_path()).unwrap_or_else(|_| meta::builtin_models())
 }
 
 /// Whether tools apply to `model` on `backend`, where the provider's catalog says.
@@ -358,6 +397,10 @@ pub(crate) fn image_support(backend: &ApiBackend, model: &str) -> Option<bool> {
             .find(|entry| entry.id == model)
             .and_then(DeepSeekModel::supports_images),
         ApiBackend::Glm => glm::model(model).map(|entry| entry.supports_images),
+        ApiBackend::Meta => meta_models()
+            .iter()
+            .find(|entry| entry.id == model)
+            .and_then(MetaModel::supports_images),
         ApiBackend::ChatCompletions
         | ApiBackend::Responses
         | ApiBackend::OpenRouter
@@ -557,6 +600,41 @@ fn glm_entry(provider: ModelProvider, model: &glm::GlmModel) -> ModelEntry {
     entry
 }
 
+/// Muse models always reason. `reasoning_effort: "none"` is a 400 on every one,
+/// so the picker offers only the levels the model's list names.
+pub(crate) fn meta_entry(model: &MetaModel) -> ModelEntry {
+    let mut entry = entry(
+        ModelProvider::Meta,
+        &model.catalog_id(),
+        &model.id,
+        &model.name,
+        model.context_window(),
+    );
+    // Reasoning from another family cannot be sent here, nor this one's there: a switch between families compacts first.
+    entry.info.model_family = Some("meta".into());
+    // The output limit is left to the service unless the list states one.
+    entry.info.max_completion_tokens = model
+        .max_output_tokens
+        .filter(|n| *n > 0)
+        .and_then(|n| u32::try_from(n).ok());
+    let listed: Vec<ReasoningEffort> = model
+        .effort
+        .supported_levels
+        .iter()
+        .filter_map(|level| level.parse().ok())
+        .collect();
+    if !listed.is_empty() {
+        let default = model
+            .effort
+            .default_level
+            .as_deref()
+            .and_then(|level| level.parse().ok())
+            .or(listed.first().copied());
+        set_efforts(&mut entry, &listed, default);
+    }
+    entry
+}
+
 pub(crate) fn extend_catalog(cfg: &Config, catalog: &mut IndexMap<String, ModelEntry>) {
     extend_catalog_with_models(cfg, catalog, cached_models);
     hide_xai_hosted_models(catalog);
@@ -642,6 +720,11 @@ fn extend_catalog_with_models(
             catalog.insert(model.catalog_id(), anthropic_entry(&model));
         }
     }
+    if enabled(cfg, ModelProvider::Meta) {
+        for model in meta_models() {
+            catalog.insert(model.catalog_id(), meta_entry(&model));
+        }
+    }
     // Allow explicit provider-prefixed slugs even before discovery catches up.
     for id in cfg
         .default_model_override
@@ -660,6 +743,9 @@ fn extend_catalog_with_models(
                 if provider == ModelProvider::Anthropic {
                     entry.info.auth_scheme = xai_grok_sampler::AuthScheme::XApiKey;
                     entry.info.model_family = Some("anthropic".into());
+                }
+                if provider == ModelProvider::Meta {
+                    entry.info.model_family = Some("meta".into());
                 }
                 entry
             });
@@ -751,6 +837,22 @@ mod tests {
         ]
     }
 
+    /// Provider keys in the developer's shell would sign a provider in and change the default.
+    fn isolate_provider_env() -> Vec<EnvGuard> {
+        [
+            "OPENROUTER_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "ZAI_API_KEY",
+            "ZHIPU_API_KEY",
+            "META_API_KEY",
+            "MODEL_API_KEY",
+        ]
+        .into_iter()
+        .map(EnvGuard::unset)
+        .collect()
+    }
+
     fn provider_only_catalog(cfg: &Config) -> IndexMap<String, ModelEntry> {
         let mut catalog = IndexMap::new();
         let native = xai_grok_models::default_model();
@@ -773,7 +875,7 @@ mod tests {
         let _env = isolate_default_env();
         let home = tempfile::tempdir().unwrap();
         let _home = EnvGuard::set("GROK_HOME", home.path().to_str().unwrap());
-        let _router = EnvGuard::unset("OPENROUTER_API_KEY");
+        let _providers = isolate_provider_env();
         assert!(needs_provider_setup(&config("")));
         {
             let _key = EnvGuard::set("OPENROUTER_API_KEY", "fixture");
@@ -1299,8 +1401,9 @@ mod tests {
 
     #[test]
     fn key_providers_join_the_catalog_on_their_own_routes() {
-        let cfg =
-            config("[model_providers.deepseek]\n[model_providers.glm]\n[model_providers.glm-cn]");
+        let cfg = config(
+            "[model_providers.deepseek]\n[model_providers.glm]\n[model_providers.glm-cn]\n[model_providers.meta]",
+        );
         let mut catalog = IndexMap::new();
         extend_catalog_with_models(&cfg, &mut catalog, Vec::new);
         for (provider, base_url, backend) in [
@@ -1311,6 +1414,7 @@ mod tests {
             ),
             (ModelProvider::Glm, GLM_BASE_URL, ApiBackend::Glm),
             (ModelProvider::GlmCn, GLM_CN_BASE_URL, ApiBackend::Glm),
+            (ModelProvider::Meta, META_BASE_URL, ApiBackend::Meta),
         ] {
             let prefix = format!("{provider}/");
             let models: Vec<_> = catalog
@@ -1335,6 +1439,9 @@ mod tests {
             "glm/glm-5.3-flash",
             "glm-cn/glm-5.3",
             "glm-cn/glm-5.3-flash",
+            "meta/muse-wonder-1.0",
+            "meta/muse-spark-1.3",
+            "meta/muse-ember-1.0",
         ] {
             assert!(catalog.contains_key(id), "{id}");
         }
@@ -1413,6 +1520,38 @@ mod tests {
             ]
         );
         assert_eq!(glm.info.reasoning_effort, Some(ReasoningEffort::Max));
+
+        // Meta's models cannot stop reasoning either; `none` is a 400. The fetched level list is offered.
+        let wonder = meta_entry(
+            meta::builtin_models()
+                .iter()
+                .find(|m| m.id == "muse-wonder-1.0")
+                .unwrap(),
+        );
+        assert_eq!(wonder.info.id.as_deref(), Some("meta/muse-wonder-1.0"));
+        assert_eq!(wonder.info.context_window.get(), 1_048_576);
+        assert_eq!(wonder.info.max_completion_tokens, Some(131_072));
+        assert_eq!(wonder.info.model_family.as_deref(), Some("meta"));
+        assert_eq!(
+            levels(&wonder),
+            [
+                ReasoningEffort::Minimal,
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High,
+                ReasoningEffort::Xhigh,
+                ReasoningEffort::Max
+            ]
+        );
+        assert_eq!(wonder.info.reasoning_effort, Some(ReasoningEffort::Max));
+        // Muse Spark 1.3 reasons at `high` unless told otherwise.
+        let spark = meta_entry(
+            meta::builtin_models()
+                .iter()
+                .find(|m| m.id == "muse-spark-1.3")
+                .unwrap(),
+        );
+        assert_eq!(spark.info.reasoning_effort, Some(ReasoningEffort::High));
     }
 
     #[test]
@@ -1534,6 +1673,11 @@ mod tests {
         // A model no list describes is sent images as they are.
         assert_eq!(image_support(&ApiBackend::Glm, "glm-6"), None);
         assert_eq!(image_support(&ApiBackend::DeepSeek, "not-a-model"), None);
+        // Every current Muse model reads images.
+        assert_eq!(
+            image_support(&ApiBackend::Meta, "muse-spark-1.3"),
+            Some(true)
+        );
         for backend in [
             ApiBackend::ChatCompletions,
             ApiBackend::Responses,

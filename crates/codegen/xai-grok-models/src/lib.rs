@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 pub mod anthropic;
 pub mod deepseek;
 pub mod glm;
+pub mod meta;
 pub mod openrouter;
 pub mod pricing;
 

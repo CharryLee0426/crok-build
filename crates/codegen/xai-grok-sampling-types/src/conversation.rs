@@ -2359,6 +2359,7 @@ mod tests {
             crate::ApiBackend::OpenAiCodex,
             crate::ApiBackend::DeepSeek,
             crate::ApiBackend::Glm,
+            crate::ApiBackend::Meta,
         ] {
             let on_wire = match backend {
                 crate::ApiBackend::Responses | crate::ApiBackend::OpenAiCodex => {
@@ -2376,7 +2377,8 @@ mod tests {
                 }
                 crate::ApiBackend::ChatCompletions
                 | crate::ApiBackend::DeepSeek
-                | crate::ApiBackend::Glm => {
+                | crate::ApiBackend::Glm
+                | crate::ApiBackend::Meta => {
                     let mapped = ChatCompletionRequest::from(request());
                     serde_json::to_value(&mapped)
                         .expect("chat request serializes")

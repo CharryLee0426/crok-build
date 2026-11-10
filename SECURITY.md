@@ -6,7 +6,8 @@ Crok is a personal fork of [xai-org/grok-build](https://github.com/xai-org/grok-
   the official `grok`): report them to the upstream project through its
   HackerOne program, https://hackerone.com/x.
 - **Vulnerabilities in this fork's own changes** (the crok rebrand, the
-  OpenRouter, OpenAI Codex, Anthropic, DeepSeek and GLM Coding Plan providers, the trace
+  OpenRouter, OpenAI Codex, Anthropic, DeepSeek, Meta Model API and GLM Coding
+  Plan providers, the trace
   viewers, or Crok Desktop):
   report them privately to the fork's maintainer through
   [GitHub private vulnerability reporting](https://github.com/CharryLee0426/crok-build/security).

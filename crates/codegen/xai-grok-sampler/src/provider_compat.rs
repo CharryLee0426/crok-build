@@ -710,6 +710,7 @@ pub(crate) fn prepare_anthropic_request(
 pub(crate) enum ChatDialect {
     DeepSeek,
     Glm,
+    Meta,
 }
 
 impl ChatDialect {
@@ -717,6 +718,7 @@ impl ChatDialect {
         match backend {
             ApiBackend::DeepSeek => Some(Self::DeepSeek),
             ApiBackend::Glm => Some(Self::Glm),
+            ApiBackend::Meta => Some(Self::Meta),
             ApiBackend::ChatCompletions
             | ApiBackend::Responses
             | ApiBackend::OpenRouter
@@ -729,6 +731,7 @@ impl ChatDialect {
         match self {
             Self::DeepSeek => "DeepSeek",
             Self::Glm => "GLM",
+            Self::Meta => "Meta",
         }
     }
 
@@ -737,12 +740,17 @@ impl ChatDialect {
         match self {
             Self::DeepSeek => 393_216,
             Self::Glm => 131_072,
+            Self::Meta => 131_072,
         }
     }
 }
 
 /// The least output a forced tool call is given on GLM, whose reasoning cannot be turned off.
 const GLM_FORCED_TOOL_MIN_TOKENS: u64 = 1024;
+
+/// The least output a request to Meta is given: its models always reason, and the
+/// reasoning comes out of the same budget, so a title-sized request would never answer.
+const META_REASONING_MIN_TOKENS: u64 = 4096;
 
 /// Rewrite a serialized Chat Completions request into what `dialect` accepts.
 /// `supports_images` is the model's catalog capability; `Some(false)` replaces every image with a note.
@@ -755,10 +763,12 @@ pub(crate) fn prepare_dialect_request(
         return;
     };
     body.remove("search_parameters");
-    // Both hosts take `json_object` only; a schema is enforced through the StructuredOutput tool instead.
-    let response_format = body.get("response_format").and_then(|f| f.get("type"));
-    if response_format.and_then(Value::as_str) == Some("json_schema") {
-        body.remove("response_format");
+    // DeepSeek and GLM take `json_object` only; a schema is enforced through the StructuredOutput tool instead.
+    if dialect != ChatDialect::Meta {
+        let response_format = body.get("response_format").and_then(|f| f.get("type"));
+        if response_format.and_then(Value::as_str) == Some("json_schema") {
+            body.remove("response_format");
+        }
     }
     if let Some(limit) = body.get("max_tokens").and_then(Value::as_u64)
         && limit > dialect.max_output_tokens()
@@ -850,6 +860,44 @@ pub(crate) fn prepare_dialect_request(
                 body.insert("temperature".into(), json!(temperature.clamp(0.0, 1.0)));
             }
         }
+        ChatDialect::Meta => {
+            // Meta's models always reason and refuse `none`; `minimal` is as little as they take.
+            let effort = effort.as_deref().map(|effort| match effort {
+                "none" | "minimal" => "minimal",
+                other => other,
+            });
+            if forced_tool {
+                // Only `auto` is accepted, so the call is asked for in words.
+                ask_for_forced_tool_in_words(body);
+            }
+            match body.get("tool_choice").and_then(Value::as_str) {
+                Some("auto") => {}
+                Some("none") => {
+                    // With no tools named, the model cannot call one.
+                    body.remove("tools");
+                    body.remove("tool_choice");
+                }
+                _ if tool_choice.is_some() => {
+                    body.insert("tool_choice".into(), json!("auto"));
+                }
+                _ => {}
+            }
+            if let Some(effort) = effort {
+                body.insert("reasoning_effort".into(), json!(effort));
+            }
+            if body
+                .get("max_tokens")
+                .and_then(Value::as_u64)
+                .is_some_and(|limit| limit < META_REASONING_MIN_TOKENS)
+            {
+                body.insert("max_tokens".into(), json!(META_REASONING_MIN_TOKENS));
+                body.entry("reasoning_effort")
+                    .or_insert_with(|| json!("minimal"));
+            }
+            // Unsupported, and a request that sets them can be refused.
+            body.remove("frequency_penalty");
+            body.remove("presence_penalty");
+        }
     }
     let model = body
         .get("model")
@@ -871,6 +919,10 @@ pub(crate) fn prepare_dialect_request(
             }
             if let Some(message) = message.as_object_mut() {
                 message.remove("model_id");
+                if dialect == ChatDialect::Meta {
+                    // Chat Completions carries no reasoning across turns, and the field is not one Meta takes.
+                    message.remove("reasoning_content");
+                }
                 if reasoning_required && role == "assistant" {
                     message
                         .entry("reasoning_content")
@@ -1808,6 +1860,80 @@ mod tests {
         let unary = prepared(ChatDialect::Glm, unary);
         assert!(unary.get("tool_stream").is_none());
         assert!(unary.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn meta_keeps_native_schemas_and_turns_every_effort_it_accepts() {
+        let mut body = tool_loop();
+        set(&mut body, "reasoning_effort", json!("medium"));
+        set(&mut body, "frequency_penalty", json!(0.2));
+        set(
+            &mut body,
+            "response_format",
+            json!({"type": "json_schema", "json_schema": {"name": "out"}}),
+        );
+        let body = prepared(ChatDialect::Meta, body);
+        // Meta enforces a JSON schema itself, so the request keeps it.
+        assert!(body.get("response_format").is_some());
+        assert_eq!(body.get("reasoning_effort"), Some(&json!("medium")));
+        assert!(body.get("frequency_penalty").is_none());
+        assert!(body.get("search_parameters").is_none());
+        // Chat Completions carries no reasoning across turns, and the field is not taken.
+        for message in messages(&body) {
+            assert!(message.get("reasoning_content").is_none());
+            assert!(message.get("model_id").is_none());
+        }
+        // A forced call becomes `auto`, the only choice there is, and is asked for in words.
+        let mut forced = tool_loop();
+        set(&mut forced, "max_tokens", json!(100));
+        set(
+            &mut forced,
+            "tool_choice",
+            json!({"type": "function", "function": {"name": "read"}}),
+        );
+        let forced = prepared(ChatDialect::Meta, forced);
+        assert_eq!(forced.get("tool_choice"), Some(&json!("auto")));
+        // The model always reasons from the same budget, so a title-sized request is given room.
+        assert_eq!(
+            forced.get("max_tokens"),
+            Some(&json!(META_REASONING_MIN_TOKENS))
+        );
+        assert_eq!(forced.get("reasoning_effort"), Some(&json!("minimal")));
+        assert!(
+            messages(&forced)
+                .last()
+                .and_then(|message| message.get("content"))
+                .and_then(Value::as_str)
+                .is_some_and(|text| text.contains("`read`")),
+            "the forced call is asked for in words"
+        );
+
+        // "No tools" can only be said by sending none.
+        let mut none = tool_loop();
+        set(&mut none, "tool_choice", json!("none"));
+        let none = prepared(ChatDialect::Meta, none);
+        for dropped in ["tools", "tool_choice"] {
+            assert!(none.get(dropped).is_none(), "{dropped}");
+        }
+
+        // `none` is a 400 on every Muse reasoning model; `minimal` is as little as they take.
+        for (asked, sent) in [
+            ("none", "minimal"),
+            ("minimal", "minimal"),
+            ("low", "low"),
+            ("max", "max"),
+        ] {
+            let mut body = tool_loop();
+            set(&mut body, "reasoning_effort", json!(asked));
+            let body = prepared(ChatDialect::Meta, body);
+            assert_eq!(body.get("reasoning_effort"), Some(&json!(sent)), "{asked}");
+        }
+        // No effort is sent unasked on a request with room to answer.
+        let mut unary = tool_loop();
+        unary.as_object_mut().unwrap().remove("stream");
+        let unary = prepared(ChatDialect::Meta, unary);
+        assert!(unary.get("reasoning_effort").is_none());
+        assert_eq!(unary.get("max_tokens"), None);
     }
 
     fn with_images() -> Value {

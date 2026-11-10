@@ -21,7 +21,7 @@ Catalog metadata supplies context limits, output limits, and capabilities. User 
 default = "openrouter/anthropic/claude-sonnet-4.6"
 ```
 
-The built-in provider IDs `openrouter`, `openai-codex`, `anthropic`, `deepseek`, `glm` and `glm-cn` also work with custom aliases, including new model slugs:
+The built-in provider IDs `openrouter`, `openai-codex`, `anthropic`, `deepseek`, `meta`, `glm` and `glm-cn` also work with custom aliases, including new model slugs:
 
 ```toml
 [model.my-router-model]
@@ -43,7 +43,7 @@ Implementation references: [OpenRouter OAuth PKCE](https://openrouter.ai/docs/gu
 
 ## Default Models
 
-Crok's models come from the provider you sign in to: `crok login openai-codex` adds the Codex subscription models (`openai-codex/...`), `crok login openrouter` or `OPENROUTER_API_KEY` adds the OpenRouter catalog (`openrouter/...`, including Grok models under `openrouter/x-ai/...`), `crok login deepseek` or `DEEPSEEK_API_KEY` adds your DeepSeek account's models (`deepseek/...`, fetched at sign-in and hourly after; `crok models --refresh` fetches them now), `crok login glm` or `crok login glm-cn` adds the GLM Coding Plan's models (`glm/glm-5.3`, `glm/glm-5.3-flash`, or the same under `glm-cn/`), and `crok login anthropic` or `ANTHROPIC_API_KEY` adds your Claude API account's models (`anthropic/...`, fetched at sign-in and hourly after). A model a provider releases later can be used at once by its prefixed ID, for example `crok --model glm/<new-model>`. Models served through `XAI_API_KEY`, such as `grok-4.5`, are hidden unless that key is set. Set `[models] default` to choose the model new sessions start with.
+Crok's models come from the provider you sign in to: `crok login openai-codex` adds the Codex subscription models (`openai-codex/...`), `crok login openrouter` or `OPENROUTER_API_KEY` adds the OpenRouter catalog (`openrouter/...`, including Grok models under `openrouter/x-ai/...`), `crok login deepseek` or `DEEPSEEK_API_KEY` adds your DeepSeek account's models (`deepseek/...`, fetched at sign-in and hourly after; `crok models --refresh` fetches them now), `crok login glm` or `crok login glm-cn` adds the GLM Coding Plan's models (`glm/glm-5.3`, `glm/glm-5.3-flash`, or the same under `glm-cn/`), `crok login anthropic` or `ANTHROPIC_API_KEY` adds your Claude API account's models (`anthropic/...`, fetched at sign-in and hourly after), and `crok login meta` or `META_API_KEY` adds the Meta Model API's models (`meta/...`, fetched at sign-in and hourly after). A model a provider releases later can be used at once by its prefixed ID, for example `crok --model glm/<new-model>`. Models served through `XAI_API_KEY`, such as `grok-4.5`, are hidden unless that key is set. Set `[models] default` to choose the model new sessions start with.
 
 List all available models:
 
@@ -115,6 +115,7 @@ Set `api_backend` in your `[model.*]` config to choose which protocol the model 
 | `"openai_codex"` | ChatGPT Codex subscription Responses | |
 | `"deepseek"` | DeepSeek Chat Completions: thinking is switched per request and earlier reasoning is sent back through a tool loop | |
 | `"glm"` | Zhipu GLM Chat Completions, as the GLM Coding Plan serves it: reasoning is always on and tool calls are streamed | |
+| `"meta"` | Meta Model API Chat Completions: reasoning is always on, native JSON schemas are kept, and a forced tool call becomes `auto` | |
 
 When you omit `api_backend`, Crok uses the configured provider's backend, or `chat_completions` for a standalone custom model.
 

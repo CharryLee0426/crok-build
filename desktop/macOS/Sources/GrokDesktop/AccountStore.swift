@@ -9,6 +9,7 @@ enum AccountProvider: String, CaseIterable, Identifiable {
     case deepseek
     case glm
     case anthropic
+    case meta
 
     var id: String { rawValue }
     var name: String {
@@ -18,6 +19,7 @@ enum AccountProvider: String, CaseIterable, Identifiable {
         case .deepseek: return "DeepSeek"
         case .glm: return "GLM Coding Plan"
         case .anthropic: return "Anthropic"
+        case .meta: return "Meta Model API"
         }
     }
 
@@ -37,6 +39,9 @@ enum AccountProvider: String, CaseIterable, Identifiable {
         case .anthropic:
             return [AccountKeySource(id: "anthropic", title: "Anthropic", site: "platform.claude.com",
                                      keyPage: "https://platform.claude.com/settings/keys", environmentKeys: ["ANTHROPIC_API_KEY"])]
+        case .meta:
+            return [AccountKeySource(id: "meta", title: "Meta", site: "dev.meta.ai",
+                                     keyPage: "https://dev.meta.ai/platform", environmentKeys: ["META_API_KEY", "MODEL_API_KEY"])]
         }
     }
 
@@ -50,6 +55,7 @@ enum AccountProvider: String, CaseIterable, Identifiable {
         case .glm: return L10n.t("accounts_add_glm_key", "Add the API key from your z.ai or bigmodel.cn subscription")
         // The Claude API, billed per token. A Claude subscription is a different product and has no key.
         case .anthropic: return L10n.t("accounts_add_claude_key", "Add a Claude API key from {site}", ["site": "platform.claude.com"])
+        case .meta: return L10n.t("accounts_add_meta_key", "Add a Meta Model API key from {site}", ["site": "dev.meta.ai"])
         }
     }
 }
@@ -154,7 +160,7 @@ struct AccountStatusReader {
                                         : L10n.t("accounts_signed_in", "Signed in"),
                                      savedAs: provider.rawValue)
             }
-        case .deepseek, .glm, .anthropic:
+        case .deepseek, .glm, .anthropic, .meta:
             return readKeyProvider(provider)
         }
     }

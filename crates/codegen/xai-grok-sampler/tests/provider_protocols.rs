@@ -307,6 +307,48 @@ async fn glm_coding_plan_streams_tool_calls_and_keeps_reasoning() {
 }
 
 #[tokio::test]
+async fn meta_model_api_sends_a_bearer_and_keeps_its_effort() {
+    let chunk = |delta: Value, finish: Value| {
+        json!({"id":"chat-fixture","object":"chat.completion.chunk","created":0,"model":"muse-spark-1.3","choices":[{"index":0,"delta":delta,"finish_reason":finish}]})
+    };
+    let events = vec![
+        chunk(json!({"role":"assistant","content":"Reading "}), Value::Null),
+        chunk(json!({"content":"hello.txt."}), Value::Null),
+        chunk(json!({}), json!("stop")),
+    ];
+    let (base, captured, task) = server("/v1/chat/completions", events).await;
+    let client = SamplingClient::new(SamplerConfig {
+        base_url: format!("{base}/v1"),
+        model: "muse-spark-1.3".into(),
+        api_backend: ApiBackend::Meta,
+        api_key: Some("LLM_1607358788850350_fixture".into()),
+        ..Default::default()
+    })
+    .unwrap();
+    let response = client.conversation_collect(request()).await.unwrap();
+    assert_eq!(
+        response.assistant().unwrap().content.as_ref(),
+        "Reading hello.txt."
+    );
+
+    let requests = captured.lock().unwrap();
+    let (headers, body) = requests.first().unwrap();
+    assert_eq!(
+        headers.get("authorization").unwrap(),
+        "Bearer LLM_1607358788850350_fixture"
+    );
+    assert_eq!(body.get("model"), Some(&json!("muse-spark-1.3")));
+    // The model always reasons; the requested effort is passed as Meta names it.
+    assert_eq!(body.get("reasoning_effort"), Some(&json!("high")));
+    assert!(body.get("tools").is_some(), "tools reach the request");
+    // Chat Completions keeps no reasoning across turns, and the field is not one Meta takes.
+    for message in body.get("messages").unwrap().as_array().unwrap() {
+        assert!(message.get("reasoning_content").is_none());
+    }
+    task.abort();
+}
+
+#[tokio::test]
 async fn a_reply_cut_short_by_the_provider_fails_the_request() {
     let events = vec![
         json!({"id":"1","created":0,"model":"glm-5.3","choices":[{"index":0,"delta":{"content":"Half an ans"}}]}),

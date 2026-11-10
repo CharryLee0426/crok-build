@@ -541,7 +541,8 @@ async fn run_one_attempt(
         ApiBackend::ChatCompletions
         | ApiBackend::OpenRouter
         | ApiBackend::DeepSeek
-        | ApiBackend::Glm => {
+        | ApiBackend::Glm
+        | ApiBackend::Meta => {
             let (raw, metadata) = match client.conversation_stream(request).await {
                 Ok(pair) => pair,
                 Err(e) => {
