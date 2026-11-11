@@ -169,31 +169,67 @@ enum GlassPreference {
         case .sheet: return 1 - 0.5 * clarity
         }
     }
+
+    /// The opacity of a tint drawn over another region's backdrop in the same window, so the desktop
+    /// shows through the two together as much as it would through `opacity` alone: what shows of
+    /// the blur is (1 − beneath) × (1 − result), which this makes 1 − opacity. A region can only
+    /// cover more than the one under it; one that would show more of the desktop stays at the same
+    /// clarity as the one beneath (0).
+    static func overlayOpacity(_ opacity: Double, over beneath: Double) -> Double {
+        guard beneath < 1 else { return 1 }
+        return min(1, max(0, (opacity - beneath) / (1 - beneath)))
+    }
 }
 
 /// A window region's background: the blurred desktop behind the window, tinted with the theme's
 /// colour at the strength the Transparency setting asks for. With Reduce Transparency, or the
 /// setting at Solid, it is the solid colour.
+///
+/// A region drawn over another backdrop of its window (`over:`) adds just its tint, at the strength
+/// that gives the same look, rather than a second blur of the desktop. The window server renders
+/// every blur in a window again whenever anything in the window changes (a blinking caret is
+/// enough), so each one costs GPU time for as long as the window shows. The blur is live only while
+/// the window is active, as the system's sidebars are: an inactive window paints the solid colours,
+/// so behind other apps, or while Mission Control moves it about, it costs no more to draw than a
+/// plain window.
 struct GlassBackdrop: View {
     enum Role { case canvas, sidebar, panel, sheet }
 
     var role: Role
+    /// The backdrop of the same window this one is drawn over, if any.
+    var over: Role?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.appearsActive) private var appearsActive
     @AppStorage(GlassPreference.key) private var level = GlassPreference.defaultLevel
+
+    init(role: Role, over: Role? = nil) {
+        self.role = role
+        self.over = over
+    }
 
     var body: some View {
         let palette = Theme.palette
-        let effectiveLevel = reduceTransparency ? 0 : level
+        let effectiveLevel = reduceTransparency || !appearsActive ? 0 : level
         let opacity = GlassPreference.tintOpacity(for: role, level: effectiveLevel, systemLook: palette.usesSystemMaterials)
-        ZStack {
-            if opacity < 1 { BehindWindowBlur() }
-            (role == .sidebar ? palette.sidebarBackground : palette.canvas).opacity(opacity)
+        let color = role == .sidebar ? palette.sidebarBackground : palette.canvas
+        Group {
+            if let over {
+                let beneath = GlassPreference.tintOpacity(for: over, level: effectiveLevel, systemLook: palette.usesSystemMaterials)
+                color.opacity(GlassPreference.overlayOpacity(opacity, over: beneath))
+            } else {
+                ZStack {
+                    if opacity < 1 { BehindWindowBlur() }
+                    color.opacity(opacity)
+                }
+            }
         }
         .accessibilityHidden(true)
     }
 }
 
-/// The desktop behind the window, blurred. Stays live while the window is inactive.
+/// The desktop behind the window, blurred. `GlassBackdrop` shows it only while the window is
+/// active, so it need not follow the window's state itself; it must not, since in the sidebar
+/// column, inside the system's glass sidebar, AppKit treats it as inactive and draws a flat fill.
 private struct BehindWindowBlur: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
@@ -212,6 +248,8 @@ private struct BehindWindowBlur: NSViewRepresentable {
 /// (see `FullScreenTitlebar`), so this same glass shows there too.
 struct TitleBarGlass: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// An inactive window's glass is solid (see `GlassBackdrop`), so this is too.
+    @Environment(\.appearsActive) private var appearsActive
     @State private var chrome = WindowChrome()
     /// How far below the toolbar the blur fades out.
     static let fade: CGFloat = 18
@@ -226,7 +264,7 @@ struct TitleBarGlass: View {
                 let height = inset + Self.fade
                 let palette = Theme.palette
                 ZStack {
-                    if reduceTransparency {
+                    if reduceTransparency || !appearsActive {
                         palette.canvas
                     } else {
                         WithinWindowBlur()
@@ -396,9 +434,10 @@ extension View {
         background { GlassBackdrop(role: .sheet).ignoresSafeArea() }
     }
 
-    /// A secondary window's background, the same glass as the main window's conversation.
-    func glassWindowBackground() -> some View {
-        background { GlassBackdrop(role: .canvas).ignoresSafeArea() }
+    /// A secondary window's background, the same glass as the main window's conversation, or for
+    /// a window with a sidebar the sidebar's, with the rest of the window tinted over it.
+    func glassWindowBackground(_ role: GlassBackdrop.Role = .canvas) -> some View {
+        background { GlassBackdrop(role: role).ignoresSafeArea() }
     }
 }
 
@@ -437,9 +476,11 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
     }
 }
 
-/// The sidebar's glass, the most transparent part of the window.
+/// The sidebar's glass, the most transparent part of the window: a sidebar column's background in
+/// a window whose own backdrop is the sidebar's (`glassWindowBackground(.sidebar)`), so it adds
+/// no tint and no second blur of the desktop.
 struct SidebarMaterial: View {
-    var body: some View { GlassBackdrop(role: .sidebar) }
+    var body: some View { GlassBackdrop(role: .sidebar, over: .sidebar) }
 }
 
 struct IconButton: View {

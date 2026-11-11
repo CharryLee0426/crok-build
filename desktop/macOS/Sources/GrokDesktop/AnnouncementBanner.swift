@@ -106,6 +106,8 @@ struct AnnouncementBanner: View {
             AnnouncementBannerRow(announcement: announcement,
                                   open: { account.openAnnouncementAction(announcement) },
                                   hide: { account.hideCurrentAnnouncement() })
+                // Over the conversation's column, which tints each of its pieces itself (see `ContentView`).
+                .background { GlassBackdrop(role: .canvas, over: .sidebar).ignoresSafeArea() }
         }
     }
 }

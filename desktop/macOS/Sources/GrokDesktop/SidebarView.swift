@@ -62,7 +62,10 @@ struct SidebarView: View {
                     .padding(.horizontal, 20).padding(.bottom, 12)
                     .help("The bundled Crok runtime is missing. Reinstall Crok Desktop.")
             }
-        }.background { SidebarMaterial().ignoresSafeArea() }
+        }
+        // Its own blur, not a tint over the window's (`SidebarMaterial`): on macOS 26 the column sits
+        // in the system's Liquid Glass sidebar, which would otherwise show through and lighten it.
+        .background { GlassBackdrop(role: .sidebar).ignoresSafeArea() }
     }
 
     // MARK: Sections

@@ -44,12 +44,16 @@ struct ContentView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 264, max: 340)
         } detail: {
+            // The conversation's tint is behind each piece of the column rather than the whole of it,
+            // so the side panel's lies on the window's backdrop beside it, not on top of it (see
+            // `GlassBackdrop`: only the window's bottom backdrop blurs the desktop).
             VStack(spacing: 0) {
                 AnnouncementBanner()
                 if let banner = store.banner { BannerRow(text: banner) }
                 GeometryReader { geometry in
                     HStack(spacing: 0) {
                         ConversationView().frame(maxWidth: .infinity)
+                            .background { GlassBackdrop(role: .canvas, over: .sidebar).ignoresSafeArea() }
                         if store.showInspector {
                             SidePanelView(containerWidth: geometry.size.width)
                                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -59,7 +63,6 @@ struct ContentView: View {
             }
             .overlay { TitleBarGlass() }
             .overlay(alignment: .topTrailing) { DebugOverlay() }
-            .background { GlassBackdrop(role: .canvas).ignoresSafeArea() }
             .navigationTitle(store.conversation?.title ?? L10n.t("new_task_row", "New task"))
             .navigationSubtitle(windowSubtitle)
             .toolbar { workspaceToolbar }
@@ -68,6 +71,7 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         // Behind every column, so no opaque window background shows around the floating sidebar.
+        // The conversation, its banners, and the side panel tint this blur rather than adding their own.
         .background { GlassBackdrop(role: .sidebar).ignoresSafeArea() }
         .foregroundStyle(Theme.ink)
         .onChange(of: store.showSearch) { _, visible in
@@ -136,6 +140,7 @@ struct BannerRow: View {
         .font(.system(size: 13))
         .padding(.horizontal, 24).padding(.vertical, 10)
         .background(Theme.hover.opacity(0.7))
+        .background { GlassBackdrop(role: .canvas, over: .sidebar).ignoresSafeArea() }
         .onHover { hovered = $0 }
         .task(id: Showing(revision: store.bannerRevision, hovered: hovered)) {
             guard !hovered else { return }

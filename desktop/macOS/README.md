@@ -395,7 +395,9 @@ connects, or when the ring is clicked. Settings includes the terminal's themes
 permission mode, conversation display, and dictation. The interface uses system typography and native toolbar
 controls. Every window is glass: the desktop shows through, blurred, most clearly in the sidebar, and controls such as
 the composer use Liquid Glass on macOS 26 (material elsewhere). **Settings › Appearance › Transparency** sets how
-much shows through, from Solid to Clear; the terminal themes tint the glass with their own colours. Reduce
+much shows through, from Solid to Clear; the terminal themes tint the glass with their own colours. As with the
+system's own sidebars, only the active window's glass is live: a window behind other apps is solid, and the welcome
+page's starters stop rolling, so there and in Mission Control it costs about what a plain window does. Reduce
 Transparency in System Settings makes windows solid, and reduced motion is respected. Unsent drafts and their
 attachments are retained while switching between tasks and projects during the app session.
 

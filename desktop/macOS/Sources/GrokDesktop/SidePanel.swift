@@ -84,7 +84,7 @@ struct SidePanelView: View {
         }
         .frame(width: panelWidth)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: layout)
-        .background { GlassBackdrop(role: .panel).ignoresSafeArea() }
+        .background { GlassBackdrop(role: .panel, over: .sidebar).ignoresSafeArea() }
         .overlay(alignment: .leading) {
             ResizeHandle(axis: .horizontal, value: binding, range: Self.minimumWidth...maximum,
                          defaultValue: defaultWidth, growsTowardStart: true,

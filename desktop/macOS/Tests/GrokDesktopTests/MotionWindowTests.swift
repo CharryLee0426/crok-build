@@ -183,7 +183,9 @@ final class MotionWindowTests: XCTestCase {
         let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
         store.state = DesktopState(projects: [project], conversations: [], selectedProjectID: project.id, selectedConversationID: nil)
         self.store = store
-        let host = NSHostingView(rootView: WelcomeView().foregroundStyle(Theme.ink).background(Theme.canvas).desktopEnvironment(store))
+        // The test's window is never key, so it stands in for the active one.
+        let host = NSHostingView(rootView: WelcomeView().foregroundStyle(Theme.ink).background(Theme.canvas)
+            .environment(\.appearsActive, true).desktopEnvironment(store))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 520)
         show(host, size: host.frame.size)
         let first = try picture("motion-welcome-1")
@@ -194,5 +196,22 @@ final class MotionWindowTests: XCTestCase {
         spin(Double(StarterTicker.dwell) / 1_000_000_000)
         let rolled = try picture("motion-welcome-3")
         XCTAssertGreaterThan(change(settled, rolled, in: whole), 0.002, "another starter has rolled in")
+    }
+
+    /// Each frame of a roll draws the whole window again, so in a window that is not the active one
+    /// (behind another app, hidden, on another Space) the starter holds still.
+    func testTheStartersHoldStillInAnInactiveWindow() throws {
+        let project = Project(path: directory.path)
+        let store = AppStore(stateFile: directory.appendingPathComponent("state.json"), binaryPath: "/usr/bin/false")
+        store.state = DesktopState(projects: [project], conversations: [], selectedProjectID: project.id, selectedConversationID: nil)
+        self.store = store
+        let host = NSHostingView(rootView: WelcomeView().foregroundStyle(Theme.ink).background(Theme.canvas)
+            .environment(\.appearsActive, false).desktopEnvironment(store))
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 520)
+        show(host, size: host.frame.size)
+        let first = try picture("motion-welcome-inactive-1")
+        spin(Double(StarterTicker.dwell) / 1_000_000_000 + 1.2)
+        let later = try picture("motion-welcome-inactive-2")
+        XCTAssertLessThan(change(first, later, in: NSRect(origin: .zero, size: window.frame.size)), 0.0005, "nothing rolled")
     }
 }
