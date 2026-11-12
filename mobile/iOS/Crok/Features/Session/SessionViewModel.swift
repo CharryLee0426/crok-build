@@ -774,8 +774,7 @@ final class SessionViewModel {
 
     /// The model the session runs, among its computer's choices.
     var currentModel: ModelChoice? {
-        guard let id = detail.value?.model else { return nil }
-        return models?.first(where: { $0.id == id })
+        ModelChoice.find(detail.value?.model, in: models)
     }
 
     /// The pills above the input row; nil hides the row.
@@ -836,7 +835,7 @@ final class SessionViewModel {
     private func settleConfigChanges(_ detail: SessionDetail) {
         if let change = modelChange, change.done, detail.model == change.value { modelChange = nil }
         if let change = effortChange, change.done {
-            let model = models?.first(where: { $0.id == detail.model })
+            let model = ModelChoice.find(detail.model, in: models)
             let level = model?.efforts.first(where: { $0.id == change.value })?.level ?? change.value
             if detail.effort == level || detail.effort == change.value { effortChange = nil }
         }

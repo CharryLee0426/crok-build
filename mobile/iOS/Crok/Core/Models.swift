@@ -224,7 +224,7 @@ struct SessionDetail: Codable, Hashable, Sendable {
     var unreadCount: Int { max(0, Int(unread.rounded())) }
     var isStarting: Bool { starting ?? false }
     /// The model the session runs, among its computer's choices.
-    var currentModel: ModelChoice? { models?.first(where: { $0.id == model }) }
+    var currentModel: ModelChoice? { ModelChoice.find(model, in: models) }
     var folderName: String { PathText.lastComponent(cwd) }
     var isRunning: Bool { online && status == .running }
     var presence: SessionPresence { SessionPresence(online: online, deviceOnline: deviceOnline, status: status) }
@@ -558,6 +558,24 @@ struct ModelChoice: Codable, Hashable, Sendable, Identifiable {
     func effort(matching effort: String?) -> EffortChoice? {
         guard let effort else { return nil }
         return efforts.first(where: { $0.level == effort }) ?? efforts.first(where: { $0.id == effort })
+    }
+
+    /// A session's model among its computer's choices: by id; else, from an older crok, which names it as the provider
+    /// does, by the id without its provider (`claude-sonnet-5-5` is `anthropic/claude-sonnet-5-5`,
+    /// `deepseek/deepseek-v4.1-flash` is `openrouter/deepseek/deepseek-v4.1-flash`), the first in the computer's
+    /// order; else by name.
+    static func find(_ model: String?, in models: [ModelChoice]?) -> ModelChoice? {
+        guard let models, let model, !model.isEmpty else { return nil }
+        if let exact = models.first(where: { $0.id == model }) { return exact }
+        let lower = model.lowercased()
+        return models.first(where: { $0.providerless?.lowercased() == lower })
+            ?? models.first(where: { $0.name.lowercased() == lower })
+    }
+
+    /// The id after its first `/` (the provider's own id); nil for an id without a provider.
+    private var providerless: String? {
+        guard let slash = id.firstIndex(of: "/"), slash != id.startIndex else { return nil }
+        return String(id[id.index(after: slash)...])
     }
 }
 

@@ -133,7 +133,7 @@ fun SetupRowView(row: SetupRow, onModel: () -> Unit, onThinking: () -> Unit, onT
                 SetupPillView(
                     icon = Icons.Outlined.Psychology,
                     what = stringResource(R.string.info_effort),
-                    label = thinking.label ?: default,
+                    label = thinking.label?.let { if (thinking.canonical) levelName(it) else it } ?: default,
                     pill = thinking,
                     onClick = onThinking,
                     modifier = Modifier
@@ -144,6 +144,19 @@ fun SetupRowView(row: SetupRow, onModel: () -> Unit, onThinking: () -> Unit, onT
             }
         }
     }
+}
+
+/** A session's thinking level as crok names it (`high`, `xhigh`…), in the reader's language; else as it is. */
+@Composable
+fun levelName(level: String): String = when (level.lowercase()) {
+    "none" -> stringResource(R.string.effort_none)
+    "minimal" -> stringResource(R.string.effort_minimal)
+    "low" -> stringResource(R.string.effort_low)
+    "medium" -> stringResource(R.string.effort_medium)
+    "high" -> stringResource(R.string.effort_high)
+    "xhigh" -> stringResource(R.string.effort_xhigh)
+    "max" -> stringResource(R.string.effort_max)
+    else -> level
 }
 
 @Composable

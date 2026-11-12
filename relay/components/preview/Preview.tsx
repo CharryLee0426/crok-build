@@ -210,7 +210,8 @@ function SessionScreenPreview({
   pending,
   cards: initialCards,
   draft,
-  models = FAKE_MODELS,
+  models: listed = FAKE_MODELS,
+  modelsLoading = false,
   config: initialConfig = null,
   modelDialog = false,
   draftAttachments,
@@ -223,18 +224,22 @@ function SessionScreenPreview({
   pending?: PendingPrompt[];
   cards?: BotCard[];
   draft?: string;
+  /** The computer's list; null: an older crok without one. */
   models?: ModelChoice[] | null;
+  /** The list still on its way (`devices:models` has not answered). */
+  modelsLoading?: boolean;
   config?: ConfigChange | null;
   modelDialog?: boolean;
   draftAttachments?: DraftAttachment[];
 }) {
+  const models = modelsLoading ? undefined : listed;
   const router = useRouter();
   const [now] = useState(() => Date.now());
   const [session, setSession] = useState(initialSession);
   /** Prompts "sent" here: their optimistic bubbles stay. */
   const [sent, setSent] = useState<PendingPrompt[]>([]);
   const [config, setConfig] = useState<ConfigChange | null>(initialConfig);
-  const cardSession = { ...session, models };
+  const cardSession = { ...session, models: models ?? null };
   const cards = useBotCards({
     session: cardSession,
     apply: async () => `cmd_fake_${Date.now()}` as CommandId,
@@ -476,6 +481,13 @@ function Screen({
       );
     case "session-no-models":
       return <SessionScreenPreview session={fakeSession(now, { status: "idle" })} models={null} />;
+    case "session-provider-model":
+      // Older crok names the model as its provider does (the list says `anthropic/claude-sonnet-4-5`).
+      return <SessionScreenPreview session={fakeSession(now, { model: "claude-sonnet-4-5", effort: "medium", status: "idle" })} />;
+    case "session-models-loading":
+      return <SessionScreenPreview session={fakeSession(now, { model: "grok-4", effort: "xhigh", status: "idle" })} modelsLoading />;
+    case "session-unknown-model":
+      return <SessionScreenPreview session={fakeSession(now, { model: "grok-3-retired", effort: "high", status: "idle" })} />;
     case "session-offline":
       return (
         <SessionScreenPreview

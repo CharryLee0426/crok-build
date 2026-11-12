@@ -289,11 +289,22 @@ data class ModelChoice(
     val label: String get() = name.ifBlank { id }
 
     companion object {
-        /** A session's [model] among [models]: by id, else by name (ignoring case). */
+        /**
+         * A session's [model] among [models]: by id; else, from an older crok, which names it as the provider does, by
+         * the id without its provider (`claude-sonnet-5-5` is `anthropic/claude-sonnet-5-5`,
+         * `deepseek/deepseek-v4.1-flash` is `openrouter/deepseek/deepseek-v4.1-flash`), the first in the computer's
+         * order; else by name (ignoring case).
+         */
         fun find(models: List<ModelChoice>?, model: String?): ModelChoice? {
             if (models == null || model.isNullOrBlank()) return null
-            return models.firstOrNull { it.id == model } ?: models.firstOrNull { it.name.equals(model, ignoreCase = true) }
+            return models.firstOrNull { it.id == model }
+                ?: models.firstOrNull { it.providerless?.equals(model, ignoreCase = true) == true }
+                ?: models.firstOrNull { it.name.equals(model, ignoreCase = true) }
         }
+
+        /** The id after its first `/` (the provider's own id); null for an id without a provider. */
+        private val ModelChoice.providerless: String?
+            get() = id.indexOf('/').takeIf { it > 0 }?.let { id.substring(it + 1) }
     }
 }
 

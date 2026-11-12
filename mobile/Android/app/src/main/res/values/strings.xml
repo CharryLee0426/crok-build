@@ -311,6 +311,14 @@
     <string name="profile_mode_demo">Demo</string>
     <!-- Model and thinking level (mobile/DESIGN.md): the setup row, Choose a Model, the thinking menu. -->
     <string name="setup_default">Default</string>
+    <!-- A session's thinking level by its canonical value, when its model's list does not name it. -->
+    <string name="effort_none">None</string>
+    <string name="effort_minimal">Minimal</string>
+    <string name="effort_low">Low</string>
+    <string name="effort_medium">Medium</string>
+    <string name="effort_high">High</string>
+    <string name="effort_xhigh">Extra high</string>
+    <string name="effort_max">Max</string>
     <string name="setup_choose_model">Choose a Model</string>
     <string name="setup_search">Search models or providers</string>
     <string name="setup_next_message">Model changes apply to your next message.</string>

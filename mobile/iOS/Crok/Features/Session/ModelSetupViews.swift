@@ -29,6 +29,18 @@ struct ModelSetupBar: View {
                 .accessibilityValue(Text(verbatim: Self.spoken(thinking)))
                 .accessibilityIdentifier("thinkingPill")
                 .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
+            } else if let thinking = row.thinking {
+                // The session's level while its model's levels are unknown here. Dimmed (no list from an older crok),
+                // a tap says why, as the model pill's does.
+                Button(action: onModel) {
+                    SetupPillLabel(pill: thinking, symbol: "brain")
+                }
+                .buttonStyle(.plain)
+                .allowsHitTesting(row.acceptsLevelTaps)
+                .accessibilityLabel(Text("Thinking level"))
+                .accessibilityValue(Text(verbatim: Self.spoken(thinking)))
+                .accessibilityIdentifier("thinkingPill")
+                .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

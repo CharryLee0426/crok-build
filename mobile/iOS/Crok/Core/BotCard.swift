@@ -70,11 +70,11 @@ enum BotChoices: Equatable, Sendable {
         guard let models, !models.isEmpty else {
             return computerOnline ? .notOffered(computerName) : .computerOffline(computerName)
         }
-        let current = models.first(where: { $0.id == detail?.model })
+        let current = ModelChoice.find(detail?.model, in: models)
         switch kind {
         case .model:
             return .choices(
-                models.map { BotChoice(id: $0.id, title: $0.name, detail: $0.description, isCurrent: $0.id == detail?.model) })
+                models.map { BotChoice(id: $0.id, title: $0.name, detail: $0.description, isCurrent: $0.id == current?.id) })
         case .think:
             guard let model = current, !model.efforts.isEmpty else {
                 return .noThinking(model: current?.name ?? detail?.model ?? "")
@@ -89,9 +89,9 @@ enum BotChoices: Equatable, Sendable {
     static func name(of id: String, _ kind: BotCard.Kind, models: [ModelChoice]?, detail: SessionDetail?) -> String {
         switch kind {
         case .model:
-            return models?.first(where: { $0.id == id })?.name ?? id
+            return ModelChoice.find(id, in: models)?.name ?? id
         case .think:
-            let current = models?.first(where: { $0.id == detail?.model })
+            let current = ModelChoice.find(detail?.model, in: models)
             let efforts = current?.efforts ?? models?.flatMap(\.efforts) ?? []
             return efforts.first(where: { $0.id == id || $0.level == id })?.name ?? id
         }

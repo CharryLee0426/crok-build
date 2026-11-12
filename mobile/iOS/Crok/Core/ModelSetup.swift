@@ -101,7 +101,7 @@ enum ModelLabels {
     /// A model's name from the list, else its id.
     static func modelName(_ id: String?, in models: [ModelChoice]?) -> String? {
         guard let id, !id.isEmpty else { return nil }
-        return models?.first(where: { $0.id == id })?.name ?? id
+        return ModelChoice.find(id, in: models)?.name ?? id
     }
 
     /// The name of the level a session runs at (its `effort` is the level), from the model's list when it names it.
@@ -151,28 +151,43 @@ struct ModelSetupRow: Equatable, Sendable {
 
 enum ModelSetup {
     /// An open session's row: hidden while its computer is offline (the composer says so) and while it is starting (it
-    /// already carries its choice). Without a list from an online computer (an older crok there) the model pill shows
-    /// the session's model, dimmed; without that too, no row.
+    /// already carries its choice). Both pills show what the session runs whenever it says: while the list is on its
+    /// way (not tappable yet), without a list from an online computer (an older crok there: dimmed) and for a model
+    /// the list lacks (its level, not tappable). The thinking pill is left out only for a model the list says has no
+    /// levels. Without a model, no row.
     static func session(
         list: ModelList, model: String?, effort: String?, modelChange: ConfigChange? = nil,
         effortChange: ConfigChange? = nil, computerOnline: Bool, starting: Bool
     ) -> ModelSetupRow? {
         guard computerOnline, !starting else { return nil }
         let model = model?.nilIfEmpty
+        /// The session's own level, for a model whose levels are not known here.
+        func ownLevel(dimmed: Bool = false) -> SetupPill? {
+            effort?.nilIfEmpty.map { SetupPill(label: ModelLabels.levelName($0), dimmed: dimmed, enabled: dimmed) }
+        }
         switch list {
         case .loading:
-            return nil
+            guard let model else { return nil }
+            var row = ModelSetupRow(model: SetupPill(label: model, enabled: false), modelId: model)
+            row.thinking = ownLevel()
+            return row
         case .unavailable:
             guard let model else { return nil }
-            return ModelSetupRow(model: SetupPill(label: model, dimmed: true), modelId: model)
+            var row = ModelSetupRow(model: SetupPill(label: model, dimmed: true), modelId: model)
+            row.thinking = ownLevel(dimmed: true)
+            return row
         case .models(let models):
             let shownId = modelChange?.value ?? model
-            let shown = shownId.flatMap { id in models.first(where: { $0.id == id }) }
+            let shown = ModelChoice.find(shownId, in: models)
             let modelPill = SetupPill(
                 label: shown?.name ?? shownId ?? ModelLabels.defaultChoice, isDefault: shownId == nil,
                 busy: modelChange?.isPending ?? false)
-            var row = ModelSetupRow(model: modelPill, modelId: shownId)
-            guard let shown, !shown.efforts.isEmpty else { return row }
+            var row = ModelSetupRow(model: modelPill, modelId: shown?.id ?? shownId)
+            guard let shown else {
+                row.thinking = ownLevel()
+                return row
+            }
+            guard !shown.efforts.isEmpty else { return row }
             let level: EffortChoice?
             if let effortChange {
                 level = shown.efforts.first(where: { $0.id == effortChange.value })

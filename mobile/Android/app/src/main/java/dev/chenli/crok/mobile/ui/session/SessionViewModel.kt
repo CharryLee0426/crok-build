@@ -710,11 +710,11 @@ class SessionViewModel(
         return when (kind) {
             BotCardKind.Model -> {
                 val id = result?.string("model") ?: value
-                models.firstOrNull { it.id == id }?.label ?: id
+                ModelChoice.find(models, id)?.label ?: id
             }
             BotCardKind.Think -> {
                 val modelId = result?.string("model")
-                val model = models.firstOrNull { it.id == modelId } ?: currentModels().current
+                val model = ModelChoice.find(models, modelId) ?: currentModels().current
                 val level = result?.string("effort")
                 val effort = model?.efforts?.firstOrNull { it.id == value }
                     ?: model?.efforts?.firstOrNull { it.level == level }

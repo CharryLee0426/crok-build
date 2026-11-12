@@ -260,7 +260,7 @@ fun SessionInfoContent(
             if (effort != null || setup.onThinking != null) {
                 InfoLine(
                     stringResource(R.string.info_effort),
-                    level?.label ?: effort ?: stringResource(R.string.setup_default),
+                    level?.label ?: effort?.let { levelName(it) } ?: stringResource(R.string.setup_default),
                     onClick = setup.onThinking,
                 )
             }

@@ -78,11 +78,27 @@ export function matchChoice<T extends { id: string; name: string; value?: string
   return { match: null, reason: prefixed.length ? "several" : "none" };
 }
 
-/** The session's model among its computer's choices (the session names it by id; older crok by name). */
+/**
+ * The session's model among its computer's choices: by id; else, from an older crok, which names it as the provider
+ * does, by the id without its provider (`claude-sonnet-5-5` is `anthropic/claude-sonnet-5-5`,
+ * `deepseek/deepseek-v4.1-flash` is `openrouter/deepseek/deepseek-v4.1-flash`), the first in the computer's order;
+ * else by name.
+ */
 export function currentModel(models: readonly ModelChoice[] | null, model: string | null): ModelChoice | null {
   if (!models || !model) return null;
   const lower = model.toLowerCase();
-  return models.find((m) => m.id === model) ?? models.find((m) => m.name.toLowerCase() === lower) ?? null;
+  return (
+    models.find((m) => m.id === model) ??
+    models.find((m) => withoutProvider(m.id)?.toLowerCase() === lower) ??
+    models.find((m) => m.name.toLowerCase() === lower) ??
+    null
+  );
+}
+
+/** A model id after its first `/` (the provider's own id); null for an id without a provider. */
+function withoutProvider(id: string): string | null {
+  const slash = id.indexOf("/");
+  return slash > 0 ? id.slice(slash + 1) : null;
 }
 
 /** The choices a card offers: the computer's models, or the current model's thinking levels; null while unknown. */

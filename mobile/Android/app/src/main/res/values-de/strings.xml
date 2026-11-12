@@ -307,6 +307,14 @@
     <string name="profile_mode">Modus</string>
     <string name="profile_mode_demo">Demo</string>
     <string name="setup_default">Standard</string>
+    <!-- A session's thinking level by its canonical value, when its model's list does not name it. -->
+    <string name="effort_none">Keins</string>
+    <string name="effort_minimal">Minimal</string>
+    <string name="effort_low">Niedrig</string>
+    <string name="effort_medium">Mittel</string>
+    <string name="effort_high">Hoch</string>
+    <string name="effort_xhigh">Sehr hoch</string>
+    <string name="effort_max">Maximal</string>
     <string name="setup_choose_model">Modell auswählen</string>
     <string name="setup_search">Modelle oder Anbieter suchen</string>
     <string name="setup_next_message">Die Modelländerung gilt ab deiner nächsten Nachricht.</string>

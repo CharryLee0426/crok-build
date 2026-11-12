@@ -1,5 +1,6 @@
 package dev.chenli.crok.mobile.logic
 
+import dev.chenli.crok.mobile.data.EffortChoice
 import dev.chenli.crok.mobile.data.ModelChoice
 import dev.chenli.crok.mobile.data.RelayErrorCode
 import dev.chenli.crok.mobile.data.RelayException
@@ -77,9 +78,33 @@ class ModelSetupTest {
         assertNull(ModelSetup.row(false, models, "claude-sonnet-4-5", null, available = true)!!.thinking)
         val unknown = ModelSetup.row(false, models, "grok-5-preview", "high", available = true)!!
         assertEquals("grok-5-preview", unknown.model.label)
-        assertNull(unknown.thinking)
+        // Its levels are unknown: the session's own, by crok's name for it, nothing to pick.
+        assertEquals(SetupPill("high", enabled = false, canonical = true), unknown.thinking)
+        assertNull(ModelSetup.row(false, models, "grok-5-preview", null, available = true)!!.thinking)
         // A level the session does not report: Default.
         assertNull(ModelSetup.row(false, models, "grok-4", null, available = true)!!.thinking!!.label)
+        // A level the model's list does not name: crok's name for it, not Default.
+        assertEquals(SetupPill("max", canonical = true), ModelSetup.row(false, models, "grok-4", "max", available = true)!!.thinking)
+    }
+
+    @Test
+    fun aSessionsModelNamedByItsProviderIsFoundInTheList() {
+        // Older crok names a session's model as its provider does; the list puts the provider in front.
+        val list = listOf(
+            ModelChoice("anthropic/claude-sonnet-5-5", "Claude Sonnet 5.5", efforts = listOf(EffortChoice("high", "High"))),
+            ModelChoice("deepseek/deepseek-flash", "DeepSeek-V4.1-Flash", efforts = listOf(EffortChoice("max", "Max"))),
+            ModelChoice("openrouter/anthropic/claude-sonnet-5-5", "Anthropic: Claude Sonnet 5.5"),
+            ModelChoice("openrouter/~deepseek/deepseek-flash-latest", "DeepSeek Flash Latest"),
+        )
+        assertEquals("anthropic/claude-sonnet-5-5", ModelChoice.find(list, "claude-sonnet-5-5")?.id)
+        assertEquals("anthropic/claude-sonnet-5-5", ModelChoice.find(list, "anthropic/claude-sonnet-5-5")?.id)
+        assertEquals("openrouter/~deepseek/deepseek-flash-latest", ModelChoice.find(list, "~deepseek/deepseek-flash-latest")?.id)
+        assertEquals("anthropic/claude-sonnet-5-5", ModelChoice.find(list, "claude sonnet 5.5")?.id)
+        assertNull(ModelChoice.find(list, "sonnet"))
+
+        val row = ModelSetup.row(false, list, "deepseek-flash", "max", available = true)!!
+        assertEquals(SetupPill("DeepSeek-V4.1-Flash"), row.model)
+        assertEquals(SetupPill("Max"), row.thinking)
     }
 
     @Test
@@ -90,10 +115,14 @@ class ModelSetupTest {
         val older = ModelSetup.row(false, null, "grok-code-fast-1", null, available = true)!!
         assertEquals(SetupPill("grok-code-fast-1", dimmed = true), older.model)
         assertNull(older.thinking)
+        // …and its level, dimmed the same way.
+        val olderLevel = ModelSetup.row(false, null, "grok-code-fast-1", "high", available = true)!!
+        assertEquals(SetupPill("high", dimmed = true, canonical = true), olderLevel.thinking)
         assertNull(ModelSetup.row(false, null, null, null, available = true))
-        // The list is on its way: the model as it is, not tappable yet, not dimmed.
+        // The list is on its way: the model and level as they are, not tappable yet, not dimmed.
         val loading = ModelSetup.row(false, null, "grok-4", "high", available = true, loading = true)!!
         assertEquals(SetupPill("grok-4", enabled = false), loading.model)
+        assertEquals(SetupPill("high", enabled = false, canonical = true), loading.thinking)
     }
 
     @Test
