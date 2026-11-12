@@ -627,6 +627,44 @@ fn model_catalog(agent: &MvpAgent) -> Vec<ModelOption> {
         .collect()
 }
 
+/// Names a session's model the way this computer's model list does (the ids of `bridge:setModels`), so other devices
+/// find it there with its thinking levels. A session keeps its model as the provider calls it (`claude-sonnet-5-5`,
+/// `deepseek-flash`, OpenRouter's `deepseek/deepseek-v4.1-flash`), while the list names it by catalog key
+/// (`anthropic/claude-sonnet-5-5`, `deepseek/deepseek-flash`, `openrouter/deepseek/deepseek-v4.1-flash`).
+struct ModelKeys {
+    models: indexmap::IndexMap<String, crate::agent::config::ModelEntry>,
+    available: indexmap::IndexMap<acp::ModelId, acp::ModelInfo>,
+}
+
+impl ModelKeys {
+    fn of(agent: &MvpAgent) -> Self {
+        Self {
+            models: agent.models_manager.models(),
+            available: agent.models_manager.available(),
+        }
+    }
+
+    /// The list's id for `model`, the way crok resolves a resumed session's model; unchanged when the list lacks it.
+    fn key(&self, model: &str) -> String {
+        crate::agent::remote_config::selectable_catalog_key_for_persisted(
+            &self.models,
+            &self.available,
+            &acp::ModelId::new(model),
+        )
+        .map(|key| key.0.to_string())
+        .unwrap_or_else(|| model.to_string())
+    }
+
+    /// Catalog rows with their models named as the list names them.
+    fn rename(&self, entries: &mut [CatalogEntry]) {
+        for entry in entries {
+            if let Some(model) = entry.model.as_mut() {
+                *model = self.key(model);
+            }
+        }
+    }
+}
+
 /// The most models the relay keeps for a computer (`bridge:setModels`).
 const MAX_PUBLISHED_MODELS: usize = 1_000;
 
@@ -1865,9 +1903,12 @@ impl Bridge {
             }
             Internal::Catalog { upload } => {
                 self.catalog_busy = false;
-                let Some((sync_id, entries)) = upload else {
+                let Some((sync_id, mut entries)) = upload else {
                     return;
                 };
+                if let Some(agent) = self.agent.upgrade() {
+                    ModelKeys::of(&agent).rename(&mut entries);
+                }
                 self.project_of = entries
                     .iter()
                     .map(|e| (e.session_id.clone(), e.project_path.clone()))
@@ -1883,10 +1924,14 @@ impl Bridge {
                 self.await_catalog(sync_id, entries, None, outcome);
             }
             Internal::CatalogListed { entries } => {
-                let (Some(hold), Some(entries)) = (self.catalog.as_ref(), entries) else {
+                let (Some(hold), Some(mut entries)) = (self.catalog.as_ref(), entries) else {
                     self.catalog_busy = false;
                     return;
                 };
+                // Named as when they were sent, so only real changes go out.
+                if let Some(agent) = self.agent.upgrade() {
+                    ModelKeys::of(&agent).rename(&mut entries);
+                }
                 let (changed, removed) = catalog_changes(&hold.sent, &entries);
                 if changed.is_empty() && removed.is_empty() {
                     self.catalog_busy = false;
@@ -2859,7 +2904,17 @@ impl Bridge {
         let now = Instant::now();
         let mut out = Vec::new();
         let mut unregistered = Vec::new();
+        let agent = self.agent.upgrade();
+        let mut keys: Option<ModelKeys> = None;
         for (session_id, mirror) in &mut self.mirrors {
+            // The model by the model list's id (looked up only when it changed), so other devices show its name and
+            // thinking level rather than the provider's id.
+            if let (Some(agent), Some(model)) = (agent.as_deref(), mirror.desired.model.as_deref())
+                && mirror.sent.model.as_deref() != Some(model)
+            {
+                let key = keys.get_or_insert_with(|| ModelKeys::of(agent)).key(model);
+                mirror.desired.model = Some(key);
+            }
             let resend = mirror.resend_at.is_some_and(|at| at <= now);
             if resend {
                 mirror.resend_at = None;
@@ -3105,6 +3160,64 @@ mod tests {
             ]
         );
         assert_eq!(listed.len(), MAX_PUBLISHED_MODELS);
+    }
+
+    #[test]
+    fn sessions_name_their_model_by_the_lists_id_not_the_providers() {
+        // Catalog key → the id the provider takes (what a session file keeps).
+        let catalog = [
+            ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"),
+            ("deepseek/deepseek-flash", "deepseek-flash"),
+            (
+                "openrouter/~deepseek/deepseek-flash-latest",
+                "~deepseek/deepseek-flash-latest",
+            ),
+        ];
+        let keys = ModelKeys {
+            models: catalog
+                .iter()
+                .map(|(key, slug)| {
+                    let entry = crate::agent::config::ModelEntry {
+                        info: crate::agent::config::ModelInfo::fallback(slug),
+                        mtls_cert_dir: None,
+                        api_key: None,
+                        env_key: None,
+                        auth_provider: None,
+                        api_base_url: None,
+                    };
+                    (key.to_string(), entry)
+                })
+                .collect(),
+            available: catalog
+                .iter()
+                .map(|(key, _)| {
+                    let id = acp::ModelId::new(*key);
+                    (id.clone(), acp::ModelInfo::new(id, *key))
+                })
+                .collect(),
+        };
+        assert_eq!(keys.key("claude-sonnet-5-5"), "anthropic/claude-sonnet-5-5");
+        assert_eq!(
+            keys.key("deepseek/deepseek-flash"),
+            "deepseek/deepseek-flash"
+        );
+        assert_eq!(
+            keys.key("~deepseek/deepseek-flash-latest"),
+            "openrouter/~deepseek/deepseek-flash-latest"
+        );
+        // A model this computer no longer offers keeps its name.
+        assert_eq!(keys.key("grok-3"), "grok-3");
+
+        let mut entries = vec![
+            CatalogEntry {
+                model: Some("deepseek-flash".into()),
+                ..catalog_entry("a", "A")
+            },
+            catalog_entry("b", "B"),
+        ];
+        keys.rename(&mut entries);
+        assert_eq!(entries[0].model.as_deref(), Some("deepseek/deepseek-flash"));
+        assert_eq!(entries[1].model, None);
     }
 
     #[test]
