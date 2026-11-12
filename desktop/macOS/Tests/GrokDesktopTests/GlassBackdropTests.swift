@@ -73,8 +73,44 @@ final class GlassBackdropTests: XCTestCase {
         }
     }
 
+    /// Liquid Glass is rendered again whenever anything in its window changes, a blinking caret
+    /// included, so the composer and the other raised controls only look like it.
+    func testRaisedControlsLookLikeLiquidGlassWithoutUsingIt() throws {
+        // Liquid Glass is drawn from signed distance fields (`CASDFLayer`, `SDFPortalLayer`).
+        func glassLayers(_ view: some View) throws -> [String] {
+            let window = NSWindow(contentRect: NSRect(x: 60, y: 60, width: 480, height: 320),
+                                  styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: view.environment(\.appearsActive, true))
+            defer { window.contentView = nil }
+            let content = try XCTUnwrap(window.contentView)
+            content.layoutSubtreeIfNeeded()
+            spin(0.3)
+            let layers = Self.layers(in: content.layer).map { String(describing: type(of: $0)) }
+            return layers.filter { $0.contains("SDF") }
+        }
+
+        let controls = VStack(spacing: 20) {
+            Text("Ask Crok").padding(24).glassSurface(cornerRadius: 24)
+            Text("project").padding(8).glassSurface(in: Capsule(), interactive: true)
+        }.padding(40)
+        XCTAssertEqual(try glassLayers(controls), [])
+
+        // The check sees Liquid Glass where there is some.
+        #if canImport(SwiftUI, _version: 7)
+        if #available(macOS 26.0, *) {
+            XCTAssertNotEqual(try glassLayers(Text("Ask Crok").padding(24).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))), [])
+        }
+        #endif
+    }
+
     private static func views(in view: NSView) -> [NSView] {
         [view] + view.subviews.flatMap(views(in:))
+    }
+
+    private static func layers(in layer: CALayer?) -> [CALayer] {
+        guard let layer else { return [] }
+        return [layer] + (layer.sublayers ?? []).flatMap(layers(in:))
     }
 
     private func spin(_ seconds: Double) {
