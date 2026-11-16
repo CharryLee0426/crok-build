@@ -312,6 +312,7 @@ final class TranscriptAssistantRow: TranscriptRowView {
     private var reply: TranscriptTextBox?
     private var images: TranscriptHostedView?
     private var shownImages: [UUID] = []
+    private var shownRating: Int?
     private let copyButton = TranscriptAssistantRow.actionButton(symbol: "doc.on.doc", label: "Copy Markdown")
     private let upButton = TranscriptAssistantRow.actionButton(symbol: "hand.thumbsup", label: "Good response")
     private let downButton = TranscriptAssistantRow.actionButton(symbol: "hand.thumbsdown", label: "Not so well")
@@ -385,6 +386,12 @@ final class TranscriptAssistantRow: TranscriptRowView {
         let rating = message.rating ?? 0
         upButton.state = rating == 1 ? .on : .off
         downButton.state = rating == -1 ? .on : .off
+        // A selected thumb fills in, so the verdict reads at a glance.
+        if rating != shownRating {
+            shownRating = rating
+            upButton.image = TranscriptParts.symbol(rating == 1 ? "hand.thumbsup.fill" : "hand.thumbsup", size: 13)
+            downButton.image = TranscriptParts.symbol(rating == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown", size: 13)
+        }
         upButton.contentTintColor = rating == 1 ? Theme.palette.accentNS : Theme.palette.mutedNS
         downButton.contentTintColor = rating == -1 ? Theme.palette.accentNS : Theme.palette.mutedNS
         copyButton.contentTintColor = Theme.palette.mutedNS

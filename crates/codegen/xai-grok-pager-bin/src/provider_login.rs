@@ -7,7 +7,7 @@ use xai_grok_pager::app::cli::LoginProvider;
 const MAX_KEY_BYTES: usize = 16_384;
 
 /// The first-run menu, in the order shown.
-const SETUP_CHOICES: [(LoginProvider, &str); 6] = [
+const SETUP_CHOICES: [(LoginProvider, &str); 7] = [
     (
         LoginProvider::OpenAiCodex,
         "OpenAI Codex (ChatGPT subscription)",
@@ -25,6 +25,10 @@ const SETUP_CHOICES: [(LoginProvider, &str); 6] = [
     (
         LoginProvider::Anthropic,
         "Anthropic (Claude API key, billed per token)",
+    ),
+    (
+        LoginProvider::Meta,
+        "Meta Model API (Muse models, API key billed per token)",
     ),
 ];
 
@@ -186,6 +190,24 @@ pub async fn login(provider: LoginProvider, with_api_key: bool) -> Result<()> {
                 "Select a model with `crok --model {provider}/glm-5.3`, `crok --model {provider}/glm-5.3-flash`, or /model."
             );
         }
+        ModelProvider::Meta => {
+            println!("Signed in to the Meta Model API.");
+            let cfg = xai_grok_shell::config::load_agent_config_disk_only()
+                .map_err(anyhow::Error::msg)?;
+            match xai_grok_shell::agent::builtin_providers::refresh_meta_models(&cfg, true).await {
+                Ok(count) => {
+                    println!("Found {count} models. The list refreshes automatically every hour.")
+                }
+                Err(error) => eprintln!(
+                    "Signed in, but the model list could not be fetched: {error}. Run `crok models --refresh` to retry."
+                ),
+            }
+            println!("Run `crok models`, then select with `crok --model meta/<model>` or /model.");
+            println!(
+                "Requests are billed per token to your Meta Model API account. A Muse Code \
+                 subscription covers Meta's `muse` CLI only; additional API keys are pay-as-you-go."
+            );
+        }
     }
     Ok(())
 }
@@ -257,6 +279,11 @@ fn prompt_for_key(provider: ModelProvider) -> Result<String> {
         ModelProvider::Anthropic => eprintln!(
             "Use an API key from the Claude Console (it starts with sk-ant-api). \
              A Claude subscription (Pro or Max) does not sign in here."
+        ),
+        ModelProvider::Meta => eprintln!(
+            "Use an API key from the Meta Model API dashboard (it starts with LLM_). \
+             A Muse Code subscription key is for Meta's `muse` CLI and is billed there, \
+             not for this API."
         ),
         _ => {}
     }

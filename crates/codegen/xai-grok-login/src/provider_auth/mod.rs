@@ -35,16 +35,21 @@ pub enum ModelProvider {
     /// A Claude subscription (Pro, Max) is a different product and does not sign in here.
     #[serde(rename = "anthropic")]
     Anthropic,
+    /// Meta Model API with a Model API key, billed per token.
+    /// Muse Code subscription keys are for Meta's own CLI and do not sign in here.
+    #[serde(rename = "meta")]
+    Meta,
 }
 
 impl ModelProvider {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::OpenAiCodex,
         Self::OpenRouter,
         Self::DeepSeek,
         Self::Glm,
         Self::GlmCn,
         Self::Anthropic,
+        Self::Meta,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -55,6 +60,7 @@ impl ModelProvider {
             Self::Glm => "glm",
             Self::GlmCn => "glm-cn",
             Self::Anthropic => "anthropic",
+            Self::Meta => "meta",
         }
     }
 
@@ -72,6 +78,7 @@ impl ModelProvider {
             Self::Glm => "GLM Coding Plan",
             Self::GlmCn => "GLM Coding Plan (China)",
             Self::Anthropic => "Anthropic",
+            Self::Meta => "Meta Model API",
         }
     }
 
@@ -85,6 +92,8 @@ impl ModelProvider {
             Self::Glm => &["ZAI_API_KEY"],
             Self::GlmCn => &["ZHIPU_API_KEY"],
             Self::Anthropic => &["ANTHROPIC_API_KEY"],
+            // `META_API_KEY` is Muse Code's variable; `MODEL_API_KEY` is the Model API's own.
+            Self::Meta => &["META_API_KEY", "MODEL_API_KEY"],
         }
     }
 
@@ -96,6 +105,7 @@ impl ModelProvider {
             Self::Glm => Some("https://z.ai/manage-apikey/apikey-list"),
             Self::GlmCn => Some("https://bigmodel.cn/coding-plan/personal/overview"),
             Self::Anthropic => Some("https://platform.claude.com/settings/keys"),
+            Self::Meta => Some("https://dev.meta.ai/platform"),
         }
     }
 

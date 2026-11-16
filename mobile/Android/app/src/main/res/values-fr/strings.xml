@@ -314,6 +314,14 @@
     <string name="profile_mode">Mode</string>
     <string name="profile_mode_demo">Démo</string>
     <string name="setup_default">Par défaut</string>
+    <!-- A session's thinking level by its canonical value, when its model's list does not name it. -->
+    <string name="effort_none">Aucun</string>
+    <string name="effort_minimal">Minimal</string>
+    <string name="effort_low">Faible</string>
+    <string name="effort_medium">Moyen</string>
+    <string name="effort_high">Élevé</string>
+    <string name="effort_xhigh">Très élevé</string>
+    <string name="effort_max">Maximum</string>
     <string name="setup_choose_model">Choisir un modèle</string>
     <string name="setup_search">Rechercher des modèles ou des fournisseurs</string>
     <string name="setup_next_message">Le changement de modèle s\'applique à votre prochain message.</string>

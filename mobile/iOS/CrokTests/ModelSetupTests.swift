@@ -82,7 +82,12 @@ final class ModelSetupTests: XCTestCase {
         let unknown = try XCTUnwrap(
             ModelSetup.session(list: list, model: "gone-model", effort: "high", computerOnline: true, starting: false))
         XCTAssertEqual(unknown.model.label, "gone-model", "else the id")
-        XCTAssertNil(unknown.thinking)
+        XCTAssertEqual(unknown.thinking?.label, "High", "its levels unknown: the session's own")
+        XCTAssertEqual(unknown.acceptsLevelTaps, false, "nothing to pick from")
+        XCTAssertNil(
+            try XCTUnwrap(
+                ModelSetup.session(list: list, model: "gone-model", effort: nil, computerOnline: true, starting: false)
+            ).thinking, "no level known at all")
 
         let unnamedLevel = try XCTUnwrap(
             ModelSetup.session(list: list, model: "grok-4", effort: "medium", computerOnline: true, starting: false))
@@ -96,16 +101,52 @@ final class ModelSetupTests: XCTestCase {
 
         XCTAssertNil(ModelSetup.session(list: list, model: "grok-4", effort: nil, computerOnline: false, starting: false), "offline")
         XCTAssertNil(ModelSetup.session(list: list, model: "grok-4", effort: nil, computerOnline: true, starting: true), "starting")
-        XCTAssertNil(ModelSetup.session(list: .loading, model: "grok-4", effort: nil, computerOnline: true, starting: false))
+        // The list on its way: both as the session says, not tappable yet.
+        let loading = try XCTUnwrap(
+            ModelSetup.session(list: .loading, model: "grok-4", effort: "high", computerOnline: true, starting: false))
+        XCTAssertEqual(loading.model.label, "grok-4")
+        XCTAssertEqual(loading.thinking?.label, "High")
+        XCTAssertFalse(loading.acceptsModelTaps || loading.acceptsLevelTaps)
+        XCTAssertFalse(loading.model.dimmed || loading.thinking?.dimmed == true)
+        XCTAssertNil(ModelSetup.session(list: .loading, model: nil, effort: "high", computerOnline: true, starting: false))
 
-        // An older crok there: the session's model, dimmed; no row without a model name either.
+        // An older crok there: the session's model and level, dimmed (a tap explains); no row without a model name.
         let older = try XCTUnwrap(
             ModelSetup.session(list: .unavailable, model: "grok-4", effort: "high", computerOnline: true, starting: false))
         XCTAssertEqual(older.model.label, "grok-4")
         XCTAssertTrue(older.model.dimmed)
-        XCTAssertNil(older.thinking)
+        XCTAssertEqual(older.thinking?.label, "High")
+        XCTAssertEqual(older.thinking?.dimmed, true)
+        XCTAssertTrue(older.acceptsLevelTaps, "to say why")
         XCTAssertNil(ModelSetup.session(list: .unavailable, model: nil, effort: nil, computerOnline: true, starting: false))
         XCTAssertNil(ModelSetup.session(list: .unavailable, model: "", effort: nil, computerOnline: true, starting: false))
+    }
+
+    /// Older crok names a session's model as its provider does; the list names it with the provider in front.
+    func testASessionsModelNamedByItsProviderIsFoundInTheList() throws {
+        let list: [ModelChoice] = [
+            ModelChoice(
+                id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5",
+                efforts: [EffortChoice(id: "high", name: "High"), EffortChoice(id: "max", name: "Max")]),
+            ModelChoice(id: "deepseek/deepseek-flash", name: "DeepSeek-V4.1-Flash", efforts: [EffortChoice(id: "max", name: "Max")]),
+            ModelChoice(id: "openrouter/anthropic/claude-sonnet-5-5", name: "Anthropic: Claude Sonnet 5.5"),
+            ModelChoice(id: "openrouter/~deepseek/deepseek-flash-latest", name: "DeepSeek Flash Latest", efforts: [EffortChoice(id: "max", name: "Max")]),
+        ]
+        XCTAssertEqual(ModelChoice.find("claude-sonnet-5-5", in: list)?.id, "anthropic/claude-sonnet-5-5", "not OpenRouter's")
+        XCTAssertEqual(ModelChoice.find("anthropic/claude-sonnet-5-5", in: list)?.id, "anthropic/claude-sonnet-5-5", "by id first")
+        XCTAssertEqual(ModelChoice.find("~deepseek/deepseek-flash-latest", in: list)?.id, "openrouter/~deepseek/deepseek-flash-latest")
+        XCTAssertEqual(ModelChoice.find("Claude Sonnet 5.5", in: list)?.id, "anthropic/claude-sonnet-5-5", "by name")
+        XCTAssertNil(ModelChoice.find("sonnet", in: list))
+        XCTAssertNil(ModelChoice.find("claude-sonnet-5-5", in: nil))
+
+        let row = try XCTUnwrap(
+            ModelSetup.session(list: .models(list), model: "deepseek-flash", effort: "max", computerOnline: true, starting: false))
+        XCTAssertEqual(row.model.label, "DeepSeek-V4.1-Flash")
+        XCTAssertEqual(row.modelId, "deepseek/deepseek-flash", "the list's id, for the picker's checkmark")
+        XCTAssertEqual(row.thinking?.label, "Max")
+        XCTAssertEqual(row.levelId, "max")
+        XCTAssertTrue(row.acceptsLevelTaps)
+        XCTAssertEqual(ModelLabels.modelName("claude-sonnet-5-5", in: list), "Claude Sonnet 5.5")
     }
 
     func testAChangeOnItsWay() throws {
@@ -300,7 +341,8 @@ final class ModelPickerFlowTests: XCTestCase {
         session.appear()
         await until("the dimmed pill") { session.setupRow?.model.dimmed == true }
         XCTAssertEqual(session.setupRow?.model.label, "grok-code-fast-1")
-        XCTAssertNil(session.setupRow?.thinking)
+        XCTAssertEqual(session.setupRow?.thinking?.label, "High", "its level too, dimmed the same way")
+        XCTAssertEqual(session.setupRow?.thinking?.dimmed, true)
         session.tapModelPill()
         XCTAssertTrue(session.showsNotOffered, "a tap says why")
         XCTAssertFalse(session.showsModelPicker)

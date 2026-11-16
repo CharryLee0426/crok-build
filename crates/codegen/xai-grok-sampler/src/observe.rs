@@ -1121,6 +1121,7 @@ fn backend_label(backend: &ApiBackend) -> &'static str {
         ApiBackend::OpenAiCodex => "openai_codex",
         ApiBackend::DeepSeek => "deepseek",
         ApiBackend::Glm => "glm",
+        ApiBackend::Meta => "meta",
         ApiBackend::Messages => "messages",
     }
 }
@@ -1141,6 +1142,7 @@ fn provider_name(backend: &ApiBackend, base_url: &str) -> String {
         ("x.ai", "xai"),
         ("openrouter.ai", "openrouter"),
         ("deepseek.com", "deepseek"),
+        ("meta.ai", "meta"),
         ("bigmodel.cn", "zai"),
         ("z.ai", "zai"),
     ];
@@ -1156,6 +1158,7 @@ fn provider_name(backend: &ApiBackend, base_url: &str) -> String {
         ApiBackend::OpenAiCodex => "openai".to_owned(),
         ApiBackend::DeepSeek => "deepseek".to_owned(),
         ApiBackend::Glm => "zai".to_owned(),
+        ApiBackend::Meta => "meta".to_owned(),
         ApiBackend::ChatCompletions | ApiBackend::Responses if !host.is_empty() => host,
         ApiBackend::ChatCompletions | ApiBackend::Responses => "unknown".to_owned(),
     }

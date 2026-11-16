@@ -335,7 +335,7 @@ struct SessionInfoView: View {
             .accessibilityIdentifier("infoThinkingRow")
         } else {
             let models = session?.models ?? detail.models
-            let current = models?.first(where: { $0.id == (fresh?.model ?? detail.model) })
+            let current = ModelChoice.find(fresh?.model ?? detail.model, in: models)
             InfoRow("Thinking level", value: ModelLabels.levelName(fresh?.effort ?? detail.effort, model: current))
         }
     }

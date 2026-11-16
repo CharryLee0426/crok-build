@@ -169,6 +169,14 @@ screen is open; it changes only when that computer's list changes. A computer wi
 null for lists over 200. The session's current choice is `sessions:get`'s `model` and `effort` (the level: the effort
 whose `value ?? id` equals it). The bot cards read the same list.
 
+**Finding the session's model in the list** (2026-11-11): by id; else by the id without its provider — crok before
+2026-11-11 names a session's model as its provider does (`claude-sonnet-5-5`, `deepseek-flash`, OpenRouter's
+`deepseek/deepseek-v4.1-flash`) while the list says `anthropic/claude-sonnet-5-5`, `deepseek/deepseek-flash`,
+`openrouter/deepseek/deepseek-v4.1-flash`: the first model whose id after its first `/` equals the session's model
+(ignoring case), in the list's order; else by name (ignoring case). Current crok sends the list's id (relay/DESIGN.md
+§2, "Model and thinking level"). Every place that looks up the session's model uses this (pills, Session info, bot
+cards).
+
 **The setup row.** In the composer bar, above the input row (below the permission card; hidden while the command list
 is open), left-aligned with 8 pt/dp between: two pills, 30 pt/dp high, capsule, the session palette's service
 background at the bar's level (iOS: `glassSurface` on 26, a tinted capsule before; Android: the bar's glass tint)
@@ -188,6 +196,14 @@ with primary text in the footnote / `labelMedium` style. Not accent-filled: the 
   an older crok there), the model pill shows the session's model, dimmed, and a tap says the existing "%@ doesn't
   offer model choices yet. Update crok there." (alert / snackbar). A session without a model name and without a
   list shows no row.
+- **Both pills whenever the session says** (2026-11-11): an open session shows its model and its thinking level
+  together. Where the model's levels are not known — the list still on its way, no list (an older crok there), or
+  a model the list lacks — the thinking pill shows the session's `effort` by its level name (None, Minimal, Low,
+  Medium, High, Extra high, Max; another value as it is): not tappable while the list loads or for a model the
+  list lacks, dimmed with the same tap message as the model pill when there is no list. While the list loads the
+  model pill shows the session's model, not tappable yet. A level the model's list does not name shows by its level
+  name too (not "Default"). The thinking pill is left out only for a model the list says has no levels, or when
+  neither the list nor the session names a level.
 
 **Choose a Model** (tap the model pill, or Session info › Model):
 

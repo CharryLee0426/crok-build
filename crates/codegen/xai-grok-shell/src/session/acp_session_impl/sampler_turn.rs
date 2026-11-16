@@ -454,6 +454,7 @@ impl SessionActor {
                         | xai_grok_sampling_types::ApiBackend::OpenRouter
                         | xai_grok_sampling_types::ApiBackend::DeepSeek
                         | xai_grok_sampling_types::ApiBackend::Glm
+                        | xai_grok_sampling_types::ApiBackend::Meta
                 )
             })
     }

@@ -136,7 +136,9 @@ async fn key_providers_each_keep_their_own_key_and_are_used_as_stored() {
     // An environment key would be read in place of the stored one.
     let _env = xai_grok_shell_base::env::EnvVarGuard::remove("DEEPSEEK_API_KEY")
         .and_remove("ZAI_API_KEY")
-        .and_remove("ZHIPU_API_KEY");
+        .and_remove("ZHIPU_API_KEY")
+        .and_remove("META_API_KEY")
+        .and_remove("MODEL_API_KEY");
     let dir = tempfile::tempdir().unwrap();
     let keys = [
         (ModelProvider::DeepSeek, "sk-deepseek-fixture"),
@@ -197,6 +199,7 @@ async fn sign_in_methods_do_not_cross() {
         ModelProvider::DeepSeek,
         ModelProvider::Glm,
         ModelProvider::GlmCn,
+        ModelProvider::Meta,
     ] {
         let error = login_with_oauth(dir.path(), provider, |_| {
             panic!("no sign-in page exists for {provider}")
@@ -218,7 +221,9 @@ fn each_provider_reads_only_its_own_environment_key() {
     let env = xai_grok_shell_base::env::EnvVarGuard::remove("OPENROUTER_API_KEY")
         .and_remove("DEEPSEEK_API_KEY")
         .and_remove("ZAI_API_KEY")
-        .and_remove("ZHIPU_API_KEY");
+        .and_remove("ZHIPU_API_KEY")
+        .and_remove("META_API_KEY")
+        .and_remove("MODEL_API_KEY");
     for provider in ModelProvider::ALL {
         assert_eq!(provider_api_key_env_var(provider), None);
         assert_eq!(ModelProvider::from_id(provider.as_str()), Some(provider));
@@ -243,6 +248,36 @@ fn each_provider_reads_only_its_own_environment_key() {
     assert_eq!(
         provider_api_key_env_var(ModelProvider::Glm),
         Some("ZAI_API_KEY")
+    );
+}
+
+#[test]
+fn meta_reads_its_own_environment_keys_before_the_generic_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let env =
+        xai_grok_shell_base::env::EnvVarGuard::remove("META_API_KEY").and_remove("MODEL_API_KEY");
+    assert!(!has_provider_credential(dir.path(), ModelProvider::Meta));
+    let env = env.and_set("MODEL_API_KEY", "LLM_1607358788850350_generic");
+    assert_eq!(
+        read_provider_credential(dir.path(), ModelProvider::Meta)
+            .unwrap()
+            .unwrap()
+            .access_token(),
+        "LLM_1607358788850350_generic"
+    );
+    assert!(has_provider_credential(dir.path(), ModelProvider::Meta));
+    // Muse Code's variable wins when both are set, as it is the more specific one.
+    let _env = env.and_set("META_API_KEY", "LLM_1607358788850351_muse");
+    assert_eq!(
+        provider_api_key_env_var(ModelProvider::Meta),
+        Some("META_API_KEY")
+    );
+    assert_eq!(
+        read_provider_credential(dir.path(), ModelProvider::Meta)
+            .unwrap()
+            .unwrap()
+            .access_token(),
+        "LLM_1607358788850351_muse"
     );
 }
 

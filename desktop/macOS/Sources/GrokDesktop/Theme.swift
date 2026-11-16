@@ -169,31 +169,67 @@ enum GlassPreference {
         case .sheet: return 1 - 0.5 * clarity
         }
     }
+
+    /// The opacity of a tint drawn over another region's backdrop in the same window, so the desktop
+    /// shows through the two together as much as it would through `opacity` alone: what shows of
+    /// the blur is (1 − beneath) × (1 − result), which this makes 1 − opacity. A region can only
+    /// cover more than the one under it; one that would show more of the desktop stays at the same
+    /// clarity as the one beneath (0).
+    static func overlayOpacity(_ opacity: Double, over beneath: Double) -> Double {
+        guard beneath < 1 else { return 1 }
+        return min(1, max(0, (opacity - beneath) / (1 - beneath)))
+    }
 }
 
 /// A window region's background: the blurred desktop behind the window, tinted with the theme's
 /// colour at the strength the Transparency setting asks for. With Reduce Transparency, or the
 /// setting at Solid, it is the solid colour.
+///
+/// A region drawn over another backdrop of its window (`over:`) adds just its tint, at the strength
+/// that gives the same look, rather than a second blur of the desktop. The window server renders
+/// every blur in a window again whenever anything in the window changes (a blinking caret is
+/// enough), so each one costs GPU time for as long as the window shows. The blur is live only while
+/// the window is active, as the system's sidebars are: an inactive window paints the solid colours,
+/// so behind other apps, or while Mission Control moves it about, it costs no more to draw than a
+/// plain window.
 struct GlassBackdrop: View {
     enum Role { case canvas, sidebar, panel, sheet }
 
     var role: Role
+    /// The backdrop of the same window this one is drawn over, if any.
+    var over: Role?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.appearsActive) private var appearsActive
     @AppStorage(GlassPreference.key) private var level = GlassPreference.defaultLevel
+
+    init(role: Role, over: Role? = nil) {
+        self.role = role
+        self.over = over
+    }
 
     var body: some View {
         let palette = Theme.palette
-        let effectiveLevel = reduceTransparency ? 0 : level
+        let effectiveLevel = reduceTransparency || !appearsActive ? 0 : level
         let opacity = GlassPreference.tintOpacity(for: role, level: effectiveLevel, systemLook: palette.usesSystemMaterials)
-        ZStack {
-            if opacity < 1 { BehindWindowBlur() }
-            (role == .sidebar ? palette.sidebarBackground : palette.canvas).opacity(opacity)
+        let color = role == .sidebar ? palette.sidebarBackground : palette.canvas
+        Group {
+            if let over {
+                let beneath = GlassPreference.tintOpacity(for: over, level: effectiveLevel, systemLook: palette.usesSystemMaterials)
+                color.opacity(GlassPreference.overlayOpacity(opacity, over: beneath))
+            } else {
+                ZStack {
+                    if opacity < 1 { BehindWindowBlur() }
+                    color.opacity(opacity)
+                }
+            }
         }
         .accessibilityHidden(true)
     }
 }
 
-/// The desktop behind the window, blurred. Stays live while the window is inactive.
+/// The desktop behind the window, blurred. `GlassBackdrop` shows it only while the window is
+/// active, so it need not follow the window's state itself; it must not, since in the sidebar
+/// column, inside the system's glass sidebar, AppKit treats it as inactive and draws a flat fill.
 private struct BehindWindowBlur: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
@@ -212,6 +248,8 @@ private struct BehindWindowBlur: NSViewRepresentable {
 /// (see `FullScreenTitlebar`), so this same glass shows there too.
 struct TitleBarGlass: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// An inactive window's glass is solid (see `GlassBackdrop`), so this is too.
+    @Environment(\.appearsActive) private var appearsActive
     @State private var chrome = WindowChrome()
     /// How far below the toolbar the blur fades out.
     static let fade: CGFloat = 18
@@ -226,7 +264,7 @@ struct TitleBarGlass: View {
                 let height = inset + Self.fade
                 let palette = Theme.palette
                 ZStack {
-                    if reduceTransparency {
+                    if reduceTransparency || !appearsActive {
                         palette.canvas
                     } else {
                         WithinWindowBlur()
@@ -377,7 +415,8 @@ enum FullScreenTitlebar {
 }
 
 extension View {
-    /// Liquid Glass belongs to controls above content, rather than the transcript itself.
+    /// Glass belongs to controls above content, rather than the transcript itself. It looks like
+    /// the system's Liquid Glass but isn't (see `GlassSurface`).
     func glassSurface(cornerRadius: CGFloat = 16, interactive: Bool = false) -> some View {
         modifier(GlassSurface(shape: RoundedRectangle(cornerRadius: cornerRadius), interactive: interactive))
     }
@@ -396,15 +435,23 @@ extension View {
         background { GlassBackdrop(role: .sheet).ignoresSafeArea() }
     }
 
-    /// A secondary window's background, the same glass as the main window's conversation.
-    func glassWindowBackground() -> some View {
-        background { GlassBackdrop(role: .canvas).ignoresSafeArea() }
+    /// A secondary window's background, the same glass as the main window's conversation, or for
+    /// a window with a sidebar the sidebar's, with the rest of the window tinted over it.
+    func glassWindowBackground(_ role: GlassBackdrop.Role = .canvas) -> some View {
+        background { GlassBackdrop(role: role).ignoresSafeArea() }
     }
 }
 
+/// Drawn to look like the system's Liquid Glass (`glassEffect`), from a frosted material and fixed
+/// strokes. The window server renders Liquid Glass again whenever anything in its window changes,
+/// a blinking caret included: on an M1 the composer's glass alone kept 8 to 15 points of GPU time
+/// busy while the window sat idle in front, and made Mission Control heavier. A material costs
+/// about what a solid fill does.
 private struct GlassSurface<S: InsettableShape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.appearsActive) private var appearsActive
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var hovered = false
     var shape: S
     var interactive: Bool
 
@@ -414,32 +461,126 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
             content.background(Theme.surface, in: shape)
                 .overlay(shape.strokeBorder(Theme.line, lineWidth: 1))
         } else {
-            // SwiftUI 7 is the macOS 26 SDK; a Swift 6.2 compiler can still build against an older SDK without glass.
-            #if canImport(SwiftUI, _version: 7)
-            if #available(macOS 26.0, *) {
-                // The system tints its glass; a terminal palette's glass takes the palette's surface colour.
-                let tint: Color? = Theme.palette.usesSystemMaterials ? nil : Theme.surface.opacity(0.55)
-                content.glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
-                    // Glass in an inactive window loses its lit edge and blends into the window, so it takes the solid surface's edge.
-                    .overlay { if !appearsActive { shape.strokeBorder(Theme.line, lineWidth: 1) } }
-            } else {
-                materialSurface(content)
+            let surface = content.background {
+                FrostedGlass(shape: shape, look: FrostedGlass.Look(dark: colorScheme == .dark, system: Theme.palette.usesSystemMaterials),
+                             active: appearsActive, hovered: hovered)
             }
-            #else
-            materialSurface(content)
-            #endif
+            // An inactive window's glass loses its lit edge and blends into the window, so it takes the solid surface's edge.
+            .overlay { if !appearsActive { shape.strokeBorder(Theme.line, lineWidth: 1) } }
+            if interactive { surface.onHover { hovered = $0 } } else { surface }
         }
-    }
-
-    private func materialSurface(_ content: Content) -> some View {
-        content.background(Theme.palette.usesSystemMaterials ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(Theme.surface.opacity(0.85)), in: shape)
-            .overlay(shape.strokeBorder(Theme.line.opacity(0.6), lineWidth: 0.5))
     }
 }
 
-/// The sidebar's glass, the most transparent part of the window.
+/// The layers of `GlassSurface`. The numbers are Liquid Glass's on macOS 26 and 27, measured in
+/// pictures of the composer over the window's own glass: a fill brighter than the window, a rim lit
+/// along the top and bottom edges with a glow fading in from them, a dark hairline just outside
+/// the edge that is darkest down the sides, and a soft shadow, deeper underneath.
+private struct FrostedGlass<S: InsettableShape>: View {
+    struct Look {
+        var dark: Bool
+        /// White over the material; a terminal palette's surface colour is laid over it first.
+        var fill: Double
+        /// The hairline's black at the top and bottom, and down the sides.
+        var hairline: Double, hairlineSides: Double
+        /// The rim's white in its outer half point, and how much of that its inner half point has.
+        var rim: Double, rimInner: Double
+        var glow: Double
+        var shadow: Double
+        /// In an inactive window: white (dark) or black (light) over the window's colour.
+        var inactiveFill: Double
+        var inactiveHairline: Double, inactiveHairlineSides: Double
+
+        init(dark: Bool, system: Bool) {
+            self.dark = dark
+            if dark {
+                fill = system ? 0.12 : 0.04
+                hairline = 0.03; hairlineSides = 0.65
+                rim = 0.27; rimInner = 0.55; glow = 0.02; shadow = 0.2
+                inactiveFill = system ? 0.088 : 0.15
+                inactiveHairline = 0.36; inactiveHairlineSides = 0.54
+            } else {
+                // A palette's glass in light mode is white, with no edge to speak of.
+                fill = system ? 0.55 : 0.9
+                hairline = system ? 0.1 : 0.02; hairlineSides = system ? 0.31 : 0.02
+                rim = 1; rimInner = 0.9; glow = 0.2; shadow = 0.13
+                inactiveFill = system ? 0.064 : 0.1
+                inactiveHairline = 0.18; inactiveHairlineSides = 0.27
+            }
+        }
+    }
+
+    var shape: S
+    var look: Look
+    var active: Bool
+    var hovered: Bool
+
+    /// Room around the shape for the shadow and the hairline outside it.
+    private static var margin: CGFloat { 48 }
+
+    var body: some View {
+        ZStack {
+            if active { shape.fill(.ultraThinMaterial) }
+            // Everything else is drawn in one layer: each stroke a view of its own was a layer
+            // of its own, a dozen per surface for the window server to put together on every
+            // frame, which was measurable in Mission Control.
+            Canvas { context, size in
+                draw(in: &context, rect: CGRect(origin: .zero, size: size).insetBy(dx: Self.margin, dy: Self.margin))
+            }
+            .padding(-Self.margin)
+            .allowsHitTesting(false)
+        }
+        // Clicks and drops land on the surface, as they did on Liquid Glass, and not around it.
+        .contentShape(shape)
+    }
+
+    private func draw(in context: inout GraphicsContext, rect: CGRect) {
+        let outline = shape.path(in: rect)
+        /// `strokeBorder(_:lineWidth:)` of the shape inset by `inset`: white at `edge` along the
+        /// top and bottom fading to `sides` down the left and right, or black.
+        func border(inset: CGFloat, width: CGFloat, edge: Double, sides: Double = 0, black: Bool = false) {
+            guard edge > 0 || sides > 0 else { return }
+            let tone = black ? Color.black : Color.white
+            let gradient = Gradient(stops: [.init(color: tone.opacity(edge), location: 0), .init(color: tone.opacity(sides), location: 0.22),
+                                            .init(color: tone.opacity(sides), location: 0.78), .init(color: tone.opacity(edge), location: 1)])
+            context.stroke(shape.inset(by: inset + width / 2).path(in: rect),
+                           with: .linearGradient(gradient, startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)),
+                           lineWidth: width)
+        }
+
+        if active {
+            // A shadow outside the shape only, so the translucent surface doesn't show it through.
+            var shadow = context
+            shadow.addFilter(.shadow(color: .black.opacity(look.shadow), radius: 14, y: 5, options: .shadowOnly))
+            shadow.fill(outline, with: .color(.black))
+            var clear = context
+            clear.blendMode = .clear
+            clear.fill(outline, with: .color(.black))
+
+            if !Theme.palette.usesSystemMaterials { context.fill(outline, with: .color(Theme.surface.opacity(0.55))) }
+            context.fill(outline, with: .color(.white.opacity(look.fill)))
+            if hovered { context.fill(outline, with: .color(Theme.hover)) }
+            border(inset: 1, width: 1.5, edge: look.glow)
+            border(inset: 1, width: 3, edge: look.glow * 0.6)
+            border(inset: 1, width: 5, edge: look.glow * 0.3)
+            border(inset: 0, width: 0.5, edge: look.rim)
+            border(inset: 0.5, width: 0.5, edge: look.rim * look.rimInner)
+            border(inset: -0.5, width: 0.5, edge: look.hairline, sides: look.hairlineSides, black: true)
+        } else {
+            // The window behind is solid now, and so is its glass.
+            context.fill(outline, with: .color(Theme.canvas))
+            context.fill(outline, with: .color(look.dark ? .white.opacity(look.inactiveFill) : .black.opacity(look.inactiveFill)))
+            if hovered { context.fill(outline, with: .color(Theme.hover)) }
+            border(inset: -0.5, width: 0.5, edge: look.inactiveHairline, sides: look.inactiveHairlineSides, black: true)
+        }
+    }
+}
+
+/// The sidebar's glass, the most transparent part of the window: a sidebar column's background in
+/// a window whose own backdrop is the sidebar's (`glassWindowBackground(.sidebar)`), so it adds
+/// no tint and no second blur of the desktop.
 struct SidebarMaterial: View {
-    var body: some View { GlassBackdrop(role: .sidebar) }
+    var body: some View { GlassBackdrop(role: .sidebar, over: .sidebar) }
 }
 
 struct IconButton: View {

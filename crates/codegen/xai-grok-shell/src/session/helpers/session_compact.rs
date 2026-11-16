@@ -477,7 +477,8 @@ pub(crate) async fn generate_session_compact(
         ApiBackend::ChatCompletions
         | ApiBackend::OpenRouter
         | ApiBackend::DeepSeek
-        | ApiBackend::Glm => {
+        | ApiBackend::Glm
+        | ApiBackend::Meta => {
             // Fold `Reasoning` siblings into the following assistant via `conversation_to_chat_messages`.
             let chat_messages: Vec<ChatRequestMessage> =
                 conversation_to_chat_messages(chat_history);

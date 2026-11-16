@@ -140,13 +140,17 @@ function useSessionSetup(model: SessionModel) {
         ? (efforts.find((e) => (e.value ?? e.id) === session.effort)?.id ?? shown?.defaultEffort ?? null)
         : currentValue({ ...session, models: listed }, "reasoning_effort");
   const effort = efforts.find((e) => e.id === effortId) ?? null;
+  // A model found in the list says which levels it has (none: no pill). Until it is found (the list still on its way,
+  // an older crok without one, a model the computer no longer offers) the session's own level shows.
   const effortText = efforts.length
     ? effort
       ? levelName(t, effort)
       : session.effort && config?.kind !== "model"
         ? levelName(t, { id: session.effort })
         : t("setup_default")
-    : null;
+    : !shown && session.effort
+      ? levelName(t, { id: session.effort })
+      : null;
   /** The computer offers choices: the dialog and the menu open. */
   const offers = Array.isArray(models) && models.length > 0 && session.deviceOnline && !session.starting;
   // No model reported yet but a list to pick from: the pill still offers one.
@@ -229,10 +233,13 @@ export function SessionView({
   const pickEffort = (id: string | null) => {
     if (id && id !== setup.effortId) actions.setConfig("reasoning_effort", id);
   };
+  const explainNoList = () => {
+    if (model.models === null && session.deviceOnline) toast.show(t("card_unavailable", { computer: session.deviceName }));
+  };
   const openModels = () => {
     if (busy) return;
     if (setup.offers) setModelDialog(true);
-    else if (model.models === null && session.deviceOnline) toast.show(t("card_unavailable", { computer: session.deviceName }));
+    else explainNoList();
   };
 
   let setupRow: SetupRowProps | null = null;
@@ -242,8 +249,12 @@ export function SessionView({
       modelBusy: model.config?.kind === "model",
       modelDimmed: model.models === null,
       onModel: openModels,
-      effort: setup.offers ? setup.effortText : null,
+      effort: setup.effortText,
       effortBusy: model.config?.kind === "reasoning_effort",
+      // The menu only with the model's levels; without them the pill just says the session's level.
+      effortMenu: setup.offers && setup.efforts.length > 0,
+      effortDimmed: model.models === null,
+      onEffortUnavailable: explainNoList,
       effortItems: busy ? [] : effortMenuItems(t, setup.efforts, setup.effortId, pickEffort, false),
     };
   }

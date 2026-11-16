@@ -222,8 +222,12 @@ Clients read a computer's list from `devices:models({deviceId})`, a subscription
 list (null while the computer is offline or before its crok published one). `sessions:get` still embeds it as `models`
 for clients from before, but only a list of at most 200 (`embeddedModels`): that query re-runs with every transcript
 item, and a long list would go with each. Clients fall back to that copy only when `devices:models` fails (an older
-relay). The session's current `model` and `effort` stay on `sessions:get`. A model with an empty `efforts` has no
-thinking level. An effort's `id` is what `commands:setConfig` takes; its `value` is
+relay). The session's current `model` and `effort` stay on `sessions:get`. The session's `model` is named as the
+list names it: crok maps a session's model to its catalog key before it sends it (`bridge:upsertSession`,
+`bridge:catalogBatch` and `catalogUpdate`; the way it resolves a resumed session's model), since sessions keep the
+model as the provider calls it (`claude-sonnet-5-5` for `anthropic/claude-sonnet-5-5`). Crok before 2026-11-11 sent
+the provider's name, which clients find by the list id without its provider (mobile/DESIGN.md "Model and thinking
+level"). A model with an empty `efforts` has no thinking level. An effort's `id` is what `commands:setConfig` takes; its `value` is
 the level it stands for (`low`, `high`, …), which is what the session's `effort` holds: the current choice is the one
 whose `value ?? id` equals `effort`. `defaultEffort` is an `id`.
 

@@ -2499,7 +2499,8 @@ impl SamplingClient {
             ApiBackend::ChatCompletions
             | ApiBackend::OpenRouter
             | ApiBackend::DeepSeek
-            | ApiBackend::Glm => {
+            | ApiBackend::Glm
+            | ApiBackend::Meta => {
                 let (raw, meta) = match self.conversation_stream(request).await {
                     Ok(pair) => pair,
                     Err(e) => {
@@ -2893,7 +2894,8 @@ mod tests {
                 ApiBackend::ChatCompletions
                 | ApiBackend::OpenRouter
                 | ApiBackend::DeepSeek
-                | ApiBackend::Glm,
+                | ApiBackend::Glm
+                | ApiBackend::Meta,
             ) => ("application/json", EMPTY_CHAT_COMPLETION_JSON),
             (false, ApiBackend::Messages) => ("application/json", EMPTY_MESSAGE_JSON),
         };
@@ -2940,14 +2942,16 @@ mod tests {
                 ApiBackend::ChatCompletions
                 | ApiBackend::OpenRouter
                 | ApiBackend::DeepSeek
-                | ApiBackend::Glm,
+                | ApiBackend::Glm
+                | ApiBackend::Meta,
             ) => client.conversation(request).await.map(drop),
             (
                 true,
                 ApiBackend::ChatCompletions
                 | ApiBackend::OpenRouter
                 | ApiBackend::DeepSeek
-                | ApiBackend::Glm,
+                | ApiBackend::Glm
+                | ApiBackend::Meta,
             ) => client.conversation_stream(request).await.map(drop),
             (false, ApiBackend::Responses | ApiBackend::OpenAiCodex) => {
                 client.conversation_responses(request).await.map(drop)

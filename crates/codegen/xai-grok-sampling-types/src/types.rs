@@ -1168,6 +1168,8 @@ pub enum ApiBackend {
     DeepSeek,
     /// Zhipu GLM's Chat Completions dialect, as served to GLM Coding Plan subscribers.
     Glm,
+    /// Meta Model API's Chat Completions dialect.
+    Meta,
     /// Use the Anthropic Messages API (/v1/messages)
     Messages,
 }
@@ -1177,7 +1179,7 @@ impl ApiBackend {
     pub fn is_chat_completions_wire(&self) -> bool {
         matches!(
             self,
-            Self::ChatCompletions | Self::OpenRouter | Self::DeepSeek | Self::Glm
+            Self::ChatCompletions | Self::OpenRouter | Self::DeepSeek | Self::Glm | Self::Meta
         )
     }
 
@@ -1187,7 +1189,11 @@ impl ApiBackend {
     pub fn supports_native_schema(&self) -> bool {
         matches!(
             self,
-            Self::ChatCompletions | Self::Responses | Self::OpenRouter | Self::OpenAiCodex
+            Self::ChatCompletions
+                | Self::Responses
+                | Self::OpenRouter
+                | Self::OpenAiCodex
+                | Self::Meta
         )
     }
 
@@ -1208,7 +1214,8 @@ impl ApiBackend {
             | Self::OpenRouter
             | Self::OpenAiCodex
             | Self::DeepSeek
-            | Self::Glm => NonZeroU64::new(50 * 1024 * 1024).unwrap(),
+            | Self::Glm
+            | Self::Meta => NonZeroU64::new(50 * 1024 * 1024).unwrap(),
             Self::Messages => NonZeroU64::new(30_000_000).unwrap(),
         }
     }

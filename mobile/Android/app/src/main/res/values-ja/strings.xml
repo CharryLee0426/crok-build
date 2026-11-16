@@ -300,6 +300,14 @@
     <string name="profile_mode">モード</string>
     <string name="profile_mode_demo">デモ</string>
     <string name="setup_default">デフォルト</string>
+    <!-- A session's thinking level by its canonical value, when its model's list does not name it. -->
+    <string name="effort_none">なし</string>
+    <string name="effort_minimal">最小</string>
+    <string name="effort_low">低</string>
+    <string name="effort_medium">中</string>
+    <string name="effort_high">高</string>
+    <string name="effort_xhigh">超高</string>
+    <string name="effort_max">最大</string>
     <string name="setup_choose_model">モデルを選択</string>
     <string name="setup_search">モデルやプロバイダを検索</string>
     <string name="setup_next_message">モデルの変更は次のメッセージから適用されます。</string>

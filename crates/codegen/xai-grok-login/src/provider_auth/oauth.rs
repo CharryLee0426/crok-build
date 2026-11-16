@@ -46,7 +46,8 @@ impl AuthorizationFlow {
             ModelProvider::DeepSeek
             | ModelProvider::Glm
             | ModelProvider::GlmCn
-            | ModelProvider::Anthropic => {
+            | ModelProvider::Anthropic
+            | ModelProvider::Meta => {
                 bail!(no_browser_sign_in(provider))
             }
         })?;
@@ -73,7 +74,8 @@ impl AuthorizationFlow {
             ModelProvider::DeepSeek
             | ModelProvider::Glm
             | ModelProvider::GlmCn
-            | ModelProvider::Anthropic => {
+            | ModelProvider::Anthropic
+            | ModelProvider::Meta => {
                 bail!(no_browser_sign_in(provider))
             }
         }
@@ -197,7 +199,8 @@ async fn login_flow(
         ModelProvider::DeepSeek
         | ModelProvider::Glm
         | ModelProvider::GlmCn
-        | ModelProvider::Anthropic => {
+        | ModelProvider::Anthropic
+        | ModelProvider::Meta => {
             bail!(no_browser_sign_in(provider))
         }
     };

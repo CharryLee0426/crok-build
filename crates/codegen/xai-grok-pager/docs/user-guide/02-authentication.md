@@ -1,6 +1,6 @@
 # Authentication
 
-Crok signs in to model providers: OpenAI Codex (ChatGPT subscription), OpenRouter, the Claude API, DeepSeek, and the GLM Coding Plan. xAI accounts are not supported in this build.
+Crok signs in to model providers: OpenAI Codex (ChatGPT subscription), OpenRouter, the Claude API, DeepSeek, the Meta Model API, and the GLM Coding Plan. xAI accounts are not supported in this build.
 
 ## OpenRouter and OpenAI Codex
 
@@ -99,6 +99,28 @@ curl "https://api.anthropic.com/v1/organizations/usage_report/messages?starting_
 
 Remaining credit is then the balance the Billing page showed on a given day, less the cost reported since. Credit grants and their expiry are not in the report.
 
+## Meta Model API
+
+The [Meta Model API](https://dev.meta.ai/docs/quickstart) signs in with an API key from the Model API dashboard. There is no browser sign-in.
+
+```bash
+crok login meta
+crok models
+crok --model meta/muse-wonder-1.0
+```
+
+`crok login meta` (`crok login meta-code` and `crok login muse` are the same command) asks for the key in the terminal without showing it, and checks it with Meta before saving it. Keys start with `LLM_`. Alternatively, set `META_API_KEY` (the variable Meta's own `muse` CLI reads) or `MODEL_API_KEY` (the variable the Model API docs use), or save a key from stdin:
+
+```bash
+printenv META_API_KEY | crok login meta --with-api-key
+```
+
+A Muse Code subscription covers Meta's `muse` CLI only. Keys you create for the Model API are billed pay-as-you-go to your Meta account, and that is what this sign-in uses.
+
+Signing in fetches your account's model list, which then refreshes every hour. The built-in list is Muse Wonder (`muse-wonder-1.0`), Muse Spark 1.3, 1.2 and 1.1 (`muse-spark-1.3`, `muse-spark-1.2`, `muse-spark-1.1`), their Contributor-mode variants (`muse-spark-1.3-contributor`, `muse-spark-1.2-contributor`), and Muse Ember (`muse-ember-1.0`). A model Meta releases later can be used at once by its prefixed ID, for example `crok --model meta/<new-model>`.
+
+The Muse models always reason. `/effort` offers `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, with the model's own default preselected: `max` on Muse Wonder and Muse Ember, `high` on Muse Spark. `none` is not offered because Meta refuses it. The models read text, images, PDFs, audio and video; the output is text.
+
 ## DeepSeek
 
 DeepSeek signs in with an API key from [platform.deepseek.com](https://platform.deepseek.com/api_keys). There is no browser sign-in.
@@ -156,18 +178,19 @@ crok logout openrouter
 crok logout openai-codex
 crok logout anthropic
 crok logout deepseek
+crok logout meta
 crok logout glm        # or glm-cn
 ```
 
-A key in the environment (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY`, `ZHIPU_API_KEY`) takes precedence over the saved one, and `crok logout` does not remove it; unset it as well if you want to stop using it. Plain `crok logout` signs out of every provider. See [custom models](11-custom-models.md#openrouter-model-discovery) for catalog refresh and provider configuration.
+A key in the environment (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `META_API_KEY`, `MODEL_API_KEY`, `ZAI_API_KEY`, `ZHIPU_API_KEY`) takes precedence over the saved one, and `crok logout` does not remove it; unset it as well if you want to stop using it. Plain `crok logout` signs out of every provider. See [custom models](11-custom-models.md#openrouter-model-discovery) for catalog refresh and provider configuration.
 
 ## First launch
 
-On the first interactive launch without a provider credential or an explicit model choice, Crok asks which provider to sign in to: OpenAI Codex, OpenRouter, DeepSeek, a GLM Coding Plan from z.ai or bigmodel.cn, or the Claude API. If you skip it, or start the TUI with no usable credential, the welcome screen tells you to quit and run `crok login` with a provider.
+On the first interactive launch without a provider credential or an explicit model choice, Crok asks which provider to sign in to: OpenAI Codex, OpenRouter, DeepSeek, a GLM Coding Plan from z.ai or bigmodel.cn, the Claude API, or the Meta Model API. If you skip it, or start the TUI with no usable credential, the welcome screen tells you to quit and run `crok login` with a provider.
 
 ## Headless and CI
 
-Set the provider's key in the environment (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY`, or `ZHIPU_API_KEY`), or pipe a key to `crok login <provider> --with-api-key` once. Codex sign-in needs a browser, so run `crok login openai-codex` on a machine with one and copy `~/.crok/provider-auth/` if needed.
+Set the provider's key in the environment (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `META_API_KEY`, `ZAI_API_KEY`, or `ZHIPU_API_KEY`), or pipe a key to `crok login <provider> --with-api-key` once. Codex sign-in needs a browser, so run `crok login openai-codex` on a machine with one and copy `~/.crok/provider-auth/` if needed.
 
 ## Custom models
 

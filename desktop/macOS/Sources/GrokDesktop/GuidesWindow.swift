@@ -34,9 +34,10 @@ struct DocsWindow: View {
             sidebar.frame(width: 290)
             Divider()
             detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background { GlassBackdrop(role: .canvas, over: .sidebar).ignoresSafeArea() }
         }
         .frame(minWidth: 780, minHeight: 520)
-        .glassWindowBackground()
+        .glassWindowBackground(.sidebar)
         .foregroundStyle(Theme.ink)
         .environment(\.openURL, OpenURLAction(handler: followLink))
         .task(id: reloadToken) { await load() }

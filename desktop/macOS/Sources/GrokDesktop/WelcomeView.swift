@@ -192,12 +192,17 @@ struct WelcomeStarter: Identifiable, Equatable {
 
 /// One starter at a time, each rolling up out of sight as the next rises in its place. Pointing at
 /// it holds it still; a click puts its prompt in the composer. With Reduce Motion they cross-fade.
+///
+/// It rolls only while its window is the active one. A roll lays the whole window out again on
+/// every frame for most of a second, and has the window server draw it again, glass included, so
+/// in a window behind other apps, closed to the Dock, or on another Space the starter holds still.
 struct StarterTicker: View {
     let starters: [WelcomeStarter]
     let fontSize: CGFloat
     let enabled: Bool
     var choose: (WelcomeStarter) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.appearsActive) private var appearsActive
     @State private var index = 0
     @State private var hovered = false
 
@@ -222,7 +227,7 @@ struct StarterTicker: View {
                            startPoint: .top, endPoint: .bottom)
         }
         .onHover { hovered = $0 }
-        .task(id: starters.count) { await roll() }
+        .task(id: Rolling(count: starters.count, active: appearsActive)) { if appearsActive { await roll() } }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Suggestion: \(starter.title)")
         .accessibilityHint(enabled ? "Puts this prompt in the composer" : "Open a project first")
@@ -264,6 +269,11 @@ struct StarterTicker: View {
         let travel = height * 0.55
         return .asymmetric(insertion: .offset(y: travel).combined(with: .opacity),
                            removal: .offset(y: -travel).combined(with: .opacity))
+    }
+
+    private struct Rolling: Equatable {
+        var count: Int
+        var active: Bool
     }
 
     private func roll() async {

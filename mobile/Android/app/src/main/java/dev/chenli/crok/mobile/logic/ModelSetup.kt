@@ -16,13 +16,15 @@ data class SetupChange(val model: String? = null, val effort: String? = null) {
 
 /**
  * One pill of the setup row. [label] null says "Default". [busy]: a change is on its way (a spinner in place of the
- * chevron). [enabled]: taps open the picker. [dimmed]: the computer offers no list (a tap says so).
+ * chevron). [enabled]: taps open the picker. [dimmed]: the computer offers no list (a tap says so). [canonical]: the
+ * label is a session's level as crok names it (`high`), shown by its name in the reader's language.
  */
 data class SetupPill(
     val label: String?,
     val busy: Boolean = false,
     val enabled: Boolean = true,
     val dimmed: Boolean = false,
+    val canonical: Boolean = false,
 )
 
 /** The setup row above the composer's field: the model pill, and the thinking pill when the model has levels. */
@@ -66,11 +68,13 @@ object ModelSetup {
      * The setup row for a session (or, with [newSession], the new-session screen), or null when it has none:
      * - hidden when the composer cannot send ([available] false: the computer is offline, or the session is gone) and
      *   while the session is [starting] (it already carries its choice);
-     * - without a list ([models] null: an older crok there) the session's model, dimmed; nothing when there is no model
-     *   name either — and nothing on the new-session screen;
-     * - while the list is [loading] (none yet, nothing to fall back on) the session's model, not tappable yet;
+     * - without a list ([models] null: an older crok there) the session's model and level, dimmed; nothing when there
+     *   is no model name either — and nothing on the new-session screen;
+     * - while the list is [loading] (none yet, nothing to fall back on) the session's model and level, not tappable yet;
      * - on the new-session screen "Default" until [picked]; the thinking pill only once a model with levels is picked;
-     * - in a session the current model and level, or the ones [changing] to (busy) until the computer applied them.
+     * - in a session the current model and level, or the ones [changing] to (busy) until the computer applied them; for
+     *   a model the list lacks its level all the same (not tappable). Only a model the list says has no levels has no
+     *   thinking pill.
      */
     fun row(
         newSession: Boolean,
@@ -91,9 +95,13 @@ object ModelSetup {
             return SetupRow(SetupPill(chosen?.label), thinking)
         }
         if (starting) return null
+        val ownEffort = effort?.takeIf { it.isNotBlank() }
+        /** The session's own level, for a model whose levels are not known here. */
+        fun ownLevel(enabled: Boolean, dimmed: Boolean) =
+            ownEffort?.let { SetupPill(it, enabled = enabled, dimmed = dimmed, canonical = true) }
         if (models == null) {
             val name = model?.takeIf { it.isNotBlank() } ?: return null
-            return SetupRow(SetupPill(name, enabled = !loading, dimmed = !loading))
+            return SetupRow(SetupPill(name, enabled = !loading, dimmed = !loading), ownLevel(enabled = !loading, dimmed = !loading))
         }
         val current = ModelChoice.find(models, model)
         val target = changing.model?.let { id -> models.firstOrNull { it.id == id } } ?: current
@@ -103,9 +111,13 @@ object ModelSetup {
             else -> model?.takeIf { it.isNotBlank() }
         }
         val modelPill = SetupPill(modelLabel, busy = changing.model != null, enabled = !changing.any)
-        val thinking = target?.takeIf { it.efforts.isNotEmpty() }?.let { shown ->
+        if (target == null) return SetupRow(modelPill, ownLevel(enabled = false, dimmed = false))
+        val thinking = target.takeIf { it.efforts.isNotEmpty() }?.let { shown ->
             val level = effort(shown, changing.effort) ?: ComposerCommands.currentEffort(shown, effort)
-            SetupPill(level?.label, busy = changing.effort != null, enabled = !changing.any)
+            // A level the model's list does not name: crok's own name for it (not on a model change, which may not
+            // keep it).
+            val named = ownEffort?.takeIf { level == null && changing.model == null }
+            SetupPill(level?.label ?: named, busy = changing.effort != null, enabled = !changing.any, canonical = named != null)
         }
         return SetupRow(modelPill, thinking)
     }

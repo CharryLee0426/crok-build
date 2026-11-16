@@ -20,6 +20,9 @@ pub enum LoginProvider {
     /// The Claude API, with an API key from the Claude Console
     #[value(name = "anthropic", alias = "claude", alias = "claude-api")]
     Anthropic,
+    /// Meta Model API, with a Model API key
+    #[value(name = "meta", alias = "meta-code", alias = "muse")]
+    Meta,
 }
 
 impl LoginProvider {
@@ -31,6 +34,7 @@ impl LoginProvider {
             Self::Glm => xai_grok_login::provider_auth::ModelProvider::Glm,
             Self::GlmCn => xai_grok_login::provider_auth::ModelProvider::GlmCn,
             Self::Anthropic => xai_grok_login::provider_auth::ModelProvider::Anthropic,
+            Self::Meta => xai_grok_login::provider_auth::ModelProvider::Meta,
         }
     }
 }
@@ -55,7 +59,7 @@ pub enum Command {
         #[arg(value_enum)]
         provider: Option<LoginProvider>,
     },
-    /// Sign in to a model provider: a ChatGPT Codex subscription, OpenRouter, DeepSeek, a GLM Coding Plan, or the Claude API
+    /// Sign in to a model provider: a ChatGPT Codex subscription, OpenRouter, DeepSeek, a GLM Coding Plan, the Claude API, or the Meta Model API
     Login {
         /// Provider to sign in to.
         #[arg(value_enum)]
@@ -72,7 +76,7 @@ pub enum Command {
     Memory(crate::memory_cmd::MemoryArgs),
     /// List available models and exit
     Models {
-        /// Fetch the newest OpenRouter and DeepSeek model lists immediately, bypassing their cache TTL.
+        /// Fetch the newest OpenRouter, DeepSeek, Anthropic and Meta model lists immediately, bypassing their cache TTL.
         #[arg(long)]
         refresh: bool,
     },
@@ -1510,6 +1514,9 @@ mod tests {
             ("anthropic", LoginProvider::Anthropic),
             ("claude", LoginProvider::Anthropic),
             ("claude-api", LoginProvider::Anthropic),
+            ("meta", LoginProvider::Meta),
+            ("meta-code", LoginProvider::Meta),
+            ("muse", LoginProvider::Meta),
         ] {
             let args = PagerArgs::try_parse_from(["grok", "login", name]).unwrap();
             assert!(

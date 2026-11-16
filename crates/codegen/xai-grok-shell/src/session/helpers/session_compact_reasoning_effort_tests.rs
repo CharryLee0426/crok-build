@@ -89,7 +89,8 @@ async fn compaction_request_body(
         ApiBackend::ChatCompletions
         | ApiBackend::OpenRouter
         | ApiBackend::DeepSeek
-        | ApiBackend::Glm => ("/v1/chat/completions", chat_completions_stream),
+        | ApiBackend::Glm
+        | ApiBackend::Meta => ("/v1/chat/completions", chat_completions_stream),
         ApiBackend::Responses | ApiBackend::OpenAiCodex => ("/v1/responses", responses_stream),
         ApiBackend::Messages => ("/v1/messages", messages_stream),
     };

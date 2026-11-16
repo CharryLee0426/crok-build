@@ -62,7 +62,10 @@ struct SidebarView: View {
                     .padding(.horizontal, 20).padding(.bottom, 12)
                     .help("The bundled Crok runtime is missing. Reinstall Crok Desktop.")
             }
-        }.background { SidebarMaterial().ignoresSafeArea() }
+        }
+        // Its own blur, not a tint over the window's (`SidebarMaterial`): on macOS 26 the column sits
+        // in the system's Liquid Glass sidebar, which would otherwise show through and lighten it.
+        .background { GlassBackdrop(role: .sidebar).ignoresSafeArea() }
     }
 
     // MARK: Sections
@@ -559,8 +562,14 @@ private struct RemoteComputerRow: View {
                 }
                 .foregroundStyle(Theme.muted).frame(width: 18)
                 Text(computer.name).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
-                Circle().fill(computer.online ? Theme.accent : Theme.muted.opacity(0.5)).frame(width: 6, height: 6)
-                    .help(computer.online ? L10n.t("remote_computer_online", "online") : L10n.t("remote_computer_offline", "offline"))
+                ZStack {
+                    if computer.online {
+                        Circle().fill(Theme.green.opacity(0.22)).frame(width: 15, height: 15)
+                    }
+                    Circle().fill(computer.online ? Theme.green : Theme.muted.opacity(0.5)).frame(width: 10, height: 10)
+                }
+                .frame(width: 16, height: 16)
+                .help(computer.online ? L10n.t("remote_computer_online", "online") : L10n.t("remote_computer_offline", "offline"))
                 Spacer(minLength: 4)
                 if !hovered && !isExpanded && runningCount > 0 { ProgressView().controlSize(.mini) }
             }

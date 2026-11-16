@@ -230,7 +230,7 @@ fun SessionScreen(
             } else {
                 null
             },
-            onThinking = if (setup?.thinking?.let { it.enabled && !it.busy } == true) {
+            onThinking = if (setup?.thinking?.let { it.enabled && !it.busy && !it.dimmed } == true) {
                 {
                     showInfo = false
                     pickers.openThinkingMenu()
@@ -389,7 +389,14 @@ private fun SessionLayout(
                             pickers.openModelSheet()
                         }
                     },
-                    onThinking = pickers::openThinkingMenu,
+                    onThinking = {
+                        if (state.setup?.thinking?.dimmed == true) {
+                            // The session's level from an older crok: no levels to choose from either.
+                            scope.launch { snackbar.showSnackbar(resources.getString(R.string.bot_no_models, state.deviceName)) }
+                        } else {
+                            pickers.openThinkingMenu()
+                        }
+                    },
                     onThinkingPlaced = { pickers.thinkingLeft = it },
                 ),
                 actions = actions.copy(

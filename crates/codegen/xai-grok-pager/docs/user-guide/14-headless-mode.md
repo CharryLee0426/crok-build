@@ -551,6 +551,7 @@ Key environment variables that affect headless mode:
 | `CROK_ANTHROPIC_CACHE_TTL`      | `5m` or `1h` (default): how long Anthropic keeps the prompt cache between requests. `5m` is cheaper when requests follow each other without a pause |
 | `CROK_ANTHROPIC_CACHE_DIAGNOSTICS` | `off` stops requests from asking Anthropic where they differ from the one before (see [Cache diagnostics](02-authentication.md#cache-diagnostics)) |
 | `DEEPSEEK_API_KEY`              | DeepSeek API key                                              |
+| `META_API_KEY`                  | Meta Model API key (`meta/...` models); `MODEL_API_KEY` works too |
 | `ZAI_API_KEY`                   | GLM Coding Plan key from z.ai (`glm/...` models)              |
 | `ZHIPU_API_KEY`                 | GLM Coding Plan key from bigmodel.cn (`glm-cn/...` models)    |
 | `XAI_API_KEY`                   | Plain xAI API key for models served by xAI's own API (optional) |

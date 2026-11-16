@@ -5,7 +5,7 @@ Two optional tools let Crok work outside the terminal:
 - **`browser`** works in your own web browser, signed in to your accounts, or in one of Crok's own: it opens pages, reads them, clicks, types, fills in forms, and manages tabs.
 - **`computer`** sees your screen and uses the mouse and keyboard, in any app (macOS only).
 
-Both are off until you turn them on. They are Crok's own tools, so they work with every model provider you can sign in to (OpenRouter, OpenAI Codex, the Claude API, DeepSeek, and the GLM Coding Plan), not only with Anthropic's API. Their actions follow Anthropic's browser and computer toolsets (`browser_toolset_20260801` and `computer_toolset_20260801`), so a model that knows those finds the same names, inputs, and replies.
+Both are off until you turn them on. They are Crok's own tools, so they work with every model provider you can sign in to (OpenRouter, OpenAI Codex, the Claude API, DeepSeek, the Meta Model API, and the GLM Coding Plan), not only with Anthropic's API. Their actions follow Anthropic's browser and computer toolsets (`browser_toolset_20260801` and `computer_toolset_20260801`), so a model that knows those finds the same names, inputs, and replies.
 
 ---
 

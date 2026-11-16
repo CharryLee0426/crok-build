@@ -76,15 +76,31 @@ export type SetupRowProps = {
   /** The computer offers no list (an older crok): dimmed, and a tap explains. */
   modelDimmed?: boolean;
   onModel: () => void;
-  /** The thinking pill's text; null: the model has no levels. */
+  /** The thinking pill's text; null: the model has no levels (or none is known). */
   effort: string | null;
   effortBusy?: boolean;
+  /** The pill opens the thinking menu (the model's levels are known); otherwise it only says the session's level. */
+  effortMenu?: boolean;
+  /** The computer offers no list (an older crok): dimmed, and a tap explains. */
+  effortDimmed?: boolean;
+  onEffortUnavailable?: () => void;
   /** The thinking menu's items. */
   effortItems: MenuItem[];
 };
 
 /** Two pills above the input row, left-aligned. */
-export function SetupRow({ model, modelBusy, modelDimmed, onModel, effort, effortBusy, effortItems }: SetupRowProps) {
+export function SetupRow({
+  model,
+  modelBusy,
+  modelDimmed,
+  onModel,
+  effort,
+  effortBusy,
+  effortMenu = true,
+  effortDimmed,
+  onEffortUnavailable,
+  effortItems,
+}: SetupRowProps) {
   const { t } = useI18n();
   const menu = useMenu();
   const effortRef = useRef<HTMLButtonElement>(null);
@@ -99,8 +115,13 @@ export function SetupRow({ model, modelBusy, modelDimmed, onModel, effort, effor
           label={effort}
           title={t("info_effort")}
           busy={effortBusy}
-          expanded={menu.open}
-          onClick={(el) => (menu.open ? menu.close() : menu.fromElement(el))}
+          dimmed={effortDimmed}
+          expanded={effortMenu ? menu.open : undefined}
+          onClick={(el) => {
+            if (!effortMenu) onEffortUnavailable?.();
+            else if (menu.open) menu.close();
+            else menu.fromElement(el);
+          }}
         />
       ) : null}
       {menu.anchor ? (

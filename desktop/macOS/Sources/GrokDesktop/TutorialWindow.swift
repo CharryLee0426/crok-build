@@ -60,9 +60,10 @@ struct TutorialWindow: View {
                 else { welcome }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { GlassBackdrop(role: .canvas, over: .sidebar).ignoresSafeArea() }
         }
         .frame(minWidth: 720, minHeight: 540)
-        .glassWindowBackground()
+        .glassWindowBackground(.sidebar)
         .foregroundStyle(Theme.ink)
         .focusable()
         .focused($focused)

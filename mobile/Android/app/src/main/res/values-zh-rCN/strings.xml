@@ -300,6 +300,14 @@
     <string name="profile_mode">模式</string>
     <string name="profile_mode_demo">演示</string>
     <string name="setup_default">默认</string>
+    <!-- A session's thinking level by its canonical value, when its model's list does not name it. -->
+    <string name="effort_none">无</string>
+    <string name="effort_minimal">最少</string>
+    <string name="effort_low">低</string>
+    <string name="effort_medium">中</string>
+    <string name="effort_high">高</string>
+    <string name="effort_xhigh">超高</string>
+    <string name="effort_max">最高</string>
     <string name="setup_choose_model">选择模型</string>
     <string name="setup_search">搜索模型或提供商</string>
     <string name="setup_next_message">模型更改将从你的下一条消息开始生效。</string>
